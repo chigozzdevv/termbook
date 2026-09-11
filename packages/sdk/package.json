@@ -1,0 +1,20 @@
+{
+  "name": "@termbook/sdk",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --out-dir dist",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@termbook/bindings": "workspace:^",
+    "@termbook/schema": "workspace:^",
+    "viem": "^2.56.3"
+  }
+}

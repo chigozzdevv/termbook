@@ -1,0 +1,62 @@
+import { describe, expect, it } from "vitest";
+import { requiredDraw, fundingNeed, checkCapacity } from "../src/credit/draw.js";
+import { unconsumed, reportShortfall } from "../src/settlement/receipt.js";
+import { slippageBound } from "../src/app/app.js";
+import { operationId, checkQuoteForOperation } from "../src/settlement/operation.js";
+
+describe("draw", () => {
+  it("computes required draw", () => {
+    expect(requiredDraw(700n, 200n)).toBe(500n);
+    expect(requiredDraw(700n, 800n)).toBe(0n);
+  });
+
+  it("funds 705 need on 700 limit", () => {
+    const { need, draw } = fundingNeed(700n, 5n, 0n);
+    expect(need).toBe(705n);
+    expect(draw).toBe(705n);
+    expect(() => checkCapacity(draw, 700n, 0n, true, 0n)).toThrow();
+  });
+
+  it("rejects negative", () => {
+    expect(() => requiredDraw(-1n, 0n)).toThrow();
+  });
+});
+
+describe("receipt", () => {
+  it("computes unconsumed", () => {
+    expect(unconsumed({ received: 1000n, applied: 900n, refunded: 0n })).toBe(100n);
+  });
+
+  it("rejects double spend", () => {
+    expect(() => unconsumed({ received: 100n, applied: 90n, refunded: 20n })).toThrow();
+  });
+
+  it("reports shortfall", () => {
+    expect(reportShortfall(1000n, 900n)).toEqual({ shortfall: 100n, partial: true });
+    expect(reportShortfall(900n, 900n).partial).toBe(false);
+  });
+});
+
+describe("slippage", () => {
+  it("bounds max and min", () => {
+    expect(slippageBound(1000n, 50, true)).toBe(1005n);
+    expect(slippageBound(1000n, 50, false)).toBe(995n);
+  });
+
+  it("rejects over 10000", () => {
+    expect(() => slippageBound(1000n, 10001, true)).toThrow();
+  });
+});
+
+describe("operation", () => {
+  it("derives stable id", () => {
+    const a = operationId("repay", "0x0000000000000000000000000000000000000001", 1n, 1);
+    const b = operationId("repay", "0x0000000000000000000000000000000000000001", 1n, 1);
+    expect(a).toBe(b);
+  });
+
+  it("rejects short quote", () => {
+    expect(() => checkQuoteForOperation(1000n, 900n, 2000n, 1000n)).toThrow();
+    expect(() => checkQuoteForOperation(900n, 900n, 1000n, 1100n)).toThrow();
+  });
+});

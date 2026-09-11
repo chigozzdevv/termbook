@@ -1,0 +1,17 @@
+import mongoose from "mongoose";
+
+const creditSchema = new mongoose.Schema(
+  {
+    creditId: { type: String, required: true, unique: true },
+    borrower: String,
+    house: String,
+    facility: { type: String, default: "reserved" },
+    debt: { type: String, default: "0" },
+    revision: { type: Number, default: 1 },
+    positions: { type: [mongoose.Schema.Types.Mixed], default: [] },
+    pending: { type: [mongoose.Schema.Types.Mixed], default: [] },
+  },
+  { timestamps: true },
+);
+
+export const CreditModel = mongoose.models["Credit"] ?? mongoose.model("Credit", creditSchema);

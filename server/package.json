@@ -1,0 +1,26 @@
+{
+  "name": "termbook-server",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/server.js",
+    "dev": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "@termbook/schema": "workspace:^",
+    "bullmq": "^6.3.4",
+    "dotenv": "^17.4.2",
+    "fastify": "^5.12.4",
+    "ioredis": "^6.0.0",
+    "mongoose": "^9.10.0",
+    "viem": "^2.56.3",
+    "zod": "^4.6.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3"
+  }
+}

@@ -180,4 +180,35 @@ contract LocalRecoveryTest is Test {
         core.finishLiquidation(creditId);
         assertEq(uint256(core.creditFacility(creditId)), uint256(Types.Facility.Liquidated));
     }
+
+    function testLateSettlementAfterLiquidationRecordsRecovery() public {
+        bytes32 creditId = keccak256("credit-late-recovery");
+        _prepare(creditId);
+        _draw(creditId);
+        _liquidate(creditId);
+        core.recoverCollateral(creditId, 100);
+
+        vm.prank(address(houseVault));
+        core.finalizeRecovery(creditId);
+        core.finishLiquidation(creditId);
+
+        SettlementInbox inbox = new SettlementInbox(
+            keccak256("late-recovery-operation"),
+            address(houseVault),
+            address(token),
+            creditId,
+            100,
+            borrower,
+            block.timestamp + 1 days
+        );
+        houseVault.setSettlementInbox(address(inbox), true);
+        token.mint(address(inbox), 100);
+        inbox.notifyAll();
+        inbox.settle(100);
+
+        assertEq(core.creditDebt(creditId), 300);
+        TermbookCore.Credit memory credit = core.creditDetails(creditId);
+        assertEq(credit.recovery, 200);
+        assertEq(uint256(core.creditFacility(creditId)), uint256(Types.Facility.Liquidated));
+    }
 }

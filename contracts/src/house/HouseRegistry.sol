@@ -34,6 +34,7 @@ contract HouseRegistry {
     mapping(address => House) public houses;
     mapping(address => Policy) public policies;
     mapping(address => address) public houseOfVault;
+    mapping(address => address) public policyGovernors;
     address public immutable governance;
     error Unauthorized();
     error Invalid();
@@ -41,6 +42,7 @@ contract HouseRegistry {
     event HouseDisabled(address indexed house);
     event PolicySet(address indexed house, uint256 indexed version);
     event RiskPolicySet(address indexed house, uint256 initialBps, uint256 liquidationBps);
+    event PolicyGovernorSet(address indexed house, address indexed governor);
 
     uint256 private constant PROTOCOL_FLOOR_BPS = 11_000;
 
@@ -83,7 +85,11 @@ contract HouseRegistry {
         uint256 maxCommitmentFeeBps
     ) external {
         House memory registered = houses[house];
-        if (!registered.active || msg.sender != registered.manager) revert Unauthorized();
+        address governor = policyGovernors[house];
+        if (!registered.active || (governor == address(0) ? msg.sender != registered.manager : msg.sender != governor))
+        {
+            revert Unauthorized();
+        }
         if (
             version == 0 || maxLimit == 0 || minMaturity == 0 || maxMaturity < minMaturity || maxAprBps > 1_000_000
                 || maxOriginationFeeBps > 10_000 || maxCommitmentFeeBps > 10_000
@@ -116,7 +122,11 @@ contract HouseRegistry {
         uint256 liquidationBps
     ) external {
         House memory registered = houses[house];
-        if (!registered.active || msg.sender != registered.manager) revert Unauthorized();
+        address governor = policyGovernors[house];
+        if (!registered.active || (governor == address(0) ? msg.sender != registered.manager : msg.sender != governor))
+        {
+            revert Unauthorized();
+        }
         if (
             initialBps < maintenanceBps || maintenanceBps <= watchBps || watchBps < freezeBps
                 || freezeBps < liquidationBps || liquidationBps < PROTOCOL_FLOOR_BPS
@@ -130,6 +140,15 @@ contract HouseRegistry {
         policy.liquidationBps = liquidationBps;
         policy.riskConfigured = true;
         emit RiskPolicySet(house, initialBps, liquidationBps);
+    }
+
+    function setPolicyGovernor(address house, address governor) external {
+        if (msg.sender != governance || !houses[house].active || (governor != address(0) && governor.code.length == 0))
+        {
+            revert Unauthorized();
+        }
+        policyGovernors[house] = governor;
+        emit PolicyGovernorSet(house, governor);
     }
 
     function isActiveHouse(address house, address vault) external view returns (bool) {

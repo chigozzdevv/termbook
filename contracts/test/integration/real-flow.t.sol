@@ -57,10 +57,41 @@ contract RealFlowTest is Test {
         uint256 expiry = block.timestamp + 1 days;
         bytes32 bundleId = keccak256("bundle");
         bytes32 termsHash = keccak256("terms");
-        bytes32 digest = core.quoteDigest(intentId, borrower, house, address(houseVault), limit, maturity, false, bundleId, setupDeadline, 0, 0, 1, expiry, termsHash);
+        bytes32 digest = core.quoteDigest(
+            intentId,
+            borrower,
+            house,
+            address(houseVault),
+            limit,
+            maturity,
+            false,
+            bundleId,
+            setupDeadline,
+            0,
+            0,
+            1,
+            expiry,
+            termsHash
+        );
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(houseKey, digest);
         vm.prank(borrower);
-        core.accept(creditId, intentId, borrower, house, address(houseVault), limit, maturity, false, bundleId, setupDeadline, 0, termsHash, 1, expiry, abi.encodePacked(r, s, v));
+        core.accept(
+            creditId,
+            intentId,
+            borrower,
+            house,
+            address(houseVault),
+            limit,
+            maturity,
+            false,
+            bundleId,
+            setupDeadline,
+            0,
+            termsHash,
+            1,
+            expiry,
+            abi.encodePacked(r, s, v)
+        );
     }
 
     function _prepareTerms(bytes32 creditId) internal returns (bytes32 lockId, address account) {
@@ -70,10 +101,48 @@ contract RealFlowTest is Test {
         bytes32 intentId = keccak256("terms-intent");
         bytes32 bundleId = keccak256("bundle");
         bytes32 termsHash = keccak256("terms");
-        bytes32 digest = core.quoteDigestWithTerms(intentId, borrower, house, address(houseVault), 500, maturity, true, bundleId, setupDeadline, 0, 0, 7, expiry, termsHash, 1000, 10, 1000);
+        bytes32 digest = core.quoteDigestWithTerms(
+            intentId,
+            borrower,
+            house,
+            address(houseVault),
+            500,
+            maturity,
+            true,
+            bundleId,
+            setupDeadline,
+            0,
+            0,
+            7,
+            expiry,
+            termsHash,
+            1000,
+            10,
+            1000
+        );
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(houseKey, digest);
         vm.prank(borrower);
-        core.acceptWithTerms(creditId, intentId, borrower, house, address(houseVault), 500, maturity, true, bundleId, setupDeadline, 0, 0, termsHash, 7, expiry, 1000, 10, 1000, abi.encodePacked(r, s, v));
+        core.acceptWithTerms(
+            creditId,
+            intentId,
+            borrower,
+            house,
+            address(houseVault),
+            500,
+            maturity,
+            true,
+            bundleId,
+            setupDeadline,
+            0,
+            0,
+            termsHash,
+            7,
+            expiry,
+            1000,
+            10,
+            1000,
+            abi.encodePacked(r, s, v)
+        );
         vm.startPrank(borrower);
         token.approve(address(collateralVault), 500);
         core.setCollateral(creditId, address(collateralVault), borrower);
@@ -113,7 +182,8 @@ contract RealFlowTest is Test {
         assertEq(token.balanceOf(core.creditAccount(creditId)), 0);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 revision = core.creditRevision(creditId);
-        bytes32 digest = keccak256(abi.encode(core.domain(), creditId, uint256(400), uint256(400), uint256(1), deadline, revision));
+        bytes32 digest =
+            keccak256(abi.encode(core.domain(), creditId, uint256(400), uint256(400), uint256(1), deadline, revision));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(borrowerKey, digest);
         core.draw(creditId, 400, 400, 1, deadline, abi.encodePacked(r, s, v));
         assertEq(token.balanceOf(core.creditAccount(creditId)), 400);
@@ -133,7 +203,8 @@ contract RealFlowTest is Test {
         _prepareTerms(creditId);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 revision = core.creditRevision(creditId);
-        bytes32 digest = keccak256(abi.encode(core.domain(), creditId, uint256(400), uint256(400), uint256(1), deadline, revision));
+        bytes32 digest =
+            keccak256(abi.encode(core.domain(), creditId, uint256(400), uint256(400), uint256(1), deadline, revision));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(borrowerKey, digest);
         core.draw(creditId, 400, 400, 1, deadline, abi.encodePacked(r, s, v));
         vm.warp(block.timestamp + 365 days);
@@ -157,7 +228,8 @@ contract RealFlowTest is Test {
         _prepare(creditId);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 revision = core.creditRevision(creditId);
-        bytes32 digest = keccak256(abi.encode(core.domain(), creditId, uint256(200), uint256(200), uint256(1), deadline, revision));
+        bytes32 digest =
+            keccak256(abi.encode(core.domain(), creditId, uint256(200), uint256(200), uint256(1), deadline, revision));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(borrowerKey, digest);
         core.draw(creditId, 200, 200, 1, deadline, abi.encodePacked(r, s, v));
         core.recordHealth(creditId, Types.HealthSnapshot(200, 0, 1000, 0, 10_000, 10_000, 0, 1000, 50_000));
@@ -177,11 +249,44 @@ contract RealFlowTest is Test {
         uint256 revision = core.creditRevision(creditId);
         bytes memory data = abi.encodeWithSelector(RealFlowTarget.setValue.selector, 42);
         bytes32 actionHash = keccak256(abi.encode(address(target), data));
-        bytes32 digest = keccak256(abi.encode(core.domain(), creditId, actionHash, uint256(200), uint256(200), uint256(2), deadline, revision));
+        bytes32 digest = keccak256(
+            abi.encode(core.domain(), creditId, actionHash, uint256(200), uint256(200), uint256(2), deadline, revision)
+        );
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(borrowerKey, digest);
         core.executeAction(creditId, address(target), data, 200, 200, 2, deadline, abi.encodePacked(r, s, v));
         assertEq(target.value(), 42);
         assertEq(core.creditDebt(creditId), 200);
+    }
+
+    function testStaleHealthBlocksNewDraw() public {
+        bytes32 creditId = keccak256("stale-health-credit");
+        _prepare(creditId);
+        vm.warp(block.timestamp + core.healthMaxAge() + 1);
+        uint256 deadline = block.timestamp + 1 hours;
+        uint256 revision = core.creditRevision(creditId);
+        bytes32 digest =
+            keccak256(abi.encode(core.domain(), creditId, uint256(100), uint256(100), uint256(3), deadline, revision));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(borrowerKey, digest);
+        vm.expectRevert(TermbookCore.BadHealth.selector);
+        core.draw(creditId, 100, 100, 3, deadline, abi.encodePacked(r, s, v));
+    }
+
+    function testHealthSnapshotMustMatchCreditRevision() public {
+        bytes32 creditId = keccak256("revision-health-credit");
+        _prepare(creditId);
+        uint256 deadline = block.timestamp + 1 hours;
+        uint256 revision = core.creditRevision(creditId);
+        bytes32 digest =
+            keccak256(abi.encode(core.domain(), creditId, uint256(100), uint256(100), uint256(4), deadline, revision));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(borrowerKey, digest);
+        core.draw(creditId, 100, 100, 4, deadline, abi.encodePacked(r, s, v));
+
+        revision = core.creditRevision(creditId);
+        digest =
+            keccak256(abi.encode(core.domain(), creditId, uint256(100), uint256(100), uint256(5), deadline, revision));
+        (v, r, s) = vm.sign(borrowerKey, digest);
+        vm.expectRevert(TermbookCore.BadHealth.selector);
+        core.draw(creditId, 100, 100, 5, deadline, abi.encodePacked(r, s, v));
     }
 
     function testBondSettlementAndRevolvingCapacity() public {
@@ -192,12 +297,44 @@ contract RealFlowTest is Test {
         uint256 expiry = block.timestamp + 1 days;
         bytes32 bundleId = keccak256("bundle");
         bytes32 termsHash = keccak256("terms");
-        bytes32 digest = core.quoteDigest(intentId, borrower, house, address(houseVault), 500, maturity, true, bundleId, setupDeadline, 0, 50, 9, expiry, termsHash);
+        bytes32 digest = core.quoteDigest(
+            intentId,
+            borrower,
+            house,
+            address(houseVault),
+            500,
+            maturity,
+            true,
+            bundleId,
+            setupDeadline,
+            0,
+            50,
+            9,
+            expiry,
+            termsHash
+        );
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(houseKey, digest);
         token.mint(borrower, 50);
         vm.startPrank(borrower);
         token.approve(address(houseVault), 50);
-        core.acceptWithBond(creditId, intentId, borrower, house, address(houseVault), 500, maturity, true, bundleId, setupDeadline, 0, 50, termsHash, 9, expiry, abi.encodePacked(r, s, v));
+        core.acceptWithBond(
+            creditId,
+            intentId,
+            borrower,
+            house,
+            address(houseVault),
+            500,
+            maturity,
+            true,
+            bundleId,
+            setupDeadline,
+            0,
+            50,
+            termsHash,
+            9,
+            expiry,
+            abi.encodePacked(r, s, v)
+        );
         vm.stopPrank();
         assertEq(houseVault.bondLiabilities(), 50);
         (bytes32 lockId,) = _prepareAfterAccept(creditId);
@@ -206,7 +343,9 @@ contract RealFlowTest is Test {
         assertEq(houseVault.creditCommitted(creditId), 500);
         uint256 firstRevision = core.creditRevision(creditId);
         uint256 deadline = block.timestamp + 1 hours;
-        bytes32 drawDigest = keccak256(abi.encode(core.domain(), creditId, uint256(400), uint256(400), uint256(1), deadline, firstRevision));
+        bytes32 drawDigest = keccak256(
+            abi.encode(core.domain(), creditId, uint256(400), uint256(400), uint256(1), deadline, firstRevision)
+        );
         (v, r, s) = vm.sign(borrowerKey, drawDigest);
         core.draw(creditId, 400, 400, 1, deadline, abi.encodePacked(r, s, v));
         vm.startPrank(borrower);
@@ -237,10 +376,13 @@ contract RealFlowTest is Test {
         _prepare(creditId);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 revision = core.creditRevision(creditId);
-        bytes32 digest = keccak256(abi.encode(core.domain(), creditId, uint256(300), uint256(300), uint256(1), deadline, revision));
+        bytes32 digest =
+            keccak256(abi.encode(core.domain(), creditId, uint256(300), uint256(300), uint256(1), deadline, revision));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(borrowerKey, digest);
         core.draw(creditId, 300, 300, 1, deadline, abi.encodePacked(r, s, v));
-        SettlementInbox inbox = new SettlementInbox(keccak256("repay-operation"), address(houseVault), address(token), creditId, 300, borrower, deadline);
+        SettlementInbox inbox = new SettlementInbox(
+            keccak256("repay-operation"), address(houseVault), address(token), creditId, 300, borrower, deadline
+        );
         houseVault.setSettlementInbox(address(inbox), true);
         token.mint(address(inbox), 300);
         inbox.notifyAll();
@@ -251,7 +393,15 @@ contract RealFlowTest is Test {
     }
 
     function testLpInboxMintsSharesAtomically() public {
-        SettlementInbox inbox = new SettlementInbox(keccak256("lp-operation"), address(houseVault), address(token), bytes32(0), 100, borrower, block.timestamp + 1 days);
+        SettlementInbox inbox = new SettlementInbox(
+            keccak256("lp-operation"),
+            address(houseVault),
+            address(token),
+            bytes32(0),
+            100,
+            borrower,
+            block.timestamp + 1 days
+        );
         houseVault.setSettlementInbox(address(inbox), true);
         houseVault.configureLpInbox(address(inbox), borrower, 100);
         token.mint(address(inbox), 250);

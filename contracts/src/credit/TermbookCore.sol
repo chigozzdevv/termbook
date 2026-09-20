@@ -223,6 +223,9 @@ contract TermbookCore is ITermbookCore {
     mapping(bytes32 => bool) public bondSettled;
     mapping(bytes32 => uint256) public pendingRemoteReturn;
     mapping(address => bool) public recoveryKeepers;
+    mapping(bytes32 => uint256) public healthSnapshotAt;
+    mapping(bytes32 => uint256) public healthSnapshotRevision;
+    uint256 public healthMaxAge = 1 days;
 
     error Expired();
     error Unauthorized();
@@ -314,6 +317,11 @@ contract TermbookCore is ITermbookCore {
         healthReporter = reporter;
     }
 
+    function setHealthMaxAge(uint256 maxAge) external onlyGovernance {
+        if (maxAge == 0) revert InvalidTerms();
+        healthMaxAge = maxAge;
+    }
+
     function setIntegrationRegistry(address registry) external onlyGovernance {
         integrationRegistry = registry;
     }
@@ -346,6 +354,8 @@ contract TermbookCore is ITermbookCore {
         if (snapshot_.debt != c.debt) revert BadHealth();
         if (riskEngine == address(0)) revert BadHealth();
         IRiskCore(riskEngine).record(creditId, snapshot_);
+        healthSnapshotAt[creditId] = block.timestamp;
+        healthSnapshotRevision[creditId] = c.revision;
     }
 
     function healthSnapshot(bytes32 creditId) external view returns (Types.HealthSnapshot memory) {
@@ -1260,8 +1270,8 @@ contract TermbookCore is ITermbookCore {
         if (amount == 0 || amount >= c.collateralAmount) revert InvalidCollateral();
         _accrue(c, creditId);
         if (riskEngine != address(0)) {
-            Types.HealthSnapshot memory snapshot = IRiskCore(riskEngine).snapshot(creditId);
-            if (c.debt > 0 && snapshot.debt != c.debt) revert BadHealth();
+            Types.HealthSnapshot memory snapshot =
+                c.debt > 0 ? _requireFreshHealth(c, creditId) : IRiskCore(riskEngine).snapshot(creditId);
             uint256 sourceValueAfter =
                 c.collateralAmount == 0 ? 0 : snapshot.sourceValue * (c.collateralAmount - amount) / c.collateralAmount;
             IRiskCore(riskEngine).checkCollateralWithdraw(creditId, sourceValueAfter);
@@ -1425,6 +1435,7 @@ contract TermbookCore is ITermbookCore {
             c.revolving ? (c.limit > c.debt ? c.limit - c.debt : 0) : (c.limit > c.drawn ? c.limit - c.drawn : 0);
         if (amount > capacity) revert OverLimit();
         if (riskEngine == address(0)) revert BadHealth();
+        _requireFreshHealth(c, creditId);
         uint256 originationFee;
         if (!c.originationCharged && c.originationFee > 0) {
             originationFee = c.originationFee;
@@ -1590,7 +1601,7 @@ contract TermbookCore is ITermbookCore {
         _accrue(c, creditId);
         if (
             c.payment != Types.Payment.Defaulted
-                && (riskEngine == address(0) || IRiskCore(riskEngine).riskState(creditId) != Types.Risk.Liquidatable)
+                && (riskEngine == address(0) || !_isLiquidatableWithFreshHealth(c, creditId))
         ) revert BadState();
         c.facility = Types.Facility.Liquidating;
         sessionGeneration[creditId] += 1;
@@ -1654,8 +1665,8 @@ contract TermbookCore is ITermbookCore {
         _accrue(c, creditId);
         if (c.debt != 0) {
             if (riskEngine == address(0)) revert BadHealth();
-            Types.HealthSnapshot memory snapshot = IRiskCore(riskEngine).snapshot(creditId);
-            if (snapshot.debt != c.debt || IRiskCore(riskEngine).riskState(creditId) != Types.Risk.Healthy) {
+            _requireFreshHealth(c, creditId);
+            if (IRiskCore(riskEngine).riskState(creditId) != Types.Risk.Healthy) {
                 revert BadHealth();
             }
         }
@@ -1688,6 +1699,25 @@ contract TermbookCore is ITermbookCore {
         c.facility = Types.Facility.Liquidated;
         c.revision = RevisionLib.next(c.revision);
         emit Events.Liquidated(creditId);
+    }
+
+    function _isLiquidatableWithFreshHealth(Credit storage c, bytes32 creditId) internal view returns (bool) {
+        _requireFreshHealth(c, creditId);
+        return IRiskCore(riskEngine).riskState(creditId) == Types.Risk.Liquidatable;
+    }
+
+    function _requireFreshHealth(Credit storage c, bytes32 creditId)
+        internal
+        view
+        returns (Types.HealthSnapshot memory snapshot)
+    {
+        if (
+            riskEngine == address(0) || healthSnapshotAt[creditId] == 0
+                || healthSnapshotRevision[creditId] != c.revision
+                || block.timestamp > healthSnapshotAt[creditId] + healthMaxAge
+        ) revert BadHealth();
+        snapshot = IRiskCore(riskEngine).snapshot(creditId);
+        if (snapshot.debt != c.debt) revert BadHealth();
     }
 
     function creditFacility(bytes32 creditId) external view returns (Types.Facility) {

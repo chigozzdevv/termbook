@@ -9,6 +9,7 @@ import {IntegrationRegistry} from "../src/integration/IntegrationRegistry.sol";
 import {HouseVault} from "../src/house/HouseVault.sol";
 import {ProtocolGovernance} from "../src/governance/ProtocolGovernance.sol";
 import {Guardian} from "../src/governance/Guardian.sol";
+import {HouseRegistry} from "../src/house/HouseRegistry.sol";
 
 contract DeployProtocol is Script {
     function run()
@@ -20,7 +21,8 @@ contract DeployProtocol is Script {
             IntegrationRegistry integrations,
             address houseVault,
             ProtocolGovernance protocolGovernance,
-            Guardian guardianController
+            Guardian guardianController,
+            HouseRegistry houseRegistry
         )
     {
         uint256 key = vm.envUint("DEPLOYER_PRIVATE_KEY");
@@ -31,12 +33,14 @@ contract DeployProtocol is Script {
         vm.startBroadcast(key);
         protocolGovernance = new ProtocolGovernance(governance);
         guardianController = new Guardian(guardian, governance);
+        houseRegistry = new HouseRegistry(address(protocolGovernance));
         core = new TermbookCore(deployer, address(guardianController), address(0));
         risk = new RiskEngine(address(core));
         accounts = new AccountFactory();
         integrations = new IntegrationRegistry(address(protocolGovernance));
         core.setRisk(address(risk));
         core.setIntegrationRegistry(address(integrations));
+        core.setHouseRegistry(address(houseRegistry));
         core.setGovernance(address(protocolGovernance));
         address asset = vm.envOr("SETTLEMENT_ASSET", address(0));
         if (asset != address(0)) {

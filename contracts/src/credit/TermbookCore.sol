@@ -90,6 +90,23 @@ interface IVerifierRegistryCore {
         returns (address impl, uint256 version, bool active, uint256 maxAge);
 }
 
+interface IHouseRegistryCore {
+    function isActiveHouse(address house, address vault) external view returns (bool);
+    function policies(address house)
+        external
+        view
+        returns (
+            uint256 version,
+            uint256 maxLimit,
+            uint256 minMaturity,
+            uint256 maxMaturity,
+            uint256 maxAprBps,
+            uint256 maxOriginationFeeBps,
+            uint256 maxCommitmentFeeBps,
+            bool active
+        );
+}
+
 interface IVerifierCore {
     function verifyFinality(bytes calldata header) external view returns (bool);
     function verifyInclusion(bytes calldata proof, bytes32 root) external view returns (bool);
@@ -134,6 +151,7 @@ contract TermbookCore is ITermbookCore {
         uint256 aprBps;
         uint256 originationFee;
         uint256 commitmentFeeBps;
+        uint256 policyVersion;
         uint256 accruedAt;
         bool originationCharged;
     }
@@ -165,6 +183,7 @@ contract TermbookCore is ITermbookCore {
     address public riskEngine;
     address public integrationRegistry;
     address public verifierRegistry;
+    address public houseRegistry;
     address public healthReporter;
     bytes32 public immutable domain;
     bool public paused;
@@ -248,6 +267,11 @@ contract TermbookCore is ITermbookCore {
         }
         if (ICollateralVaultCore(collateralVault).core() != address(this)) revert InvalidCollateral();
         ICollateralVaultCore(collateralVault).setPauseGuardian(pauseGuardian);
+    }
+
+    function setHouseRegistry(address registry) external onlyGovernance {
+        if (registry == address(0) || registry.code.length == 0) revert InvalidAuthority();
+        houseRegistry = registry;
     }
 
     function setPaused(bool value) external {
@@ -603,6 +627,33 @@ contract TermbookCore is ITermbookCore {
         }
         if (_vaultCore(p.vault) != address(this)) revert InvalidVault();
         _vaultAsset(p.vault);
+        uint256 policyVersion;
+        if (houseRegistry != address(0)) {
+            if (!IHouseRegistryCore(houseRegistry).isActiveHouse(p.house, p.vault)) revert InvalidVault();
+            uint256 maxLimit;
+            uint256 minMaturity;
+            uint256 maxMaturity;
+            uint256 maxAprBps;
+            uint256 maxOriginationFeeBps;
+            uint256 maxCommitmentFeeBps;
+            bool active;
+            (
+                policyVersion,
+                maxLimit,
+                minMaturity,
+                maxMaturity,
+                maxAprBps,
+                maxOriginationFeeBps,
+                maxCommitmentFeeBps,
+                active
+            ) = IHouseRegistryCore(houseRegistry).policies(p.house);
+            if (
+                !active || p.limit > maxLimit || p.maturity - p.setupDeadline < minMaturity
+                    || p.maturity - p.setupDeadline > maxMaturity || p.aprBps > maxAprBps
+                    || p.commitmentFeeBps > maxCommitmentFeeBps
+                    || p.originationFee > p.limit * maxOriginationFeeBps / BPS
+            ) revert InvalidTerms();
+        }
         if (!fullDigest) {
             bytes32 digest = termsDigest
                 ? quoteDigestWithTerms(
@@ -663,6 +714,7 @@ contract TermbookCore is ITermbookCore {
         c.aprBps = p.aprBps;
         c.originationFee = p.originationFee;
         c.commitmentFeeBps = p.commitmentFeeBps;
+        c.policyVersion = policyVersion;
         c.accruedAt = block.timestamp;
         c.revision = 1;
         emit Events.CreditCreated(p.creditId, p.intentId, p.borrower, p.house);

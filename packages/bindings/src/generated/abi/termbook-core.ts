@@ -2491,6 +2491,29 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "setHouseProtocolFee",
+    "inputs": [
+      {
+        "name": "vault",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "recipient",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "feeBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setHouseRegistry",
     "inputs": [
       {

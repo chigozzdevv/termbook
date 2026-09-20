@@ -7,7 +7,6 @@ import mongoose from "mongoose";
 export type Job = { kind: string; payload: Record<string, unknown> };
 
 let shared: IORedis | null = null;
-const memory: Job[] = [];
 const outboxSchema = new mongoose.Schema({
   jobId: { type: String, unique: true, required: true },
   kind: { type: String, required: true },
@@ -61,8 +60,7 @@ function queueFor(kind: string): BullQueue | null {
 
 async function fallback(job: Job): Promise<void> {
   if (mongoose.connection.readyState !== 1) {
-    if (!memory.some((queued) => jobId(queued) === jobId(job))) memory.push(job);
-    return;
+    throw new Error("durable-queue-unavailable");
   }
   try {
     await JobModel.findOneAndUpdate(
@@ -72,7 +70,7 @@ async function fallback(job: Job): Promise<void> {
     );
   } catch (err) {
     logger.error("outbox-push-failed", { job, err });
-    if (!memory.some((queued) => jobId(queued) === jobId(job))) memory.push(job);
+    throw new Error("durable-queue-unavailable", { cause: err });
   }
 }
 
@@ -90,10 +88,6 @@ export const queue = {
       await fallback(job);
     }
   },
-  shift(): Job | undefined {
-    return memory.shift();
-  },
-
   async claim(): Promise<{ id: string; job: Job } | undefined> {
     if (mongoose.connection.readyState !== 1) return undefined;
     const stale = new Date(Date.now() - 60_000);

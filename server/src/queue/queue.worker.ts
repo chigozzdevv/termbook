@@ -12,16 +12,6 @@ export function registerHandler(kinds: string[], fn: Handler): void {
 
 export async function drainQueue(handle: Handler): Promise<number> {
   let n = 0;
-  let job = queue.shift();
-  while (job) {
-    try {
-      await handle(job);
-      n += 1;
-    } catch (err) {
-      logger.error("job-failed", { job, err });
-    }
-    job = queue.shift();
-  }
   let claimed = await queue.claim();
   while (claimed) {
     try {

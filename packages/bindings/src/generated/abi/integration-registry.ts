@@ -88,6 +88,60 @@ export const integrationRegistryAbi = [
   },
   {
     "type": "function",
+    "name": "callPolicies",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "",
+        "type": "bytes4",
+        "internalType": "bytes4"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "codeHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "maxDataLength",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "recipientArg",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "amountArg",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "maxAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "active",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "freeze",
     "inputs": [
       {
@@ -146,6 +200,26 @@ export const integrationRegistryAbi = [
         "name": "selector",
         "type": "bytes4",
         "internalType": "bytes4"
+      },
+      {
+        "name": "maxDataLength",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "recipientArg",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "amountArg",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "maxAmount",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [],
@@ -160,6 +234,45 @@ export const integrationRegistryAbi = [
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "validateCall",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "data",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "drawAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "stateMutability": "view"

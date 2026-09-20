@@ -160,6 +160,36 @@ export const houseRegistryAbi = [
         "internalType": "uint256"
       },
       {
+        "name": "initialBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maintenanceBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "watchBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "freezeBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "liquidationBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "riskConfigured",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
         "name": "active",
         "type": "bool",
         "internalType": "bool"
@@ -244,6 +274,44 @@ export const houseRegistryAbi = [
     "stateMutability": "nonpayable"
   },
   {
+    "type": "function",
+    "name": "setRiskPolicy",
+    "inputs": [
+      {
+        "name": "house",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "initialBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maintenanceBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "watchBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "freezeBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "liquidationBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
     "type": "event",
     "name": "HouseDisabled",
     "inputs": [
@@ -289,6 +357,31 @@ export const houseRegistryAbi = [
         "name": "version",
         "type": "uint256",
         "indexed": true,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RiskPolicySet",
+    "inputs": [
+      {
+        "name": "house",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "initialBps",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "liquidationBps",
+        "type": "uint256",
+        "indexed": false,
         "internalType": "uint256"
       }
     ],

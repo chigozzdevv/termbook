@@ -9,7 +9,7 @@ contract IntegrationRegistry {
     }
 
     mapping(bytes32 => Version) public versions;
-    mapping(bytes32 => mapping(address => mapping(bytes4 => bool))) public calls;
+    mapping(bytes32 => mapping(address => mapping(bytes4 => bytes32))) public callCodeHashes;
     address public immutable reviewer;
     error Unauthorized();
     error Invalid();
@@ -41,15 +41,22 @@ contract IntegrationRegistry {
     }
 
     function registerCall(bytes32 id, address target, bytes4 selector) external {
-        if (msg.sender != reviewer || target == address(0) || target.code.length == 0 || selector == bytes4(0)) revert Invalid();
+        if (msg.sender != reviewer || target == address(0) || target.code.length == 0 || selector == bytes4(0)) {
+            revert Invalid();
+        }
         Version memory version = versions[id];
         if (!version.active || version.frozen) revert Frozen();
-        calls[id][target][selector] = true;
+        callCodeHashes[id][target][selector] = target.codehash;
         emit CallRegistered(id, target, selector);
     }
 
     function isCallAllowed(bytes32 id, address target, bytes4 selector) external view returns (bool) {
         Version memory version = versions[id];
-        return version.active && !version.frozen && calls[id][target][selector];
+        return version.active && !version.frozen && callCodeHashes[id][target][selector] != bytes32(0)
+            && target.codehash == callCodeHashes[id][target][selector];
+    }
+
+    function callCodeHash(bytes32 id, address target, bytes4 selector) external view returns (bytes32) {
+        return callCodeHashes[id][target][selector];
     }
 }

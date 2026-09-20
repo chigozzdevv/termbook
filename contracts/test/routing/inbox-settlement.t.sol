@@ -14,7 +14,7 @@ contract InboxSettlementTest is Test {
     function setUp() public {
         token = new MockERC20();
         receiver = new MockSettlementReceiver();
-        inbox = new SettlementInbox(bytes32("op1"), address(receiver), address(token), bytes32("c1"), 0, address(3), block.timestamp + 1 days);
+        inbox = new SettlementInbox(bytes32("op1"), address(receiver), address(token), bytes32("c1"), 0, 2_000, address(3), block.timestamp + 1 days);
         token.mint(address(inbox), 1000);
     }
 
@@ -33,10 +33,22 @@ contract InboxSettlementTest is Test {
     }
 
     function testMinOutEnforced() public {
-        SettlementInbox gated = new SettlementInbox(bytes32("op9"), address(receiver), address(token), bytes32("c1"), 1000, address(3), block.timestamp + 1 days);
+        SettlementInbox gated = new SettlementInbox(bytes32("op9"), address(receiver), address(token), bytes32("c1"), 1000, 1000, address(3), block.timestamp + 1 days);
         token.mint(address(gated), 500);
         gated.notifyReceipt(500);
         vm.expectRevert(SettlementInbox.Nothing.selector);
         gated.settle(500);
+    }
+
+    function testReceiptCapIsEnforced() public {
+        SettlementInbox capped = new SettlementInbox(
+            bytes32("capped"), address(receiver), address(token), bytes32("c1"), 0, 1_000, address(3), block.timestamp + 1 days
+        );
+        token.mint(address(capped), 1_000);
+        capped.notifyReceipt(1_000);
+        token.mint(address(capped), 1);
+        vm.expectRevert(SettlementInbox.CapExceeded.selector);
+        capped.notifyReceipt(1);
+        assertEq(capped.received(), 1_000);
     }
 }

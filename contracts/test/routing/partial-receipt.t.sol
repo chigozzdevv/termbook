@@ -14,7 +14,7 @@ contract PartialReceiptTest is Test {
     function setUp() public {
         token = new MockERC20();
         receiver = new MockSettlementReceiver();
-        inbox = new SettlementInbox(bytes32("op3"), address(receiver), address(token), bytes32("c3"), 0, address(3), block.timestamp + 1 days);
+        inbox = new SettlementInbox(bytes32("op3"), address(receiver), address(token), bytes32("c3"), 0, 900, address(3), block.timestamp + 1 days);
     }
 
     function testPartialApply() public {

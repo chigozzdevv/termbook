@@ -149,6 +149,7 @@ contract LocalRecoveryTest is Test {
             address(token),
             creditId,
             500,
+            500,
             borrower,
             block.timestamp + 1 days
         );
@@ -197,6 +198,7 @@ contract LocalRecoveryTest is Test {
             address(houseVault),
             address(token),
             creditId,
+            100,
             100,
             borrower,
             block.timestamp + 1 days

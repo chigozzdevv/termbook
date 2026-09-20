@@ -12,8 +12,8 @@ contract RouteReplayTest is Test {
         InboxFactory f = new InboxFactory();
         MockERC20 token = new MockERC20();
         MockSettlementReceiver receiver = new MockSettlementReceiver();
-        address a = f.create(bytes32("a"), address(receiver), address(token), bytes32("ca"), 0, address(3), block.timestamp + 1 days);
-        address b = f.create(bytes32("b"), address(receiver), address(token), bytes32("cb"), 0, address(3), block.timestamp + 1 days);
+        address a = f.create(bytes32("a"), address(receiver), address(token), bytes32("ca"), 0, 1_000, address(3), block.timestamp + 1 days);
+        address b = f.create(bytes32("b"), address(receiver), address(token), bytes32("cb"), 0, 1_000, address(3), block.timestamp + 1 days);
         assertTrue(a != b);
         assertEq(SettlementInbox(a).operationId(), bytes32("a"));
     }

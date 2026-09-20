@@ -14,7 +14,7 @@ contract InboxRefundTest is Test {
     function setUp() public {
         token = new MockERC20();
         receiver = new MockSettlementReceiver();
-        inbox = new SettlementInbox(bytes32("op2"), address(receiver), address(token), bytes32("c2"), 0, address(3), block.timestamp + 1 days);
+        inbox = new SettlementInbox(bytes32("op2"), address(receiver), address(token), bytes32("c2"), 0, 1_000, address(3), block.timestamp + 1 days);
     }
 
     function testRefundTracks() public {

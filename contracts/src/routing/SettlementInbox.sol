@@ -17,6 +17,7 @@ contract SettlementInbox is ISettlementInbox {
     address public immutable token;
     bytes32 public immutable creditId;
     uint256 public immutable minOut;
+    uint256 public immutable maxReceived;
     address public immutable refundRecipient;
     uint256 public immutable deadline;
     uint256 public received;
@@ -31,6 +32,7 @@ contract SettlementInbox is ISettlementInbox {
     error BadToken();
     error InvalidRecipient();
     error DeliveryMismatch();
+    error CapExceeded();
     error ReceiverFailed();
 
     constructor(
@@ -39,15 +41,20 @@ contract SettlementInbox is ISettlementInbox {
         address token_,
         bytes32 creditId_,
         uint256 minOut_,
+        uint256 maxReceived_,
         address refundRecipient_,
         uint256 deadline_
     ) {
-        if (operationId_ == bytes32(0) || vault_.code.length == 0 || token_.code.length == 0 || refundRecipient_ == address(0)) revert BadToken();
+        if (
+            operationId_ == bytes32(0) || vault_.code.length == 0 || token_.code.length == 0
+                || refundRecipient_ == address(0) || maxReceived_ == 0 || minOut_ > maxReceived_
+        ) revert BadToken();
         operationId = operationId_;
         vault = vault_;
         token = token_;
         creditId = creditId_;
         minOut = minOut_;
+        maxReceived = maxReceived_;
         refundRecipient = refundRecipient_;
         deadline = deadline_;
     }
@@ -65,6 +72,7 @@ contract SettlementInbox is ISettlementInbox {
 
     function notifyReceipt(uint256 amount) external {
         if (amount == 0) revert Nothing();
+        if (amount > maxReceived - received) revert CapExceeded();
         uint256 balance = _balance();
         if (balance < available() + amount) revert DeliveryMismatch();
         received += amount;
@@ -75,6 +83,7 @@ contract SettlementInbox is ISettlementInbox {
         uint256 outstanding = available();
         if (balance <= outstanding) revert Nothing();
         amount = balance - outstanding;
+        if (amount > maxReceived - received) revert CapExceeded();
         received += amount;
     }
 

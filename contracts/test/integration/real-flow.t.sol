@@ -381,7 +381,7 @@ contract RealFlowTest is Test {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(borrowerKey, digest);
         core.draw(creditId, 300, 300, 1, deadline, abi.encodePacked(r, s, v));
         SettlementInbox inbox = new SettlementInbox(
-            keccak256("repay-operation"), address(houseVault), address(token), creditId, 300, borrower, deadline
+            keccak256("repay-operation"), address(houseVault), address(token), creditId, 300, 300, borrower, deadline
         );
         houseVault.setSettlementInbox(address(inbox), true);
         token.mint(address(inbox), 300);
@@ -399,6 +399,7 @@ contract RealFlowTest is Test {
             address(token),
             bytes32(0),
             100,
+            250,
             borrower,
             block.timestamp + 1 days
         );

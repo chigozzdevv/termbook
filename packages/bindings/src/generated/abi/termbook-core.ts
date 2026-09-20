@@ -999,6 +999,11 @@ export const termbookCoreAbi = [
             "internalType": "uint256"
           },
           {
+            "name": "verifierCodeHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
             "name": "accruedAt",
             "type": "uint256",
             "internalType": "uint256"

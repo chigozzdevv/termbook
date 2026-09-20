@@ -58,6 +58,11 @@ export const verifierRegistryAbi = [
             "name": "maxAge",
             "type": "uint256",
             "internalType": "uint256"
+          },
+          {
+            "name": "codeHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
           }
         ]
       }
@@ -135,6 +140,11 @@ export const verifierRegistryAbi = [
         "name": "maxAge",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "codeHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ],
     "stateMutability": "view"

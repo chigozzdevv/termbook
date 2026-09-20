@@ -80,7 +80,10 @@ interface IRiskCore {
 }
 
 interface IIntegrationRegistryCore {
-    function isCallAllowed(bytes32 versionId, address target, bytes4 selector) external view returns (bool);
+    function validateCall(bytes32 versionId, address target, bytes calldata data, address account, uint256 drawAmount)
+        external
+        view
+        returns (bool);
 }
 
 interface IVerifierRegistryCore {
@@ -1342,10 +1345,9 @@ contract TermbookCore is ITermbookCore {
         if (c.facility != Types.Facility.Ready || paused) revert BadState();
         if (data.length < 4) revert Unauthorized();
         bytes4 selector = bytes4(data[:4]);
-        bool allowed = approvedCalls[target][selector];
-        if (integrationRegistry != address(0)) {
-            allowed = IIntegrationRegistryCore(integrationRegistry).isCallAllowed(c.bundleId, target, selector);
-        }
+        bool allowed = integrationRegistry != address(0)
+            ? IIntegrationRegistryCore(integrationRegistry).validateCall(c.bundleId, target, data, c.account, amount)
+            : approvedCalls[target][selector];
         if (!allowed) revert Unauthorized();
         bytes32 actionHash = keccak256(abi.encode(target, data));
         bytes32 digest =

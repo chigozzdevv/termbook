@@ -86,6 +86,26 @@ contract HouseGovernanceTest is Test {
         governor.vote(proposalId, true);
     }
 
+    function testVoteWeightUsesProposalSnapshot() public {
+        vm.prank(lp);
+        uint256 proposalId = governor.propose(_policy());
+
+        address newLp = address(0xD00D);
+        token.mint(newLp, 100);
+        vm.startPrank(newLp);
+        token.approve(address(vault), 100);
+        vault.deposit(newLp, 100);
+        vm.stopPrank();
+        vm.warp(block.timestamp + vault.GOVERNANCE_HOLD());
+
+        vm.prank(newLp);
+        vm.expectRevert(HousePolicyGovernor.NoVotingPower.selector);
+        governor.vote(proposalId, true);
+
+        vm.prank(lp);
+        governor.vote(proposalId, true);
+    }
+
     function testManagerCannotBypassConfiguredGovernor() public {
         vm.expectRevert(HouseRegistry.Unauthorized.selector);
         registry.setPolicy(house, 3, 900, 1 days, 365 days, 9_000, 100, 500);

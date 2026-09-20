@@ -26,6 +26,10 @@ interface IHousePolicyRegistry {
 interface IHousePolicyVault {
     function totalShares() external view returns (uint256);
     function votingPower(address account) external view returns (uint256);
+    function votingPowerAt(address account, uint256 snapshotBlock, uint256 snapshotTimestamp)
+        external
+        view
+        returns (uint256);
 }
 
 contract HousePolicyGovernor {
@@ -47,6 +51,8 @@ contract HousePolicyGovernor {
     struct Proposal {
         address proposer;
         uint256 snapshotShares;
+        uint256 snapshotBlock;
+        uint256 snapshotTimestamp;
         uint256 startAt;
         uint256 endAt;
         uint256 forVotes;
@@ -123,6 +129,8 @@ contract HousePolicyGovernor {
         Proposal storage proposal = proposals[proposalId];
         proposal.proposer = msg.sender;
         proposal.snapshotShares = vault.totalShares();
+        proposal.snapshotBlock = block.number;
+        proposal.snapshotTimestamp = block.timestamp;
         proposal.startAt = block.timestamp + votingDelay;
         proposal.endAt = proposal.startAt + votingPeriod;
         proposal.policy = policy;
@@ -136,7 +144,7 @@ contract HousePolicyGovernor {
             revert VotingClosed();
         }
         if (hasVoted[proposalId][msg.sender]) revert AlreadyVoted();
-        uint256 weight = vault.votingPower(msg.sender);
+        uint256 weight = vault.votingPowerAt(msg.sender, proposal.snapshotBlock, proposal.snapshotTimestamp);
         if (weight == 0) revert NoVotingPower();
         hasVoted[proposalId][msg.sender] = true;
         if (support) proposal.forVotes += weight;

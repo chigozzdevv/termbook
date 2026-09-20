@@ -25,6 +25,14 @@ contract HouseVault is IHouseVault {
         bool cancelled;
     }
 
+    struct VotingCheckpoint {
+        uint256 blockNumber;
+        uint256 timestamp;
+        uint256 matured;
+        uint256 pending;
+        uint256 pendingMatureAt;
+    }
+
     address public immutable asset;
     address public immutable core;
     address public immutable manager;
@@ -50,6 +58,7 @@ contract HouseVault is IHouseVault {
     mapping(address => uint256) public governanceShares;
     mapping(address => uint256) public pendingGovernanceShares;
     mapping(address => uint256) public governanceSharesMatureAt;
+    mapping(address => VotingCheckpoint[]) private votingCheckpoints;
     mapping(bytes32 => uint256) public creditCommitted;
     mapping(bytes32 => uint256) public creditDrawn;
     mapping(bytes32 => uint256) public creditAccruedReceivable;
@@ -181,6 +190,7 @@ contract HouseVault is IHouseVault {
         totalShares += minted;
         shares[to] += minted;
         _addPendingGovernanceShares(to, minted);
+        _writeVotingCheckpoint(to);
         emit Deposited(msg.sender, to, amount, minted);
     }
 
@@ -200,6 +210,7 @@ contract HouseVault is IHouseVault {
         amount = shareAmount * price / SCALE;
         if (amount == 0 || amount > availableCash()) revert Insufficient();
         _removeGovernanceShares(owner, shareAmount);
+        _writeVotingCheckpoint(owner);
         shares[owner] -= shareAmount;
         totalShares -= shareAmount;
         freeCash -= amount;
@@ -220,6 +231,7 @@ contract HouseVault is IHouseVault {
         amount = shareAmount * price / SCALE;
         if (amount == 0) revert Insufficient();
         _removeGovernanceShares(msg.sender, shareAmount);
+        _writeVotingCheckpoint(msg.sender);
         shares[msg.sender] -= shareAmount;
         totalShares -= shareAmount;
         withdrawalId = ++withdrawalNonce;
@@ -252,6 +264,7 @@ contract HouseVault is IHouseVault {
         shares[msg.sender] += shareAmount;
         totalShares += shareAmount;
         _addPendingGovernanceShares(msg.sender, shareAmount);
+        _writeVotingCheckpoint(msg.sender);
         emit WithdrawalCancelled(withdrawalId, msg.sender, shareAmount);
     }
 
@@ -367,6 +380,29 @@ contract HouseVault is IHouseVault {
         return matured;
     }
 
+    function votingPowerAt(address account, uint256 snapshotBlock, uint256 snapshotTimestamp)
+        external
+        view
+        returns (uint256)
+    {
+        VotingCheckpoint[] storage checkpoints = votingCheckpoints[account];
+        if (checkpoints.length == 0) return 0;
+        uint256 low;
+        uint256 high = checkpoints.length;
+        while (low < high) {
+            uint256 mid = (low + high) / 2;
+            if (checkpoints[mid].blockNumber <= snapshotBlock) low = mid + 1;
+            else high = mid;
+        }
+        if (low == 0) return 0;
+        VotingCheckpoint storage checkpoint = checkpoints[low - 1];
+        uint256 matured = checkpoint.matured;
+        if (checkpoint.pending > 0 && checkpoint.pendingMatureAt <= snapshotTimestamp) {
+            matured += checkpoint.pending;
+        }
+        return matured;
+    }
+
     function _addPendingGovernanceShares(address account, uint256 amount) internal {
         _matureGovernanceShares(account);
         pendingGovernanceShares[account] += amount;
@@ -393,6 +429,22 @@ contract HouseVault is IHouseVault {
             governanceShares[account] += pending;
             pendingGovernanceShares[account] = 0;
             governanceSharesMatureAt[account] = 0;
+        }
+    }
+
+    function _writeVotingCheckpoint(address account) internal {
+        VotingCheckpoint[] storage checkpoints = votingCheckpoints[account];
+        VotingCheckpoint memory checkpoint = VotingCheckpoint(
+            block.number,
+            block.timestamp,
+            governanceShares[account],
+            pendingGovernanceShares[account],
+            governanceSharesMatureAt[account]
+        );
+        if (checkpoints.length > 0 && checkpoints[checkpoints.length - 1].blockNumber == block.number) {
+            checkpoints[checkpoints.length - 1] = checkpoint;
+        } else {
+            checkpoints.push(checkpoint);
         }
     }
 
@@ -473,6 +525,7 @@ contract HouseVault is IHouseVault {
             totalShares += minted;
             shares[lpInboxRecipient[msg.sender]] += minted;
             _addPendingGovernanceShares(lpInboxRecipient[msg.sender], minted);
+            _writeVotingCheckpoint(lpInboxRecipient[msg.sender]);
             emit Deposited(msg.sender, lpInboxRecipient[msg.sender], amount, minted);
             return;
         }

@@ -199,6 +199,25 @@ export const houseRegistryAbi = [
   },
   {
     "type": "function",
+    "name": "policyGovernors",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "register",
     "inputs": [
       {
@@ -275,6 +294,24 @@ export const houseRegistryAbi = [
   },
   {
     "type": "function",
+    "name": "setPolicyGovernor",
+    "inputs": [
+      {
+        "name": "house",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "governor",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setRiskPolicy",
     "inputs": [
       {
@@ -338,6 +375,25 @@ export const houseRegistryAbi = [
         "name": "vault",
         "type": "address",
         "indexed": false,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "PolicyGovernorSet",
+    "inputs": [
+      {
+        "name": "house",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "governor",
+        "type": "address",
+        "indexed": true,
         "internalType": "address"
       }
     ],

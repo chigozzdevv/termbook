@@ -18,6 +18,7 @@ const contracts = {
   ProtocolGovernance: "protocol-governance",
   Guardian: "guardian",
   HouseRegistry: "house-registry",
+  HousePolicyGovernor: "house-policy-governor",
   VerifierRegistry: "verifier-registry",
   OracleRegistry: "oracle-registry",
   FlowExecutor: "flow-executor",

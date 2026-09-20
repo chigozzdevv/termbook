@@ -11,6 +11,8 @@ import {ProtocolGovernance} from "../src/governance/ProtocolGovernance.sol";
 import {Guardian} from "../src/governance/Guardian.sol";
 import {HouseRegistry} from "../src/house/HouseRegistry.sol";
 import {VerifierRegistry} from "../src/collateral/VerifierRegistry.sol";
+import {OracleRegistry} from "../src/risk/OracleRegistry.sol";
+import {HealthSource} from "../src/risk/HealthSource.sol";
 
 contract DeployProtocol is Script {
     function run()
@@ -24,7 +26,9 @@ contract DeployProtocol is Script {
             ProtocolGovernance protocolGovernance,
             Guardian guardianController,
             HouseRegistry houseRegistry,
-            VerifierRegistry verifierRegistry
+            VerifierRegistry verifierRegistry,
+            OracleRegistry oracleRegistry,
+            HealthSource healthSource
         )
     {
         uint256 key = vm.envUint("DEPLOYER_PRIVATE_KEY");
@@ -41,10 +45,13 @@ contract DeployProtocol is Script {
         risk = new RiskEngine(address(core));
         accounts = new AccountFactory();
         integrations = new IntegrationRegistry(address(protocolGovernance));
+        oracleRegistry = new OracleRegistry(address(protocolGovernance));
+        healthSource = new HealthSource(address(protocolGovernance), address(oracleRegistry));
         core.setRisk(address(risk));
         core.setIntegrationRegistry(address(integrations));
         core.setHouseRegistry(address(houseRegistry));
         core.setVerifierRegistry(address(verifierRegistry));
+        core.setHealthSource(address(healthSource));
         core.setGovernance(address(protocolGovernance));
         address asset = vm.envOr("SETTLEMENT_ASSET", address(0));
         if (asset != address(0)) {

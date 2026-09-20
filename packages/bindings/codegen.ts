@@ -21,6 +21,7 @@ const contracts = {
   HousePolicyGovernor: "house-policy-governor",
   VerifierRegistry: "verifier-registry",
   OracleRegistry: "oracle-registry",
+  HealthSource: "health-source",
   FlowExecutor: "flow-executor",
 } as const;
 

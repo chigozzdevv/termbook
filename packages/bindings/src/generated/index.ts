@@ -14,6 +14,7 @@ export * from "./abi/house-registry.js";
 export * from "./abi/house-policy-governor.js";
 export * from "./abi/verifier-registry.js";
 export * from "./abi/oracle-registry.js";
+export * from "./abi/health-source.js";
 export * from "./abi/flow-executor.js";
 export * from "./contracts.js";
 export * from "./deployments.js";

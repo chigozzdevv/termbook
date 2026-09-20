@@ -1302,19 +1302,6 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
-    "name": "healthReporter",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "healthSnapshot",
     "inputs": [
       {
@@ -1413,6 +1400,19 @@ export const termbookCoreAbi = [
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "healthSource",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -2000,58 +2000,6 @@ export const termbookCoreAbi = [
         "name": "creditId",
         "type": "bytes32",
         "internalType": "bytes32"
-      },
-      {
-        "name": "snapshot_",
-        "type": "tuple",
-        "internalType": "struct Types.HealthSnapshot",
-        "components": [
-          {
-            "name": "debt",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "cash",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "sourceValue",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "appValue",
-            "type": "int256",
-            "internalType": "int256"
-          },
-          {
-            "name": "retainedSource",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "retainedApp",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "recoveryCosts",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "recoveryValue",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "healthBps",
-            "type": "uint256",
-            "internalType": "uint256"
-          }
-        ]
       }
     ],
     "outputs": [],
@@ -2547,10 +2495,10 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
-    "name": "setHealthReporter",
+    "name": "setHealthSource",
     "inputs": [
       {
-        "name": "reporter",
+        "name": "source",
         "type": "address",
         "internalType": "address"
       }

@@ -80,6 +80,13 @@ interface IRiskCore {
     function snapshot(bytes32 creditId) external view returns (Types.HealthSnapshot memory);
 }
 
+interface IHealthSourceCore {
+    function snapshot(bytes32 creditId, bytes32 bundleId, uint256 revision, uint256 debt)
+        external
+        view
+        returns (Types.HealthSnapshot memory);
+}
+
 interface IIntegrationRegistryCore {
     function validateCall(bytes32 versionId, address target, bytes calldata data, address account, uint256 drawAmount)
         external
@@ -196,7 +203,7 @@ contract TermbookCore is ITermbookCore {
     address public integrationRegistry;
     address public verifierRegistry;
     address public houseRegistry;
-    address public healthReporter;
+    address public healthSource;
     bytes32 public immutable domain;
     bool public paused;
     bool private entered;
@@ -263,7 +270,6 @@ contract TermbookCore is ITermbookCore {
         governance = governance_;
         guardian = guardian_;
         riskEngine = risk_;
-        healthReporter = governance_;
         domain = keccak256(abi.encode("termbook-v1", block.chainid, address(this)));
     }
 
@@ -312,9 +318,9 @@ contract TermbookCore is ITermbookCore {
         riskEngine = risk;
     }
 
-    function setHealthReporter(address reporter) external onlyGovernance {
-        if (reporter == address(0)) revert InvalidTerms();
-        healthReporter = reporter;
+    function setHealthSource(address source) external onlyGovernance {
+        if (source == address(0) || source.code.length == 0) revert InvalidTerms();
+        healthSource = source;
     }
 
     function setHealthMaxAge(uint256 maxAge) external onlyGovernance {
@@ -347,12 +353,17 @@ contract TermbookCore is ITermbookCore {
         IRiskCore(riskEngine).setRiskBands(creditId, initial_, maintenance_, watch_, freeze_, liquidation_);
     }
 
-    function recordHealth(bytes32 creditId, Types.HealthSnapshot calldata snapshot_) external nonReentrant {
+    function recordHealth(bytes32 creditId) external nonReentrant {
         Credit storage c = _credits[creditId];
-        if (msg.sender != governance && msg.sender != healthReporter) revert Unauthorized();
         _accrue(c, creditId);
+        if (healthSource == address(0) || riskEngine == address(0)) revert BadHealth();
+        Types.HealthSnapshot memory snapshot_ = IHealthSourceCore(healthSource).snapshot(
+            creditId,
+            c.bundleId,
+            c.revision,
+            c.debt
+        );
         if (snapshot_.debt != c.debt) revert BadHealth();
-        if (riskEngine == address(0)) revert BadHealth();
         IRiskCore(riskEngine).record(creditId, snapshot_);
         healthSnapshotAt[creditId] = block.timestamp;
         healthSnapshotRevision[creditId] = c.revision;

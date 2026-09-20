@@ -10,6 +10,7 @@ import {CollateralVault} from "../../src/collateral/CollateralVault.sol";
 import {AccountFactory} from "../../src/credit/AccountFactory.sol";
 import {SettlementInbox} from "../../src/routing/SettlementInbox.sol";
 import {Types} from "../../src/shared/Types.sol";
+import {MockHealthSource} from "../MockHealthSource.sol";
 
 contract LocalRecoveryTest is Test {
     MockERC20 token;
@@ -18,6 +19,7 @@ contract LocalRecoveryTest is Test {
     HouseVault houseVault;
     CollateralVault collateralVault;
     AccountFactory accounts;
+    MockHealthSource healthSource;
     uint256 houseKey = 0xBEEF;
     uint256 borrowerKey = 0xCAFE;
     address house;
@@ -27,12 +29,14 @@ contract LocalRecoveryTest is Test {
         token = new MockERC20();
         core = new TermbookCore(address(this), address(this), address(0));
         risk = new RiskEngine(address(core));
+        healthSource = new MockHealthSource();
         houseVault = new HouseVault(address(token), address(core), address(this));
         collateralVault = new CollateralVault(address(token), block.chainid, address(core));
         accounts = new AccountFactory();
         house = vm.addr(houseKey);
         borrower = vm.addr(borrowerKey);
         core.setRisk(address(risk));
+        core.setHealthSource(address(healthSource));
         core.setRecoveryKeeper(address(this), true);
         token.mint(address(this), 2_000);
         token.approve(address(houseVault), 1_000);
@@ -94,7 +98,12 @@ contract LocalRecoveryTest is Test {
         vm.prank(borrower);
         core.bindAccount(creditId, account);
         core.configureRisk(creditId, 15_000, 13_000, 12_000, 11_500, 11_000);
-        core.recordHealth(creditId, Types.HealthSnapshot(0, 0, 1_000, 0, 10_000, 0, 0, 1_000, 0));
+        _recordHealth(creditId, Types.HealthSnapshot(0, 0, 1_000, 0, 10_000, 0, 0, 1_000, 0));
+    }
+
+    function _recordHealth(bytes32 creditId, Types.HealthSnapshot memory snapshot) internal {
+        healthSource.setSnapshot(creditId, snapshot);
+        core.recordHealth(creditId);
     }
 
     function _draw(bytes32 creditId) internal {
@@ -107,7 +116,7 @@ contract LocalRecoveryTest is Test {
     }
 
     function _liquidate(bytes32 creditId) internal {
-        core.recordHealth(creditId, Types.HealthSnapshot(500, 0, 0, 0, 10_000, 0, 0, 0, 0));
+        _recordHealth(creditId, Types.HealthSnapshot(500, 0, 0, 0, 10_000, 0, 0, 0, 0));
         core.startLiquidation(creditId);
     }
 

@@ -11,6 +11,7 @@ import {CollateralVault} from "../../src/collateral/CollateralVault.sol";
 import {RiskEngine} from "../../src/risk/RiskEngine.sol";
 import {Types} from "../../src/shared/Types.sol";
 import {SettlementInbox} from "../../src/routing/SettlementInbox.sol";
+import {MockHealthSource} from "../MockHealthSource.sol";
 
 contract RealFlowTarget {
     uint256 public value;
@@ -27,6 +28,7 @@ contract RealFlowTest is Test {
     CollateralVault collateralVault;
     AccountFactory accountFactory;
     RiskEngine risk;
+    MockHealthSource healthSource;
     RealFlowTarget target;
     uint256 houseKey = 0xBEEF;
     uint256 borrowerKey = 0xCAFE;
@@ -39,7 +41,9 @@ contract RealFlowTest is Test {
         token = new MockERC20();
         core = new TermbookCore(address(this), address(this), address(0));
         risk = new RiskEngine(address(core));
+        healthSource = new MockHealthSource();
         core.setRisk(address(risk));
+        core.setHealthSource(address(healthSource));
         houseVault = new HouseVault(address(token), address(core), address(this));
         collateralVault = new CollateralVault(address(token), block.chainid, address(core));
         accountFactory = new AccountFactory();
@@ -155,7 +159,7 @@ contract RealFlowTest is Test {
         vm.prank(borrower);
         core.bindAccount(creditId, account);
         core.configureRisk(creditId, 15_000, 13_000, 12_000, 11_500, 11_000);
-        core.recordHealth(creditId, Types.HealthSnapshot(0, 0, 0, 0, 0, 0, 0, 10_000, 0));
+        _recordHealth(creditId, Types.HealthSnapshot(0, 0, 0, 0, 0, 0, 0, 10_000, 0));
     }
 
     function _prepare(bytes32 creditId) internal returns (bytes32 lockId, address account) {
@@ -173,7 +177,12 @@ contract RealFlowTest is Test {
         core.bindAccount(creditId, account);
         core.configureRisk(creditId, 15_000, 13_000, 12_000, 11_500, 11_000);
         Types.HealthSnapshot memory snapshot = Types.HealthSnapshot(0, 0, 0, 0, 0, 0, 0, 10_000, 0);
-        core.recordHealth(creditId, snapshot);
+        _recordHealth(creditId, snapshot);
+    }
+
+    function _recordHealth(bytes32 creditId, Types.HealthSnapshot memory snapshot) internal {
+        healthSource.setSnapshot(creditId, snapshot);
+        core.recordHealth(creditId);
     }
 
     function testDrawRepayAndCloseMovesAssets() public {
@@ -232,7 +241,7 @@ contract RealFlowTest is Test {
             keccak256(abi.encode(core.domain(), creditId, uint256(200), uint256(200), uint256(1), deadline, revision));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(borrowerKey, digest);
         core.draw(creditId, 200, 200, 1, deadline, abi.encodePacked(r, s, v));
-        core.recordHealth(creditId, Types.HealthSnapshot(200, 0, 1000, 0, 10_000, 10_000, 0, 1000, 50_000));
+        _recordHealth(creditId, Types.HealthSnapshot(200, 0, 1000, 0, 10_000, 10_000, 0, 1000, 50_000));
         vm.prank(borrower);
         core.withdrawCollateral(creditId, 250);
         Types.HealthSnapshot memory updated = risk.snapshot(creditId);
@@ -280,7 +289,7 @@ contract RealFlowTest is Test {
             keccak256(abi.encode(core.domain(), creditId, uint256(200), uint256(200), uint256(6), deadline, revision));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(borrowerKey, digest);
         core.draw(creditId, 200, 200, 6, deadline, abi.encodePacked(r, s, v));
-        core.recordHealth(creditId, Types.HealthSnapshot(200, 200, 1000, 0, 10_000, 10_000, 0, 1200, 60_000));
+        _recordHealth(creditId, Types.HealthSnapshot(200, 200, 1000, 0, 10_000, 10_000, 0, 1200, 60_000));
         vm.warp(block.timestamp + core.healthMaxAge() + 1);
         vm.expectRevert(TermbookCore.BadHealth.selector);
         vm.prank(borrower);
@@ -384,7 +393,7 @@ contract RealFlowTest is Test {
         vm.prank(borrower);
         core.bindAccount(creditId, account);
         core.configureRisk(creditId, 15_000, 13_000, 12_000, 11_500, 11_000);
-        core.recordHealth(creditId, Types.HealthSnapshot(0, 0, 0, 0, 0, 0, 0, 10_000, 0));
+        _recordHealth(creditId, Types.HealthSnapshot(0, 0, 0, 0, 0, 0, 0, 10_000, 0));
     }
 
     function testInboxSettlementUpdatesDebtAtomically() public {

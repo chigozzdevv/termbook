@@ -28,6 +28,11 @@ export const settlementInboxAbi = [
         "internalType": "uint256"
       },
       {
+        "name": "maxReceived_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
         "name": "refundRecipient_",
         "type": "address",
         "internalType": "address"
@@ -102,6 +107,19 @@ export const settlementInboxAbi = [
   {
     "type": "function",
     "name": "deadline",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "maxReceived",
     "inputs": [],
     "outputs": [
       {
@@ -296,6 +314,11 @@ export const settlementInboxAbi = [
   {
     "type": "error",
     "name": "BadToken",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "CapExceeded",
     "inputs": []
   },
   {

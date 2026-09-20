@@ -34,6 +34,11 @@ export const inboxFactoryAbi = [
         "internalType": "uint256"
       },
       {
+        "name": "maxReceived",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
         "name": "refundRecipient",
         "type": "address",
         "internalType": "address"

@@ -22,6 +22,12 @@ contract HouseRegistry {
         uint256 maxAprBps;
         uint256 maxOriginationFeeBps;
         uint256 maxCommitmentFeeBps;
+        uint256 initialBps;
+        uint256 maintenanceBps;
+        uint256 watchBps;
+        uint256 freezeBps;
+        uint256 liquidationBps;
+        bool riskConfigured;
         bool active;
     }
 
@@ -34,6 +40,9 @@ contract HouseRegistry {
     event HouseRegistered(address indexed house, address vault);
     event HouseDisabled(address indexed house);
     event PolicySet(address indexed house, uint256 indexed version);
+    event RiskPolicySet(address indexed house, uint256 initialBps, uint256 liquidationBps);
+
+    uint256 private constant PROTOCOL_FLOOR_BPS = 11_000;
 
     constructor(address governance_) {
         if (governance_ == address(0)) revert Unauthorized();
@@ -79,10 +88,48 @@ contract HouseRegistry {
             version == 0 || maxLimit == 0 || minMaturity == 0 || maxMaturity < minMaturity || maxAprBps > 1_000_000
                 || maxOriginationFeeBps > 10_000 || maxCommitmentFeeBps > 10_000
         ) revert Invalid();
-        policies[house] = Policy(
-            version, maxLimit, minMaturity, maxMaturity, maxAprBps, maxOriginationFeeBps, maxCommitmentFeeBps, true
-        );
+        policies[house] = Policy({
+            version: version,
+            maxLimit: maxLimit,
+            minMaturity: minMaturity,
+            maxMaturity: maxMaturity,
+            maxAprBps: maxAprBps,
+            maxOriginationFeeBps: maxOriginationFeeBps,
+            maxCommitmentFeeBps: maxCommitmentFeeBps,
+            initialBps: 0,
+            maintenanceBps: 0,
+            watchBps: 0,
+            freezeBps: 0,
+            liquidationBps: 0,
+            riskConfigured: false,
+            active: true
+        });
         emit PolicySet(house, version);
+    }
+
+    function setRiskPolicy(
+        address house,
+        uint256 initialBps,
+        uint256 maintenanceBps,
+        uint256 watchBps,
+        uint256 freezeBps,
+        uint256 liquidationBps
+    ) external {
+        House memory registered = houses[house];
+        if (!registered.active || msg.sender != registered.manager) revert Unauthorized();
+        if (
+            initialBps < maintenanceBps || maintenanceBps <= watchBps || watchBps < freezeBps
+                || freezeBps < liquidationBps || liquidationBps < PROTOCOL_FLOOR_BPS
+        ) revert Invalid();
+        Policy storage policy = policies[house];
+        if (!policy.active) revert Invalid();
+        policy.initialBps = initialBps;
+        policy.maintenanceBps = maintenanceBps;
+        policy.watchBps = watchBps;
+        policy.freezeBps = freezeBps;
+        policy.liquidationBps = liquidationBps;
+        policy.riskConfigured = true;
+        emit RiskPolicySet(house, initialBps, liquidationBps);
     }
 
     function isActiveHouse(address house, address vault) external view returns (bool) {

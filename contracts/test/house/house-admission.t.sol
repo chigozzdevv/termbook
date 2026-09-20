@@ -6,12 +6,14 @@ import {MockERC20} from "../MockERC20.sol";
 import {TermbookCore} from "../../src/credit/TermbookCore.sol";
 import {HouseRegistry} from "../../src/house/HouseRegistry.sol";
 import {HouseVault} from "../../src/house/HouseVault.sol";
+import {RiskEngine} from "../../src/risk/RiskEngine.sol";
 
 contract HouseAdmissionTest is Test {
     MockERC20 token;
     TermbookCore core;
     HouseRegistry registry;
     HouseVault vault;
+    RiskEngine risk;
     uint256 houseKey = 0xBEEF;
     uint256 borrowerKey = 0xCAFE;
     address house;
@@ -22,6 +24,8 @@ contract HouseAdmissionTest is Test {
         core = new TermbookCore(address(this), address(this), address(0));
         registry = new HouseRegistry(address(this));
         vault = new HouseVault(address(token), address(core), address(this));
+        risk = new RiskEngine(address(core));
+        core.setRisk(address(risk));
         core.setHouseRegistry(address(registry));
         house = vm.addr(houseKey);
         borrower = vm.addr(borrowerKey);
@@ -30,6 +34,7 @@ contract HouseAdmissionTest is Test {
         vault.deposit(address(this), 1_000);
         registry.register(house, address(vault), address(token), address(this));
         registry.setPolicy(house, 1, 500, 1 days, 365 days, 10_000, 100, 1_000);
+        registry.setRiskPolicy(house, 15_000, 13_000, 12_000, 11_500, 11_000);
     }
 
     function _accept(bytes32 creditId, bytes32 intentId, uint256 limit, address quotedHouse, bytes4 expectedError)
@@ -91,6 +96,8 @@ contract HouseAdmissionTest is Test {
         TermbookCore.Credit memory credit = core.creditDetails(creditId);
         assertEq(credit.policyVersion, 1);
         assertEq(vault.creditCommitted(creditId), 500);
+        assertEq(risk.initialBps(creditId), 15_000);
+        assertEq(risk.liquidationBps(creditId), 11_000);
     }
 
     function testUnregisteredHouseCannotUseRegisteredVault() public {
@@ -107,5 +114,10 @@ contract HouseAdmissionTest is Test {
         vm.prank(address(0xD00D));
         vm.expectRevert(HouseRegistry.Unauthorized.selector);
         registry.setPolicy(house, 2, 800, 1 days, 365 days, 10_000, 100, 1_000);
+    }
+
+    function testHouseRiskPolicyCannotCrossProtocolFloor() public {
+        vm.expectRevert(HouseRegistry.Invalid.selector);
+        registry.setRiskPolicy(house, 15_000, 13_000, 12_000, 10_500, 10_000);
     }
 }

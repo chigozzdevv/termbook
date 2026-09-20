@@ -106,6 +106,12 @@ interface IHouseRegistryCore {
             uint256 maxAprBps,
             uint256 maxOriginationFeeBps,
             uint256 maxCommitmentFeeBps,
+            uint256 initialBps,
+            uint256 maintenanceBps,
+            uint256 watchBps,
+            uint256 freezeBps,
+            uint256 liquidationBps,
+            bool riskConfigured,
             bool active
         );
 }
@@ -638,6 +644,11 @@ contract TermbookCore is ITermbookCore {
         if (_vaultCore(p.vault) != address(this)) revert InvalidVault();
         _vaultAsset(p.vault);
         uint256 policyVersion;
+        uint256 initialBps;
+        uint256 maintenanceBps;
+        uint256 watchBps;
+        uint256 freezeBps;
+        uint256 liquidationBps;
         if (houseRegistry != address(0)) {
             if (!IHouseRegistryCore(houseRegistry).isActiveHouse(p.house, p.vault)) revert InvalidVault();
             uint256 maxLimit;
@@ -646,6 +657,7 @@ contract TermbookCore is ITermbookCore {
             uint256 maxAprBps;
             uint256 maxOriginationFeeBps;
             uint256 maxCommitmentFeeBps;
+            bool riskConfigured;
             bool active;
             (
                 policyVersion,
@@ -655,10 +667,16 @@ contract TermbookCore is ITermbookCore {
                 maxAprBps,
                 maxOriginationFeeBps,
                 maxCommitmentFeeBps,
+                initialBps,
+                maintenanceBps,
+                watchBps,
+                freezeBps,
+                liquidationBps,
+                riskConfigured,
                 active
             ) = IHouseRegistryCore(houseRegistry).policies(p.house);
             if (
-                !active || p.limit > maxLimit || p.maturity - p.setupDeadline < minMaturity
+                !active || !riskConfigured || p.limit > maxLimit || p.maturity - p.setupDeadline < minMaturity
                     || p.maturity - p.setupDeadline > maxMaturity || p.aprBps > maxAprBps
                     || p.commitmentFeeBps > maxCommitmentFeeBps
                     || p.originationFee > p.limit * maxOriginationFeeBps / BPS
@@ -727,6 +745,11 @@ contract TermbookCore is ITermbookCore {
         c.policyVersion = policyVersion;
         c.accruedAt = block.timestamp;
         c.revision = 1;
+        if (houseRegistry != address(0)) {
+            if (riskEngine == address(0)) revert InvalidTerms();
+            IRiskCore(riskEngine)
+                .setRiskBands(p.creditId, initialBps, maintenanceBps, watchBps, freezeBps, liquidationBps);
+        }
         emit Events.CreditCreated(p.creditId, p.intentId, p.borrower, p.house);
     }
 

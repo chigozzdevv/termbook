@@ -152,6 +152,7 @@ contract TermbookCore is ITermbookCore {
         uint256 originationFee;
         uint256 commitmentFeeBps;
         uint256 policyVersion;
+        uint256 verifierVersion;
         uint256 accruedAt;
         bool originationCharged;
     }
@@ -741,6 +742,13 @@ contract TermbookCore is ITermbookCore {
         if (result == address(0) || result.code.length == 0) revert InvalidVault();
     }
 
+    function _pinVerifier(Credit storage c, uint256 sourceChain) internal {
+        if (verifierRegistry == address(0)) return;
+        (address impl, uint256 version, bool active,) = IVerifierRegistryCore(verifierRegistry).verifiers(sourceChain);
+        if (!active || impl.code.length == 0 || version == 0) revert InvalidCollateral();
+        c.verifierVersion = version;
+    }
+
     function _setQuotedCollateral(
         bytes32 creditId,
         address owner,
@@ -768,6 +776,7 @@ contract TermbookCore is ITermbookCore {
         c.collateralAmount = collateralAmount;
         c.returnRecipient = returnRecipient;
         remoteCollateral[creditId] = remote;
+        if (remote) _pinVerifier(c, sourceChain);
         c.facility = remote ? Types.Facility.CollateralProving : Types.Facility.CollateralLocking;
         c.revision = RevisionLib.next(c.revision);
     }
@@ -832,6 +841,7 @@ contract TermbookCore is ITermbookCore {
         collateralOwnerOf[creditId] = owner;
         collateralSourceChainOf[creditId] = sourceChain;
         remoteCollateral[creditId] = remote;
+        if (remote) _pinVerifier(c, sourceChain);
         c.facility = Types.Facility.CollateralLocking;
         c.revision = RevisionLib.next(c.revision);
     }
@@ -883,6 +893,7 @@ contract TermbookCore is ITermbookCore {
         c.lockId = lockId;
         c.collateralBound = true;
         remoteCollateral[creditId] = true;
+        _pinVerifier(c, sourceChain);
         lockBound[creditId][lockId] = true;
         c.facility = Types.Facility.Aborted;
         c.revision = RevisionLib.next(c.revision);
@@ -945,6 +956,8 @@ contract TermbookCore is ITermbookCore {
         if (expectedSourceChain == 0 || sourceChain != expectedSourceChain) revert InvalidCollateral();
         (address impl,, bool active,) = IVerifierRegistryCore(verifierRegistry).verifiers(sourceChain);
         if (!active || impl.code.length == 0) revert InvalidCollateral();
+        (, uint256 version,,) = IVerifierRegistryCore(verifierRegistry).verifiers(sourceChain);
+        if (c.verifierVersion == 0 || version != c.verifierVersion) revert InvalidCollateral();
         try IVerifierCore(impl).verifyFinality(header) returns (bool final_) {
             if (!final_) revert InvalidCollateral();
         } catch {
@@ -1140,6 +1153,8 @@ contract TermbookCore is ITermbookCore {
         uint256 sourceChain = collateralSourceChainOf[creditId];
         (address impl,, bool active,) = IVerifierRegistryCore(verifierRegistry).verifiers(sourceChain);
         if (!active || impl.code.length == 0) revert InvalidCollateral();
+        (, uint256 version,,) = IVerifierRegistryCore(verifierRegistry).verifiers(sourceChain);
+        if (c.verifierVersion == 0 || version != c.verifierVersion) revert InvalidCollateral();
         try IVerifierCore(impl).verifyFinality(header) returns (bool final_) {
             if (!final_) revert InvalidCollateral();
         } catch {

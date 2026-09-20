@@ -271,6 +271,22 @@ contract RealFlowTest is Test {
         core.draw(creditId, 100, 100, 3, deadline, abi.encodePacked(r, s, v));
     }
 
+    function testStaleHealthBlocksAccountWithdrawal() public {
+        bytes32 creditId = keccak256("stale-withdrawal-credit");
+        _prepare(creditId);
+        uint256 deadline = block.timestamp + 1 hours;
+        uint256 revision = core.creditRevision(creditId);
+        bytes32 digest =
+            keccak256(abi.encode(core.domain(), creditId, uint256(200), uint256(200), uint256(6), deadline, revision));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(borrowerKey, digest);
+        core.draw(creditId, 200, 200, 6, deadline, abi.encodePacked(r, s, v));
+        core.recordHealth(creditId, Types.HealthSnapshot(200, 200, 1000, 0, 10_000, 10_000, 0, 1200, 60_000));
+        vm.warp(block.timestamp + core.healthMaxAge() + 1);
+        vm.expectRevert(TermbookCore.BadHealth.selector);
+        vm.prank(borrower);
+        core.withdraw(creditId, address(token), borrower, 50);
+    }
+
     function testHealthSnapshotMustMatchCreditRevision() public {
         bytes32 creditId = keccak256("revision-health-credit");
         _prepare(creditId);

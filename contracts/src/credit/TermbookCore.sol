@@ -1544,8 +1544,8 @@ contract TermbookCore is ITermbookCore {
         if (amount == 0 || amount > balance) revert OverLimit();
         uint256 cashAfter;
         if (riskEngine != address(0)) {
-            Types.HealthSnapshot memory snapshot = IRiskCore(riskEngine).snapshot(creditId);
-            if (c.debt > 0 && snapshot.debt != c.debt) revert BadHealth();
+            Types.HealthSnapshot memory snapshot =
+                c.debt > 0 ? _requireFreshHealth(c, creditId) : IRiskCore(riskEngine).snapshot(creditId);
             cashAfter = snapshot.cash > amount ? snapshot.cash - amount : 0;
             if (c.debt > 0) IRiskCore(riskEngine).checkWithdraw(creditId, cashAfter);
             IRiskCore(riskEngine).applyCashWithdraw(creditId, cashAfter);

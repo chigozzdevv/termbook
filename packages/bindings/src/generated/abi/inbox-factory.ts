@@ -1,7 +1,13 @@
 export const inboxFactoryAbi = [
   {
     "type": "constructor",
-    "inputs": [],
+    "inputs": [
+      {
+        "name": "governance_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
     "stateMutability": "nonpayable"
   },
   {
@@ -91,6 +97,32 @@ export const inboxFactoryAbi = [
     "stateMutability": "view"
   },
   {
+    "type": "function",
+    "name": "registrar",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "setRegistrar",
+    "inputs": [
+      {
+        "name": "registrar_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
     "type": "event",
     "name": "InboxCreated",
     "inputs": [
@@ -104,6 +136,19 @@ export const inboxFactoryAbi = [
         "name": "inbox",
         "type": "address",
         "indexed": false,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RegistrarSet",
+    "inputs": [
+      {
+        "name": "registrar",
+        "type": "address",
+        "indexed": true,
         "internalType": "address"
       }
     ],

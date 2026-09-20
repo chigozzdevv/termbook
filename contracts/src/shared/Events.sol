@@ -11,6 +11,7 @@ library Events {
     event LiquidationStarted(bytes32 indexed creditId);
     event Cured(bytes32 indexed creditId);
     event Liquidated(bytes32 indexed creditId);
+    event RecoveryPayment(bytes32 indexed creditId, uint256 amount, uint256 debt);
     event CollateralBound(bytes32 indexed creditId, bytes32 lockId, uint256 amount);
     event CollateralReturned(bytes32 indexed creditId, bytes32 lockId, uint256 amount);
     event RemoteReturnRequested(bytes32 indexed creditId, bytes32 lockId, uint256 amount, address recipient);

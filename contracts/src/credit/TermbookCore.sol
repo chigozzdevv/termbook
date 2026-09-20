@@ -210,6 +210,7 @@ contract TermbookCore is ITermbookCore {
     mapping(bytes32 => bool) public remoteCollateral;
     mapping(bytes32 => bool) public bondSettled;
     mapping(bytes32 => uint256) public pendingRemoteReturn;
+    mapping(address => bool) public recoveryKeepers;
 
     error Expired();
     error Unauthorized();
@@ -272,6 +273,11 @@ contract TermbookCore is ITermbookCore {
     function setHouseRegistry(address registry) external onlyGovernance {
         if (registry == address(0) || registry.code.length == 0) revert InvalidAuthority();
         houseRegistry = registry;
+    }
+
+    function setRecoveryKeeper(address keeper, bool active) external onlyGovernance {
+        if (keeper == address(0)) revert InvalidAuthority();
+        recoveryKeepers[keeper] = active;
     }
 
     function setPaused(bool value) external {
@@ -1467,7 +1473,9 @@ contract TermbookCore is ITermbookCore {
     function markMatured(bytes32 creditId) external nonReentrant {
         Credit storage c = _credits[creditId];
         if (block.timestamp < c.maturity || c.facility == Types.Facility.Closed || c.facility == Types.Facility.Aborted)
-        revert BadState();
+        {
+            revert BadState();
+        }
         _accrue(c, creditId);
         if (c.facility == Types.Facility.Ready && c.vault != address(0)) {
             uint256 committed = IHouseVaultCore(c.vault).creditCommitted(creditId);
@@ -1537,6 +1545,39 @@ contract TermbookCore is ITermbookCore {
         c.recovery += amount;
         c.facility = Types.Facility.RecoveryPending;
         c.revision = RevisionLib.next(c.revision);
+    }
+
+    function recoverCollateral(bytes32 creditId, uint256 amount) external nonReentrant {
+        Credit storage c = _credits[creditId];
+        if (!recoveryKeepers[msg.sender]) revert Unauthorized();
+        if (
+            (c.facility != Types.Facility.Liquidating && c.facility != Types.Facility.RecoveryPending)
+                || remoteCollateral[creditId] || c.collateralVault == address(0) || c.lockId == bytes32(0)
+        ) revert BadState();
+        _accrue(c, creditId);
+        if (
+            amount == 0 || amount > c.collateralAmount || amount > c.debt
+                || c.collateralAsset != IHouseVaultCore(c.vault).asset()
+        ) revert InvalidCollateral();
+        ICollateralVaultCore(c.collateralVault).seize(c.lockId, c.vault, amount);
+        uint256 remaining = amount;
+        uint256 feePaid = remaining > c.accruedFees ? c.accruedFees : remaining;
+        remaining -= feePaid;
+        uint256 interestPaid = remaining > c.accruedInterest ? c.accruedInterest : remaining;
+        remaining -= interestPaid;
+        uint256 principalPaid = remaining;
+        if (principalPaid > c.principal) revert BadState();
+        c.accruedFees -= feePaid;
+        c.accruedInterest -= interestPaid;
+        c.principal -= principalPaid;
+        IHouseVaultCore(c.vault).receiveRepay(creditId, amount, principalPaid, interestPaid, feePaid);
+        c.debt -= amount;
+        c.collateralAmount -= amount;
+        c.recovery += amount;
+        c.facility = Types.Facility.RecoveryPending;
+        c.revision = RevisionLib.next(c.revision);
+        if (c.debt == 0) c.payment = Types.Payment.Repaid;
+        emit Events.RecoveryPayment(creditId, amount, c.debt);
     }
 
     function cure(bytes32 creditId) external nonReentrant {

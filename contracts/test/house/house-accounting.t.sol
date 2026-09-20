@@ -50,4 +50,14 @@ contract HouseAccountingTest is Test {
         vm.expectRevert(HouseVault.Insufficient.selector);
         vault.reserve(bytes32(uint256(2)), 0.500000000000000001 ether);
     }
+
+    function testVotingPowerMaturesAndLeavesWithShares() public {
+        vault.deposit(address(this), 1e18);
+        assertEq(vault.votingPower(address(this)), 0);
+        vm.warp(block.timestamp + vault.GOVERNANCE_HOLD());
+        assertEq(vault.votingPower(address(this)), vault.shares(address(this)));
+        uint256 shares = vault.shares(address(this)) / 2;
+        vault.requestWithdrawQueued(shares, address(8));
+        assertEq(vault.votingPower(address(this)), vault.shares(address(this)));
+    }
 }

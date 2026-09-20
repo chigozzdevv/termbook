@@ -39,10 +39,14 @@ contract HouseVault is IHouseVault {
     uint256 public bondLiabilities;
     uint256 public bondCash;
     uint256 public totalShares;
+    uint256 public constant GOVERNANCE_HOLD = 1 days;
     bool public depositsOpen = true;
     bool public paused;
     uint256 private constant SCALE = 1e18;
     mapping(address => uint256) public shares;
+    mapping(address => uint256) public governanceShares;
+    mapping(address => uint256) public pendingGovernanceShares;
+    mapping(address => uint256) public governanceSharesMatureAt;
     mapping(bytes32 => uint256) public creditCommitted;
     mapping(bytes32 => uint256) public creditDrawn;
     mapping(bytes32 => uint256) public creditAccruedReceivable;
@@ -164,6 +168,7 @@ contract HouseVault is IHouseVault {
         freeCash += amount;
         totalShares += minted;
         shares[to] += minted;
+        _addPendingGovernanceShares(to, minted);
         emit Deposited(msg.sender, to, amount, minted);
     }
 
@@ -182,6 +187,7 @@ contract HouseVault is IHouseVault {
         uint256 price = sharePrice();
         amount = shareAmount * price / SCALE;
         if (amount == 0 || amount > availableCash()) revert Insufficient();
+        _removeGovernanceShares(owner, shareAmount);
         shares[owner] -= shareAmount;
         totalShares -= shareAmount;
         freeCash -= amount;
@@ -201,6 +207,7 @@ contract HouseVault is IHouseVault {
         uint256 price = sharePrice();
         amount = shareAmount * price / SCALE;
         if (amount == 0) revert Insufficient();
+        _removeGovernanceShares(msg.sender, shareAmount);
         shares[msg.sender] -= shareAmount;
         totalShares -= shareAmount;
         withdrawalId = ++withdrawalNonce;
@@ -232,6 +239,7 @@ contract HouseVault is IHouseVault {
         queuedWithdrawalAssets -= withdrawal.amount;
         shares[msg.sender] += shareAmount;
         totalShares += shareAmount;
+        _addPendingGovernanceShares(msg.sender, shareAmount);
         emit WithdrawalCancelled(withdrawalId, msg.sender, shareAmount);
     }
 
@@ -332,6 +340,43 @@ contract HouseVault is IHouseVault {
         return freeCash > queuedWithdrawalAssets ? freeCash - queuedWithdrawalAssets : 0;
     }
 
+    function votingPower(address account) public view returns (uint256) {
+        uint256 matured = governanceShares[account];
+        if (pendingGovernanceShares[account] > 0 && block.timestamp >= governanceSharesMatureAt[account]) {
+            matured += pendingGovernanceShares[account];
+        }
+        return matured;
+    }
+
+    function _addPendingGovernanceShares(address account, uint256 amount) internal {
+        _matureGovernanceShares(account);
+        pendingGovernanceShares[account] += amount;
+        governanceSharesMatureAt[account] = block.timestamp + GOVERNANCE_HOLD;
+    }
+
+    function _removeGovernanceShares(address account, uint256 amount) internal {
+        _matureGovernanceShares(account);
+        uint256 matured = governanceShares[account];
+        if (matured >= amount) {
+            governanceShares[account] = matured - amount;
+            return;
+        }
+        governanceShares[account] = 0;
+        uint256 pending = amount - matured;
+        if (pendingGovernanceShares[account] < pending) revert AccountingMismatch();
+        pendingGovernanceShares[account] -= pending;
+        if (pendingGovernanceShares[account] == 0) governanceSharesMatureAt[account] = 0;
+    }
+
+    function _matureGovernanceShares(address account) internal {
+        uint256 pending = pendingGovernanceShares[account];
+        if (pending > 0 && block.timestamp >= governanceSharesMatureAt[account]) {
+            governanceShares[account] += pending;
+            pendingGovernanceShares[account] = 0;
+            governanceSharesMatureAt[account] = 0;
+        }
+    }
+
     function totalAssets() public view returns (uint256) {
         uint256 gross = freeCash + committedCash + drawnPrincipal + accruedReceivables + pendingSettlement + bondCash;
         uint256 liabilities = bondLiabilities + queuedWithdrawalAssets;
@@ -408,6 +453,7 @@ contract HouseVault is IHouseVault {
             freeCash += amount;
             totalShares += minted;
             shares[lpInboxRecipient[msg.sender]] += minted;
+            _addPendingGovernanceShares(lpInboxRecipient[msg.sender], minted);
             emit Deposited(msg.sender, lpInboxRecipient[msg.sender], amount, minted);
             return;
         }

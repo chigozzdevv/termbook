@@ -2,32 +2,34 @@ import { authRepo } from "./auth.repo.js";
 import { env } from "../config/env.js";
 import { recoverMessageAddress } from "viem";
 
-const issued = new Map<string, { nonce: number; expiresAt: number }>();
-
 export const authService = {
   async nonce(wallet: string) {
-    const doc = await authRepo.touch(wallet.toLowerCase());
-    const nonce = Number(doc?.["nonce"] ?? 0);
+    const normalized = wallet.toLowerCase();
     const expiresAt = Math.floor(Date.now() / 1000) + env.authTtlSeconds;
-    issued.set(wallet.toLowerCase(), { nonce, expiresAt });
+    const doc = await authRepo.touch(normalized, expiresAt);
+    const nonce = Number(doc?.["nonce"] ?? 0);
     return {
       wallet: doc?.["wallet"],
       nonce,
       domain: env.authDomain,
-      message: `Termbook login ${env.authDomain} ${wallet.toLowerCase()} ${nonce}`,
+      message: `Termbook login ${env.authDomain} ${normalized} ${nonce}`,
       expiresAt,
     };
   },
 
   async authenticate(wallet: string, signature: string) {
     const normalized = wallet.toLowerCase();
-    const challenge = issued.get(normalized);
-    if (!challenge || challenge.expiresAt < Math.floor(Date.now() / 1000)) throw new Error("auth-expired");
-    const message = `Termbook login ${env.authDomain} ${normalized} ${challenge.nonce}`;
+    const challenge = await authRepo.get(normalized);
+    const now = Math.floor(Date.now() / 1000);
+    const expiresAt = Number(challenge?.["expiresAt"] ?? 0);
+    const nonce = Number(challenge?.["nonce"] ?? -1);
+    if (!challenge || expiresAt <= now || nonce < 0) throw new Error("auth-expired");
+    const message = `Termbook login ${env.authDomain} ${normalized} ${nonce}`;
     const recovered = await recoverMessageAddress({ message, signature: signature as `0x${string}` });
     if (recovered.toLowerCase() !== normalized) throw new Error("auth-invalid");
-    issued.delete(normalized);
-    return { wallet: normalized as `0x${string}`, nonce: challenge.nonce };
+    const consumed = await authRepo.consume(normalized, nonce, now);
+    if (!consumed) throw new Error("auth-expired");
+    return { wallet: normalized as `0x${string}`, nonce };
   },
 
   isAdmin(wallet: string) {

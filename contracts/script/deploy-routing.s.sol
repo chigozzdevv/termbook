@@ -11,7 +11,7 @@ contract DeployRouting is Script {
         address governance = vm.envOr("GOVERNANCE", vm.addr(key));
         vm.startBroadcast(key);
         routes = new RouteRegistry(governance);
-        inboxes = new InboxFactory();
+        inboxes = new InboxFactory(governance);
         vm.stopBroadcast();
     }
 }

@@ -156,6 +156,16 @@ export const housePolicyGovernorAbi = [
         "internalType": "uint256"
       },
       {
+        "name": "snapshotBlock",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "snapshotTimestamp",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
         "name": "startAt",
         "type": "uint256",
         "internalType": "uint256"

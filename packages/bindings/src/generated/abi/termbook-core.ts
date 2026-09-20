@@ -989,6 +989,16 @@ export const termbookCoreAbi = [
             "internalType": "uint256"
           },
           {
+            "name": "policyVersion",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "verifierVersion",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
             "name": "accruedAt",
             "type": "uint256",
             "internalType": "uint256"
@@ -1371,6 +1381,19 @@ export const termbookCoreAbi = [
         "name": "",
         "type": "bool",
         "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "houseRegistry",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -1998,6 +2021,43 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "recoverCollateral",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "recoveryKeepers",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "remoteCollateral",
     "inputs": [
       {
@@ -2346,6 +2406,24 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "setCollateralPauseGuardian",
+    "inputs": [
+      {
+        "name": "collateralVault",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "pauseGuardian",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setCollateralWithOwner",
     "inputs": [
       {
@@ -2374,10 +2452,49 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "setGovernance",
+    "inputs": [
+      {
+        "name": "governance_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setGuardian",
+    "inputs": [
+      {
+        "name": "guardian_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setHealthReporter",
     "inputs": [
       {
         "name": "reporter",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setHouseRegistry",
+    "inputs": [
+      {
+        "name": "registry",
         "type": "address",
         "internalType": "address"
       }
@@ -2404,6 +2521,24 @@ export const termbookCoreAbi = [
     "inputs": [
       {
         "name": "value",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setRecoveryKeeper",
+    "inputs": [
+      {
+        "name": "keeper",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "active",
         "type": "bool",
         "internalType": "bool"
       }
@@ -2822,6 +2957,31 @@ export const termbookCoreAbi = [
   },
   {
     "type": "event",
+    "name": "RecoveryPayment",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "debt",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "RemoteReturnRequested",
     "inputs": [
       {
@@ -2904,6 +3064,11 @@ export const termbookCoreAbi = [
   {
     "type": "error",
     "name": "InvalidAccount",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidAuthority",
     "inputs": []
   },
   {

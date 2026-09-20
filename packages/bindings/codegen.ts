@@ -15,6 +15,12 @@ const contracts = {
   AccountFactory: "account-factory",
   InboxFactory: "inbox-factory",
   IntegrationRegistry: "integration-registry",
+  ProtocolGovernance: "protocol-governance",
+  Guardian: "guardian",
+  HouseRegistry: "house-registry",
+  VerifierRegistry: "verifier-registry",
+  OracleRegistry: "oracle-registry",
+  FlowExecutor: "flow-executor",
 } as const;
 
 await mkdir(output, { recursive: true });

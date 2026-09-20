@@ -109,6 +109,19 @@ export const houseVaultAbi = [
   },
   {
     "type": "function",
+    "name": "availableCash",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "bondByCredit",
     "inputs": [
       {
@@ -602,6 +615,19 @@ export const houseVaultAbi = [
   },
   {
     "type": "function",
+    "name": "pauseGuardian",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "paused",
     "inputs": [],
     "outputs": [
@@ -962,6 +988,19 @@ export const houseVaultAbi = [
   },
   {
     "type": "function",
+    "name": "setPauseGuardian",
+    "inputs": [
+      {
+        "name": "guardian",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setPaused",
     "inputs": [
       {
@@ -1208,6 +1247,19 @@ export const houseVaultAbi = [
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "PauseGuardianSet",
+    "inputs": [
+      {
+        "name": "guardian",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
       }
     ],
     "anonymous": false

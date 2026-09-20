@@ -1465,6 +1465,10 @@ contract TermbookCore is ITermbookCore {
         c.principal -= principalPaid;
         IHouseVaultCore(c.vault).receiveRepay(creditId, amount, principalPaid, interestPaid, feePaid);
         if (c.revolving && principalPaid > 0) IHouseVaultCore(c.vault).restoreCommitment(creditId, principalPaid);
+        if (c.facility == Types.Facility.Liquidating || c.facility == Types.Facility.RecoveryPending) {
+            c.recovery += amount;
+            c.facility = Types.Facility.RecoveryPending;
+        }
         c.debt -= amount;
         c.revision = RevisionLib.next(c.revision);
         if (c.debt == 0 && c.payment == Types.Payment.Current) c.payment = Types.Payment.Repaid;
@@ -1491,6 +1495,7 @@ contract TermbookCore is ITermbookCore {
         c.debt -= amount;
         if (c.facility == Types.Facility.Liquidating || c.facility == Types.Facility.RecoveryPending) {
             c.recovery += amount;
+            c.facility = Types.Facility.RecoveryPending;
         }
         c.revision = RevisionLib.next(c.revision);
         if (c.debt == 0 && c.payment == Types.Payment.Current) c.payment = Types.Payment.Repaid;

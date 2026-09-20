@@ -8,6 +8,7 @@ import {RiskEngine} from "../../src/risk/RiskEngine.sol";
 import {HouseVault} from "../../src/house/HouseVault.sol";
 import {CollateralVault} from "../../src/collateral/CollateralVault.sol";
 import {AccountFactory} from "../../src/credit/AccountFactory.sol";
+import {SettlementInbox} from "../../src/routing/SettlementInbox.sol";
 import {Types} from "../../src/shared/Types.sol";
 
 contract LocalRecoveryTest is Test {
@@ -134,5 +135,49 @@ contract LocalRecoveryTest is Test {
         vm.prank(address(0xD00D));
         vm.expectRevert(TermbookCore.Unauthorized.selector);
         core.recoverCollateral(creditId, 500);
+    }
+
+    function testSettlementRecoveryTransitionsAndFinalizes() public {
+        bytes32 creditId = keccak256("credit-settlement-recovery");
+        _prepare(creditId);
+        _draw(creditId);
+        _liquidate(creditId);
+
+        SettlementInbox inbox = new SettlementInbox(
+            keccak256("recovery-operation"),
+            address(houseVault),
+            address(token),
+            creditId,
+            500,
+            borrower,
+            block.timestamp + 1 days
+        );
+        houseVault.setSettlementInbox(address(inbox), true);
+        token.mint(address(inbox), 500);
+        inbox.notifyAll();
+        inbox.settle(500);
+
+        assertEq(core.creditDebt(creditId), 0);
+        assertEq(uint256(core.creditFacility(creditId)), uint256(Types.Facility.RecoveryPending));
+        core.finishLiquidation(creditId);
+        assertEq(uint256(core.creditFacility(creditId)), uint256(Types.Facility.Liquidated));
+    }
+
+    function testDirectRepaymentDuringLiquidationTransitionsAndFinalizes() public {
+        bytes32 creditId = keccak256("credit-direct-recovery");
+        _prepare(creditId);
+        _draw(creditId);
+        _liquidate(creditId);
+
+        token.mint(borrower, 500);
+        vm.startPrank(borrower);
+        token.approve(address(core), 500);
+        core.repay(creditId, 500);
+        vm.stopPrank();
+
+        assertEq(core.creditDebt(creditId), 0);
+        assertEq(uint256(core.creditFacility(creditId)), uint256(Types.Facility.RecoveryPending));
+        core.finishLiquidation(creditId);
+        assertEq(uint256(core.creditFacility(creditId)), uint256(Types.Facility.Liquidated));
     }
 }

@@ -85,6 +85,10 @@ contract VerifierVersionTest is Test {
         TermbookCore.Credit memory credit = core.creditDetails(creditId);
         assertEq(credit.verifierVersion, 1);
 
+        registry.setVerifier(99, address(new MockVersionedVerifier()), 1, 1 days);
+        vm.expectRevert(TermbookCore.InvalidCollateral.selector);
+        core.proveCollateral(creditId, 99, hex"", hex"");
+
         registry.setVerifier(99, verifier, 2, 1 days);
         vm.expectRevert(TermbookCore.InvalidCollateral.selector);
         core.proveCollateral(creditId, 99, hex"", hex"");

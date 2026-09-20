@@ -7,6 +7,7 @@ contract VerifierRegistry {
         uint256 version;
         bool active;
         uint256 maxAge;
+        bytes32 codeHash;
     }
 
     mapping(uint256 => Verifier) public verifiers;
@@ -23,7 +24,7 @@ contract VerifierRegistry {
 
     function setVerifier(uint256 chainId, address impl, uint256 version, uint256 maxAge) external {
         if (msg.sender != governance || impl.code.length == 0 || version == 0 || maxAge == 0) revert Invalid();
-        verifiers[chainId] = Verifier(impl, version, true, maxAge);
+        verifiers[chainId] = Verifier(impl, version, true, maxAge, impl.codehash);
         emit VerifierSet(chainId, impl, version);
     }
 

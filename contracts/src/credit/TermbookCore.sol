@@ -91,7 +91,7 @@ interface IVerifierRegistryCore {
     function verifiers(uint256 chainId)
         external
         view
-        returns (address impl, uint256 version, bool active, uint256 maxAge);
+        returns (address impl, uint256 version, bool active, uint256 maxAge, bytes32 codeHash);
 }
 
 interface IHouseRegistryCore {
@@ -163,6 +163,7 @@ contract TermbookCore is ITermbookCore {
         uint256 commitmentFeeBps;
         uint256 policyVersion;
         uint256 verifierVersion;
+        bytes32 verifierCodeHash;
         uint256 accruedAt;
         bool originationCharged;
     }
@@ -779,9 +780,11 @@ contract TermbookCore is ITermbookCore {
 
     function _pinVerifier(Credit storage c, uint256 sourceChain) internal {
         if (verifierRegistry == address(0)) return;
-        (address impl, uint256 version, bool active,) = IVerifierRegistryCore(verifierRegistry).verifiers(sourceChain);
+        (address impl, uint256 version, bool active,, bytes32 codeHash) =
+            IVerifierRegistryCore(verifierRegistry).verifiers(sourceChain);
         if (!active || impl.code.length == 0 || version == 0) revert InvalidCollateral();
         c.verifierVersion = version;
+        c.verifierCodeHash = codeHash;
     }
 
     function _setQuotedCollateral(
@@ -989,10 +992,15 @@ contract TermbookCore is ITermbookCore {
         ) revert InvalidCollateral();
         uint256 expectedSourceChain = collateralSourceChainOf[creditId];
         if (expectedSourceChain == 0 || sourceChain != expectedSourceChain) revert InvalidCollateral();
-        (address impl,, bool active,) = IVerifierRegistryCore(verifierRegistry).verifiers(sourceChain);
+        (address impl,, bool active,, bytes32 codeHash) = IVerifierRegistryCore(verifierRegistry).verifiers(sourceChain);
         if (!active || impl.code.length == 0) revert InvalidCollateral();
-        (, uint256 version,,) = IVerifierRegistryCore(verifierRegistry).verifiers(sourceChain);
-        if (c.verifierVersion == 0 || version != c.verifierVersion) revert InvalidCollateral();
+        (, uint256 version,,,) = IVerifierRegistryCore(verifierRegistry).verifiers(sourceChain);
+        if (
+            c.verifierVersion == 0 || version != c.verifierVersion || codeHash != c.verifierCodeHash
+                || impl.codehash != c.verifierCodeHash
+        ) {
+            revert InvalidCollateral();
+        }
         try IVerifierCore(impl).verifyFinality(header) returns (bool final_) {
             if (!final_) revert InvalidCollateral();
         } catch {
@@ -1186,10 +1194,15 @@ contract TermbookCore is ITermbookCore {
                 || !remoteCollateral[creditId] || pendingRemoteReturn[creditId] == 0 || verifierRegistry == address(0)
         ) revert Pending();
         uint256 sourceChain = collateralSourceChainOf[creditId];
-        (address impl,, bool active,) = IVerifierRegistryCore(verifierRegistry).verifiers(sourceChain);
+        (address impl,, bool active,, bytes32 codeHash) = IVerifierRegistryCore(verifierRegistry).verifiers(sourceChain);
         if (!active || impl.code.length == 0) revert InvalidCollateral();
-        (, uint256 version,,) = IVerifierRegistryCore(verifierRegistry).verifiers(sourceChain);
-        if (c.verifierVersion == 0 || version != c.verifierVersion) revert InvalidCollateral();
+        (, uint256 version,,,) = IVerifierRegistryCore(verifierRegistry).verifiers(sourceChain);
+        if (
+            c.verifierVersion == 0 || version != c.verifierVersion || codeHash != c.verifierCodeHash
+                || impl.codehash != c.verifierCodeHash
+        ) {
+            revert InvalidCollateral();
+        }
         try IVerifierCore(impl).verifyFinality(header) returns (bool final_) {
             if (!final_) revert InvalidCollateral();
         } catch {

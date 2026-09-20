@@ -38,6 +38,9 @@ contract HouseVault is IHouseVault {
     uint256 public impairment;
     uint256 public bondLiabilities;
     uint256 public bondCash;
+    uint256 public protocolFeeBps;
+    uint256 public protocolFeesPaid;
+    address public protocolFeeRecipient;
     uint256 public totalShares;
     uint256 public constant GOVERNANCE_HOLD = 1 days;
     bool public depositsOpen = true;
@@ -87,6 +90,8 @@ contract HouseVault is IHouseVault {
     event WithdrawalClaimed(uint256 indexed withdrawalId, address indexed recipient, uint256 amount);
     event WithdrawalCancelled(uint256 indexed withdrawalId, address indexed owner, uint256 shares);
     event PauseGuardianSet(address indexed guardian);
+    event ProtocolFeeSet(address indexed recipient, uint256 feeBps);
+    event ProtocolFeePaid(bytes32 indexed creditId, address indexed recipient, uint256 amount);
 
     constructor(address asset_, address core_, address manager_) {
         if (asset_.code.length == 0 || core_ == address(0) || manager_ == address(0)) revert InvalidAsset();
@@ -113,6 +118,13 @@ contract HouseVault is IHouseVault {
         if (guardian == address(0) || guardian.code.length == 0) revert Unauthorized();
         pauseGuardian = guardian;
         emit PauseGuardianSet(guardian);
+    }
+
+    function setProtocolFee(address recipient, uint256 feeBps) external onlyCore {
+        if (feeBps > 10_000 || (feeBps > 0 && recipient == address(0))) revert InvalidAmount();
+        protocolFeeRecipient = recipient;
+        protocolFeeBps = feeBps;
+        emit ProtocolFeeSet(recipient, feeBps);
     }
 
     function setPaused(bool value) external {
@@ -315,6 +327,13 @@ contract HouseVault is IHouseVault {
         creditAccruedReceivable[creditId] -= receivablePaid;
         accruedReceivables -= receivablePaid;
         freeCash += amount;
+        uint256 protocolFee = receivablePaid * protocolFeeBps / 10_000;
+        if (protocolFee > 0) {
+            freeCash -= protocolFee;
+            protocolFeesPaid += protocolFee;
+            asset.safeTransfer(protocolFeeRecipient, protocolFee);
+            emit ProtocolFeePaid(creditId, protocolFeeRecipient, protocolFee);
+        }
         emit RepaymentReceived(creditId, amount);
     }
 

@@ -60,4 +60,21 @@ contract HouseAccountingTest is Test {
         vault.requestWithdrawQueued(shares, address(8));
         assertEq(vault.votingPower(address(this)), vault.shares(address(this)));
     }
+
+    function testProtocolFeeIsTakenOnlyFromHouseReceivables() public {
+        bytes32 creditId = bytes32(uint256(3));
+        vault.deposit(address(this), 1e18);
+        vault.reserve(creditId, 0.5e18);
+        vault.fundDraw(creditId, address(2), 0.5e18);
+        vault.recordAccruedReceivable(creditId, 0.1e18);
+        vault.setProtocolFee(address(9), 1_000);
+        token.mint(address(vault), 0.6e18);
+
+        vault.receiveRepay(creditId, 0.6e18, 0.5e18, 0.1e18, 0);
+
+        assertEq(token.balanceOf(address(9)), 0.01e18);
+        assertEq(vault.protocolFeesPaid(), 0.01e18);
+        assertEq(vault.freeCash(), 1.09e18);
+        assertEq(vault.drawnPrincipal(), 0);
+    }
 }

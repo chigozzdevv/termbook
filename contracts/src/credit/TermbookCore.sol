@@ -11,6 +11,7 @@ import {ITermbookCore} from "./ITermbookCore.sol";
 interface IHouseVaultCore {
     function core() external view returns (address);
     function asset() external view returns (address);
+    function setProtocolFee(address recipient, uint256 feeBps) external;
     function reserve(bytes32 creditId, uint256 amount) external;
     function release(bytes32 creditId, uint256 amount) external;
     function fundDraw(bytes32 creditId, address account, uint256 amount) external;
@@ -283,6 +284,14 @@ contract TermbookCore is ITermbookCore {
     function setHouseRegistry(address registry) external onlyGovernance {
         if (registry == address(0) || registry.code.length == 0) revert InvalidAuthority();
         houseRegistry = registry;
+    }
+
+    function setHouseProtocolFee(address vault, address recipient, uint256 feeBps) external onlyGovernance {
+        if (vault == address(0) || vault.code.length == 0 || feeBps > BPS) revert InvalidTerms();
+        if (feeBps > 0 && recipient == address(0)) revert InvalidTerms();
+        (bool ok, bytes memory data) = vault.staticcall(abi.encodeWithSelector(IHouseVaultCore.core.selector));
+        if (!ok || data.length < 32 || abi.decode(data, (address)) != address(this)) revert InvalidVault();
+        IHouseVaultCore(vault).setProtocolFee(recipient, feeBps);
     }
 
     function setRecoveryKeeper(address keeper, bool active) external onlyGovernance {

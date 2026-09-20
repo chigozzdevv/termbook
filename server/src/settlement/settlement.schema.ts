@@ -4,6 +4,7 @@ export const settlementSchema = z.object({
   operationId: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
   kind: z.enum(["repay", "recovery", "lp_deposit"]),
   payer: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+  nonce: z.string().regex(/^\d+$/).refine((value) => BigInt(value) >= 0n),
   sourceChain: z.number().int().positive(),
   sourceAsset: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
   vault: z.string().regex(/^0x[a-fA-F0-9]{40}$/),

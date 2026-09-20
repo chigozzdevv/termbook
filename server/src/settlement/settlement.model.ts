@@ -5,6 +5,7 @@ const settlementSchema = new mongoose.Schema(
     operationId: { type: String, required: true, unique: true },
     kind: String,
     payer: String,
+    nonce: String,
     sourceChain: Number,
     sourceAsset: String,
     vault: String,

@@ -21,6 +21,7 @@ export class Settlement {
     nonce: bigint;
     chainId: number;
     creditId?: `0x${string}`;
+    routeVersion?: `0x${string}`;
     asset: `0x${string}`;
     settlementAsset: `0x${string}`;
     vault: `0x${string}`;
@@ -30,10 +31,11 @@ export class Settlement {
     sourceRefund: `0x${string}`;
     monadRefund: `0x${string}`;
   }): Promise<`0x${string}`> {
-    const id = operationId({ kind: input.kind, payer: input.payer, nonce: input.nonce, chainId: input.chainId, creditId: input.creditId, asset: input.asset, vault: input.vault });
+    const id = operationId({ kind: input.kind, payer: input.payer, nonce: input.nonce, chainId: input.chainId, creditId: input.creditId, routeVersion: input.routeVersion, asset: input.asset, vault: input.vault });
     const result = await this.client.authenticatedPost<{ operationId?: string; operation_id?: string }>("/settlement", {
       operationId: id,
       kind: input.kind,
+      nonce: input.nonce.toString(),
       sourceChain: input.chainId,
       sourceAsset: input.asset,
       token: input.settlementAsset,
@@ -46,6 +48,7 @@ export class Settlement {
       refundRecipient: input.monadRefund,
       sourceRefundRecipient: input.sourceRefund,
       monadRefundRecipient: input.monadRefund,
+      routeVersion: input.routeVersion,
     });
     const saved = result.operationId ?? result.operation_id;
     if (!saved || !/^0x[a-fA-F0-9]{64}$/.test(saved)) throw new Error("settlement-invalid");

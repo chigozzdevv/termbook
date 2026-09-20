@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { collateralSelectSchema } from "../src/intent.js";
 import { quoteSchema } from "../src/quote.js";
+import { operationSchema } from "../src/settlement.js";
 
 describe("schema", () => {
   it("rejects bad address", () => {
@@ -21,5 +22,24 @@ describe("schema", () => {
       aprBps: 500,
     };
     expect(quoteSchema.parse(q).id).toBe("q1");
+  });
+
+  it("requires operation identity fields", () => {
+    const operation = {
+      operationId: `0x${"1".repeat(64)}`,
+      kind: "repay" as const,
+      payer: `0x${"1".repeat(40)}`,
+      nonce: 1n,
+      sourceChain: 1,
+      sourceAsset: `0x${"2".repeat(40)}`,
+      maxAmountIn: 100n,
+      vault: `0x${"3".repeat(40)}`,
+      creditId: `0x${"4".repeat(64)}`,
+      minAmountOut: 90n,
+      deadline: 9999999999,
+      refundRecipient: `0x${"5".repeat(40)}`,
+    };
+    expect(operationSchema.parse(operation).nonce).toBe(1n);
+    expect(() => operationSchema.parse({ ...operation, minAmountOut: -1n })).toThrow();
   });
 });

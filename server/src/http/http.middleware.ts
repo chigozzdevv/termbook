@@ -10,7 +10,7 @@ export function registerErrors(app: FastifyInstance): void {
     if (message.endsWith("-conflict")) return reply.status(409).send({ error: message });
     if (message === "permission-denied" || message === "auth-invalid") return reply.status(403).send({ error: message });
     if (message.endsWith("-not-found")) return reply.status(404).send({ error: message });
-    if (message.startsWith("offer-") || message.startsWith("param-") || message === "auth-expired") return reply.status(400).send({ error: message });
+    if (message.startsWith("offer-") || message.startsWith("operation-") || message.startsWith("param-") || message === "auth-expired") return reply.status(400).send({ error: message });
     return reply.status(500).send({ error: "internal" });
   });
 }

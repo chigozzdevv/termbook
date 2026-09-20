@@ -7,7 +7,37 @@ import {TermbookCore} from "../../src/credit/TermbookCore.sol";
 import {HouseVault} from "../../src/house/HouseVault.sol";
 import {VerifierRegistry} from "../../src/collateral/VerifierRegistry.sol";
 
-contract MockVersionedVerifier {}
+contract MockVersionedVerifier {
+    uint256 public immutable version;
+
+    constructor(uint256 version_) {
+        version = version_;
+    }
+
+    function admission() external view returns (uint256, uint256, bytes32) {
+        return (99, version, keccak256("bootstrap"));
+    }
+
+    function lightClient() external view returns (address) {
+        return address(this);
+    }
+
+    function proofMaxAge() external pure returns (uint256) {
+        return 1 days;
+    }
+
+    function chainId() external pure returns (uint256) {
+        return 99;
+    }
+
+    function consensusVersion() external view returns (uint256) {
+        return version;
+    }
+
+    function bootstrapHash() external pure returns (bytes32) {
+        return keccak256("bootstrap");
+    }
+}
 
 contract VerifierVersionTest is Test {
     MockERC20 token;
@@ -26,7 +56,7 @@ contract VerifierVersionTest is Test {
         vault = new HouseVault(address(token), address(core), address(this));
         registry = new VerifierRegistry(address(this));
         core.setVerifierRegistry(address(registry));
-        verifier = address(new MockVersionedVerifier());
+        verifier = address(new MockVersionedVerifier(1));
         registry.setVerifier(99, verifier, 1, 1 days);
         house = vm.addr(houseKey);
         borrower = vm.addr(borrowerKey);
@@ -85,11 +115,11 @@ contract VerifierVersionTest is Test {
         TermbookCore.Credit memory credit = core.creditDetails(creditId);
         assertEq(credit.verifierVersion, 1);
 
-        registry.setVerifier(99, address(new MockVersionedVerifier()), 1, 1 days);
+        registry.setVerifier(99, address(new MockVersionedVerifier(1)), 1, 1 days);
         vm.expectRevert(TermbookCore.InvalidCollateral.selector);
         core.proveCollateral(creditId, 99, hex"", hex"");
 
-        registry.setVerifier(99, verifier, 2, 1 days);
+        registry.setVerifier(99, address(new MockVersionedVerifier(2)), 2, 1 days);
         vm.expectRevert(TermbookCore.InvalidCollateral.selector);
         core.proveCollateral(creditId, 99, hex"", hex"");
     }

@@ -13,9 +13,10 @@ contract DeploySource is Script {
         address core = vm.envAddress("CORE_ADDRESS");
         address asset = vm.envAddress("COLLATERAL_ASSET");
         uint256 sourceChain = vm.envUint("SOURCE_CHAIN_ID");
+        address lightClient = vm.envAddress("LIGHT_CLIENT_ADDRESS");
         vm.startBroadcast(key);
         factory = new VaultFactory();
-        verifier = sourceChain == block.chainid ? address(new MonadVerifier(vm.envOr("FINALITY_DEPTH", uint256(32)))) : address(new EthereumVerifier(vm.envOr("MIN_CONFIRMATIONS", uint256(64)), vm.envOr("FINALITY_DEPTH", uint256(64))));
+        verifier = sourceChain == block.chainid ? address(new MonadVerifier(lightClient)) : address(new EthereumVerifier(lightClient));
         vault = address(new CollateralVault(asset, sourceChain, core));
         vm.stopBroadcast();
     }

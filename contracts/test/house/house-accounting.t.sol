@@ -42,4 +42,12 @@ contract HouseAccountingTest is Test {
         uint256 price = vault.sharePrice();
         assertGt(price, 0);
     }
+
+    function testQueuedWithdrawalsAreNotReserveable() public {
+        vault.deposit(address(this), 1e18);
+        vault.requestWithdrawQueued(0.5e18, address(8));
+        assertEq(vault.availableCash(), 0.5e18);
+        vm.expectRevert(HouseVault.Insufficient.selector);
+        vault.reserve(bytes32(uint256(2)), 0.500000000000000001 ether);
+    }
 }

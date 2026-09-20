@@ -19,6 +19,7 @@ contract CollateralVault is ICollateralVault {
     address public immutable asset;
     uint256 public immutable chainId_;
     address public immutable core;
+    address public pauseGuardian;
     bool public paused;
     mapping(bytes32 => Lock) public locks;
     mapping(bytes32 => bool) public lockExists;
@@ -39,6 +40,7 @@ contract CollateralVault is ICollateralVault {
     event Locked(bytes32 indexed lockId, bytes32 indexed creditId, address indexed owner, uint256 amount);
     event Released(bytes32 indexed lockId, address indexed recipient, uint256 amount);
     event Seized(bytes32 indexed lockId, address indexed recipient, uint256 amount);
+    event PauseGuardianSet(address indexed guardian);
 
     constructor(address asset_, uint256 chainId__, address core_) {
         if (asset_.code.length == 0 || core_ == address(0) || chainId__ == 0) revert InvalidAsset();
@@ -48,8 +50,14 @@ contract CollateralVault is ICollateralVault {
     }
 
     function setPaused(bool value) external {
-        if (msg.sender != core) revert Unauthorized();
+        if (msg.sender != core && msg.sender != pauseGuardian) revert Unauthorized();
         paused = value;
+    }
+
+    function setPauseGuardian(address guardian) external {
+        if (msg.sender != core || guardian == address(0) || guardian.code.length == 0) revert Unauthorized();
+        pauseGuardian = guardian;
+        emit PauseGuardianSet(guardian);
     }
 
     function lock(bytes32 lockId, bytes32 creditId, address owner, uint256 amount, address recipient) external {
@@ -101,7 +109,9 @@ contract CollateralVault is ICollateralVault {
         if (msg.sender != core) revert Unauthorized();
         Lock storage l = locks[lockId];
         if (!lockExists[lockId]) revert Unknown();
-        if (l.released || l.seized || recipient == address(0) || amount == 0 || amount > l.amount) revert InvalidBinding();
+        if (l.released || l.seized || recipient == address(0) || amount == 0 || amount > l.amount) {
+            revert InvalidBinding();
+        }
         l.amount -= amount;
         if (l.amount == 0) l.seized = true;
         uint256 beforeBalance = asset.balanceOf(recipient);
@@ -128,7 +138,19 @@ contract CollateralVault is ICollateralVault {
         )
     {
         Lock memory l = locks[lockId];
-        return (l.creditId, l.owner, asset, chainId_, l.amount, l.recipient, lockDeadline[lockId], lockRevision[lockId], lockExists[lockId], l.released, l.seized);
+        return (
+            l.creditId,
+            l.owner,
+            asset,
+            chainId_,
+            l.amount,
+            l.recipient,
+            lockDeadline[lockId],
+            lockRevision[lockId],
+            lockExists[lockId],
+            l.released,
+            l.seized
+        );
     }
 
     function consumed(bytes32 lockId) external view returns (bool) {

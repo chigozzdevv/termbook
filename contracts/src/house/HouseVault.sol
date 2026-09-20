@@ -28,6 +28,7 @@ contract HouseVault is IHouseVault {
     address public immutable asset;
     address public immutable core;
     address public immutable manager;
+    address public pauseGuardian;
     uint256 public freeCash;
     uint256 public committedCash;
     uint256 public drawnPrincipal;
@@ -76,9 +77,12 @@ contract HouseVault is IHouseVault {
     event RepaymentReceived(bytes32 indexed creditId, uint256 amount);
     event SettlementInboxSet(address indexed inbox, bool active);
     event ImpairmentRecognized(uint256 amount);
-    event WithdrawalQueued(uint256 indexed withdrawalId, address indexed owner, address recipient, uint256 shares, uint256 amount);
+    event WithdrawalQueued(
+        uint256 indexed withdrawalId, address indexed owner, address recipient, uint256 shares, uint256 amount
+    );
     event WithdrawalClaimed(uint256 indexed withdrawalId, address indexed recipient, uint256 amount);
     event WithdrawalCancelled(uint256 indexed withdrawalId, address indexed owner, uint256 shares);
+    event PauseGuardianSet(address indexed guardian);
 
     constructor(address asset_, address core_, address manager_) {
         if (asset_.code.length == 0 || core_ == address(0) || manager_ == address(0)) revert InvalidAsset();
@@ -101,8 +105,14 @@ contract HouseVault is IHouseVault {
         depositsOpen = value;
     }
 
+    function setPauseGuardian(address guardian) external onlyManager {
+        if (guardian == address(0) || guardian.code.length == 0) revert Unauthorized();
+        pauseGuardian = guardian;
+        emit PauseGuardianSet(guardian);
+    }
+
     function setPaused(bool value) external {
-        if (msg.sender != manager && msg.sender != core) revert Unauthorized();
+        if (msg.sender != manager && msg.sender != core && msg.sender != pauseGuardian) revert Unauthorized();
         paused = value;
     }
 
@@ -171,7 +181,7 @@ contract HouseVault is IHouseVault {
         if (shareAmount == 0 || shares[owner] < shareAmount) revert Insufficient();
         uint256 price = sharePrice();
         amount = shareAmount * price / SCALE;
-        if (amount == 0 || amount > freeCash) revert Insufficient();
+        if (amount == 0 || amount > availableCash()) revert Insufficient();
         shares[owner] -= shareAmount;
         totalShares -= shareAmount;
         freeCash -= amount;
@@ -181,8 +191,13 @@ contract HouseVault is IHouseVault {
         emit Withdrawn(owner, amount, shareAmount);
     }
 
-    function requestWithdrawQueued(uint256 shareAmount, address to) external returns (uint256 withdrawalId, uint256 amount) {
-        if (paused || to == address(0) || shareAmount == 0 || shares[msg.sender] < shareAmount) revert Insufficient();
+    function requestWithdrawQueued(uint256 shareAmount, address to)
+        external
+        returns (uint256 withdrawalId, uint256 amount)
+    {
+        if (paused || to == address(0) || shareAmount == 0 || shares[msg.sender] < shareAmount) {
+            revert Insufficient();
+        }
         uint256 price = sharePrice();
         amount = shareAmount * price / SCALE;
         if (amount == 0) revert Insufficient();
@@ -196,7 +211,9 @@ contract HouseVault is IHouseVault {
 
     function claimWithdrawal(uint256 withdrawalId) external returns (uint256 amount) {
         Withdrawal storage withdrawal = withdrawals[withdrawalId];
-        if (withdrawal.owner != msg.sender || withdrawal.claimed || withdrawal.cancelled || withdrawal.amount > freeCash) revert Insufficient();
+        if (
+            withdrawal.owner != msg.sender || withdrawal.claimed || withdrawal.cancelled || withdrawal.amount > freeCash
+        ) revert Insufficient();
         amount = withdrawal.amount;
         withdrawal.claimed = true;
         queuedWithdrawalAssets -= amount;
@@ -219,7 +236,7 @@ contract HouseVault is IHouseVault {
     }
 
     function reserve(bytes32 creditId, uint256 amount) public onlyCore {
-        if (creditId == bytes32(0) || amount == 0 || amount > freeCash) revert Insufficient();
+        if (creditId == bytes32(0) || amount == 0 || amount > availableCash()) revert Insufficient();
         freeCash -= amount;
         committedCash += amount;
         creditCommitted[creditId] += amount;
@@ -277,10 +294,14 @@ contract HouseVault is IHouseVault {
         uint256 interestPaid,
         uint256 feePaid
     ) public onlyCore {
-        if (amount == 0 || principalPaid + interestPaid + feePaid != amount) revert AccountingMismatch();
+        if (amount == 0 || principalPaid + interestPaid + feePaid != amount) {
+            revert AccountingMismatch();
+        }
         if (principalPaid > creditDrawn[creditId] || principalPaid > drawnPrincipal) revert AccountingMismatch();
         uint256 receivablePaid = interestPaid + feePaid;
-        if (receivablePaid > creditAccruedReceivable[creditId] || receivablePaid > accruedReceivables) revert AccountingMismatch();
+        if (receivablePaid > creditAccruedReceivable[creditId] || receivablePaid > accruedReceivables) {
+            revert AccountingMismatch();
+        }
         creditDrawn[creditId] -= principalPaid;
         drawnPrincipal -= principalPaid;
         creditAccruedReceivable[creditId] -= receivablePaid;
@@ -301,10 +322,14 @@ contract HouseVault is IHouseVault {
     }
 
     function restoreCommitment(bytes32 creditId, uint256 amount) external onlyCore {
-        if (amount == 0 || amount > freeCash) revert Insufficient();
+        if (amount == 0 || amount > availableCash()) revert Insufficient();
         freeCash -= amount;
         committedCash += amount;
         creditCommitted[creditId] += amount;
+    }
+
+    function availableCash() public view returns (uint256) {
+        return freeCash > queuedWithdrawalAssets ? freeCash - queuedWithdrawalAssets : 0;
     }
 
     function totalAssets() public view returns (uint256) {
@@ -331,7 +356,10 @@ contract HouseVault is IHouseVault {
         uint256 interestPaid,
         uint256 feePaid
     ) public onlyCore {
-        if (!settlementInboxes[inbox] || amount == 0 || amount > pendingByInbox[inbox] || amount > pendingByCredit[creditId]) revert AccountingMismatch();
+        if (
+            !settlementInboxes[inbox] || amount == 0 || amount > pendingByInbox[inbox]
+                || amount > pendingByCredit[creditId]
+        ) revert AccountingMismatch();
         pendingByInbox[inbox] -= amount;
         pendingByCredit[creditId] -= amount;
         pendingSettlement -= amount;
@@ -358,7 +386,9 @@ contract HouseVault is IHouseVault {
     }
 
     function refundBond(bytes32 creditId, address recipient, uint256 amount) external onlyCore {
-        if (recipient == address(0) || amount == 0 || amount > bondByCredit[creditId] || amount > bondLiabilities) revert AccountingMismatch();
+        if (recipient == address(0) || amount == 0 || amount > bondByCredit[creditId] || amount > bondLiabilities) {
+            revert AccountingMismatch();
+        }
         bondByCredit[creditId] -= amount;
         bondCash -= amount;
         bondLiabilities -= amount;

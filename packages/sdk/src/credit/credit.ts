@@ -132,13 +132,15 @@ export class Credit {
       if (balance < applied) throw new Error("settle-failed");
       const tx = await this.client.rpc.coreWrite("repayFromAccount", [this.id, applied]);
       await this.client.rpc.wait(tx);
-      return { applied, remaining: debt - applied, status: debt === applied ? "applied" : "partial", tx };
+      const remaining = await this.client.rpc.debt(this.id);
+      return { applied, remaining, status: remaining === 0n ? "applied" : "partial", tx };
     }
     const approvalTx = await this.client.rpc.approve(asset, this.client.config.core, applied);
     await this.client.rpc.wait(approvalTx);
     const tx = await this.client.rpc.coreWrite("repay", [this.id, applied]);
     await this.client.rpc.wait(tx);
-    return { applied, remaining: debt - applied, status: debt === applied ? "applied" : "partial", tx };
+    const remaining = await this.client.rpc.debt(this.id);
+    return { applied, remaining, status: remaining === 0n ? "applied" : "partial", tx };
   }
 
   async close(): Promise<{ closed: boolean; tx?: `0x${string}` }> {

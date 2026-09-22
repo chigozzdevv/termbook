@@ -30,14 +30,19 @@ export class RpcClient {
   async write(address: `0x${string}`, abi: readonly unknown[], functionName: string, args: readonly unknown[] = [], value?: bigint): Promise<TxHash> {
     const writer = this.config.wallet.writeContract;
     if (!writer) throw new Error("wallet-write-unavailable");
+    const rpcChainId = await this.client.getChainId();
+    if (rpcChainId !== this.config.chainId) throw new Error("chain-mismatch");
     const request: ContractWriteRequest = { address, abi, functionName, args, account: this.config.wallet.address };
     if (value !== undefined) request.value = value;
     return writer(request);
   }
 
   async wait(hash: TxHash): Promise<unknown> {
-    if (!this.config.wallet.waitForTransactionReceipt) return hash;
-    return this.config.wallet.waitForTransactionReceipt(hash);
+    const confirmations = this.config.confirmations ?? 1;
+    if (!Number.isSafeInteger(confirmations) || confirmations < 1) throw new Error("confirmations-invalid");
+    const receipt = await this.client.waitForTransactionReceipt({ hash, confirmations });
+    if (receipt.status !== "success") throw new Error("transaction-reverted");
+    return receipt;
   }
 
   async debt(creditId: `0x${string}`): Promise<bigint> {

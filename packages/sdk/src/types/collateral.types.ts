@@ -4,7 +4,6 @@ export type CollateralArgs = {
   owner?: `0x${string}`;
   recipient?: `0x${string}`;
   sourceChain?: number;
-  sourceRpc?: string;
   deadline?: number;
   nonce?: bigint;
   lockId?: `0x${string}`;

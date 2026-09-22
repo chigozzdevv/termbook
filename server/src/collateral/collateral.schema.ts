@@ -5,5 +5,4 @@ export const collateralSchema = z.object({
   creditId: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
   amount: z.string().min(1),
   owner: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
-  sourceRpc: z.string().url().optional(),
-});
+}).strict();

@@ -3,6 +3,7 @@ export const env = {
   mongoUrl: process.env["MONGO_URL"] ?? "mongodb://127.0.0.1:27017/termbook",
   redisUrl: process.env["REDIS_URL"] ?? "",
   rpcUrl: process.env["RPC_URL"] ?? "http://127.0.0.1:8545",
+  sourceProofUrl: process.env["SOURCE_PROOF_URL"] ?? "",
   monadChainId: Number(process.env["MONAD_CHAIN_ID"] ?? 0),
   core: process.env["CORE_ADDRESS"] ?? "0x0000000000000000000000000000000000000000",
   coreDomain: process.env["CORE_DOMAIN"] ?? "",
@@ -14,4 +15,16 @@ export const env = {
 export function assertRuntimeConfig(): void {
   if (!/^0x[a-fA-F0-9]{40}$/.test(env.core) || /^0x0{40}$/.test(env.core)) throw new Error("CORE_ADDRESS is required");
   if (!Number.isSafeInteger(env.port) || env.port <= 0 || !Number.isSafeInteger(env.authTtlSeconds) || env.authTtlSeconds <= 0) throw new Error("server-config-invalid");
+  if (!Number.isSafeInteger(env.monadChainId) || env.monadChainId <= 0 || !/^0x[a-fA-F0-9]{64}$/.test(env.coreDomain)) {
+    throw new Error("server-chain-config-invalid");
+  }
+  if (env.sourceProofUrl) {
+    let proofUrl: URL;
+    try {
+      proofUrl = new URL(env.sourceProofUrl);
+    } catch {
+      throw new Error("SOURCE_PROOF_URL is invalid");
+    }
+    if (proofUrl.protocol !== "http:" && proofUrl.protocol !== "https:") throw new Error("SOURCE_PROOF_URL is invalid");
+  }
 }

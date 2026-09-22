@@ -6,7 +6,6 @@ const collateralSchema = new mongoose.Schema(
     creditId: String,
     amount: String,
     owner: String,
-    sourceRpc: String,
     state: { type: String, default: "pending" },
     proof: mongoose.Schema.Types.Mixed,
   },

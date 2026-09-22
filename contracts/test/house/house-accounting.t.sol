@@ -12,7 +12,7 @@ contract HouseAccountingTest is Test {
     function setUp() public {
         token = new MockERC20();
         token.mint(address(this), 3e18);
-        vault = new HouseVault(address(token), address(this), address(this));
+        vault = new HouseVault(address(token), address(this), address(this), address(0), address(0));
         token.approve(address(vault), type(uint256).max);
     }
 

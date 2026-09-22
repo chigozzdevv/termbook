@@ -12,6 +12,10 @@ interface ISettlementInboxView {
     function refundRecipient() external view returns (address);
 }
 
+interface IInboxFactoryView {
+    function inboxOf(bytes32 operationId) external view returns (address);
+}
+
 interface ISettlementCore {
     function applySettlement(bytes32 creditId, address inbox, uint256 amount) external;
 }
@@ -39,6 +43,7 @@ contract HouseVault is IHouseVault {
     address public immutable asset;
     address public immutable core;
     address public immutable manager;
+    address public immutable inboxFactory;
     address public pauseGuardian;
     uint256 public freeCash;
     uint256 public committedCash;
@@ -105,11 +110,17 @@ contract HouseVault is IHouseVault {
     event ProtocolFeeSet(address indexed recipient, uint256 feeBps);
     event ProtocolFeePaid(bytes32 indexed creditId, address indexed recipient, uint256 amount);
 
-    constructor(address asset_, address core_, address manager_) {
-        if (asset_.code.length == 0 || core_ == address(0) || manager_ == address(0)) revert InvalidAsset();
+    constructor(address asset_, address core_, address manager_, address inboxFactory_, address pauseGuardian_) {
+        if (
+            asset_.code.length == 0 || core_ == address(0) || manager_ == address(0)
+                || (inboxFactory_ != address(0) && inboxFactory_.code.length == 0)
+                || (pauseGuardian_ != address(0) && pauseGuardian_.code.length == 0)
+        ) revert InvalidAsset();
         asset = asset_;
         core = core_;
         manager = manager_;
+        inboxFactory = inboxFactory_;
+        pauseGuardian = pauseGuardian_;
     }
 
     modifier onlyCore() {
@@ -147,9 +158,12 @@ contract HouseVault is IHouseVault {
     function setSettlementInbox(address inbox, bool active) external onlyManager {
         if (inbox == address(0)) revert InvalidInbox();
         if (active) {
-            if (inbox.code.length == 0) revert InvalidInbox();
+            if (inboxFactory == address(0) || inbox.code.length == 0) revert InvalidInbox();
             if (ISettlementInboxView(inbox).vault() != address(this)) revert InvalidInbox();
             if (ISettlementInboxView(inbox).token() != asset) revert InvalidInbox();
+            if (IInboxFactoryView(inboxFactory).inboxOf(ISettlementInboxView(inbox).operationId()) != inbox) {
+                revert InvalidInbox();
+            }
         }
         settlementInboxes[inbox] = active;
         emit SettlementInboxSet(inbox, active);

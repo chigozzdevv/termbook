@@ -44,6 +44,25 @@ export const oracleRegistryAbi = [
   },
   {
     "type": "function",
+    "name": "feedCodeHash",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "feedDecimals",
     "inputs": [
       {

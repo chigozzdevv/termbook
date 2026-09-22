@@ -11,7 +11,10 @@ import {CollateralVault} from "../../src/collateral/CollateralVault.sol";
 import {RiskEngine} from "../../src/risk/RiskEngine.sol";
 import {Types} from "../../src/shared/Types.sol";
 import {SettlementInbox} from "../../src/routing/SettlementInbox.sol";
+import {InboxFactory} from "../../src/routing/InboxFactory.sol";
 import {MockHealthSource} from "../MockHealthSource.sol";
+import {IHealthSource} from "../../src/risk/IHealthSource.sol";
+import {HealthMath} from "../../src/risk/HealthMath.sol";
 
 contract RealFlowTarget {
     uint256 public value;
@@ -21,10 +24,52 @@ contract RealFlowTarget {
     }
 }
 
+contract FundedPositionTarget {
+    MockERC20 public immutable token;
+    mapping(address => uint256) public positions;
+
+    constructor(MockERC20 token_) {
+        token = token_;
+    }
+
+    function deposit(uint256 amount) external {
+        require(token.transferFrom(msg.sender, address(this), amount));
+        positions[msg.sender] += amount;
+    }
+}
+
+contract FundedPositionHealthSource is IHealthSource {
+    MockERC20 public immutable token;
+    TermbookCore public immutable core;
+    FundedPositionTarget public immutable target;
+
+    constructor(MockERC20 token_, TermbookCore core_, FundedPositionTarget target_) {
+        token = token_;
+        core = core_;
+        target = target_;
+    }
+
+    function snapshot(bytes32 creditId, bytes32, uint256, uint256 debt)
+        external
+        view
+        returns (Types.HealthSnapshot memory)
+    {
+        address account = core.creditAccount(creditId);
+        uint256 cash = token.balanceOf(account);
+        uint256 position = target.positions(account);
+        uint256 recovery = cash + 100 + position;
+        return Types.HealthSnapshot(
+            debt, cash, 100, int256(position), 10_000, 10_000, 0, recovery,
+            HealthMath.healthBps(recovery, debt, 0)
+        );
+    }
+}
+
 contract RealFlowTest is Test {
     MockERC20 token;
     TermbookCore core;
     HouseVault houseVault;
+    InboxFactory inboxFactory;
     CollateralVault collateralVault;
     AccountFactory accountFactory;
     RiskEngine risk;
@@ -44,7 +89,8 @@ contract RealFlowTest is Test {
         healthSource = new MockHealthSource();
         core.setRisk(address(risk));
         core.setHealthSource(address(healthSource));
-        houseVault = new HouseVault(address(token), address(core), address(this));
+        inboxFactory = new InboxFactory(address(this));
+        houseVault = new HouseVault(address(token), address(core), address(this), address(inboxFactory), address(0));
         collateralVault = new CollateralVault(address(token), block.chainid, address(core));
         accountFactory = new AccountFactory();
         target = new RealFlowTarget();
@@ -220,6 +266,18 @@ contract RealFlowTest is Test {
         assertEq(uint256(core.creditFacility(creditId)), uint256(Types.Facility.Aborted));
     }
 
+    function testAcceptedCreditSealsServicingDependencies() public {
+        bytes32 creditId = keccak256("sealed-configuration");
+        _accept(creditId, keccak256("sealed-intent"), 500);
+        MockHealthSource replacement = new MockHealthSource();
+        vm.expectRevert(TermbookCore.Frozen.selector);
+        core.setHealthSource(address(replacement));
+        vm.expectRevert(TermbookCore.Frozen.selector);
+        core.setApprovedCall(address(target), RealFlowTarget.setValue.selector, false);
+        vm.expectRevert(TermbookCore.Frozen.selector);
+        core.setHouseProtocolFee(address(houseVault), address(this), 100);
+    }
+
     function testInterestFeesAndRepaymentAllocation() public {
         bytes32 creditId = keccak256("terms-credit");
         _prepareTerms(creditId);
@@ -267,6 +325,9 @@ contract RealFlowTest is Test {
     function testExecuteActionIsAtomic() public {
         bytes32 creditId = keccak256("action-credit");
         _prepare(creditId);
+        healthSource.setSnapshot(
+            creditId, Types.HealthSnapshot(200, 200, 1_000, 0, 10_000, 0, 0, 1_200, 60_000)
+        );
         uint256 deadline = block.timestamp + 1 hours;
         uint256 revision = core.creditRevision(creditId);
         bytes memory data = abi.encodeWithSelector(RealFlowTarget.setValue.selector, 42);
@@ -278,6 +339,100 @@ contract RealFlowTest is Test {
         core.executeAction(creditId, address(target), data, 200, 200, 2, deadline, abi.encodePacked(r, s, v));
         assertEq(target.value(), 42);
         assertEq(core.creditDebt(creditId), 200);
+    }
+
+    function testFinancedActionUsesPostActionHealth() public {
+        bytes32 creditId = keccak256("financed-action");
+        _prepare(creditId);
+        _recordHealth(creditId, Types.HealthSnapshot(0, 0, 100, 0, 10_000, 0, 0, 100, 0));
+        healthSource.setSnapshot(
+            creditId, Types.HealthSnapshot(200, 0, 100, 300, 10_000, 10_000, 0, 400, 20_000)
+        );
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory data = abi.encodeWithSelector(RealFlowTarget.setValue.selector, 42);
+        bytes32 digest = keccak256(
+            abi.encode(
+                core.domain(), creditId, keccak256(abi.encode(address(target), data)), uint256(200), uint256(200),
+                uint256(7), deadline, core.creditRevision(creditId)
+            )
+        );
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(borrowerKey, digest);
+        core.executeAction(creditId, address(target), data, 200, 200, 7, deadline, abi.encodePacked(r, s, v));
+        assertEq(target.value(), 42);
+        assertEq(core.creditDebt(creditId), 200);
+        assertEq(risk.health(creditId), 20_000);
+    }
+
+    function testFinancedDepositCreatesRecoverablePosition() public {
+        bytes32 creditId = keccak256("financed-position");
+        FundedPositionTarget positionTarget = new FundedPositionTarget(token);
+        FundedPositionHealthSource positionHealth = new FundedPositionHealthSource(token, core, positionTarget);
+        core.setHealthSource(address(positionHealth));
+        core.setApprovedCall(address(positionTarget), FundedPositionTarget.deposit.selector, true);
+        _prepare(creditId);
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory data = abi.encodeWithSelector(FundedPositionTarget.deposit.selector, 200);
+        bytes32 digest = keccak256(
+            abi.encode(
+                core.domain(), creditId, keccak256(abi.encode(address(positionTarget), data)), uint256(200),
+                uint256(200), uint256(10), deadline, core.creditRevision(creditId)
+            )
+        );
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(borrowerKey, digest);
+        core.executeAction(creditId, address(positionTarget), data, 200, 200, 10, deadline, abi.encodePacked(r, s, v));
+        address account = core.creditAccount(creditId);
+        assertEq(positionTarget.positions(account), 200);
+        assertEq(token.balanceOf(account), 0);
+        assertEq(token.allowance(account, address(positionTarget)), 0);
+        assertEq(risk.health(creditId), 15_000);
+    }
+
+    function testUnsafeFinancedActionRevertsDrawAndAction() public {
+        bytes32 creditId = keccak256("unsafe-action");
+        _prepare(creditId);
+        _recordHealth(creditId, Types.HealthSnapshot(0, 0, 100, 0, 10_000, 0, 0, 100, 0));
+        healthSource.setSnapshot(
+            creditId, Types.HealthSnapshot(200, 0, 100, 0, 10_000, 0, 0, 100, 5_000)
+        );
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory data = abi.encodeWithSelector(RealFlowTarget.setValue.selector, 99);
+        bytes32 digest = keccak256(
+            abi.encode(
+                core.domain(), creditId, keccak256(abi.encode(address(target), data)), uint256(200), uint256(200),
+                uint256(8), deadline, core.creditRevision(creditId)
+            )
+        );
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(borrowerKey, digest);
+        vm.expectRevert(RiskEngine.Frozen.selector);
+        core.executeAction(creditId, address(target), data, 200, 200, 8, deadline, abi.encodePacked(r, s, v));
+        assertEq(target.value(), 0);
+        assertEq(core.creditDebt(creditId), 0);
+        assertEq(houseVault.creditCommitted(creditId), 500);
+    }
+
+    function testZeroDrawActionCannotReduceHealthBelowInitial() public {
+        bytes32 creditId = keccak256("zero-draw-action");
+        _prepare(creditId);
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes32 drawDigest = keccak256(
+            abi.encode(core.domain(), creditId, uint256(200), uint256(200), uint256(1), deadline, core.creditRevision(creditId))
+        );
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(borrowerKey, drawDigest);
+        core.draw(creditId, 200, 200, 1, deadline, abi.encodePacked(r, s, v));
+        healthSource.setSnapshot(
+            creditId, Types.HealthSnapshot(200, 0, 100, 0, 10_000, 0, 0, 100, 5_000)
+        );
+        bytes memory data = abi.encodeWithSelector(RealFlowTarget.setValue.selector, 99);
+        bytes32 actionDigest = keccak256(
+            abi.encode(
+                core.domain(), creditId, keccak256(abi.encode(address(target), data)), uint256(0), uint256(0),
+                uint256(9), deadline, core.creditRevision(creditId)
+            )
+        );
+        (v, r, s) = vm.sign(borrowerKey, actionDigest);
+        vm.expectRevert(RiskEngine.Frozen.selector);
+        core.executeAction(creditId, address(target), data, 0, 0, 9, deadline, abi.encodePacked(r, s, v));
+        assertEq(target.value(), 0);
     }
 
     function testStaleHealthBlocksNewDraw() public {
@@ -418,9 +573,9 @@ contract RealFlowTest is Test {
             keccak256(abi.encode(core.domain(), creditId, uint256(300), uint256(300), uint256(1), deadline, revision));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(borrowerKey, digest);
         core.draw(creditId, 300, 300, 1, deadline, abi.encodePacked(r, s, v));
-        SettlementInbox inbox = new SettlementInbox(
+        SettlementInbox inbox = SettlementInbox(inboxFactory.create(
             keccak256("repay-operation"), address(houseVault), address(token), creditId, 300, 300, borrower, deadline
-        );
+        ));
         houseVault.setSettlementInbox(address(inbox), true);
         token.mint(address(inbox), 300);
         inbox.notifyAll();
@@ -431,7 +586,7 @@ contract RealFlowTest is Test {
     }
 
     function testLpInboxMintsSharesAtomically() public {
-        SettlementInbox inbox = new SettlementInbox(
+        SettlementInbox inbox = SettlementInbox(inboxFactory.create(
             keccak256("lp-operation"),
             address(houseVault),
             address(token),
@@ -440,7 +595,7 @@ contract RealFlowTest is Test {
             250,
             borrower,
             block.timestamp + 1 days
-        );
+        ));
         houseVault.setSettlementInbox(address(inbox), true);
         vm.prank(borrower);
         houseVault.configureLpInbox(address(inbox), borrower, 100);

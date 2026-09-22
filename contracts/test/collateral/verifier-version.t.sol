@@ -53,7 +53,7 @@ contract VerifierVersionTest is Test {
     function setUp() public {
         token = new MockERC20();
         core = new TermbookCore(address(this), address(this), address(0));
-        vault = new HouseVault(address(token), address(core), address(this));
+        vault = new HouseVault(address(token), address(core), address(this), address(0), address(0));
         registry = new VerifierRegistry(address(this));
         core.setVerifierRegistry(address(registry));
         verifier = address(new MockVersionedVerifier(1));

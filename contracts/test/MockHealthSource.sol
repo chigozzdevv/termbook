@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {Types} from "../src/shared/Types.sol";
 import {IHealthSource} from "../src/risk/IHealthSource.sol";
+import {HealthMath} from "../src/risk/HealthMath.sol";
 
 contract MockHealthSource is IHealthSource {
     mapping(bytes32 => Types.HealthSnapshot) internal snapshots;
@@ -11,11 +12,14 @@ contract MockHealthSource is IHealthSource {
         snapshots[creditId] = snapshot_;
     }
 
-    function snapshot(bytes32 creditId, bytes32, uint256, uint256)
+    function snapshot(bytes32 creditId, bytes32, uint256, uint256 debt)
         external
         view
         returns (Types.HealthSnapshot memory)
     {
-        return snapshots[creditId];
+        Types.HealthSnapshot memory result = snapshots[creditId];
+        result.debt = debt;
+        result.healthBps = HealthMath.healthBps(result.recoveryValue, debt, result.recoveryCosts);
+        return result;
     }
 }

@@ -16,6 +16,16 @@ export const houseVaultAbi = [
         "name": "manager_",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "inboxFactory_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "pauseGuardian_",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "nonpayable"
@@ -562,6 +572,19 @@ export const houseVaultAbi = [
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "inboxFactory",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"

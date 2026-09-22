@@ -14,6 +14,7 @@ contract OracleRegistry {
     mapping(bytes32 => address) public feeds;
     mapping(bytes32 => uint256) public maxAge;
     mapping(bytes32 => uint8) public feedDecimals;
+    mapping(bytes32 => bytes32) public feedCodeHash;
     mapping(bytes32 => bool) public active;
 
     event FeedSet(bytes32 indexed id, address feed, uint256 maxAge, uint8 decimals);
@@ -33,7 +34,9 @@ contract OracleRegistry {
             revert InvalidFeed();
         }
         if (decimals_ > 36) revert InvalidFeed();
+        if (feeds[id] != address(0)) revert InvalidFeed();
         feeds[id] = feed;
+        feedCodeHash[id] = feed.codehash;
         maxAge[id] = maxAge_;
         feedDecimals[id] = decimals_;
         active[id] = true;
@@ -50,7 +53,9 @@ contract OracleRegistry {
         address feed = feeds[id];
         uint256 age = maxAge[id];
         uint8 expectedDecimals = feedDecimals[id];
-        if (!active[id] || feed.code.length == 0 || age == 0) revert InvalidFeed();
+        if (!active[id] || feed.code.length == 0 || feed.codehash != feedCodeHash[id] || age == 0) {
+            revert InvalidFeed();
+        }
         uint8 decimals = IAggregatorV3(feed).decimals();
         if (decimals != expectedDecimals) revert InvalidFeed();
         (uint80 round, int256 answer,, uint256 updated, uint80 answeredInRound) = IAggregatorV3(feed).latestRoundData();

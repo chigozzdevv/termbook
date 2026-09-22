@@ -40,7 +40,7 @@ contract FacilityFlowTest is Test {
 
     function testVaultDrawCycle() public {
         MockERC20 token = new MockERC20();
-        HouseVault v = new HouseVault(address(token), address(this), address(this));
+        HouseVault v = new HouseVault(address(token), address(this), address(this), address(0), address(0));
         token.mint(address(this), 2000);
         token.approve(address(v), 2000);
         v.deposit(address(this), 2000);

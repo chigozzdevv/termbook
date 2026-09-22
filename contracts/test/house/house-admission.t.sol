@@ -23,7 +23,7 @@ contract HouseAdmissionTest is Test {
         token = new MockERC20();
         core = new TermbookCore(address(this), address(this), address(0));
         registry = new HouseRegistry(address(this));
-        vault = new HouseVault(address(token), address(core), address(this));
+        vault = new HouseVault(address(token), address(core), address(this), address(0), address(0));
         risk = new RiskEngine(address(core));
         core.setRisk(address(risk));
         core.setHouseRegistry(address(registry));

@@ -57,6 +57,7 @@ interface ICreditAccountCore {
     function borrower() external view returns (address);
     function core() external view returns (address);
     function execute(address target, bytes calldata data) external returns (bytes memory);
+    function approveSpend(address token, address spender, uint256 amount) external;
     function transferToken(address token, address to, uint256 amount) external;
     function tokenBalance(address token) external view returns (uint256);
 }
@@ -207,8 +208,10 @@ contract TermbookCore is ITermbookCore {
     address public healthSource;
     bytes32 public immutable domain;
     bool public paused;
+    uint256 public acceptedCredits;
     bool private entered;
     mapping(bytes32 => Credit) internal _credits;
+    mapping(address => bool) public vaultEverUsed;
     mapping(bytes32 => bool) public intentUsed;
     mapping(address => mapping(uint256 => bool)) public houseNonces;
     mapping(bytes32 => mapping(uint256 => bool)) public nonceUsed;
@@ -293,11 +296,13 @@ contract TermbookCore is ITermbookCore {
     }
 
     function setHouseRegistry(address registry) external onlyGovernance {
+        if (acceptedCredits != 0) revert Frozen();
         if (registry == address(0) || registry.code.length == 0) revert InvalidAuthority();
         houseRegistry = registry;
     }
 
     function setHouseProtocolFee(address vault, address recipient, uint256 feeBps) external onlyGovernance {
+        if (vaultEverUsed[vault]) revert Frozen();
         if (vault == address(0) || vault.code.length == 0 || feeBps > BPS) revert InvalidTerms();
         if (feeBps > 0 && recipient == address(0)) revert InvalidTerms();
         (bool ok, bytes memory data) = vault.staticcall(abi.encodeWithSelector(IHouseVaultCore.core.selector));
@@ -316,28 +321,35 @@ contract TermbookCore is ITermbookCore {
     }
 
     function setRisk(address risk) external onlyGovernance {
+        if (acceptedCredits != 0 || risk == address(0) || risk.code.length == 0) revert InvalidTerms();
         riskEngine = risk;
     }
 
     function setHealthSource(address source) external onlyGovernance {
+        if (acceptedCredits != 0) revert Frozen();
         if (source == address(0) || source.code.length == 0) revert InvalidTerms();
         healthSource = source;
     }
 
     function setHealthMaxAge(uint256 maxAge) external onlyGovernance {
-        if (maxAge == 0) revert InvalidTerms();
+        if (maxAge == 0 || (acceptedCredits != 0 && maxAge > healthMaxAge)) revert InvalidTerms();
         healthMaxAge = maxAge;
     }
 
     function setIntegrationRegistry(address registry) external onlyGovernance {
+        if (acceptedCredits != 0) revert Frozen();
+        if (registry == address(0) || registry.code.length == 0) revert InvalidTerms();
         integrationRegistry = registry;
     }
 
     function setVerifierRegistry(address registry) external onlyGovernance {
+        if (acceptedCredits != 0) revert Frozen();
+        if (registry == address(0) || registry.code.length == 0) revert InvalidTerms();
         verifierRegistry = registry;
     }
 
     function setApprovedCall(address target, bytes4 selector, bool active) external onlyGovernance {
+        if (acceptedCredits != 0) revert Frozen();
         if (target == address(0) || target.code.length == 0 || selector == bytes4(0)) revert InvalidTerms();
         approvedCalls[target][selector] = active;
     }
@@ -756,6 +768,7 @@ contract TermbookCore is ITermbookCore {
         intentUsed[p.intentId] = true;
         houseNonces[p.house][p.houseNonce] = true;
         IHouseVaultCore(p.vault).reserve(p.creditId, p.limit);
+        vaultEverUsed[p.vault] = true;
         if (p.reservationBond > 0) IHouseVaultCore(p.vault).collectBond(p.creditId, p.borrower, p.reservationBond);
         Credit storage c = _credits[p.creditId];
         c.facility = Types.Facility.Reserved;
@@ -782,6 +795,7 @@ contract TermbookCore is ITermbookCore {
             IRiskCore(riskEngine)
                 .setRiskBands(p.creditId, initialBps, maintenanceBps, watchBps, freezeBps, liquidationBps);
         }
+        acceptedCredits += 1;
         emit Events.CreditCreated(p.creditId, p.intentId, p.borrower, p.house);
     }
 
@@ -1318,7 +1332,7 @@ contract TermbookCore is ITermbookCore {
         bytes32 digest = keccak256(abi.encode(domain, creditId, amount, maxBound, borrowerNonce, deadline, c.revision));
         if (block.timestamp > deadline || block.timestamp >= c.maturity) revert Expired();
         if (nonceUsed[creditId][borrowerNonce] || !AuthLib.verify(digest, borrowerSig, c.borrower)) revert BadSig();
-        _draw(c, creditId, amount, maxBound, borrowerNonce, borrowerNonce);
+        _draw(c, creditId, amount, maxBound, borrowerNonce, borrowerNonce, true);
     }
 
     function setSession(bytes32 creditId, address sessionKey, bytes32 capability, uint256 perAction, uint256 expiry)
@@ -1406,7 +1420,7 @@ contract TermbookCore is ITermbookCore {
         sessionNonces[creditId][sessionKey] = sessionNonce + 1;
         sessionSpent[creditId][sessionKey] += amount;
         uint256 nonceKey = uint256(keccak256(abi.encode("termbook-session", creditId, sessionKey, sessionNonce)));
-        _draw(c, creditId, amount, maxBound, nonceKey, sessionNonce);
+        _draw(c, creditId, amount, maxBound, nonceKey, sessionNonce, true);
     }
 
     function executeAction(
@@ -1435,13 +1449,33 @@ contract TermbookCore is ITermbookCore {
                 || !AuthLib.verify(digest, borrowerSig, c.borrower)
         ) revert BadSig();
         if (amount > 0) {
-            _draw(c, creditId, amount, maxBound, borrowerNonce, borrowerNonce);
+            _draw(c, creditId, amount, maxBound, borrowerNonce, borrowerNonce, false);
         } else {
             nonceUsed[creditId][borrowerNonce] = true;
             c.nonce = borrowerNonce;
             c.revision = RevisionLib.next(c.revision);
         }
-        result = ICreditAccountCore(c.account).execute(target, data);
+        if (amount > 0) {
+            address token = IHouseVaultCore(c.vault).asset();
+            ICreditAccountCore(c.account).approveSpend(token, target, 0);
+            ICreditAccountCore(c.account).approveSpend(token, target, amount);
+            result = ICreditAccountCore(c.account).execute(target, data);
+            ICreditAccountCore(c.account).approveSpend(token, target, 0);
+        } else {
+            result = ICreditAccountCore(c.account).execute(target, data);
+        }
+        _recordPostActionHealth(c, creditId);
+    }
+
+    function _recordPostActionHealth(Credit storage c, bytes32 creditId) internal {
+        if (healthSource == address(0) || riskEngine == address(0)) revert BadHealth();
+        Types.HealthSnapshot memory snapshot_ =
+            IHealthSourceCore(healthSource).snapshot(creditId, c.bundleId, c.revision, c.debt);
+        if (snapshot_.debt != c.debt) revert BadHealth();
+        IRiskCore(riskEngine).record(creditId, snapshot_);
+        IRiskCore(riskEngine).checkDraw(creditId, c.debt);
+        healthSnapshotAt[creditId] = block.timestamp;
+        healthSnapshotRevision[creditId] = c.revision;
     }
 
     function _draw(
@@ -1450,7 +1484,8 @@ contract TermbookCore is ITermbookCore {
         uint256 amount,
         uint256 maxBound,
         uint256 nonceKey,
-        uint256 recordedNonce
+        uint256 recordedNonce,
+        bool checkBeforeDraw
     ) internal {
         if (amount == 0 || amount > maxBound) revert OverLimit();
         _accrue(c, creditId);
@@ -1464,7 +1499,7 @@ contract TermbookCore is ITermbookCore {
             originationFee = c.originationFee;
             c.originationCharged = true;
         }
-        IRiskCore(riskEngine).checkDraw(creditId, c.debt + amount + originationFee);
+        if (checkBeforeDraw) IRiskCore(riskEngine).checkDraw(creditId, c.debt + amount + originationFee);
         nonceUsed[creditId][nonceKey] = true;
         IHouseVaultCore(c.vault).fundDraw(creditId, c.account, amount);
         if (originationFee > 0) {

@@ -101,4 +101,13 @@ contract HealthSourceTest is Test {
         vm.expectRevert(HealthSource.Invalid.selector);
         source.setReader(bundleId, address(replacement), 4, 1 days);
     }
+
+    function testOracleFeedCannotChangeForExistingPriceId() public {
+        MockAggregator replacement = new MockAggregator(8, 123_00000000);
+        vm.expectRevert(OracleRegistry.InvalidFeed.selector);
+        oracle.setFeed(priceId, address(replacement), 1 days, 8);
+        oracle.disable(priceId);
+        vm.expectRevert(OracleRegistry.InvalidFeed.selector);
+        oracle.setFeed(priceId, address(replacement), 1 days, 8);
+    }
 }

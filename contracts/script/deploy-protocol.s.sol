@@ -13,6 +13,7 @@ import {HouseRegistry} from "../src/house/HouseRegistry.sol";
 import {VerifierRegistry} from "../src/collateral/VerifierRegistry.sol";
 import {OracleRegistry} from "../src/risk/OracleRegistry.sol";
 import {HealthSource} from "../src/risk/HealthSource.sol";
+import {InboxFactory} from "../src/routing/InboxFactory.sol";
 
 contract DeployProtocol is Script {
     function run()
@@ -22,6 +23,7 @@ contract DeployProtocol is Script {
             RiskEngine risk,
             AccountFactory accounts,
             IntegrationRegistry integrations,
+            InboxFactory inboxFactory,
             address houseVault,
             ProtocolGovernance protocolGovernance,
             Guardian guardianController,
@@ -45,6 +47,7 @@ contract DeployProtocol is Script {
         risk = new RiskEngine(address(core));
         accounts = new AccountFactory();
         integrations = new IntegrationRegistry(address(protocolGovernance));
+        inboxFactory = new InboxFactory(address(protocolGovernance));
         oracleRegistry = new OracleRegistry(address(protocolGovernance));
         healthSource = new HealthSource(address(protocolGovernance), address(oracleRegistry));
         core.setRisk(address(risk));
@@ -55,8 +58,9 @@ contract DeployProtocol is Script {
         core.setGovernance(address(protocolGovernance));
         address asset = vm.envOr("SETTLEMENT_ASSET", address(0));
         if (asset != address(0)) {
-            houseVault = address(new HouseVault(asset, address(core), manager));
-            HouseVault(houseVault).setPauseGuardian(address(guardianController));
+            houseVault = address(
+                new HouseVault(asset, address(core), manager, address(inboxFactory), address(guardianController))
+            );
         }
         vm.stopBroadcast();
     }

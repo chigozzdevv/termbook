@@ -9,6 +9,7 @@ import {HouseVault} from "../../src/house/HouseVault.sol";
 import {CollateralVault} from "../../src/collateral/CollateralVault.sol";
 import {AccountFactory} from "../../src/credit/AccountFactory.sol";
 import {SettlementInbox} from "../../src/routing/SettlementInbox.sol";
+import {InboxFactory} from "../../src/routing/InboxFactory.sol";
 import {Types} from "../../src/shared/Types.sol";
 import {MockHealthSource} from "../MockHealthSource.sol";
 
@@ -17,6 +18,7 @@ contract LocalRecoveryTest is Test {
     TermbookCore core;
     RiskEngine risk;
     HouseVault houseVault;
+    InboxFactory inboxFactory;
     CollateralVault collateralVault;
     AccountFactory accounts;
     MockHealthSource healthSource;
@@ -30,7 +32,8 @@ contract LocalRecoveryTest is Test {
         core = new TermbookCore(address(this), address(this), address(0));
         risk = new RiskEngine(address(core));
         healthSource = new MockHealthSource();
-        houseVault = new HouseVault(address(token), address(core), address(this));
+        inboxFactory = new InboxFactory(address(this));
+        houseVault = new HouseVault(address(token), address(core), address(this), address(inboxFactory), address(0));
         collateralVault = new CollateralVault(address(token), block.chainid, address(core));
         accounts = new AccountFactory();
         house = vm.addr(houseKey);
@@ -169,7 +172,7 @@ contract LocalRecoveryTest is Test {
         _draw(creditId);
         _liquidate(creditId);
 
-        SettlementInbox inbox = new SettlementInbox(
+        SettlementInbox inbox = SettlementInbox(inboxFactory.create(
             keccak256("recovery-operation"),
             address(houseVault),
             address(token),
@@ -178,7 +181,7 @@ contract LocalRecoveryTest is Test {
             500,
             borrower,
             block.timestamp + 1 days
-        );
+        ));
         houseVault.setSettlementInbox(address(inbox), true);
         token.mint(address(inbox), 500);
         inbox.notifyAll();
@@ -219,7 +222,7 @@ contract LocalRecoveryTest is Test {
         core.finalizeRecovery(creditId);
         core.finishLiquidation(creditId);
 
-        SettlementInbox inbox = new SettlementInbox(
+        SettlementInbox inbox = SettlementInbox(inboxFactory.create(
             keccak256("late-recovery-operation"),
             address(houseVault),
             address(token),
@@ -228,7 +231,7 @@ contract LocalRecoveryTest is Test {
             100,
             borrower,
             block.timestamp + 1 days
-        );
+        ));
         houseVault.setSettlementInbox(address(inbox), true);
         token.mint(address(inbox), 100);
         inbox.notifyAll();

@@ -169,6 +169,8 @@ export class Credit {
       const asset = await this.client.rpc.read<`0x${string}`>(currentVault, houseVaultAbi, "asset");
       const surplus = await this.client.rpc.creditAccountTokenBalance(currentAccount, asset);
       if (surplus > 0n) {
+        const healthTx = await this.client.rpc.coreWrite("recordHealth", [this.id]);
+        await this.client.rpc.wait(healthTx);
         const surplusTx = await this.client.rpc.coreWrite("withdraw", [this.id, asset, this.client.signer.address(), surplus]);
         await this.client.rpc.wait(surplusTx);
       }

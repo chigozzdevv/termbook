@@ -15,6 +15,19 @@ import {InboxFactory} from "../../src/routing/InboxFactory.sol";
 import {MockHealthSource} from "../MockHealthSource.sol";
 import {IHealthSource} from "../../src/risk/IHealthSource.sol";
 import {HealthMath} from "../../src/risk/HealthMath.sol";
+import {IExitVerifier} from "../../src/integration/IExitVerifier.sol";
+
+contract MockExitVerifier is IExitVerifier {
+    bool public ready = true;
+
+    function setReady(bool value) external {
+        ready = value;
+    }
+
+    function canExit(bytes32, address) external view returns (bool) {
+        return ready;
+    }
+}
 
 contract RealFlowTarget {
     uint256 public value;
@@ -74,6 +87,7 @@ contract RealFlowTest is Test {
     AccountFactory accountFactory;
     RiskEngine risk;
     MockHealthSource healthSource;
+    MockExitVerifier exitVerifier;
     RealFlowTarget target;
     uint256 houseKey = 0xBEEF;
     uint256 borrowerKey = 0xCAFE;
@@ -87,8 +101,10 @@ contract RealFlowTest is Test {
         core = new TermbookCore(address(this), address(this), address(0));
         risk = new RiskEngine(address(core));
         healthSource = new MockHealthSource();
+        exitVerifier = new MockExitVerifier();
         core.setRisk(address(risk));
         core.setHealthSource(address(healthSource));
+        core.setExitVerifier(keccak256("bundle"), address(exitVerifier));
         inboxFactory = new InboxFactory(address(this));
         houseVault = new HouseVault(address(token), address(core), address(this), address(inboxFactory), address(0));
         collateralVault = new CollateralVault(address(token), block.chainid, address(core));
@@ -246,11 +262,35 @@ contract RealFlowTest is Test {
         token.approve(address(core), 400);
         core.repay(creditId, 400);
         core.startClosing(creditId);
+        _recordHealth(creditId, Types.HealthSnapshot(0, 400, 0, 0, 0, 0, 0, 400, 0));
+        core.withdraw(creditId, address(token), borrower, 400);
         core.authorizeReturn(creditId, lockId, 250);
         core.authorizeReturn(creditId, lockId, 250);
         vm.stopPrank();
         core.finishClose(creditId);
-        assertEq(token.balanceOf(borrower), 600);
+        assertEq(token.balanceOf(borrower), 1_000);
+    }
+
+    function testClosureRequiresVerifiedExitAndSurplusSweep() public {
+        bytes32 creditId = keccak256("exit-gated-credit");
+        (bytes32 lockId, address account) = _prepare(creditId);
+        token.mint(account, 100);
+        vm.prank(borrower);
+        core.startClosing(creditId);
+        exitVerifier.setReady(false);
+        vm.expectRevert(TermbookCore.BadState.selector);
+        vm.prank(borrower);
+        core.authorizeReturn(creditId, lockId, 500);
+        exitVerifier.setReady(true);
+        vm.prank(borrower);
+        core.authorizeReturn(creditId, lockId, 500);
+        vm.expectRevert(TermbookCore.BadState.selector);
+        core.finishClose(creditId);
+        _recordHealth(creditId, Types.HealthSnapshot(0, 100, 0, 0, 0, 0, 0, 100, 0));
+        vm.prank(borrower);
+        core.withdraw(creditId, address(token), borrower, 100);
+        core.finishClose(creditId);
+        assertEq(token.balanceOf(account), 0);
     }
 
     function testExpiredSetupReleasesReservationWithoutBorrower() public {
@@ -276,6 +316,8 @@ contract RealFlowTest is Test {
         core.setApprovedCall(address(target), RealFlowTarget.setValue.selector, false);
         vm.expectRevert(TermbookCore.Frozen.selector);
         core.setHouseProtocolFee(address(houseVault), address(this), 100);
+        vm.expectRevert(TermbookCore.InvalidTerms.selector);
+        core.setExitVerifier(keccak256("bundle"), address(replacement));
     }
 
     function testInterestFeesAndRepaymentAllocation() public {
@@ -462,6 +504,36 @@ contract RealFlowTest is Test {
         vm.expectRevert(TermbookCore.BadHealth.selector);
         vm.prank(borrower);
         core.withdraw(creditId, address(token), borrower, 50);
+    }
+
+    function testWithdrawalCannotConsumeCashExcludedFromVerifiedFreeBalance() public {
+        bytes32 creditId = keccak256("reserved-account-cash");
+        (, address account) = _prepare(creditId);
+        token.mint(account, 100);
+        _recordHealth(creditId, Types.HealthSnapshot(0, 20, 1_000, 0, 10_000, 10_000, 0, 1_020, 0));
+        vm.expectRevert(TermbookCore.OverLimit.selector);
+        vm.prank(borrower);
+        core.withdraw(creditId, address(token), borrower, 21);
+        assertEq(token.balanceOf(account), 100);
+    }
+
+    function testAccountRepaymentCannotConsumeReservedCash() public {
+        bytes32 creditId = keccak256("reserved-repayment-cash");
+        (, address account) = _prepare(creditId);
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes32 digest = keccak256(
+            abi.encode(core.domain(), creditId, uint256(200), uint256(200), uint256(8), deadline, core.creditRevision(creditId))
+        );
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(borrowerKey, digest);
+        core.draw(creditId, 200, 200, 8, deadline, abi.encodePacked(r, s, v));
+        _recordHealth(creditId, Types.HealthSnapshot(200, 50, 1_000, 0, 10_000, 10_000, 0, 1_050, 52_500));
+        vm.expectRevert(TermbookCore.OverLimit.selector);
+        vm.prank(borrower);
+        core.repayFromAccount(creditId, 51);
+        vm.prank(borrower);
+        core.repayFromAccount(creditId, 50);
+        assertEq(token.balanceOf(account), 150);
+        assertEq(core.creditDebt(creditId), 150);
     }
 
     function testHealthSnapshotMustMatchCreditRevision() public {

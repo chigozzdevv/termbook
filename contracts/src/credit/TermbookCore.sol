@@ -7,6 +7,7 @@ import {RevisionLib} from "../shared/RevisionLib.sol";
 import {AuthLib} from "../shared/AuthLib.sol";
 import {SafeTransferLib} from "../shared/SafeTransferLib.sol";
 import {ITermbookCore} from "./ITermbookCore.sol";
+import {IExitVerifier} from "../integration/IExitVerifier.sol";
 
 interface IHouseVaultCore {
     function core() external view returns (address);
@@ -212,6 +213,9 @@ contract TermbookCore is ITermbookCore {
     bool private entered;
     mapping(bytes32 => Credit) internal _credits;
     mapping(address => bool) public vaultEverUsed;
+    mapping(bytes32 => address) public exitVerifierOfBundle;
+    mapping(bytes32 => bytes32) public exitVerifierCodeHash;
+    mapping(bytes32 => bool) public bundleEverUsed;
     mapping(bytes32 => bool) public intentUsed;
     mapping(address => mapping(uint256 => bool)) public houseNonces;
     mapping(bytes32 => mapping(uint256 => bool)) public nonceUsed;
@@ -340,6 +344,15 @@ contract TermbookCore is ITermbookCore {
         if (acceptedCredits != 0) revert Frozen();
         if (registry == address(0) || registry.code.length == 0) revert InvalidTerms();
         integrationRegistry = registry;
+    }
+
+    function setExitVerifier(bytes32 bundleId, address verifier) external onlyGovernance {
+        if (
+            bundleId == bytes32(0) || bundleEverUsed[bundleId] || exitVerifierOfBundle[bundleId] != address(0)
+                || verifier.code.length == 0
+        ) revert InvalidTerms();
+        exitVerifierOfBundle[bundleId] = verifier;
+        exitVerifierCodeHash[bundleId] = verifier.codehash;
     }
 
     function setVerifierRegistry(address registry) external onlyGovernance {
@@ -766,6 +779,10 @@ contract TermbookCore is ITermbookCore {
             if (!AuthLib.verify(digest, p.houseSig, p.house)) revert BadSig();
         }
         intentUsed[p.intentId] = true;
+        if (integrationRegistry != address(0) && exitVerifierOfBundle[p.bundleId] == address(0)) {
+            revert InvalidTerms();
+        }
+        bundleEverUsed[p.bundleId] = true;
         houseNonces[p.house][p.houseNonce] = true;
         IHouseVaultCore(p.vault).reserve(p.creditId, p.limit);
         vaultEverUsed[p.vault] = true;
@@ -1215,6 +1232,7 @@ contract TermbookCore is ITermbookCore {
             msg.sender != c.borrower || (c.facility != Types.Facility.Closing && c.facility != Types.Facility.Aborted)
                 || lockId != c.lockId || c.collateralReturned
         ) revert Unauthorized();
+        if (c.facility == Types.Facility.Closing) _requireExitReady(c, creditId);
         if (amount == 0 || amount > c.collateralAmount) revert InvalidCollateral();
         if (remoteCollateral[creditId]) {
             uint256 available = c.collateralAmount - pendingRemoteReturn[creditId];
@@ -1532,8 +1550,16 @@ contract TermbookCore is ITermbookCore {
         if (amount == 0 || amount > c.debt) revert BadState();
         address token = IHouseVaultCore(c.vault).asset();
         uint256 vaultBalance = token.balanceOf(c.vault);
-        if (fromAccount) ICreditAccountCore(c.account).transferToken(token, c.vault, amount);
-        else token.safeTransferFrom(msg.sender, c.vault, amount);
+        if (fromAccount) {
+            if (healthSource == address(0)) revert BadHealth();
+            Types.HealthSnapshot memory accountHealth =
+                IHealthSourceCore(healthSource).snapshot(creditId, c.bundleId, c.revision, c.debt);
+            if (accountHealth.debt != c.debt) revert BadHealth();
+            if (amount > accountHealth.cash) revert OverLimit();
+            ICreditAccountCore(c.account).transferToken(token, c.vault, amount);
+        } else {
+            token.safeTransferFrom(msg.sender, c.vault, amount);
+        }
         if (token.balanceOf(c.vault) - vaultBalance != amount) revert BadHealth();
         uint256 remaining = amount;
         uint256 feePaid = remaining > c.accruedFees ? c.accruedFees : remaining;
@@ -1596,6 +1622,7 @@ contract TermbookCore is ITermbookCore {
             msg.sender != c.borrower || (c.facility != Types.Facility.Ready && c.facility != Types.Facility.Closing)
                 || recipient != c.borrower
         ) revert Unauthorized();
+        if (c.facility == Types.Facility.Closing) _requireExitReady(c, creditId);
         _accrue(c, creditId);
         if (token != IHouseVaultCore(c.vault).asset()) revert InvalidTerms();
         uint256 balance = ICreditAccountCore(c.account).tokenBalance(token);
@@ -1604,7 +1631,8 @@ contract TermbookCore is ITermbookCore {
         if (riskEngine != address(0)) {
             Types.HealthSnapshot memory snapshot =
                 c.debt > 0 ? _requireFreshHealth(c, creditId) : IRiskCore(riskEngine).snapshot(creditId);
-            cashAfter = snapshot.cash > amount ? snapshot.cash - amount : 0;
+            if (amount > snapshot.cash) revert OverLimit();
+            cashAfter = snapshot.cash - amount;
             if (c.debt > 0) IRiskCore(riskEngine).checkWithdraw(creditId, cashAfter);
             IRiskCore(riskEngine).applyCashWithdraw(creditId, cashAfter);
         }
@@ -1655,8 +1683,20 @@ contract TermbookCore is ITermbookCore {
     function finishClose(bytes32 creditId) external nonReentrant {
         Credit storage c = _credits[creditId];
         if (c.facility != Types.Facility.Closing || c.debt != 0 || !c.collateralReturned) revert BadState();
+        _requireExitReady(c, creditId);
+        if (ICreditAccountCore(c.account).tokenBalance(IHouseVaultCore(c.vault).asset()) != 0) revert BadState();
         c.facility = Types.Facility.Closed;
         emit Events.Closed(creditId);
+    }
+
+    function _requireExitReady(Credit storage c, bytes32 creditId) internal view {
+        address verifier = exitVerifierOfBundle[c.bundleId];
+        if (verifier == address(0) || verifier.codehash != exitVerifierCodeHash[c.bundleId]) revert BadState();
+        try IExitVerifier(verifier).canExit(creditId, c.account) returns (bool ready) {
+            if (!ready) revert BadState();
+        } catch {
+            revert BadState();
+        }
     }
 
     function startLiquidation(bytes32 creditId) external nonReentrant {

@@ -88,11 +88,13 @@ export const queue = {
       await fallback(job);
     }
   },
-  async claim(): Promise<{ id: string; job: Job } | undefined> {
+  async claim(kinds: readonly string[]): Promise<{ id: string; job: Job } | undefined> {
+    if (kinds.length === 0) return undefined;
     if (mongoose.connection.readyState !== 1) return undefined;
     const stale = new Date(Date.now() - 60_000);
     const doc = await JobModel.findOneAndUpdate(
       {
+        kind: { $in: kinds },
         $or: [
           { status: "pending", nextRunAt: { $lte: new Date() } },
           { status: "processing", updatedAt: { $lte: stale } },

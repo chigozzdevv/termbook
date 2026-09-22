@@ -9,11 +9,11 @@ async function handle(job: { kind: string; payload: Record<string, unknown> }): 
   if (typeof lockId !== "string") throw new Error("param-invalid");
   if (typeof rpc !== "string" || rpc.length === 0) throw new Error("proof-source-required");
   const proof = await fetchProof(rpc, lockId);
-  await collateralRepo.setState(lockId, "proved", proof);
+  await collateralRepo.setState(lockId, "proof_fetched", proof);
 }
 
-registerHandler(["collateral.tracked", "proof-relay"], handle);
+registerHandler(["collateral.tracked"], handle);
 
 export async function runCollateralWorker(): Promise<number> {
-  return drainQueue(handle);
+  return drainQueue(handle, ["collateral.tracked"]);
 }

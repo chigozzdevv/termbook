@@ -12,5 +12,5 @@ async function handle(job: { kind: string; payload: Record<string, unknown> }): 
 registerHandler(["credit.tracked"], handle);
 
 export async function runCreditWorker(): Promise<number> {
-  return drainQueue(handle);
+  return drainQueue(handle, ["credit.tracked"]);
 }

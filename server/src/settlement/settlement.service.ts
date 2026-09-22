@@ -1,11 +1,9 @@
 import { settlementRepo } from "./settlement.repo.js";
-import { queue } from "../queue/queue.client.js";
+import { HttpError } from "../http/http.errors.js";
 
 export const settlementService = {
-  async register(input: Record<string, unknown>) {
-    const saved = await settlementRepo.save(input);
-    await queue.push({ kind: "settlement.registered", payload: { operationId: input["operationId"] } });
-    return saved;
+  async register(_input: Record<string, unknown>) {
+    throw new HttpError(503, "settlement-route-unavailable");
   },
   async get(operationId: string) {
     return settlementRepo.get(operationId);

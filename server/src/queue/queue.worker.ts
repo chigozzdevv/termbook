@@ -10,9 +10,9 @@ export function registerHandler(kinds: string[], fn: Handler): void {
   for (const k of kinds) handlers.set(k, fn);
 }
 
-export async function drainQueue(handle: Handler): Promise<number> {
+export async function drainQueue(handle: Handler, kinds: readonly string[]): Promise<number> {
   let n = 0;
-  let claimed = await queue.claim();
+  let claimed = await queue.claim(kinds);
   while (claimed) {
     try {
       await handle(claimed.job);
@@ -22,7 +22,7 @@ export async function drainQueue(handle: Handler): Promise<number> {
       await queue.retry(claimed.id);
       logger.error("job-failed", { job: claimed.job, err });
     }
-    claimed = await queue.claim();
+    claimed = await queue.claim(kinds);
   }
   return n;
 }

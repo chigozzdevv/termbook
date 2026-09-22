@@ -135,8 +135,27 @@ contract LocalRecoveryTest is Test {
         assertEq(token.balanceOf(address(houseVault)), 1_000);
         (,, uint256 remaining,,,) = collateralVault.locks(lockId);
         assertEq(remaining, 500);
+        vm.expectRevert(TermbookCore.RecoveryIncomplete.selector);
         core.finishLiquidation(creditId);
-        assertEq(uint256(core.creditFacility(creditId)), uint256(Types.Facility.Liquidated));
+        assertEq(uint256(core.creditFacility(creditId)), uint256(Types.Facility.RecoveryPending));
+    }
+
+    function testKeeperRepaysOnlyVerifiedFreeAccountCash() public {
+        bytes32 creditId = keccak256("account-cash-recovery");
+        _prepare(creditId);
+        _draw(creditId);
+        _liquidate(creditId);
+        address account = core.creditAccount(creditId);
+        healthSource.setSnapshot(creditId, Types.HealthSnapshot(500, 200, 0, 0, 0, 0, 0, 200, 4_000));
+        vm.expectRevert(TermbookCore.Unauthorized.selector);
+        vm.prank(address(0xD00D));
+        core.recoverAccountCash(creditId, 200);
+        vm.expectRevert(TermbookCore.OverLimit.selector);
+        core.recoverAccountCash(creditId, 201);
+        core.recoverAccountCash(creditId, 200);
+        assertEq(token.balanceOf(account), 300);
+        assertEq(core.creditDebt(creditId), 300);
+        assertEq(houseVault.drawnPrincipal(), 300);
     }
 
     function testUnregisteredKeeperCannotSeizeCollateral() public {
@@ -166,6 +185,19 @@ contract LocalRecoveryTest is Test {
         core.cure(creditId);
     }
 
+    function testFinalizedRecoveryCannotCure() public {
+        bytes32 creditId = keccak256("finalized-recovery-cure");
+        _prepare(creditId);
+        _draw(creditId);
+        _liquidate(creditId);
+        core.recoverCollateral(creditId, 100);
+        vm.prank(address(houseVault));
+        core.finalizeRecovery(creditId);
+        _recordHealth(creditId, Types.HealthSnapshot(400, 0, 1_000, 0, 10_000, 0, 0, 1_000, 25_000));
+        vm.expectRevert(TermbookCore.BadState.selector);
+        core.cure(creditId);
+    }
+
     function testSettlementRecoveryTransitionsAndFinalizes() public {
         bytes32 creditId = keccak256("credit-settlement-recovery");
         _prepare(creditId);
@@ -189,8 +221,8 @@ contract LocalRecoveryTest is Test {
 
         assertEq(core.creditDebt(creditId), 0);
         assertEq(uint256(core.creditFacility(creditId)), uint256(Types.Facility.RecoveryPending));
+        vm.expectRevert(TermbookCore.RecoveryIncomplete.selector);
         core.finishLiquidation(creditId);
-        assertEq(uint256(core.creditFacility(creditId)), uint256(Types.Facility.Liquidated));
     }
 
     function testDirectRepaymentDuringLiquidationTransitionsAndFinalizes() public {
@@ -207,8 +239,8 @@ contract LocalRecoveryTest is Test {
 
         assertEq(core.creditDebt(creditId), 0);
         assertEq(uint256(core.creditFacility(creditId)), uint256(Types.Facility.RecoveryPending));
+        vm.expectRevert(TermbookCore.RecoveryIncomplete.selector);
         core.finishLiquidation(creditId);
-        assertEq(uint256(core.creditFacility(creditId)), uint256(Types.Facility.Liquidated));
     }
 
     function testLateSettlementAfterLiquidationRecordsRecovery() public {

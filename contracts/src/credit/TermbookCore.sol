@@ -1729,6 +1729,15 @@ contract TermbookCore is ITermbookCore {
         c.revision = RevisionLib.next(c.revision);
     }
 
+    function recoverAccountCash(bytes32 creditId, uint256 amount) external nonReentrant {
+        Credit storage c = _credits[creditId];
+        if (!recoveryKeepers[msg.sender]) revert Unauthorized();
+        if (c.facility != Types.Facility.Liquidating && c.facility != Types.Facility.RecoveryPending) {
+            revert BadState();
+        }
+        _repay(c, creditId, amount, true);
+    }
+
     function recoverCollateral(bytes32 creditId, uint256 amount) external nonReentrant {
         Credit storage c = _credits[creditId];
         if (!recoveryKeepers[msg.sender]) revert Unauthorized();
@@ -1765,7 +1774,9 @@ contract TermbookCore is ITermbookCore {
     function cure(bytes32 creditId) external nonReentrant {
         Credit storage c = _credits[creditId];
         if (c.facility != Types.Facility.RecoveryPending) revert BadState();
-        if (block.timestamp >= c.maturity || c.payment == Types.Payment.Defaulted) revert BadState();
+        if (block.timestamp >= c.maturity || c.payment == Types.Payment.Defaulted || c.recoveryFinalized) {
+            revert BadState();
+        }
         _accrue(c, creditId);
         if (c.debt != 0) {
             if (riskEngine == address(0)) revert BadHealth();
@@ -1799,7 +1810,7 @@ contract TermbookCore is ITermbookCore {
     function finishLiquidation(bytes32 creditId) external nonReentrant {
         Credit storage c = _credits[creditId];
         _accrue(c, creditId);
-        if (c.facility != Types.Facility.RecoveryPending || (!c.recoveryFinalized && c.debt != 0)) {
+        if (c.facility != Types.Facility.RecoveryPending || !c.recoveryFinalized) {
             revert RecoveryIncomplete();
         }
         c.facility = Types.Facility.Liquidated;

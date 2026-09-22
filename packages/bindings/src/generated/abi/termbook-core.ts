@@ -2108,6 +2108,24 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "recoverAccountCash",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "recoverCollateral",
     "inputs": [
       {

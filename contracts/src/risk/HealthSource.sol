@@ -39,6 +39,7 @@ contract HealthSource is IHealthSource {
             msg.sender != governance || bundleId == bytes32(0) || reader.code.length == 0 || version == 0
                 || maxAge == 0
         ) revert Invalid();
+        if (readers[bundleId].impl != address(0)) revert Invalid();
         readers[bundleId] = Reader(reader, version, true, maxAge, reader.codehash);
         emit ReaderSet(bundleId, reader, version, maxAge);
     }

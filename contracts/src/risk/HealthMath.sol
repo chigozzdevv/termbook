@@ -34,10 +34,10 @@ library HealthMath {
         uint256 costs
     ) internal pure returns (uint256) {
         if (sourceFactorBps > BPS || appFactorBps > BPS || cash > MAX_INT || costs > MAX_INT) revert Factor();
+        // Recovery costs are counted once in the health denominator.
         int256 value = int256(cash)
             + int256(_haircut(sourceValue, sourceFactorBps))
-            + _applicationPart(appValue, appFactorBps)
-            - int256(costs);
+            + _applicationPart(appValue, appFactorBps);
         return value <= 0 ? 0 : uint256(value);
     }
 

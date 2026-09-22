@@ -75,8 +75,8 @@ contract HealthSourceTest is Test {
         reader.setReading(HealthReading(500, 200, 1_000, 400, 10_000, 5_000, 50, block.timestamp));
         Types.HealthSnapshot memory result = source.snapshot(creditId, bundleId, 4, 500);
         assertEq(result.debt, 500);
-        assertEq(result.recoveryValue, 1_350);
-        assertEq(result.healthBps, 24_545);
+        assertEq(result.recoveryValue, 1_400);
+        assertEq(result.healthBps, 25_454);
     }
 
     function testStaleOracleBlocksHealthRefresh() public {
@@ -91,5 +91,14 @@ contract HealthSourceTest is Test {
         reader.setReading(HealthReading(499, 200, 1_000, 400, 10_000, 5_000, 50, block.timestamp));
         vm.expectRevert(HealthSource.Stale.selector);
         source.snapshot(creditId, bundleId, 4, 500);
+    }
+
+    function testReaderCannotChangeForExistingBundle() public {
+        MockHealthReader replacement = new MockHealthReader(priceId);
+        vm.expectRevert(HealthSource.Invalid.selector);
+        source.setReader(bundleId, address(replacement), 4, 1 days);
+        source.disable(bundleId);
+        vm.expectRevert(HealthSource.Invalid.selector);
+        source.setReader(bundleId, address(replacement), 4, 1 days);
     }
 }

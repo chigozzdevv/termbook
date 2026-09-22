@@ -24,4 +24,11 @@ contract RiskThresholdsTest is Test {
         engine.record(id, s);
         assertEq(uint256(engine.riskState(id)), uint256(Types.Risk.Liquidatable));
     }
+
+    function testConfiguredBandsCannotBeChangedForSameCredit() public {
+        bytes32 id = bytes32("c2");
+        engine.setRiskBands(id, 15_000, 13_000, 12_000, 11_500, 11_000);
+        vm.expectRevert(RiskEngine.Frozen.selector);
+        engine.setRiskBands(id, 20_000, 18_000, 17_000, 16_000, 15_000);
+    }
 }

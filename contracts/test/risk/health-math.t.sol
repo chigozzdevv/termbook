@@ -17,4 +17,10 @@ contract HealthMathTest is Test {
         int256 v = HealthMath.applicationValue(-50, 9000);
         assert(v == -50);
     }
+
+    function testRemainingRecoveryCostIsCountedOnce() public pure {
+        uint256 recovery = HealthMath.recoveryValue(100, 400, 8000, 600, 9000, 20);
+        assertEq(recovery, 960);
+        assertEq(HealthMath.healthBps(recovery, 700, 20), 13_333);
+    }
 }

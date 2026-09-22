@@ -29,6 +29,7 @@ contract RiskEngine is IRiskEngine {
 
     function setThresholds(bytes32 creditId, uint256 initial_, uint256 maintenance_, uint256 liquidation_) external {
         if (msg.sender != core) revert Unauthorized();
+        if (initialBps[creditId] != 0) revert Frozen();
         if (liquidation_ < protocolFloorBps) revert("below-floor");
         if (initial_ < maintenance_ || maintenance_ <= liquidation_) revert BadOrder();
         uint256 freeze_ = liquidation_ + 1;
@@ -50,6 +51,7 @@ contract RiskEngine is IRiskEngine {
         uint256 liquidation_
     ) external {
         if (msg.sender != core) revert Unauthorized();
+        if (initialBps[creditId] != 0) revert Frozen();
         if (liquidation_ < protocolFloorBps) revert BelowFloor();
         if (!(initial_ >= maintenance_ && maintenance_ > watch_ && watch_ >= freeze_ && freeze_ >= liquidation_)) {
             revert BadOrder();

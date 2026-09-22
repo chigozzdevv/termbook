@@ -35,6 +35,8 @@ contract SettlementInbox is ISettlementInbox {
     error CapExceeded();
     error ReceiverFailed();
 
+    event UntrackedRefunded(bytes32 indexed operationId, uint256 amount);
+
     constructor(
         bytes32 operationId_,
         address vault_,
@@ -115,6 +117,17 @@ contract SettlementInbox is ISettlementInbox {
         token.safeTransfer(refundRecipient, amount);
         if (_balanceOf(refundRecipient) - recipientBalance != amount) revert BadToken();
         emit Events.InboxRefunded(operationId, amount);
+    }
+
+    function refundUntracked(uint256 amount) external guard {
+        if (block.timestamp <= deadline) revert Expired();
+        uint256 balance = _balance();
+        uint256 outstanding = available();
+        if (amount == 0 || balance < outstanding || amount > balance - outstanding) revert Nothing();
+        uint256 recipientBalance = _balanceOf(refundRecipient);
+        token.safeTransfer(refundRecipient, amount);
+        if (_balanceOf(refundRecipient) - recipientBalance != amount) revert BadToken();
+        emit UntrackedRefunded(operationId, amount);
     }
 
     function _balance() internal view returns (uint256 value) {

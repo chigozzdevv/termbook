@@ -6,6 +6,7 @@ interface ISettlementInbox {
     function notifyAll() external returns (uint256);
     function settle(uint256 amount) external;
     function refund(uint256 amount) external;
+    function refundUntracked(uint256 amount) external;
     function available() external view returns (uint256);
     function applied() external view returns (uint256);
     function refunded() external view returns (uint256);

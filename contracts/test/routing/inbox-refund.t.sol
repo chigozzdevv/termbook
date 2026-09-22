@@ -33,4 +33,22 @@ contract InboxRefundTest is Test {
         inbox.refund(400);
         assertEq(inbox.applied() + inbox.refunded(), 1000);
     }
+
+    function testExcessAfterReceiptCapReturnsOnlyToBoundRecipient() public {
+        token.mint(address(inbox), 1_100);
+        inbox.notifyReceipt(1_000);
+        vm.warp(block.timestamp + 2 days);
+        inbox.refundUntracked(100);
+        assertEq(token.balanceOf(address(3)), 100);
+        assertEq(inbox.available(), 1_000);
+        assertEq(token.balanceOf(address(inbox)), 1_000);
+        vm.expectRevert(SettlementInbox.Nothing.selector);
+        inbox.refundUntracked(1);
+    }
+
+    function testUntrackedFundsCannotBeRefundedBeforeDeadline() public {
+        token.mint(address(inbox), 100);
+        vm.expectRevert(SettlementInbox.Expired.selector);
+        inbox.refundUntracked(100);
+    }
 }

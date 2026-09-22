@@ -146,6 +146,23 @@ contract LocalRecoveryTest is Test {
         core.recoverCollateral(creditId, 500);
     }
 
+    function testCureRequiresMaintenanceHealth() public {
+        bytes32 creditId = keccak256("cure-maintenance");
+        _prepare(creditId);
+        _draw(creditId);
+        _liquidate(creditId);
+
+        token.mint(borrower, 100);
+        vm.startPrank(borrower);
+        token.approve(address(core), 100);
+        core.repay(creditId, 100);
+        vm.stopPrank();
+
+        _recordHealth(creditId, Types.HealthSnapshot(400, 0, 500, 0, 10_000, 0, 0, 500, 12_500));
+        vm.expectRevert(TermbookCore.BadHealth.selector);
+        core.cure(creditId);
+    }
+
     function testSettlementRecoveryTransitionsAndFinalizes() public {
         bytes32 creditId = keccak256("credit-settlement-recovery");
         _prepare(creditId);

@@ -18,6 +18,7 @@ contract IntegrationRegistry {
     }
 
     mapping(bytes32 => Version) public versions;
+    mapping(bytes32 => uint256) public callCount;
     mapping(bytes32 => mapping(address => mapping(bytes4 => bytes32))) public callCodeHashes;
     mapping(bytes32 => mapping(address => mapping(bytes4 => CallPolicy))) public callPolicies;
     address public immutable reviewer;
@@ -26,6 +27,7 @@ contract IntegrationRegistry {
     error Frozen();
 
     event VersionApproved(bytes32 indexed id, bytes32 codeHash);
+    event VersionActivated(bytes32 indexed id);
     event VersionFrozen(bytes32 indexed id);
     event CallRegistered(bytes32 indexed id, address indexed target, bytes4 selector);
 
@@ -39,8 +41,16 @@ contract IntegrationRegistry {
         if (version.frozen) revert Frozen();
         if (version.codeHash != bytes32(0)) revert Invalid();
         version.codeHash = codeHash;
-        version.active = true;
         emit VersionApproved(id, codeHash);
+    }
+
+    function activate(bytes32 id) external {
+        if (msg.sender != reviewer) revert Unauthorized();
+        Version storage version = versions[id];
+        if (version.frozen) revert Frozen();
+        if (version.codeHash == bytes32(0) || version.active || callCount[id] == 0) revert Invalid();
+        version.active = true;
+        emit VersionActivated(id);
     }
 
     function freeze(bytes32 id) external {
@@ -63,11 +73,15 @@ contract IntegrationRegistry {
             revert Invalid();
         }
         Version memory version = versions[id];
-        if (!version.active || version.frozen) revert Frozen();
+        if (version.frozen) revert Frozen();
+        if (version.codeHash == bytes32(0) || version.active || callPolicies[id][target][selector].active) {
+            revert Invalid();
+        }
         if (maxDataLength < 4 || (amountArg != type(uint8).max && maxAmount == 0)) revert Invalid();
         callCodeHashes[id][target][selector] = target.codehash;
         callPolicies[id][target][selector] =
             CallPolicy(target.codehash, maxDataLength, recipientArg, amountArg, maxAmount, true);
+        callCount[id] += 1;
         emit CallRegistered(id, target, selector);
     }
 

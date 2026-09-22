@@ -207,6 +207,19 @@ contract RealFlowTest is Test {
         assertEq(token.balanceOf(borrower), 600);
     }
 
+    function testExpiredSetupReleasesReservationWithoutBorrower() public {
+        bytes32 creditId = keccak256("expired-setup");
+        _accept(creditId, keccak256("expired-intent"), 500);
+        assertEq(houseVault.creditCommitted(creditId), 500);
+
+        vm.warp(block.timestamp + 1 days + 1);
+        vm.prank(address(0xD00D));
+        core.expireSetup(creditId);
+
+        assertEq(houseVault.creditCommitted(creditId), 0);
+        assertEq(uint256(core.creditFacility(creditId)), uint256(Types.Facility.Aborted));
+    }
+
     function testInterestFeesAndRepaymentAllocation() public {
         bytes32 creditId = keccak256("terms-credit");
         _prepareTerms(creditId);
@@ -429,6 +442,7 @@ contract RealFlowTest is Test {
             block.timestamp + 1 days
         );
         houseVault.setSettlementInbox(address(inbox), true);
+        vm.prank(borrower);
         houseVault.configureLpInbox(address(inbox), borrower, 100);
         token.mint(address(inbox), 250);
         inbox.notifyAll();

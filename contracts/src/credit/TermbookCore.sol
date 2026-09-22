@@ -63,6 +63,7 @@ interface ICreditAccountCore {
 
 interface IRiskCore {
     function riskState(bytes32 creditId) external view returns (Types.Risk);
+    function maintenanceBps(bytes32 creditId) external view returns (uint256);
     function checkDraw(bytes32 creditId, uint256 newDebt) external view;
     function checkWithdraw(bytes32 creditId, uint256 cashAfter) external view;
     function applyCashWithdraw(bytes32 creditId, uint256 cashAfter) external;
@@ -1163,8 +1164,19 @@ contract TermbookCore is ITermbookCore {
 
     function abort(bytes32 creditId) external nonReentrant {
         Credit storage c = _credits[creditId];
+        if (msg.sender != c.borrower) revert Unauthorized();
+        _abortSetup(c, creditId);
+    }
+
+    function expireSetup(bytes32 creditId) external nonReentrant {
+        Credit storage c = _credits[creditId];
+        if (c.setupDeadline == 0 || block.timestamp <= c.setupDeadline) revert Expired();
+        _abortSetup(c, creditId);
+    }
+
+    function _abortSetup(Credit storage c, bytes32 creditId) internal {
         if (
-            msg.sender != c.borrower || c.debt != 0
+            c.debt != 0
                 || (c.facility != Types.Facility.Reserved
                     && c.facility != Types.Facility.CollateralLocking
                     && c.facility != Types.Facility.CollateralProving
@@ -1683,7 +1695,9 @@ contract TermbookCore is ITermbookCore {
         if (c.debt != 0) {
             if (riskEngine == address(0)) revert BadHealth();
             _requireFreshHealth(c, creditId);
-            if (IRiskCore(riskEngine).riskState(creditId) != Types.Risk.Healthy) {
+            Types.HealthSnapshot memory snapshot_ = IRiskCore(riskEngine).snapshot(creditId);
+            uint256 maintenance = IRiskCore(riskEngine).maintenanceBps(creditId);
+            if (maintenance == 0 || snapshot_.healthBps < maintenance) {
                 revert BadHealth();
             }
         }

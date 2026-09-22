@@ -5,8 +5,11 @@ import {IHouseVault} from "./IHouseVault.sol";
 import {SafeTransferLib} from "../shared/SafeTransferLib.sol";
 
 interface ISettlementInboxView {
+    function operationId() external view returns (bytes32);
     function vault() external view returns (address);
     function token() external view returns (address);
+    function creditId() external view returns (bytes32);
+    function refundRecipient() external view returns (address);
 }
 
 interface ISettlementCore {
@@ -152,8 +155,12 @@ contract HouseVault is IHouseVault {
         emit SettlementInboxSet(inbox, active);
     }
 
-    function configureLpInbox(address inbox, address recipient, uint256 minShares) external onlyManager {
-        if (!settlementInboxes[inbox] || recipient == address(0) || lpInboxMinted[inbox]) revert InvalidInbox();
+    function configureLpInbox(address inbox, address recipient, uint256 minShares) external {
+        if (
+            !settlementInboxes[inbox] || recipient == address(0) || minShares == 0 || lpInboxMinted[inbox]
+                || lpInboxRecipient[inbox] != address(0) || ISettlementInboxView(inbox).creditId() != bytes32(0)
+                || msg.sender != ISettlementInboxView(inbox).refundRecipient()
+        ) revert InvalidInbox();
         lpInboxRecipient[inbox] = recipient;
         lpInboxMinShares[inbox] = minShares;
     }
@@ -513,8 +520,16 @@ contract HouseVault is IHouseVault {
         if (asset.balanceOf(recipient) - beforeBalance != amount) revert AccountingMismatch();
     }
 
-    function onSettlement(bytes32, bytes32 creditId, address settlementToken, uint256 amount) external {
+    function onSettlement(bytes32 operationId, bytes32 creditId, address settlementToken, uint256 amount) external {
         if (!settlementInboxes[msg.sender] || settlementToken != asset || amount == 0) revert Unauthorized();
+        if (
+            ISettlementInboxView(msg.sender).operationId() != operationId
+                || ISettlementInboxView(msg.sender).creditId() != creditId
+        ) revert InvalidInbox();
+        // Require unaccounted tokens before crediting settlement.
+        if (asset.balanceOf(address(this)) < freeCash + committedCash + bondCash + amount) {
+            revert AccountingMismatch();
+        }
         if (lpInboxRecipient[msg.sender] != address(0)) {
             if (creditId != bytes32(0) || lpInboxMinted[msg.sender]) revert InvalidInbox();
             uint256 price = sharePrice();

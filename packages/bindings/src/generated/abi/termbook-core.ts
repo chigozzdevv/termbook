@@ -1224,6 +1224,19 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "expireSetup",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "finalizeRecovery",
     "inputs": [
       {

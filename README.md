@@ -13,7 +13,6 @@ See `termbook.md` for the required behavior specification.
 - `packages/sdk/` borrower and LP client
 - `server/` off-chain indexer and coordinator, no custody authority
 - `solana/` native SOL custody program, admission disabled
-- `bitcoin/` native BTC transaction and spend-policy checks, admission disabled
 - `scripts/` repo automation
 
 ## Commands
@@ -38,7 +37,6 @@ USDC price, a recovery route, and the required governance configuration.
 | MON | Native MON enters `NativeCollateralVault` on Monad and is held as WMON. | Local custody, native return, WMON sale for USDC, and oracle-backed collateral-only health reader. Requires reviewed WMON and USDC deployments, feed, risk bands, exit verifier, and market admission. |
 | ETH | WETH stays in `CollateralVault` on Ethereum. | Full-field lock commitment and source-wallet flow are implemented. Finalized Ethereum-to-Monad lock and Monad-to-Ethereum action verifiers are required before accepting funds. |
 | SOL | Native SOL stays in a Solana program-derived account. | Program and typed wallet binding are present, but the program rejects all deposits until bidirectional finality verification and the Monad non-EVM credit schema are implemented. |
-| BTC | Native BTC goes to a per-credit Bitcoin locking script. | Transaction and PSBT policy checks are present. No custody script, Bitcoin consensus/UTXO verifier, or admitted signer policy is deployed. |
 
 `CollateralHealthReader` values bound collateral and free USDC held in the
 Credit Account; it assigns zero value to application positions. Markets that

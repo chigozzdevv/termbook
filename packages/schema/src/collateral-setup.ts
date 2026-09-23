@@ -5,26 +5,19 @@ const evmAddressSchema = addressSchema.transform((value): `0x${string}` => value
 const hashSchema = bytes32Schema.transform((value): `0x${string}` => value as `0x${string}`);
 const solanaKeySchema = z.string().regex(/^0x[a-fA-F0-9]{64}$/).refine((value) => !/^0x0{64}$/i.test(value)).transform((value): `0x${string}` => value.toLowerCase() as `0x${string}`);
 export const NATIVE_SOL_ASSET_BYTES = `0x${"01".repeat(32)}` as const;
-const bitcoinScriptSchema = z.string().refine((value) =>
-  /^0x(?:76a914[a-fA-F0-9]{40}88ac|a914[a-fA-F0-9]{40}87|0014[a-fA-F0-9]{40}|0020[a-fA-F0-9]{64}|5120[a-fA-F0-9]{64})$/.test(value),
-).transform((value): `0x${string}` => value as `0x${string}`);
-
 export const collateralChainSchema = z.discriminatedUnion("namespace", [
   z.object({ namespace: z.literal("eip155"), reference: z.string().regex(/^[1-9][0-9]*$/) }),
   z.object({ namespace: z.literal("solana"), reference: solanaKeySchema }),
-  z.object({ namespace: z.literal("bip122"), reference: z.string().regex(/^[a-fA-F0-9]{32}$/).transform((value) => value.toLowerCase()) }),
 ]);
 
 export const collateralAccountSchema = z.discriminatedUnion("namespace", [
   z.object({ namespace: z.literal("eip155"), reference: z.string().regex(/^[1-9][0-9]*$/), accountBytes: evmAddressSchema }),
   z.object({ namespace: z.literal("solana"), reference: solanaKeySchema, accountBytes: solanaKeySchema }),
-  z.object({ namespace: z.literal("bip122"), reference: z.string().regex(/^[a-fA-F0-9]{32}$/).transform((value) => value.toLowerCase()), accountBytes: bitcoinScriptSchema }),
 ]);
 
 const collateralAssetBaseSchema = z.discriminatedUnion("namespace", [
   z.object({ namespace: z.literal("eip155"), reference: z.string().regex(/^[1-9][0-9]*$/), kind: z.literal("erc20"), assetBytes: evmAddressSchema }),
   z.object({ namespace: z.literal("solana"), reference: solanaKeySchema, kind: z.enum(["native", "spl"]), assetBytes: solanaKeySchema }),
-  z.object({ namespace: z.literal("bip122"), reference: z.string().regex(/^[a-fA-F0-9]{32}$/).transform((value) => value.toLowerCase()), kind: z.literal("btc"), assetBytes: z.literal("0x00") }),
 ]);
 
 export const collateralAssetSchema = collateralAssetBaseSchema.superRefine((asset, ctx) => {

@@ -44,7 +44,7 @@ describe("schema", () => {
     expect(() => operationSchema.parse({ ...operation, minAmountOut: -1n })).toThrow();
   });
 
-  it("keeps Solana and Bitcoin account bytes distinct from EVM addresses", () => {
+  it("keeps Solana account bytes distinct from EVM addresses and rejects Bitcoin selections", () => {
     const common = {
       version: 1,
       monadChainId: 143,
@@ -71,13 +71,13 @@ describe("schema", () => {
     expect(() => collateralSetupBindingSchema.parse({ ...solanaBinding, owner: { ...solana, accountBytes: `0x${"0".repeat(64)}` } })).toThrow();
     expect(() => collateralSetupBindingSchema.parse({ ...solanaBinding, owner: { ...solana, accountBytes: `0x${"9".repeat(40)}` } })).toThrow();
     const bitcoin = { namespace: "bip122", reference: "000000000019d6689c085ae165831e93", accountBytes: `0x5120${"a".repeat(64)}` };
-    expect(collateralSetupBindingSchema.parse({
+    expect(() => collateralSetupBindingSchema.parse({
       ...common,
       sourceVault: bitcoin,
       asset: { namespace: "bip122", reference: bitcoin.reference, kind: "btc", assetBytes: "0x00" },
       owner: bitcoin,
       returnRecipient: bitcoin,
-    }).asset.namespace).toBe("bip122");
+    })).toThrow();
     expect(() => collateralSetupBindingSchema.parse({ ...solanaBinding, returnRecipient: bitcoin })).toThrow();
     expect(() => collateralSetupBindingSchema.parse({
       ...common,

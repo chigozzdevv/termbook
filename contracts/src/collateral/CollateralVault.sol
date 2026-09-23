@@ -4,6 +4,13 @@ pragma solidity ^0.8.24;
 import {ICollateralVault} from "./ICollateralVault.sol";
 import {SafeTransferLib} from "../shared/SafeTransferLib.sol";
 
+interface IRemoteRecoveryBinding {
+    function recoveryVault() external view returns (address);
+    function controller() external view returns (address);
+    function monadChain() external view returns (uint256);
+    function monadCore() external view returns (address);
+}
+
 contract CollateralVault is ICollateralVault {
     using SafeTransferLib for address;
 
@@ -52,6 +59,10 @@ contract CollateralVault is ICollateralVault {
         asset = asset_;
         chainId_ = chainId__;
         core = core_;
+    }
+
+    function isNativeCollateralVault() external pure returns (bool) {
+        return false;
     }
 
     function setPaused(bool value) external {
@@ -106,9 +117,37 @@ contract CollateralVault is ICollateralVault {
         if (borrower == address(0) || lockId == bytes32(0) || chainId_ != block.chainid) {
             revert InvalidBinding();
         }
+        address recoveryVault;
+        uint256 monadChain;
+        address monadCore;
+        try IRemoteRecoveryBinding(core).recoveryVault() returns (address configured) {
+            recoveryVault = configured;
+        } catch {
+            revert InvalidBinding();
+        }
+        try IRemoteRecoveryBinding(core).monadChain() returns (uint256 configured) {
+            monadChain = configured;
+        } catch {
+            revert InvalidBinding();
+        }
+        try IRemoteRecoveryBinding(core).monadCore() returns (address configured) {
+            monadCore = configured;
+        } catch {
+            revert InvalidBinding();
+        }
+        if (monadChain == 0 || monadChain == block.chainid || monadCore == address(0)) revert InvalidBinding();
+        if (recoveryVault.code.length == 0) revert InvalidBinding();
+        try IRemoteRecoveryBinding(recoveryVault).controller() returns (address controller) {
+            if (controller != core) revert InvalidBinding();
+        } catch {
+            revert InvalidBinding();
+        }
         lockWithDeadline(lockId, creditId, owner, amount, recipient, deadline, revision);
         bytes32 commitment =
-            keccak256(abi.encode(creditId, lockId, borrower, owner, address(this), asset, amount, chainId_, recipient));
+            keccak256(abi.encode(
+                creditId, lockId, borrower, owner, address(this), asset, amount, chainId_, recipient,
+                recoveryVault, monadChain, monadCore
+            ));
         lockCommitments[lockId] = commitment;
         emit LockCommitted(lockId, commitment);
     }

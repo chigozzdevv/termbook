@@ -8,6 +8,7 @@ import {IVerifier, IVerifierAdmission} from "./IVerifier.sol";
 interface ISourceRecoveryVault {
     function asset() external view returns (address);
     function controller() external view returns (address);
+    function monadChain() external view returns (uint256);
     function recordSeizure(bytes32 creditId, uint256 amount) external;
 }
 
@@ -28,7 +29,10 @@ contract RemoteCollateralController {
             asset.code.length == 0 || monadChain_ == 0 || monadChain_ == block.chainid
                 || monadCore_ == address(0) || recoveryVault_.code.length == 0 || verifier_.code.length == 0
         ) revert Invalid();
-        if (ISourceRecoveryVault(recoveryVault_).asset() != asset) revert Invalid();
+        if (
+            ISourceRecoveryVault(recoveryVault_).asset() != asset
+                || ISourceRecoveryVault(recoveryVault_).monadChain() != monadChain_
+        ) revert Invalid();
         (uint256 verifierChain,,) = IVerifierAdmission(verifier_).admission();
         if (verifierChain != monadChain_) revert Invalid();
         monadChain = monadChain_;

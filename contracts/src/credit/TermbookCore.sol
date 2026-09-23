@@ -266,16 +266,19 @@ contract TermbookCore is ITermbookCore {
     mapping(bytes32 => address) public remoteSeizureRecipient;
     mapping(uint256 => mapping(address => address)) public sourceCollateralVault;
     mapping(uint256 => mapping(address => address)) public sourceRecoveryVault;
+    mapping(bytes32 => address) public remoteRecoveryVaultOf;
     mapping(address => bool) public recoveryKeepers;
     mapping(bytes32 => uint256) public healthSnapshotAt;
     mapping(bytes32 => uint256) public healthSnapshotRevision;
     mapping(bytes32 => LocalSalePolicy) public localSalePolicies;
+    mapping(address => bytes32) public localCollateralVaultCodeHash;
     uint256 public healthMaxAge = 1 days;
 
     event RemoteActionAuthorized(bytes32 indexed creditId, bytes32 indexed actionHash, uint8 kind);
     event RemoteSeizureConfirmed(bytes32 indexed creditId, bytes32 indexed actionHash, uint256 amount);
     event LocalSalePolicySet(bytes32 indexed marketId, address indexed collateralAsset, address indexed settlementAsset);
     event LocalSalePolicyDisabled(bytes32 indexed marketId);
+    event LocalCollateralVaultSet(address indexed vault, address indexed asset, bytes32 codeHash);
     event LocalCollateralSold(bytes32 indexed creditId, address indexed buyer, uint256 collateralAmount, uint256 settlementAmount);
 
     error Expired();
@@ -334,6 +337,34 @@ contract TermbookCore is ITermbookCore {
         }
         if (ICollateralVaultCore(collateralVault).core() != address(this)) revert InvalidCollateral();
         ICollateralVaultCore(collateralVault).setPauseGuardian(pauseGuardian);
+    }
+
+    function setLocalCollateralVault(address vault, bytes32 codeHash) external onlyGovernance {
+        if (vault == address(0)) revert InvalidCollateral();
+        if (codeHash == bytes32(0)) {
+            if (localCollateralVaultCodeHash[vault] == bytes32(0)) revert InvalidCollateral();
+            localCollateralVaultCodeHash[vault] = bytes32(0);
+            emit LocalCollateralVaultSet(vault, address(0), bytes32(0));
+            return;
+        }
+        if (vault.codehash != codeHash) revert InvalidCollateral();
+        address vaultAsset = _localCollateralVaultAsset(vault, codeHash);
+        localCollateralVaultCodeHash[vault] = codeHash;
+        emit LocalCollateralVaultSet(vault, vaultAsset, codeHash);
+    }
+
+    function _localCollateralVaultAsset(address vault, bytes32 codeHash) internal view returns (address vaultAsset) {
+        if (
+            codeHash == bytes32(0) || vault.code.length == 0 || vault.codehash != codeHash
+                || ICollateralVaultCore(vault).core() != address(this)
+                || ICollateralVaultCore(vault).chainId_() != block.chainid
+        ) revert InvalidCollateral();
+        vaultAsset = ICollateralVaultCore(vault).asset();
+        if (vaultAsset == address(0) || vaultAsset.code.length == 0) revert InvalidCollateral();
+    }
+
+    function _requireLocalCollateralVault(address vault) internal view returns (address vaultAsset) {
+        vaultAsset = _localCollateralVaultAsset(vault, localCollateralVaultCodeHash[vault]);
     }
 
     function setHouseRegistry(address registry) external onlyGovernance {
@@ -951,12 +982,18 @@ contract TermbookCore is ITermbookCore {
     }
 
     function _pinVerifier(Credit storage c, uint256 sourceChain) internal {
-        if (verifierRegistry == address(0)) return;
+        if (verifierRegistry == address(0)) revert InvalidCollateral();
         (address impl, uint256 version, bool active,, bytes32 codeHash) =
             IVerifierRegistryCore(verifierRegistry).verifiers(sourceChain);
         if (!active || impl.code.length == 0 || version == 0) revert InvalidCollateral();
         c.verifierVersion = version;
         c.verifierCodeHash = codeHash;
+    }
+
+    function _pinRemoteRecovery(bytes32 creditId, uint256 sourceChain, address collateralAsset) internal {
+        address recoveryVault = sourceRecoveryVault[sourceChain][collateralAsset];
+        if (recoveryVault == address(0)) revert InvalidCollateral();
+        remoteRecoveryVaultOf[creditId] = recoveryVault;
     }
 
     function _setQuotedCollateral(
@@ -971,14 +1008,9 @@ contract TermbookCore is ITermbookCore {
         Credit storage c = _credits[creditId];
         bool remote = sourceChain != block.chainid;
         if (
-            collateralAsset == address(0)
+            collateralVault == address(0) || collateralAsset == address(0)
                 || (remote && sourceCollateralVault[sourceChain][collateralAsset] != collateralVault)
-                || (!remote
-                    && (collateralAsset.code.length == 0
-                        || collateralVault.code.length == 0
-                        || ICollateralVaultCore(collateralVault).core() != address(this)
-                        || ICollateralVaultCore(collateralVault).asset() != collateralAsset
-                        || ICollateralVaultCore(collateralVault).chainId_() != block.chainid))
+                || (!remote && _requireLocalCollateralVault(collateralVault) != collateralAsset)
         ) revert InvalidCollateral();
         if (!remote && collateralAsset != IHouseVaultCore(c.vault).asset()) {
             _requireLocalSalePolicy(collateralAsset, IHouseVaultCore(c.vault).asset());
@@ -990,7 +1022,10 @@ contract TermbookCore is ITermbookCore {
         c.collateralAmount = collateralAmount;
         c.returnRecipient = returnRecipient;
         remoteCollateral[creditId] = remote;
-        if (remote) _pinVerifier(c, sourceChain);
+        if (remote) {
+            _pinVerifier(c, sourceChain);
+            _pinRemoteRecovery(creditId, sourceChain, collateralAsset);
+        }
         c.facility = Types.Facility.CollateralLocking;
         c.revision = RevisionLib.next(c.revision);
     }
@@ -1027,6 +1062,7 @@ contract TermbookCore is ITermbookCore {
         Credit storage c = _credits[creditId];
         c.collateralAsset = collateralAsset;
         c.collateralAmount = collateralAmount;
+        _pinRemoteRecovery(creditId, sourceChain, collateralAsset);
     }
 
     function _setCollateral(
@@ -1044,14 +1080,9 @@ contract TermbookCore is ITermbookCore {
             revert InvalidCollateral();
         }
         if (!remote) {
-            if (collateralVault.code.length == 0 || ICollateralVaultCore(collateralVault).core() != address(this)) {
-                revert InvalidCollateral();
-            }
-            sourceChain = ICollateralVaultCore(collateralVault).chainId_();
-            if (sourceChain != block.chainid) revert InvalidCollateral();
-            address collateralAsset = ICollateralVaultCore(collateralVault).asset();
+            address collateralAsset = _requireLocalCollateralVault(collateralVault);
+            sourceChain = block.chainid;
             address settlementAsset = IHouseVaultCore(c.vault).asset();
-            if (collateralAsset == address(0) || collateralAsset.code.length == 0) revert InvalidCollateral();
             if (collateralAsset != settlementAsset) _requireLocalSalePolicy(collateralAsset, settlementAsset);
             c.collateralAsset = collateralAsset;
         } else if (sourceChain == 0 || sourceChain == block.chainid) {
@@ -1116,6 +1147,9 @@ contract TermbookCore is ITermbookCore {
         c.collateralBound = true;
         remoteCollateral[creditId] = true;
         _pinVerifier(c, sourceChain);
+        if (remoteRecoveryVaultOf[creditId] == address(0)) {
+            _pinRemoteRecovery(creditId, sourceChain, collateralAsset);
+        }
         lockBound[creditId][lockId] = true;
         c.facility = Types.Facility.Aborted;
         c.revision = RevisionLib.next(c.revision);
@@ -1130,6 +1164,7 @@ contract TermbookCore is ITermbookCore {
         ) revert BadState();
         if (c.collateralVault == address(0) || lockBound[creditId][lockId]) revert InvalidCollateral();
         if (remoteCollateral[creditId]) revert InvalidCollateral();
+        if (_requireLocalCollateralVault(c.collateralVault) != c.collateralAsset) revert InvalidCollateral();
         (
             bytes32 lockCredit,
             address owner,
@@ -1189,6 +1224,8 @@ contract TermbookCore is ITermbookCore {
             revert InvalidCollateral();
         }
         address owner = collateralOwnerOf[creditId];
+        address recoveryVault = remoteRecoveryVaultOf[creditId];
+        if (recoveryVault == address(0)) revert InvalidCollateral();
         bytes32 expected = keccak256(
             abi.encode(
                 creditId,
@@ -1199,7 +1236,10 @@ contract TermbookCore is ITermbookCore {
                 c.collateralAsset,
                 c.collateralAmount,
                 sourceChain,
-                c.returnRecipient
+                c.returnRecipient,
+                recoveryVault,
+                block.chainid,
+                address(this)
             )
         );
         try IVerifierCore(impl).verifyLock(header, proof, c.collateralVault, expected) returns (bool verified) {
@@ -1411,7 +1451,7 @@ contract TermbookCore is ITermbookCore {
                 || pendingRemoteReturn[creditId] != 0 || amount == 0 || amount > c.collateralAmount
                 || c.debt == 0 || deadline <= block.timestamp || deadline > block.timestamp + 7 days
         ) revert BadState();
-        address destination = sourceRecoveryVault[collateralSourceChainOf[creditId]][c.collateralAsset];
+        address destination = remoteRecoveryVaultOf[creditId];
         if (destination == address(0)) revert InvalidCollateral();
         uint256 nonce = ++remoteActionNonce[creditId];
         bytes32 actionHash = RemoteAction.hash(_remoteAction(
@@ -1686,6 +1726,9 @@ contract TermbookCore is ITermbookCore {
         bool checkBeforeDraw
     ) internal {
         if (amount == 0 || amount > maxBound) revert OverLimit();
+        if (!remoteCollateral[creditId] && _requireLocalCollateralVault(c.collateralVault) != c.collateralAsset) {
+            revert InvalidCollateral();
+        }
         _accrue(c, creditId);
         uint256 capacity =
             c.revolving ? (c.limit > c.debt ? c.limit - c.debt : 0) : (c.limit > c.drawn ? c.limit - c.drawn : 0);
@@ -2068,6 +2111,16 @@ contract TermbookCore is ITermbookCore {
 
     function creditVault(bytes32 creditId) external view returns (address) {
         return _credits[creditId].vault;
+    }
+
+    function remoteRecoveryContext(bytes32 creditId)
+        external
+        view
+        returns (uint256 sourceChain, address sourceAsset, address recoveryVault)
+    {
+        sourceChain = collateralSourceChainOf[creditId];
+        sourceAsset = _credits[creditId].collateralAsset;
+        recoveryVault = remoteRecoveryVaultOf[creditId];
     }
 
     function creditRevision(bytes32 creditId) external view returns (uint256) {

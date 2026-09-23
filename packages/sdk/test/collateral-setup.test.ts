@@ -71,18 +71,20 @@ describe("collateral setup", () => {
   it("uses the remote lock entrypoint and the Core commitment fields", () => {
     const b = binding();
     const lockId = collateralSetupHash(b);
+    const recoveryVault = address("e");
     expect(evmSourceLockCall(b, lockId, 2n)).toEqual({
       functionName: "lockRemoteWithDeadline",
       args: [lockId, b.creditId, b.borrower, b.owner.accountBytes, b.amount, b.returnRecipient.accountBytes, BigInt(b.setupDeadline), 2n],
     });
-    expect(evmRemoteLockCommitment(b, lockId)).toBe(keccak256(encodeAbiParameters(
+    expect(evmRemoteLockCommitment(b, lockId, recoveryVault)).toBe(keccak256(encodeAbiParameters(
       [
         { type: "bytes32" }, { type: "bytes32" }, { type: "address" }, { type: "address" },
         { type: "address" }, { type: "address" }, { type: "uint256" }, { type: "uint256" },
-        { type: "address" },
+        { type: "address" }, { type: "address" }, { type: "uint256" }, { type: "address" },
       ],
-      [b.creditId, lockId, b.borrower, b.owner.accountBytes, b.sourceVault.accountBytes, b.asset.assetBytes, b.amount, 1n, b.returnRecipient.accountBytes],
+      [b.creditId, lockId, b.borrower, b.owner.accountBytes, b.sourceVault.accountBytes, b.asset.assetBytes, b.amount, 1n, b.returnRecipient.accountBytes, recoveryVault, 143n, b.core],
     )));
+    expect(() => evmRemoteLockCommitment(b, lockId, address("0"))).toThrow("source-recovery-vault-invalid");
     expect(() => evmSourceLockCall(b, lockId, 2n, true)).toThrow("remote-native-vault-unavailable");
   });
 
@@ -95,19 +97,75 @@ describe("collateral setup", () => {
       vault: b.sourceVault.accountBytes, asset: b.asset.assetBytes as `0x${string}`, controller: address("d"),
     });
     let commitment = hash("0");
+    let controllerCore = b.core;
     const readContract = vi.fn(async (request: { functionName: string; blockTag?: string }) => {
+      if (request.functionName === "isNativeCollateralVault") return false;
       if (request.functionName === "asset") return b.asset.assetBytes;
       if (request.functionName === "core") return address("d");
       if (request.functionName === "chainId_") return 1n;
+      if (request.functionName === "recoveryVault") return address("e");
+      if (request.functionName === "monadChain") return 143n;
+      if (request.functionName === "monadCore") return controllerCore;
+      if (request.functionName === "controller") return address("d");
       if (request.functionName === "lockInfo") return [b.creditId, b.owner.accountBytes, b.asset.assetBytes, 1n, b.amount, b.returnRecipient.accountBytes, BigInt(b.setupDeadline), 2n, true, false, false];
       if (request.functionName === "lockCommitments") return commitment;
       throw new Error("unexpected-read");
     });
     (adapter as unknown as { rpc: unknown }).rpc = { getChainId: async () => 1, readContract };
     await expect(adapter.observeLock(b, lockId)).rejects.toThrow("source-lock-commitment-mismatch");
-    commitment = evmRemoteLockCommitment(b, lockId);
+    commitment = evmRemoteLockCommitment(b, lockId, address("e"));
     await expect(adapter.observeLock(b, lockId)).resolves.toEqual({ state: "finalized", txId: undefined });
+    controllerCore = address("f");
+    await expect(adapter.preflight(b)).rejects.toThrow("source-controller-mismatch");
     expect(readContract.mock.calls.every(([request]) => request.blockTag === "finalized")).toBe(true);
+  });
+
+  it("checks the vault kind before accepting a native MON lock", async () => {
+    const base = binding();
+    const chain = { namespace: "eip155" as const, reference: "143" };
+    const local: CollateralSetupBinding = {
+      ...base,
+      sourceVault: { ...chain, accountBytes: base.sourceVault.accountBytes },
+      asset: { ...chain, kind: "erc20", assetBytes: base.asset.assetBytes },
+      owner: { ...chain, accountBytes: base.owner.accountBytes },
+      returnRecipient: { ...chain, accountBytes: base.returnRecipient.accountBytes },
+    };
+    const adapter = (nativeVault?: boolean) => new EvmSourceLockWallet({
+      chainId: 143, rpcUrl: "https://invalid.example",
+      wallet: { address: local.owner.accountBytes, signTypedData: async () => hash("a"), getChainId: async () => 143 },
+      vault: local.sourceVault.accountBytes, asset: local.asset.assetBytes as `0x${string}`,
+      controller: local.core, nativeVault,
+    });
+    const attachRpc = (wallet: EvmSourceLockWallet, native: boolean | null) => {
+      (wallet as unknown as { rpc: unknown }).rpc = {
+        getChainId: async () => 143,
+        readContract: async ({ functionName }: { functionName: string }) => {
+          if (functionName === "isNativeCollateralVault") {
+            if (native === null) throw new Error("selector-unavailable");
+            return native;
+          }
+          if (functionName === "asset") return local.asset.assetBytes;
+          if (functionName === "core") return local.core;
+          if (functionName === "chainId_") return 143n;
+          throw new Error("unexpected-read");
+        },
+      };
+    };
+    const omitted = adapter();
+    attachRpc(omitted, true);
+    await expect(omitted.preflight(local)).rejects.toThrow("source-vault-native-required");
+    const native = adapter(true);
+    attachRpc(native, true);
+    await expect(native.preflight(local)).resolves.toBeUndefined();
+    const misclassified = adapter(true);
+    attachRpc(misclassified, false);
+    await expect(misclassified.preflight(local)).rejects.toThrow("source-vault-not-native");
+    const erc20 = adapter();
+    attachRpc(erc20, false);
+    await expect(erc20.preflight(local)).resolves.toBeUndefined();
+    const unknown = adapter();
+    attachRpc(unknown, null);
+    await expect(unknown.preflight(local)).rejects.toThrow("source-vault-kind-unverified");
   });
 
   it("requires an independent source wallet before reserving and resumes through proof", async () => {
@@ -116,6 +174,7 @@ describe("collateral setup", () => {
     let reservations = 0;
     let locks = 0;
     let sourceFinalized = false;
+    let sourceRecoveryVault = address("f");
     let proofs = 0;
     const stages: string[] = [];
     let account = address("0");
@@ -127,6 +186,7 @@ describe("collateral setup", () => {
         read: async (_address: string, _abi: unknown, fn: string) => {
           if (fn === "collateralSourceChainOf") return 1n;
           if (fn === "collateralOwnerOf") return b.owner.accountBytes;
+          if (fn === "remoteRecoveryVaultOf") return address("e");
           if (fn === "collateralProven") return Boolean(onchain["proven"]);
           if (fn === "accountOf") return account;
           throw new Error(`unexpected-read:${fn}`);
@@ -153,6 +213,7 @@ describe("collateral setup", () => {
     } as unknown as TermbookClient;
     const wallet = {
       account: b.owner,
+      remoteRecoveryVault: async () => sourceRecoveryVault,
       observeLock: async () => ({ state: locks === 0 ? "missing" as const : sourceFinalized ? "finalized" as const : "submitted" as const, txId: locks ? hash("f") : undefined }),
       submitLock: async () => {
         locks += 1;
@@ -174,6 +235,10 @@ describe("collateral setup", () => {
       onProgress: async (checkpoint: { stage: string }) => { stages.push(checkpoint.stage); },
     };
     const setup = new CollateralSetup(client, b, options);
+    await expect(setup.resume()).rejects.toThrow("source-recovery-vault-mismatch");
+    expect(reservations).toBe(1);
+    expect(locks).toBe(0);
+    sourceRecoveryVault = address("e");
     expect((await setup.resume()).stage).toBe("awaiting_finality");
     expect(reservations).toBe(1);
     expect(locks).toBe(1);
@@ -228,6 +293,7 @@ describe("collateral setup", () => {
           if (fn === "asset") return address("c");
           if (fn === "collateralSourceChainOf") return 1n;
           if (fn === "collateralOwnerOf") return b.owner.accountBytes;
+          if (fn === "remoteRecoveryVaultOf") return address("e");
           if (fn === "collateralProven") return false;
           throw new Error(`unexpected-read:${fn}`);
         },
@@ -260,6 +326,7 @@ describe("collateral setup", () => {
       signature: `0x${"e".repeat(130)}` as `0x${string}`, revolving: false,
     }];
     const preflight = vi.spyOn(EvmSourceLockWallet.prototype, "preflight").mockResolvedValue();
+    const remoteRecoveryVault = vi.spyOn(EvmSourceLockWallet.prototype, "remoteRecoveryVault").mockResolvedValue(address("e"));
     const observe = vi.spyOn(EvmSourceLockWallet.prototype, "observeLock").mockImplementation(async () => ({ state: locks === 0 ? "missing" : "submitted", txId: locks ? hash("f") : undefined }));
     const submit = vi.spyOn(EvmSourceLockWallet.prototype, "submitLock").mockImplementation(async () => {
       locks += 1;
@@ -279,6 +346,7 @@ describe("collateral setup", () => {
       expect(locks).toBe(1);
     } finally {
       preflight.mockRestore();
+      remoteRecoveryVault.mockRestore();
       observe.mockRestore();
       submit.mockRestore();
     }

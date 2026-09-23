@@ -21,7 +21,10 @@ interface IRouteCreditCore {
     function remoteCollateral(bytes32 creditId) external view returns (bool);
     function recoveryKeepers(address keeper) external view returns (bool);
     function collateralOwnerOf(bytes32 creditId) external view returns (address);
-    function sourceRecoveryVault(uint256 sourceChain, address asset) external view returns (address);
+    function remoteRecoveryContext(bytes32 creditId)
+        external
+        view
+        returns (uint256 sourceChain, address sourceAsset, address recoveryVault);
 }
 
 contract InboxFactory {
@@ -108,10 +111,13 @@ contract InboxFactory {
             if (core.creditVault(op.creditId) != op.vault || core.creditDebt(op.creditId) == 0) revert Invalid();
             if (op.kind == 1) {
                 uint8 facility = core.creditFacility(op.creditId);
+                (uint256 sourceChain, address sourceAsset, address recoveryVault) =
+                    core.remoteRecoveryContext(op.creditId);
                 if (
                     !core.remoteCollateral(op.creditId) || !core.recoveryKeepers(op.payer)
                         || (facility != 8 && facility != 9 && facility != 10)
-                        || core.sourceRecoveryVault(op.sourceChain, op.sourceAsset) != op.sourceRefund
+                        || sourceChain != op.sourceChain || sourceAsset != op.sourceAsset
+                        || recoveryVault != op.sourceRefund
                         || core.collateralOwnerOf(op.creditId) != op.refundRecipient
                 ) revert Invalid();
             }

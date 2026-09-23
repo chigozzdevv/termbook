@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {CollateralVault} from "../../src/collateral/CollateralVault.sol";
+import {SourceRecoveryVault} from "../../src/collateral/SourceRecoveryVault.sol";
 import {MockERC20} from "../MockERC20.sol";
 
 contract ShortTransferFromToken {
@@ -34,10 +35,16 @@ contract RemoteLockCommitmentTest is Test {
     address recipient = address(0xCAFE);
     bytes32 lockId = keccak256("remote-lock");
     bytes32 creditId = keccak256("credit");
+    address public recoveryVault;
+    address public monadCore = address(0xCAFE);
+    uint256 public monadChain = 143;
 
     function setUp() public {
         token = new MockERC20();
         token.mint(owner, 200);
+        SourceRecoveryVault recovery = new SourceRecoveryVault(address(token), 143, address(this), owner);
+        recovery.setController(address(this));
+        recoveryVault = address(recovery);
         vault = new CollateralVault(address(token), block.chainid, address(this));
         vm.prank(owner);
         token.approve(address(vault), 200);
@@ -48,7 +55,7 @@ contract RemoteLockCommitmentTest is Test {
         vault.lockRemoteWithDeadline(lockId, creditId, borrower, owner, amount, recipient, block.timestamp + 1 days, 1);
     }
 
-    function testCommitmentMatchesCoreNineFieldDigest() public {
+    function testCommitmentBindsRecoveryVault() public {
         _remoteLock(100);
         bytes32 expected = keccak256(
             abi.encode(
@@ -60,7 +67,10 @@ contract RemoteLockCommitmentTest is Test {
                 address(token),
                 uint256(100),
                 block.chainid,
-                recipient
+                recipient,
+                recoveryVault,
+                monadChain,
+                monadCore
             )
         );
         assertEq(vault.lockCommitments(lockId), expected);
@@ -107,6 +117,28 @@ contract RemoteLockCommitmentTest is Test {
         );
         assertEq(vault.lockCommitments(lockId), original);
         assertEq(token.balanceOf(address(vault)), 100);
+    }
+
+    function testWrongRecoveryControllerCannotCreateCommitment() public {
+        recoveryVault = address(new SourceRecoveryVault(address(token), 143, address(this), owner));
+        vm.prank(owner);
+        vm.expectRevert(CollateralVault.InvalidBinding.selector);
+        vault.lockRemoteWithDeadline(lockId, creditId, borrower, owner, 100, recipient, block.timestamp + 1 days, 1);
+        assertFalse(vault.lockExists(lockId));
+        assertEq(token.balanceOf(address(vault)), 0);
+    }
+
+    function testWrongMonadBindingCannotCreateCommitment() public {
+        monadChain = block.chainid;
+        vm.prank(owner);
+        vm.expectRevert(CollateralVault.InvalidBinding.selector);
+        vault.lockRemoteWithDeadline(lockId, creditId, borrower, owner, 100, recipient, block.timestamp + 1 days, 1);
+        monadChain = 143;
+        monadCore = address(0);
+        vm.prank(owner);
+        vm.expectRevert(CollateralVault.InvalidBinding.selector);
+        vault.lockRemoteWithDeadline(lockId, creditId, borrower, owner, 100, recipient, block.timestamp + 1 days, 1);
+        assertFalse(vault.lockExists(lockId));
     }
 
     function testOwnerAuthorizationAndBorrowerRequired() public {

@@ -37,6 +37,32 @@ contract RealFlowTarget {
     }
 }
 
+contract FakeCollateralVault {
+    address public immutable core;
+    address public immutable asset;
+    uint256 public immutable chainId_;
+    bytes32 public immutable fakeCreditId;
+    address public immutable fakeOwner;
+
+    constructor(address core_, address asset_, bytes32 creditId_, address owner_) {
+        core = core_;
+        asset = asset_;
+        chainId_ = block.chainid;
+        fakeCreditId = creditId_;
+        fakeOwner = owner_;
+    }
+
+    function lockInfo(bytes32)
+        external
+        view
+        returns (bytes32, address, address, uint256, uint256, address, uint256, uint256, bool, bool, bool)
+    {
+        return (
+            fakeCreditId, fakeOwner, asset, chainId_, 1_000_000, fakeOwner, type(uint256).max, 1, true, false, false
+        );
+    }
+}
+
 contract FundedPositionTarget {
     MockERC20 public immutable token;
     mapping(address => uint256) public positions;
@@ -108,6 +134,7 @@ contract RealFlowTest is Test {
         inboxFactory = new InboxFactory(address(this));
         houseVault = new HouseVault(address(token), address(core), address(this), address(inboxFactory), address(0));
         collateralVault = new CollateralVault(address(token), block.chainid, address(core));
+        core.setLocalCollateralVault(address(collateralVault), address(collateralVault).codehash);
         accountFactory = new AccountFactory();
         target = new RealFlowTarget();
         token.mint(address(this), 10_000);
@@ -158,6 +185,51 @@ contract RealFlowTest is Test {
             expiry,
             abi.encodePacked(r, s, v)
         );
+    }
+
+    function testUnapprovedLocalVaultCannotMakeCreditReady() public {
+        bytes32 creditId = keccak256("fake-credit");
+        _accept(creditId, keccak256("fake-intent"), 500);
+        FakeCollateralVault fake = new FakeCollateralVault(address(core), address(token), creditId, borrower);
+        assertEq(token.balanceOf(address(fake)), 0);
+        vm.prank(borrower);
+        vm.expectRevert(TermbookCore.InvalidCollateral.selector);
+        core.setCollateral(creditId, address(fake), borrower);
+        vm.prank(borrower);
+        vm.expectRevert(TermbookCore.InvalidCollateral.selector);
+        core.setCollateralWithOwner(creditId, address(fake), borrower, borrower);
+        assertEq(uint256(core.creditFacility(creditId)), uint256(Types.Facility.Reserved));
+        assertFalse(core.collateralProven(creditId));
+    }
+
+    function testLocalQuoteRejectsUnapprovedVault() public {
+        Types.Quote memory quote;
+        quote.borrower = borrower;
+        quote.owner = borrower;
+        quote.intentId = keccak256("fake-quoted-intent");
+        quote.house = house;
+        quote.vault = address(houseVault);
+        quote.sourceChain = block.chainid;
+        quote.nonce = 1;
+        bytes32 creditId = keccak256(abi.encode(quote.intentId, borrower, house, quote.nonce));
+        FakeCollateralVault fake = new FakeCollateralVault(address(core), address(token), creditId, borrower);
+        quote.collateralVault = address(fake);
+        quote.collateralAsset = address(token);
+        quote.collateralAmount = 1_000_000;
+        quote.returnRecipient = borrower;
+        quote.settlementAsset = address(token);
+        quote.limit = 500;
+        quote.bundleId = keccak256("bundle");
+        quote.setupDeadline = block.timestamp + 1 days;
+        quote.maturity = block.timestamp + 30 days;
+        quote.expiry = quote.setupDeadline;
+        quote.termsHash = keccak256("terms");
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(houseKey, core.quoteDigestFull(quote));
+        quote.signature = abi.encodePacked(r, s, v);
+        vm.prank(borrower);
+        vm.expectRevert(TermbookCore.InvalidCollateral.selector);
+        core.acceptQuote(quote);
+        assertEq(core.creditRevision(creditId), 0);
     }
 
     function _prepareTerms(bytes32 creditId) internal returns (bytes32 lockId, address account) {

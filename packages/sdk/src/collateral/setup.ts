@@ -17,6 +17,7 @@ export type SourceLockObservation = { state: "missing" | "submitted" | "finalize
 export type SourceLockWallet = {
   account: CollateralAccount;
   preflight?: (binding: CollateralSetupBinding) => Promise<void>;
+  remoteRecoveryVault?: (binding: CollateralSetupBinding) => Promise<`0x${string}`>;
   observeLock: (binding: CollateralSetupBinding, lockId: TxHash, txId?: string) => Promise<SourceLockObservation>;
   submitLock: (binding: CollateralSetupBinding, lockId: TxHash, revision: bigint) => Promise<{ txId: string }>;
 };
@@ -244,6 +245,12 @@ export class CollateralSetup {
       if (!wallet) {
         await this.record("awaiting_source_wallet");
         return this.snapshot();
+      }
+      if (sourceChain !== b.monadChainId) {
+        if (!wallet.remoteRecoveryVault) throw new Error("source-recovery-vault-unavailable");
+        const sourceRecovery = await wallet.remoteRecoveryVault(b);
+        const pinnedRecovery = await this.client.rpc.read<string>(b.core, termbookCoreAbi, "remoteRecoveryVaultOf", [b.creditId]);
+        if (!/^0x[a-fA-F0-9]{40}$/.test(sourceRecovery) || /^0x0{40}$/i.test(sourceRecovery) || !/^0x[a-fA-F0-9]{40}$/.test(pinnedRecovery) || !equalHex(sourceRecovery, pinnedRecovery)) throw new Error("source-recovery-vault-mismatch");
       }
       let lock = await wallet.observeLock(b, this.bindingHash, this.current.sourceTx);
       if (lock.state === "failed") throw new Error("source-lock-failed");

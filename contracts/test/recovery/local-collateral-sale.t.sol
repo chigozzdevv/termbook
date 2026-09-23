@@ -117,6 +117,7 @@ contract LocalCollateralSaleTest is Test {
         oracle.setFeed(priceId, address(feed), 1 days, 8);
         houseVault = new HouseVault(address(usdc), address(core), address(this), address(0), address(0));
         collateralVault = new CollateralVault(address(mon), block.chainid, address(core));
+        core.setLocalCollateralVault(address(collateralVault), address(collateralVault).codehash);
         accounts = new AccountFactory();
         house = vm.addr(houseKey);
         borrower = vm.addr(borrowerKey);
@@ -360,6 +361,7 @@ contract LocalCollateralSaleTest is Test {
     function testNativeMonLockSaleAndSurplusReturn() public {
         MockSaleWrappedMon wrapped = new MockSaleWrappedMon();
         NativeCollateralVault nativeVault = new NativeCollateralVault(address(wrapped), block.chainid, address(core));
+        core.setLocalCollateralVault(address(nativeVault), address(nativeVault).codehash);
         core.setLocalSalePolicy(address(wrapped), address(usdc), address(oracle), priceId, 9_000, 1_000e18);
         bytes32 creditId = keccak256("native-mon-credit");
         bytes32 lockId = keccak256("native-mon-lock");

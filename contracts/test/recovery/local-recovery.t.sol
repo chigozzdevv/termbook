@@ -35,6 +35,7 @@ contract LocalRecoveryTest is Test {
         inboxFactory = new InboxFactory(address(this));
         houseVault = new HouseVault(address(token), address(core), address(this), address(inboxFactory), address(0));
         collateralVault = new CollateralVault(address(token), block.chainid, address(core));
+        core.setLocalCollateralVault(address(collateralVault), address(collateralVault).codehash);
         accounts = new AccountFactory();
         house = vm.addr(houseKey);
         borrower = vm.addr(borrowerKey);

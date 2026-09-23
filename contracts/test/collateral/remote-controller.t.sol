@@ -84,6 +84,12 @@ contract RemoteControllerTest is Test {
         controller.execute(action, abi.encode(true), _proof(action));
     }
 
+    function testRecoveryVaultMustTargetTheSameMonadChain() public {
+        SourceRecoveryVault wrongChain = new SourceRecoveryVault(address(token), 143, address(this), address(this));
+        vm.expectRevert(RemoteCollateralController.Invalid.selector);
+        new RemoteCollateralController(address(token), 101, monadCore, address(wrongChain), address(verifier));
+    }
+
     function testFinalizedSeizureMovesTokensOnlyToRecoveryVault() public {
         RemoteAction.Authorization memory action = _action(RemoteAction.SEIZE, address(recovery));
         controller.execute(action, abi.encode(true), _proof(action));

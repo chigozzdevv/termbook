@@ -12,10 +12,12 @@ import {MockSettlementReceiver} from "../MockSettlementReceiver.sol";
 contract MockRouteCore {
     address public vault;
     address public keeper;
+    address public sourceAsset;
 
-    function set(address vault_, address keeper_) external {
+    function set(address vault_, address keeper_, address sourceAsset_) external {
         vault = vault_;
         keeper = keeper_;
+        sourceAsset = sourceAsset_;
     }
 
     function creditVault(bytes32) external view returns (address) { return vault; }
@@ -24,7 +26,9 @@ contract MockRouteCore {
     function remoteCollateral(bytes32) external pure returns (bool) { return true; }
     function recoveryKeepers(address candidate) external view returns (bool) { return candidate == keeper; }
     function collateralOwnerOf(bytes32) external view returns (address) { return keeper; }
-    function sourceRecoveryVault(uint256, address) external view returns (address) { return keeper; }
+    function remoteRecoveryContext(bytes32) external view returns (uint256, address, address) {
+        return (1, sourceAsset, keeper);
+    }
 }
 
 contract AuthorizedInboxTest is Test {
@@ -46,7 +50,7 @@ contract AuthorizedInboxTest is Test {
         registry = new RouteRegistry(address(this));
         house = new HouseVault(address(token), address(core), address(this), address(factory), address(0));
         payer = vm.addr(payerKey);
-        core.set(address(house), payer);
+        core.set(address(house), payer, address(token));
         registry.setRoute(routeId, address(adapter), keccak256(abi.encode(uint256(1), address(token), block.chainid, address(token))), 1_000);
         factory.setRouteRegistry(address(registry));
     }
@@ -137,6 +141,34 @@ contract AuthorizedInboxTest is Test {
         factory.createAuthorized(op, signature);
         op.sourceRefund = payer;
         op.refundRecipient = address(0xD00D);
+        signature = _signature(op);
+        vm.expectRevert(InboxFactory.Invalid.selector);
+        factory.createAuthorized(op, signature);
+    }
+
+    function testRecoveryCannotSwitchTheCreditSourceAssetOrChain() public {
+        InboxFactory.Operation memory op = _operation(1);
+        op.sourceChain = 2;
+        op.routeId = keccak256("other-chain-route");
+        registry.setRoute(
+            op.routeId,
+            address(adapter),
+            keccak256(abi.encode(op.sourceChain, op.sourceAsset, block.chainid, op.token)),
+            1_000
+        );
+        bytes memory signature = _signature(op);
+        vm.expectRevert(InboxFactory.Invalid.selector);
+        factory.createAuthorized(op, signature);
+
+        op = _operation(1);
+        op.sourceAsset = address(adapter);
+        op.routeId = keccak256("other-asset-route");
+        registry.setRoute(
+            op.routeId,
+            address(adapter),
+            keccak256(abi.encode(op.sourceChain, op.sourceAsset, block.chainid, op.token)),
+            1_000
+        );
         signature = _signature(op);
         vm.expectRevert(InboxFactory.Invalid.selector);
         factory.createAuthorized(op, signature);

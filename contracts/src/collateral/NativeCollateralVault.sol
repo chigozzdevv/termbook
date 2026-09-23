@@ -69,6 +69,10 @@ contract NativeCollateralVault is ICollateralVault {
         core = core_;
     }
 
+    function isNativeCollateralVault() external pure returns (bool) {
+        return true;
+    }
+
     receive() external payable {
         if (msg.sender != asset || !unwrapping) revert NativeDepositRequired();
     }

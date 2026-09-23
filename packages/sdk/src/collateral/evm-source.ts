@@ -24,6 +24,23 @@ const nativeVaultAbi = [{
   stateMutability: "payable",
 }] as const;
 
+const vaultIdentityAbi = [{
+  type: "function", name: "isNativeCollateralVault", inputs: [],
+  outputs: [{ type: "bool" }], stateMutability: "pure",
+}] as const;
+
+const remoteControllerAbi = [
+  { type: "function", name: "recoveryVault", inputs: [], outputs: [{ type: "address" }], stateMutability: "view" },
+  { type: "function", name: "monadChain", inputs: [], outputs: [{ type: "uint256" }], stateMutability: "view" },
+  { type: "function", name: "monadCore", inputs: [], outputs: [{ type: "address" }], stateMutability: "view" },
+] as const;
+
+const recoveryVaultAbi = [
+  { type: "function", name: "controller", inputs: [], outputs: [{ type: "address" }], stateMutability: "view" },
+  { type: "function", name: "asset", inputs: [], outputs: [{ type: "address" }], stateMutability: "view" },
+  { type: "function", name: "monadChain", inputs: [], outputs: [{ type: "uint256" }], stateMutability: "view" },
+] as const;
+
 const remoteVaultAbi = [
   {
     type: "function", name: "lockRemoteWithDeadline",
@@ -41,19 +58,21 @@ const remoteVaultAbi = [
   },
 ] as const;
 
-export function evmRemoteLockCommitment(binding: CollateralSetupBinding, lockId: TxHash): TxHash {
+export function evmRemoteLockCommitment(binding: CollateralSetupBinding, lockId: TxHash, recoveryVault: `0x${string}`): TxHash {
   collateralSetupBindingSchema.parse(binding);
   if (binding.asset.namespace !== "eip155" || binding.sourceVault.namespace !== "eip155" || binding.owner.namespace !== "eip155" || binding.returnRecipient.namespace !== "eip155" || binding.asset.reference === String(binding.monadChainId)) throw new Error("remote-collateral-chain-invalid");
+  if (!/^0x[a-fA-F0-9]{40}$/.test(recoveryVault) || /^0x0{40}$/i.test(recoveryVault)) throw new Error("source-recovery-vault-invalid");
   if (collateralSetupHash(binding).toLowerCase() !== lockId.toLowerCase()) throw new Error("source-lock-id-mismatch");
   return keccak256(encodeAbiParameters(
     [
       { type: "bytes32" }, { type: "bytes32" }, { type: "address" }, { type: "address" },
       { type: "address" }, { type: "address" }, { type: "uint256" }, { type: "uint256" },
-      { type: "address" },
+      { type: "address" }, { type: "address" }, { type: "uint256" }, { type: "address" },
     ],
     [
       binding.creditId, lockId, binding.borrower, binding.owner.accountBytes, binding.sourceVault.accountBytes,
       binding.asset.assetBytes, binding.amount, BigInt(binding.asset.reference), binding.returnRecipient.accountBytes,
+      recoveryVault, BigInt(binding.monadChainId), binding.core,
     ],
   ));
 }
@@ -94,20 +113,59 @@ export class EvmSourceLockWallet implements SourceLockWallet {
     this.rpc = createPublicClient({ transport: http(config.rpcUrl) });
   }
 
-  private async checkChain(binding: CollateralSetupBinding): Promise<void> {
+  private async checkChain(binding: CollateralSetupBinding): Promise<`0x${string}` | undefined> {
     collateralSetupBindingSchema.parse(binding);
     if (binding.asset.namespace !== "eip155" || binding.sourceVault.namespace !== "eip155" || binding.owner.namespace !== "eip155" || binding.returnRecipient.namespace !== "eip155" || binding.asset.reference !== String(this.config.chainId) || binding.sourceVault.accountBytes.toLowerCase() !== this.config.vault.toLowerCase() || binding.asset.assetBytes.toLowerCase() !== this.config.asset.toLowerCase() || binding.owner.accountBytes.toLowerCase() !== this.config.wallet.address.toLowerCase()) throw new Error("source-wallet-binding-mismatch");
     if (await this.rpc.getChainId() !== this.config.chainId || !this.config.wallet.getChainId || await this.config.wallet.getChainId() !== this.config.chainId) throw new Error("source-wallet-chain-mismatch");
+    let nativeVault: boolean;
+    try {
+      nativeVault = await this.rpc.readContract({ address: this.config.vault, abi: vaultIdentityAbi, functionName: "isNativeCollateralVault", blockTag: "finalized" });
+    } catch {
+      throw new Error("source-vault-kind-unverified");
+    }
+    if (nativeVault !== Boolean(this.config.nativeVault)) throw new Error(nativeVault ? "source-vault-native-required" : "source-vault-not-native");
+    if (nativeVault && this.config.chainId !== binding.monadChainId) throw new Error("remote-native-vault-unavailable");
     const [asset, controller, declaredChain] = await Promise.all([
       this.rpc.readContract({ address: this.config.vault, abi: collateralVaultAbi, functionName: "asset", blockTag: "finalized" }),
       this.rpc.readContract({ address: this.config.vault, abi: collateralVaultAbi, functionName: "core", blockTag: "finalized" }),
       this.rpc.readContract({ address: this.config.vault, abi: collateralVaultAbi, functionName: "chainId_", blockTag: "finalized" }),
     ]);
     if (asset.toLowerCase() !== this.config.asset.toLowerCase() || controller.toLowerCase() !== this.config.controller.toLowerCase() || declaredChain !== BigInt(this.config.chainId)) throw new Error("source-vault-mismatch");
+    if (this.config.chainId === binding.monadChainId) return undefined;
+    let recoveryVault: `0x${string}`;
+    let monadChain: bigint;
+    let monadCore: `0x${string}`;
+    let recoveryController: `0x${string}`;
+    let recoveryAsset: `0x${string}`;
+    let recoveryMonadChain: bigint;
+    try {
+      [recoveryVault, monadChain, monadCore] = await Promise.all([
+        this.rpc.readContract({ address: this.config.controller, abi: remoteControllerAbi, functionName: "recoveryVault", blockTag: "finalized" }),
+        this.rpc.readContract({ address: this.config.controller, abi: remoteControllerAbi, functionName: "monadChain", blockTag: "finalized" }),
+        this.rpc.readContract({ address: this.config.controller, abi: remoteControllerAbi, functionName: "monadCore", blockTag: "finalized" }),
+      ]);
+      if (/^0x0{40}$/i.test(recoveryVault)) throw new Error("source-recovery-vault-mismatch");
+      [recoveryController, recoveryAsset, recoveryMonadChain] = await Promise.all([
+        this.rpc.readContract({ address: recoveryVault, abi: recoveryVaultAbi, functionName: "controller", blockTag: "finalized" }),
+        this.rpc.readContract({ address: recoveryVault, abi: recoveryVaultAbi, functionName: "asset", blockTag: "finalized" }),
+        this.rpc.readContract({ address: recoveryVault, abi: recoveryVaultAbi, functionName: "monadChain", blockTag: "finalized" }),
+      ]);
+    } catch {
+      throw new Error("source-recovery-vault-unverified");
+    }
+    if (monadChain !== BigInt(binding.monadChainId) || monadCore.toLowerCase() !== binding.core.toLowerCase()) throw new Error("source-controller-mismatch");
+    if (recoveryController.toLowerCase() !== this.config.controller.toLowerCase() || recoveryAsset.toLowerCase() !== this.config.asset.toLowerCase() || recoveryMonadChain !== BigInt(binding.monadChainId)) throw new Error("source-recovery-vault-mismatch");
+    return recoveryVault;
   }
 
   async preflight(binding: CollateralSetupBinding): Promise<void> {
     await this.checkChain(binding);
+  }
+
+  async remoteRecoveryVault(binding: CollateralSetupBinding): Promise<`0x${string}`> {
+    const recoveryVault = await this.checkChain(binding);
+    if (!recoveryVault) throw new Error("source-recovery-vault-unavailable");
+    return recoveryVault;
   }
 
   private async write(address: `0x${string}`, abi: readonly unknown[], functionName: string, args: readonly unknown[] = [], value?: bigint, waitReceipt = true): Promise<TxHash> {
@@ -126,13 +184,13 @@ export class EvmSourceLockWallet implements SourceLockWallet {
 
   async observeLock(binding: CollateralSetupBinding, lockId: TxHash, txId?: string): Promise<SourceLockObservation> {
     if (collateralSetupHash(binding).toLowerCase() !== lockId.toLowerCase()) throw new Error("source-lock-id-mismatch");
-    await this.checkChain(binding);
+    const recoveryVault = await this.checkChain(binding);
     const info = await this.rpc.readContract({ address: this.config.vault, abi: collateralVaultAbi, functionName: "lockInfo", args: [lockId], blockTag: "finalized" });
     if (info[8]) {
       if (info[0].toLowerCase() !== binding.creditId.toLowerCase() || info[1].toLowerCase() !== binding.owner.accountBytes.toLowerCase() || info[2].toLowerCase() !== this.config.asset.toLowerCase() || info[3] !== BigInt(this.config.chainId) || info[4] !== binding.amount || info[5].toLowerCase() !== binding.returnRecipient.accountBytes.toLowerCase() || info[6] !== BigInt(binding.setupDeadline) || info[7] === 0n || info[9] || info[10]) throw new Error("source-lock-binding-mismatch");
       if (this.config.chainId !== binding.monadChainId) {
         const commitment = await this.rpc.readContract({ address: this.config.vault, abi: remoteVaultAbi, functionName: "lockCommitments", args: [lockId], blockTag: "finalized" });
-        if (commitment.toLowerCase() !== evmRemoteLockCommitment(binding, lockId).toLowerCase()) throw new Error("source-lock-commitment-mismatch");
+        if (!recoveryVault || commitment.toLowerCase() !== evmRemoteLockCommitment(binding, lockId, recoveryVault).toLowerCase()) throw new Error("source-lock-commitment-mismatch");
       }
       return { state: "finalized", txId };
     }

@@ -2,7 +2,12 @@ import type { TermbookClient } from "../client/client.js";
 import type { CollateralArgs } from "../types/collateral.types.js";
 import type { TxHash } from "../types/client.types.js";
 import { encodeAbiParameters, keccak256 } from "viem";
-import { collateralVaultAbi } from "@termbook/bindings";
+import { collateralVaultAbi, nativeCollateralVaultAbi } from "@termbook/bindings";
+
+const vaultIdentityAbi = [{
+  type: "function", name: "isNativeCollateralVault", inputs: [],
+  outputs: [{ type: "bool" }], stateMutability: "pure",
+}] as const;
 
 function detail(details: Record<string, unknown>, key: string, index: number): unknown {
   return Array.isArray(details) ? details[index] : details[key];
@@ -54,6 +59,12 @@ export class CreditCollateral {
       return { lockId: args.lockId, tx };
     }
     if (owner.toLowerCase() !== this.client.signer.address().toLowerCase()) throw new Error("collateral-owner-wallet-required");
+    let nativeVault: boolean;
+    try {
+      nativeVault = await this.client.rpc.client.readContract({ address: vault, abi: vaultIdentityAbi, functionName: "isNativeCollateralVault", blockTag: "finalized" });
+    } catch {
+      throw new Error("collateral-vault-kind-unverified");
+    }
     const configuredAsset = await this.client.rpc.read<`0x${string}`>(vault, collateralVaultAbi, "asset");
     if (configuredAsset.toLowerCase() !== asset.toLowerCase()) throw new Error("collateral-asset-mismatch");
     const deadline = args.deadline ?? Math.floor(Date.now() / 1000) + 3600;
@@ -62,8 +73,10 @@ export class CreditCollateral {
       [{ type: "bytes32" }, { type: "address" }, { type: "address" }, { type: "uint256" }, { type: "uint256" }],
       [this.creditId, owner, asset, args.amount, nonce],
     ));
-    const approvalTx = await this.client.rpc.approve(asset, vault, args.amount);
-    await this.client.rpc.wait(approvalTx);
+    if (!nativeVault) {
+      const approvalTx = await this.client.rpc.approve(asset, vault, args.amount);
+      await this.client.rpc.wait(approvalTx);
+    }
     const facility = await this.client.rpc.facility(this.creditId);
     if (facility === 0) {
       const bindTx = await this.client.rpc.coreWrite("setCollateralWithOwner", [this.creditId, vault, owner, recipient]);
@@ -72,7 +85,10 @@ export class CreditCollateral {
       throw new Error("collateral-state-invalid");
     }
     const revision = await this.client.rpc.revision(this.creditId);
-    const lockTx = await this.client.rpc.write(vault, collateralVaultAbi, "lockWithDeadline", [lockId, this.creditId, owner, args.amount, recipient, BigInt(deadline), revision]);
+    const lockArgs = [lockId, this.creditId, owner, args.amount, recipient, BigInt(deadline), revision] as const;
+    const lockTx = nativeVault
+      ? await this.client.rpc.write(vault, nativeCollateralVaultAbi, "lockNativeWithDeadline", lockArgs, args.amount)
+      : await this.client.rpc.write(vault, collateralVaultAbi, "lockWithDeadline", lockArgs);
     await this.client.rpc.wait(lockTx);
     const tx = await this.client.rpc.coreWrite("bindCollateral", [this.creditId, lockId]);
     await this.client.rpc.wait(tx);

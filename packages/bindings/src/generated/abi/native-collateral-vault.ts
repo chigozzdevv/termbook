@@ -84,6 +84,19 @@ export const nativeCollateralVaultAbi = [
   },
   {
     "type": "function",
+    "name": "isNativeCollateralVault",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
     "name": "lock",
     "inputs": [
       {

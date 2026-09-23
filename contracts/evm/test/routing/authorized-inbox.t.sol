@@ -1,0 +1,200 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import {Test} from "forge-std/Test.sol";
+import {InboxFactory} from "../../src/monad/routing/InboxFactory.sol";
+import {RouteRegistry} from "../../src/monad/routing/RouteRegistry.sol";
+import {HouseVault} from "../../src/monad/house/HouseVault.sol";
+import {SettlementInbox} from "../../src/monad/routing/SettlementInbox.sol";
+import {MockERC20} from "../MockERC20.sol";
+import {MockSettlementReceiver} from "../MockSettlementReceiver.sol";
+
+contract MockRouteCore {
+    address public vault;
+    address public keeper;
+    address public sourceAsset;
+
+    function set(address vault_, address keeper_, address sourceAsset_) external {
+        vault = vault_;
+        keeper = keeper_;
+        sourceAsset = sourceAsset_;
+    }
+
+    function creditVault(bytes32) external view returns (address) { return vault; }
+    function creditDebt(bytes32) external pure returns (uint256) { return 500; }
+    function creditFacility(bytes32) external pure returns (uint8) { return 8; }
+    function remoteCollateral(bytes32) external pure returns (bool) { return true; }
+    function recoveryKeepers(address candidate) external view returns (bool) { return candidate == keeper; }
+    function recoveryRefundRecipientOf(bytes32) external view returns (address) { return keeper; }
+    function minimumRemoteRecoveryProceeds(bytes32, uint256) external pure returns (uint256) { return 350; }
+    function remoteRecoveryContext(bytes32) external view returns (uint256, address, address) {
+        return (1, sourceAsset, keeper);
+    }
+}
+
+contract AuthorizedInboxTest is Test {
+    InboxFactory factory;
+    RouteRegistry registry;
+    HouseVault house;
+    MockERC20 token;
+    MockSettlementReceiver adapter;
+    MockRouteCore core;
+    uint256 payerKey = 0xBEEF;
+    address payer;
+    bytes32 routeId = keccak256("route");
+
+    function setUp() public {
+        token = new MockERC20();
+        adapter = new MockSettlementReceiver();
+        core = new MockRouteCore();
+        factory = new InboxFactory(address(this));
+        registry = new RouteRegistry(address(this));
+        house = new HouseVault(address(token), address(core), address(this), address(factory), address(0));
+        payer = vm.addr(payerKey);
+        core.set(address(house), payer, address(token));
+        registry.setRoute(routeId, address(adapter), keccak256(abi.encode(uint256(1), address(token), block.chainid, address(token))), 1_000);
+        factory.setRouteRegistry(address(registry));
+    }
+
+    function _operation(uint8 kind) internal view returns (InboxFactory.Operation memory op) {
+        op.operationId = keccak256(abi.encode("operation", kind));
+        op.kind = kind;
+        op.payer = payer;
+        op.sourceChain = 1;
+        op.sourceAsset = address(token);
+        op.vault = address(house);
+        op.token = address(token);
+        op.creditId = kind == 2 ? bytes32(0) : keccak256("credit");
+        op.maxAmountIn = 500;
+        op.minOut = 400;
+        op.maxReceived = 600;
+        op.sourceRefund = payer;
+        op.refundRecipient = payer;
+        op.deadline = block.timestamp + 1 days;
+        op.routeId = routeId;
+        op.routeVersion = bytes32(uint256(1));
+        op.lpRecipient = kind == 2 ? payer : address(0);
+        op.minShares = kind == 2 ? 100 : 0;
+    }
+
+    function _signature(InboxFactory.Operation memory op) internal view returns (bytes memory) {
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(payerKey, factory.operationDigest(op));
+        return abi.encodePacked(r, s, v);
+    }
+
+    function testRepaymentAndRecoveryRegistrationsBindTheHouse() public {
+        for (uint8 kind = 0; kind < 2; kind++) {
+            InboxFactory.Operation memory op = _operation(kind);
+            address inbox = factory.createAuthorized(op, _signature(op));
+            assertEq(factory.inboxOf(op.operationId), inbox);
+            assertEq(factory.operationDigestOf(op.operationId), factory.operationDigest(op));
+            assertTrue(house.settlementInboxes(inbox));
+            assertEq(SettlementInbox(inbox).creditId(), op.creditId);
+        }
+    }
+
+    function testLpRegistrationBindsShareRecipientAndMinimum() public {
+        InboxFactory.Operation memory op = _operation(2);
+        address inbox = factory.createAuthorized(op, _signature(op));
+        assertEq(house.lpInboxRecipient(inbox), payer);
+        assertEq(house.lpInboxMinShares(inbox), 100);
+    }
+
+    function testLpDeliveryMintsBoundShares() public {
+        InboxFactory.Operation memory op = _operation(2);
+        SettlementInbox inbox = SettlementInbox(factory.createAuthorized(op, _signature(op)));
+        token.mint(address(inbox), 500);
+        inbox.notifyAll();
+        inbox.settle(500);
+        assertEq(house.shares(payer), 500);
+        assertEq(house.freeCash(), 500);
+        assertTrue(house.lpInboxMinted(address(inbox)));
+    }
+
+    function testLpDeliveryCannotMintWhileDepositsClosed() public {
+        InboxFactory.Operation memory op = _operation(2);
+        SettlementInbox inbox = SettlementInbox(factory.createAuthorized(op, _signature(op)));
+        token.mint(address(inbox), 500);
+        inbox.notifyAll();
+        house.setDepositsOpen(false);
+        vm.expectRevert(SettlementInbox.ReceiverFailed.selector);
+        inbox.settle(500);
+        assertEq(inbox.available(), 500);
+        assertEq(house.shares(payer), 0);
+    }
+
+    function testSignatureCannotChangeRecipientOrRefund() public {
+        InboxFactory.Operation memory op = _operation(2);
+        bytes memory signature = _signature(op);
+        op.refundRecipient = address(0xD00D);
+        vm.expectRevert(InboxFactory.Invalid.selector);
+        factory.createAuthorized(op, signature);
+        op.refundRecipient = payer;
+        op.lpRecipient = address(0xD00D);
+        vm.expectRevert(InboxFactory.Invalid.selector);
+        factory.createAuthorized(op, signature);
+    }
+
+    function testRecoveryCannotRedirectSourceRefundOrSurplus() public {
+        InboxFactory.Operation memory op = _operation(1);
+        op.sourceRefund = address(0xD00D);
+        bytes memory signature = _signature(op);
+        vm.expectRevert(InboxFactory.Invalid.selector);
+        factory.createAuthorized(op, signature);
+        op.sourceRefund = payer;
+        op.refundRecipient = address(0xD00D);
+        signature = _signature(op);
+        vm.expectRevert(InboxFactory.Invalid.selector);
+        factory.createAuthorized(op, signature);
+    }
+
+    function testRecoveryRequiresOracleFloor() public {
+        InboxFactory.Operation memory op = _operation(1);
+        op.minOut = 349;
+        bytes memory signature = _signature(op);
+        vm.expectRevert(InboxFactory.Invalid.selector);
+        factory.createAuthorized(op, signature);
+    }
+
+    function testRecoveryCannotSwitchTheCreditSourceAssetOrChain() public {
+        InboxFactory.Operation memory op = _operation(1);
+        op.sourceChain = 2;
+        op.routeId = keccak256("other-chain-route");
+        registry.setRoute(
+            op.routeId,
+            address(adapter),
+            keccak256(abi.encode(op.sourceChain, op.sourceAsset, block.chainid, op.token)),
+            1_000
+        );
+        bytes memory signature = _signature(op);
+        vm.expectRevert(InboxFactory.Invalid.selector);
+        factory.createAuthorized(op, signature);
+
+        op = _operation(1);
+        op.sourceAsset = address(adapter);
+        op.routeId = keccak256("other-asset-route");
+        registry.setRoute(
+            op.routeId,
+            address(adapter),
+            keccak256(abi.encode(op.sourceChain, op.sourceAsset, block.chainid, op.token)),
+            1_000
+        );
+        signature = _signature(op);
+        vm.expectRevert(InboxFactory.Invalid.selector);
+        factory.createAuthorized(op, signature);
+    }
+
+    function testDisabledRouteAndReplayFail() public {
+        InboxFactory.Operation memory op = _operation(0);
+        bytes memory signature = _signature(op);
+        registry.disable(routeId);
+        vm.expectRevert(InboxFactory.Invalid.selector);
+        factory.createAuthorized(op, signature);
+        registry.setRoute(routeId, address(adapter), keccak256(abi.encode(uint256(1), address(token), block.chainid, address(token))), 1_000);
+        op.routeVersion = bytes32(uint256(2));
+        signature = _signature(op);
+        factory.createAuthorized(op, signature);
+        vm.expectRevert(InboxFactory.Invalid.selector);
+        factory.createAuthorized(op, signature);
+    }
+}

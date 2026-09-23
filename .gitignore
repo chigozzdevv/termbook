@@ -7,6 +7,7 @@ lib/
 .env.local
 *.log
 .DS_Store
-contracts/out/
-contracts/cache/
+contracts/evm/out/
+contracts/evm/cache/
+/solana/target/
 coverage/

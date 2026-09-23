@@ -9,7 +9,7 @@
     "lint": "eslint . --max-warnings=0",
     "typecheck": "pnpm -r typecheck",
     "test": "vitest run",
-    "test:contracts": "forge test",
+    "test:contracts": "forge test --root contracts/evm",
     "codegen": "pnpm --filter @termbook/bindings codegen"
   },
   "devDependencies": {

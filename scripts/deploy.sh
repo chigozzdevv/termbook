@@ -107,7 +107,7 @@ case "$1" in
 esac
 
 if [ "$1" = source ]; then
-  forge script "script/$script" --root contracts --rpc-url "$RPC_URL" --broadcast
+  forge script "script/$script" --root contracts/evm --rpc-url "$RPC_URL" --broadcast
 else
-  forge script "script/$script" --root contracts --rpc-url "$RPC_URL" --network monad --broadcast
+  forge script "script/$script" --root contracts/evm --rpc-url "$RPC_URL" --network monad --broadcast
 fi

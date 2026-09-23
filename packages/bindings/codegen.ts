@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const root = resolve(new URL("../..", import.meta.url).pathname);
-const artifacts = resolve(root, "contracts/out");
+const artifacts = resolve(root, "contracts/evm/out");
 const output = resolve(root, "packages/bindings/src/generated/abi");
 const contracts = {
   TermbookCore: "termbook-core",

@@ -7,23 +7,29 @@ See `termbook.md` for the required behavior specification.
 
 ## Layout
 
-- `contracts/` Foundry Solidity protocol
+- `contracts/evm/` Foundry project for Monad and Ethereum contracts
+- `contracts/evm/src/monad/` contracts deployed on Monad
+- `contracts/evm/src/ethereum/` contracts deployed on Ethereum
+- `contracts/evm/src/shared/` code compiled into either EVM deployment
+- `contracts/solana/` native SOL custody program, admission disabled
 - `packages/bindings/` generated contract ABIs and deployments
 - `packages/schema/` shared request and response schemas
 - `packages/sdk/` borrower and LP client
 - `server/` off-chain indexer and coordinator, no custody authority
-- `solana/` native SOL custody program, admission disabled
 - `scripts/` repo automation
 
 ## Commands
 
 ```sh
 pnpm install
+forge build --root contracts/evm
+pnpm codegen
 pnpm build
 pnpm lint
 pnpm typecheck
 pnpm test
-forge test --root contracts
+forge test --root contracts/evm
+(cd contracts/solana && cargo test --offline)
 ```
 
 ## Deployment stages
@@ -35,6 +41,9 @@ Monad execution. `source` requires the Ethereum mainnet RPC,
 `SOURCE_CHAIN_ID=1`, and `MONAD_CHAIN_ID=143`. The Ethereum verifier stage
 also requires Monad mainnet. Every stage checks the connected chain before
 broadcasting.
+
+Recompute reviewed runtime code hashes when rebuilding from this layout;
+Solidity source paths and remappings affect bytecode metadata.
 
 Deploy `protocol` first with explicit `GOVERNANCE`, `GUARDIAN`,
 `HOUSE_MANAGER`, and `SETTLEMENT_ASSET`, then keep its `InboxFactory` address.

@@ -1,4 +1,4 @@
 #!/bin/sh
 set -e
 pnpm test
-forge test --root contracts
+forge test --root contracts/evm

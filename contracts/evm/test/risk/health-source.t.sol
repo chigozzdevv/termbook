@@ -94,10 +94,12 @@ contract HealthSourceTest is Test {
     }
 
     function testReaderCannotChangeForExistingBundle() public {
+        assertTrue(source.isReaderActive(bundleId));
         MockHealthReader replacement = new MockHealthReader(priceId);
         vm.expectRevert(HealthSource.Invalid.selector);
         source.setReader(bundleId, address(replacement), 4, 1 days);
         source.disable(bundleId);
+        assertFalse(source.isReaderActive(bundleId));
         vm.expectRevert(HealthSource.Invalid.selector);
         source.setReader(bundleId, address(replacement), 4, 1 days);
     }

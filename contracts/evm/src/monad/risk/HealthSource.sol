@@ -50,6 +50,11 @@ contract HealthSource is IHealthSource {
         emit ReaderDisabled(bundleId);
     }
 
+    function isReaderActive(bytes32 bundleId) external view returns (bool) {
+        Reader memory config = readers[bundleId];
+        return config.active && config.impl.code.length != 0 && config.impl.codehash == config.codeHash;
+    }
+
     function snapshot(bytes32 creditId, bytes32 bundleId, uint256 revision, uint256 debt)
         external
         view

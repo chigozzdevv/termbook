@@ -86,6 +86,7 @@ interface IRiskCore {
 }
 
 interface IHealthSourceCore {
+    function isReaderActive(bytes32 bundleId) external view returns (bool);
     function snapshot(bytes32 creditId, bytes32 bundleId, uint256 revision, uint256 debt)
         external
         view
@@ -97,6 +98,7 @@ interface IOracleRegistrySaleCore {
 }
 
 interface IIntegrationRegistryCore {
+    function isActive(bytes32 versionId) external view returns (bool);
     function validateCall(bytes32 versionId, address target, bytes calldata data, address account, uint256 drawAmount)
         external
         view
@@ -1374,8 +1376,13 @@ contract TermbookCore is ITermbookCore {
             if (!AuthLib.verify(digest, p.houseSig, p.house)) revert BadSig();
         }
         intentUsed[p.intentId] = true;
-        if (integrationRegistry != address(0) && exitVerifierOfBundle[p.bundleId] == address(0)) {
-            revert InvalidTerms();
+        if (integrationRegistry != address(0)) {
+            if (
+                !IIntegrationRegistryCore(integrationRegistry).isActive(p.bundleId)
+                    || exitVerifierOfBundle[p.bundleId] == address(0)
+                    || exitVerifierOfBundle[p.bundleId].codehash != exitVerifierCodeHash[p.bundleId]
+                    || healthSource == address(0) || !IHealthSourceCore(healthSource).isReaderActive(p.bundleId)
+            ) revert InvalidTerms();
         }
         bundleEverUsed[p.bundleId] = true;
         houseNonces[p.house][p.houseNonce] = true;

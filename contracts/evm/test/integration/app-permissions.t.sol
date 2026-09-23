@@ -16,6 +16,7 @@ contract AppPermissionsTest is Test {
     function testFreezeBlocksUse() public {
         IntegrationRegistry r = new IntegrationRegistry(address(this));
         r.approve(bytes32("v1"), bytes32("code"));
+        assertFalse(r.isActive(bytes32("v1")));
         r.freeze(bytes32("v1"));
         (,, bool frozen) = r.versions(bytes32("v1"));
         assertTrue(frozen);
@@ -29,9 +30,12 @@ contract AppPermissionsTest is Test {
             bytes32("v1"), address(target), PermissionTarget.execute.selector, 4, type(uint8).max, type(uint8).max, 0
         );
         r.activate(bytes32("v1"));
+        assertTrue(r.isActive(bytes32("v1")));
         assertTrue(r.isCallAllowed(bytes32("v1"), address(target), PermissionTarget.execute.selector));
         vm.etch(address(target), hex"6000");
         assertFalse(r.isCallAllowed(bytes32("v1"), address(target), PermissionTarget.execute.selector));
+        r.freeze(bytes32("v1"));
+        assertFalse(r.isActive(bytes32("v1")));
     }
 
     function testCallParametersAreBoundToTheCreditAccount() public {

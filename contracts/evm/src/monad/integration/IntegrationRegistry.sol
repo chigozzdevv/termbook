@@ -91,6 +91,11 @@ contract IntegrationRegistry {
             && target.codehash == callCodeHashes[id][target][selector];
     }
 
+    function isActive(bytes32 id) external view returns (bool) {
+        Version memory version = versions[id];
+        return version.active && !version.frozen && callCount[id] != 0;
+    }
+
     function validateCall(bytes32 id, address target, bytes calldata data, address account, uint256 drawAmount)
         external
         view

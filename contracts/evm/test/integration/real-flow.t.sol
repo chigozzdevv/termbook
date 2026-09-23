@@ -16,6 +16,7 @@ import {MockHealthSource} from "../MockHealthSource.sol";
 import {IHealthSource} from "../../src/monad/risk/IHealthSource.sol";
 import {HealthMath} from "../../src/monad/risk/HealthMath.sol";
 import {IExitVerifier} from "../../src/monad/integration/IExitVerifier.sol";
+import {IntegrationRegistry} from "../../src/monad/integration/IntegrationRegistry.sol";
 
 contract MockExitVerifier is IExitVerifier {
     bool public ready = true;
@@ -185,6 +186,29 @@ contract RealFlowTest is Test {
             expiry,
             abi.encodePacked(r, s, v)
         );
+    }
+
+    function acceptGateCredit() external {
+        _accept(keccak256("gate-credit"), keccak256("gate-intent"), 500);
+    }
+
+    function testAcceptedBundleMustBeActive() public {
+        IntegrationRegistry registry = new IntegrationRegistry(address(this));
+        core.setIntegrationRegistry(address(registry));
+        bytes32 bundleId = keccak256("bundle");
+        registry.approve(bundleId, keccak256("manifest"));
+        registry.registerCall(bundleId, address(target), RealFlowTarget.setValue.selector,
+            36, type(uint8).max, type(uint8).max, 0);
+        vm.expectRevert(TermbookCore.InvalidTerms.selector);
+        this.acceptGateCredit();
+        registry.activate(bundleId);
+        vm.expectRevert(TermbookCore.InvalidTerms.selector);
+        this.acceptGateCredit();
+        healthSource.setReaderActive(bundleId, true);
+        this.acceptGateCredit();
+        assertEq(core.creditRevision(keccak256("gate-credit")), 1);
+        registry.freeze(bundleId);
+        assertFalse(registry.isActive(bundleId));
     }
 
     function testUnapprovedLocalVaultCannotMakeCreditReady() public {

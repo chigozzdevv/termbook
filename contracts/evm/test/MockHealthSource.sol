@@ -7,6 +7,15 @@ import {HealthMath} from "../src/monad/risk/HealthMath.sol";
 
 contract MockHealthSource is IHealthSource {
     mapping(bytes32 => Types.HealthSnapshot) internal snapshots;
+    mapping(bytes32 => bool) public readerActive;
+
+    function setReaderActive(bytes32 bundleId, bool active) external {
+        readerActive[bundleId] = active;
+    }
+
+    function isReaderActive(bytes32 bundleId) external view returns (bool) {
+        return readerActive[bundleId];
+    }
 
     function setSnapshot(bytes32 creditId, Types.HealthSnapshot calldata snapshot_) external {
         snapshots[creditId] = snapshot_;

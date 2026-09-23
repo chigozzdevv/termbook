@@ -34,6 +34,17 @@ contract InboxRefundTest is Test {
         assertEq(inbox.applied() + inbox.refunded(), 1000);
     }
 
+    function testRepaymentCannotBeRefundedWhileDebtRemains() public {
+        receiver.setDebt(bytes32("c2"), 100);
+        token.mint(address(inbox), 100);
+        inbox.notifyAll();
+        vm.warp(block.timestamp + 2 days);
+        vm.expectRevert(SettlementInbox.Nothing.selector);
+        inbox.refund(100);
+        inbox.settle(100);
+        assertEq(inbox.refunded(), 0);
+    }
+
     function testExcessAfterReceiptCapReturnsOnlyToBoundRecipient() public {
         token.mint(address(inbox), 1_100);
         inbox.notifyReceipt(1_000);

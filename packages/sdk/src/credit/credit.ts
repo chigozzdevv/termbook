@@ -3,6 +3,7 @@ import type { AppAction } from "../types/app.types.js";
 import type { ActivityCallback, Unsubscribe } from "../types/client.types.js";
 import type { CreditActivity, CreditSummary, ExecuteResult } from "../types/credit.types.js";
 import type { RepayArgs, RepayResult } from "../types/settlement.types.js";
+import { settlementNonce } from "../settlement/settlement.js";
 import { CreditApp } from "../app/app.js";
 import { CreditAccount } from "../account/account.js";
 import { CreditCollateral } from "../collateral/collateral.js";
@@ -107,23 +108,26 @@ export class Credit {
     const applied = requested > debt ? debt : requested;
     if (applied === 0n) return { applied: 0n, remaining: debt, status: debt === 0n ? "applied" : "partial" };
     if (args.from === "aurora_intents") {
-      if (!args.source || args.source.maxAmountIn <= 0n || args.source.maxAmountIn < applied) throw new Error("settlement-route-required");
-      const operationId = await this.client.settlement.register({
+      if (!args.source || args.source.maxAmountIn <= 0n) throw new Error("settlement-route-required");
+      const operation = await this.client.settlement.register({
         kind: "repay",
         payer: this.client.signer.address(),
-        nonce: BigInt(Math.floor(Date.now() / 1000)),
+        nonce: settlementNonce(),
         chainId: args.source.chainId,
+        routeId: args.source.routeId,
+        routeVersion: args.source.routeVersion,
         creditId: this.id,
         asset: args.source.asset,
         settlementAsset: asset,
         vault,
         maxAmountIn: args.source.maxAmountIn,
+        maxReceived: args.source.maxReceived,
         minAmountOut: applied,
         deadline: Math.floor(Date.now() / 1000) + 900,
         sourceRefund: args.source.sourceRefund,
         monadRefund: args.source.monadRefund,
       });
-      return { applied: 0n, remaining: debt, status: "pending", operationId };
+      return { applied: 0n, remaining: debt, status: "pending", registration: operation, ...operation };
     }
     if (args.from === "credit_account") {
       const account = asAddress(field(details, "account", 5));

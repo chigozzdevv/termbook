@@ -169,6 +169,26 @@ contract HouseVault is IHouseVault {
         emit SettlementInboxSet(inbox, active);
     }
 
+    function registerInboxFromFactory(address inbox, uint8 kind, address recipient, uint256 minShares) external {
+        if (msg.sender != inboxFactory || inbox.code.length == 0 || settlementInboxes[inbox]) revert InvalidInbox();
+        if (ISettlementInboxView(inbox).vault() != address(this) || ISettlementInboxView(inbox).token() != asset) {
+            revert InvalidInbox();
+        }
+        if (IInboxFactoryView(inboxFactory).inboxOf(ISettlementInboxView(inbox).operationId()) != inbox) {
+            revert InvalidInbox();
+        }
+        bytes32 creditId = ISettlementInboxView(inbox).creditId();
+        if (kind == 2) {
+            if (creditId != bytes32(0) || recipient == address(0) || minShares == 0) revert InvalidInbox();
+            lpInboxRecipient[inbox] = recipient;
+            lpInboxMinShares[inbox] = minShares;
+        } else if (kind > 1 || creditId == bytes32(0) || recipient != address(0) || minShares != 0) {
+            revert InvalidInbox();
+        }
+        settlementInboxes[inbox] = true;
+        emit SettlementInboxSet(inbox, true);
+    }
+
     function configureLpInbox(address inbox, address recipient, uint256 minShares) external {
         if (
             !settlementInboxes[inbox] || recipient == address(0) || minShares == 0 || lpInboxMinted[inbox]
@@ -545,6 +565,7 @@ contract HouseVault is IHouseVault {
             revert AccountingMismatch();
         }
         if (lpInboxRecipient[msg.sender] != address(0)) {
+            if (!depositsOpen || paused) revert Closed();
             if (creditId != bytes32(0) || lpInboxMinted[msg.sender]) revert InvalidInbox();
             uint256 price = sharePrice();
             uint256 minted = totalShares == 0 ? amount : amount * SCALE / price;

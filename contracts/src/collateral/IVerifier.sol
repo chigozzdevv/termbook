@@ -6,6 +6,10 @@ interface IVerifier {
     function verifyInclusion(bytes calldata proof, bytes32 root) external view returns (bool);
     function headerRoot(bytes calldata header) external view returns (bytes32);
     function proofLeaf(bytes calldata proof) external view returns (bytes32);
+    function verifyEvent(bytes calldata header, bytes calldata proof, address emitter, bytes32 eventDigest)
+        external view returns (bool);
+    function verifyLock(bytes calldata header, bytes calldata proof, address vault, bytes32 lockDigest)
+        external view returns (bool);
 }
 
 interface IVerifierAdmission {
@@ -24,4 +28,8 @@ interface IConsensusLightClient {
     function headerRoot(bytes calldata header) external view returns (bytes32);
     function verifyInclusion(bytes calldata proof, bytes32 root) external view returns (bool);
     function proofLeaf(bytes calldata proof) external view returns (bytes32);
+    function verifyEvent(bytes calldata header, bytes calldata proof, address emitter, bytes32 eventDigest)
+        external view returns (bool);
+    function verifyLock(bytes calldata header, bytes calldata proof, address vault, bytes32 lockDigest)
+        external view returns (bool);
 }

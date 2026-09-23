@@ -7,6 +7,7 @@ export { CreditAccount } from "./account/account.js";
 export { House } from "./house/house.js";
 export { CreditCollateral } from "./collateral/collateral.js";
 export { Settlement } from "./settlement/settlement.js";
+export type { SettlementRegistration, RecoveryFunding } from "./settlement/settlement.js";
 export { unconsumed } from "./settlement/receipt.js";
 export { Catalog } from "./catalog/catalog.js";
 export * from "./types/index.js";

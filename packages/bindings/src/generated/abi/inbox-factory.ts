@@ -12,6 +12,19 @@ export const inboxFactoryAbi = [
   },
   {
     "type": "function",
+    "name": "OPERATION_TYPEHASH",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "create",
     "inputs": [
       {
@@ -66,6 +79,122 @@ export const inboxFactoryAbi = [
   },
   {
     "type": "function",
+    "name": "createAuthorized",
+    "inputs": [
+      {
+        "name": "op",
+        "type": "tuple",
+        "internalType": "struct InboxFactory.Operation",
+        "components": [
+          {
+            "name": "operationId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "kind",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "payer",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "sourceChain",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "sourceAsset",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "vault",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "token",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "creditId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "maxAmountIn",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "minOut",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "maxReceived",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "sourceRefund",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "refundRecipient",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "deadline",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "routeId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "routeVersion",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "lpRecipient",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "minShares",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      },
+      {
+        "name": "signature",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "inbox",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "governance",
     "inputs": [],
     "outputs": [
@@ -98,7 +227,131 @@ export const inboxFactoryAbi = [
   },
   {
     "type": "function",
+    "name": "operationDigest",
+    "inputs": [
+      {
+        "name": "op",
+        "type": "tuple",
+        "internalType": "struct InboxFactory.Operation",
+        "components": [
+          {
+            "name": "operationId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "kind",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "payer",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "sourceChain",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "sourceAsset",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "vault",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "token",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "creditId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "maxAmountIn",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "minOut",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "maxReceived",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "sourceRefund",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "refundRecipient",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "deadline",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "routeId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "routeVersion",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "lpRecipient",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "minShares",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "registrar",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "routeRegistry",
     "inputs": [],
     "outputs": [
       {
@@ -115,6 +368,19 @@ export const inboxFactoryAbi = [
     "inputs": [
       {
         "name": "registrar_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setRouteRegistry",
+    "inputs": [
+      {
+        "name": "registry",
         "type": "address",
         "internalType": "address"
       }
@@ -147,6 +413,19 @@ export const inboxFactoryAbi = [
     "inputs": [
       {
         "name": "registrar",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RouteRegistrySet",
+    "inputs": [
+      {
+        "name": "registry",
         "type": "address",
         "indexed": true,
         "internalType": "address"

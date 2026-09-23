@@ -6,19 +6,25 @@ import { runRecoveryWorker } from "./recovery/recovery.worker.js";
 import { startWorkers, stopWorkers } from "./queue/queue.worker.js";
 import { closeRedis } from "./queue/queue.client.js";
 import { logger } from "./logging/logger.js";
-import { assertRuntimeConfig } from "./config/env.js";
+import { assertRuntimeConfig, assertSettlementWorkerConfig } from "./config/env.js";
 
 async function main(): Promise<void> {
   assertRuntimeConfig();
+  assertSettlementWorkerConfig();
   await connectDb();
   await startWorkers();
   const tick = async (): Promise<void> => {
-    const counts = await Promise.all([
+    const results = await Promise.allSettled([
       runCreditWorker(),
       runCollateralWorker(),
       runSettlementWorker(),
       runRecoveryWorker(),
     ]);
+    const counts = results.map((result, index) => {
+      if (result.status === "fulfilled") return result.value;
+      logger.warn("worker-tick-failed", { index, reason: result.reason instanceof Error ? result.reason.message : "unknown" });
+      return 0;
+    });
     logger.info(`workers-tick:${counts.join(",")}`);
   };
   await tick();

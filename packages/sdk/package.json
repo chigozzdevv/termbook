@@ -13,6 +13,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@defuse-protocol/one-click-sdk-typescript": "0.1.26",
     "@termbook/bindings": "workspace:^",
     "@termbook/schema": "workspace:^",
     "viem": "^2.56.3"

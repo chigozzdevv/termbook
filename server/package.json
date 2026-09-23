@@ -9,6 +9,7 @@
     "dev": "tsx src/server.ts"
   },
   "dependencies": {
+    "@defuse-protocol/one-click-sdk-typescript": "0.1.26",
     "@termbook/schema": "workspace:^",
     "bullmq": "^6.3.4",
     "dotenv": "^17.4.2",

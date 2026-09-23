@@ -4,6 +4,10 @@ export const env = {
   redisUrl: process.env["REDIS_URL"] ?? "",
   rpcUrl: process.env["RPC_URL"] ?? "http://127.0.0.1:8545",
   sourceProofUrl: process.env["SOURCE_PROOF_URL"] ?? "",
+  settlementFactory: process.env["SETTLEMENT_FACTORY"] ?? "",
+  auroraApiKey: process.env["AURORA_API_KEY"] ?? "",
+  auroraRoutes: process.env["AURORA_ROUTES"] ?? "",
+  settlementKeeperKey: process.env["SETTLEMENT_KEEPER_KEY"] ?? "",
   monadChainId: Number(process.env["MONAD_CHAIN_ID"] ?? 0),
   core: process.env["CORE_ADDRESS"] ?? "0x0000000000000000000000000000000000000000",
   coreDomain: process.env["CORE_DOMAIN"] ?? "",
@@ -27,4 +31,19 @@ export function assertRuntimeConfig(): void {
     }
     if (proofUrl.protocol !== "http:" && proofUrl.protocol !== "https:") throw new Error("SOURCE_PROOF_URL is invalid");
   }
+  if (env.auroraRoutes && (!/^0x[a-fA-F0-9]{40}$/.test(env.settlementFactory) || !env.auroraApiKey)) {
+    throw new Error("aurora-config-invalid");
+  }
+  if (env.auroraRoutes) {
+    try {
+      if (!Array.isArray(JSON.parse(env.auroraRoutes))) throw new Error();
+    } catch {
+      throw new Error("aurora-routes-invalid");
+    }
+  }
+  if (env.settlementKeeperKey && !/^0x[a-fA-F0-9]{64}$/.test(env.settlementKeeperKey)) throw new Error("settlement-keeper-config-invalid");
+}
+
+export function assertSettlementWorkerConfig(): void {
+  if (env.auroraRoutes && !env.settlementKeeperKey) throw new Error("SETTLEMENT_KEEPER_KEY is required for admitted routes");
 }

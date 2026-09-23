@@ -1,0 +1,243 @@
+export const remoteCollateralControllerAbi = [
+  {
+    "type": "constructor",
+    "inputs": [
+      {
+        "name": "asset",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "monadChain_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "monadCore_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "recoveryVault_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "verifier_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "consumed",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "execute",
+    "inputs": [
+      {
+        "name": "action",
+        "type": "tuple",
+        "internalType": "struct RemoteAction.Authorization",
+        "components": [
+          {
+            "name": "monadChain",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "monadCore",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "sourceChain",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "sourceVault",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "creditId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "lockId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "asset",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "kind",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "recipient",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "amount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "nonce",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "deadline",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      },
+      {
+        "name": "header",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "proof",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "monadChain",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "monadCore",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "recoveryVault",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "vault",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract CollateralVault"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "verifier",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IVerifier"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "event",
+    "name": "ActionExecuted",
+    "inputs": [
+      {
+        "name": "actionHash",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "kind",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "Invalid",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "Unauthorized",
+    "inputs": []
+  }
+] as const;

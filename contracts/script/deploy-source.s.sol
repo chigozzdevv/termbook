@@ -2,22 +2,23 @@
 pragma solidity ^0.8.24;
 
 import {Script} from "forge-std/Script.sol";
-import {CollateralVault} from "../src/collateral/CollateralVault.sol";
-import {VaultFactory} from "../src/collateral/VaultFactory.sol";
 import {MonadVerifier} from "../src/collateral/MonadVerifier.sol";
-import {EthereumVerifier} from "../src/collateral/EthereumVerifier.sol";
+import {RemoteCollateralController} from "../src/collateral/RemoteCollateralController.sol";
+import {SourceRecoveryVault} from "../src/collateral/SourceRecoveryVault.sol";
 
 contract DeploySource is Script {
-    function run() external returns (VaultFactory factory, address verifier, address vault) {
+    function run() external returns (RemoteCollateralController controller, SourceRecoveryVault recovery, address verifier) {
         uint256 key = vm.envUint("DEPLOYER_PRIVATE_KEY");
-        address core = vm.envAddress("CORE_ADDRESS");
+        address core = vm.envAddress("MONAD_CORE_ADDRESS");
         address asset = vm.envAddress("COLLATERAL_ASSET");
-        uint256 sourceChain = vm.envUint("SOURCE_CHAIN_ID");
+        uint256 monadChain = vm.envUint("MONAD_CHAIN_ID");
         address lightClient = vm.envAddress("LIGHT_CLIENT_ADDRESS");
+        address routeSigner = vm.envAddress("ROUTE_SIGNER");
         vm.startBroadcast(key);
-        factory = new VaultFactory();
-        verifier = sourceChain == block.chainid ? address(new MonadVerifier(lightClient)) : address(new EthereumVerifier(lightClient));
-        vault = address(new CollateralVault(asset, sourceChain, core));
+        verifier = address(new MonadVerifier(lightClient));
+        recovery = new SourceRecoveryVault(asset, monadChain, vm.addr(key), routeSigner);
+        controller = new RemoteCollateralController(asset, monadChain, core, address(recovery), verifier);
+        recovery.setController(address(controller));
         vm.stopBroadcast();
     }
 }

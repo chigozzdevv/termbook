@@ -72,4 +72,46 @@ abstract contract LightClientVerifier is IVerifier, IVerifierAdmission {
     function proofLeaf(bytes calldata proof) external view returns (bytes32) {
         return IConsensusLightClient(lightClient).proofLeaf(proof);
     }
+
+    function verifyEvent(bytes calldata header, bytes calldata proof, address emitter, bytes32 eventDigest)
+        external view returns (bool)
+    {
+        if (emitter == address(0) || eventDigest == bytes32(0)) return false;
+        try IConsensusLightClient(lightClient).headerTimestamp(header) returns (uint256 timestamp) {
+            if (timestamp == 0 || timestamp > block.timestamp || block.timestamp - timestamp > proofMaxAge) return false;
+        } catch {
+            return false;
+        }
+        try IConsensusLightClient(lightClient).verifyFinality(header) returns (bool final_) {
+            if (!final_) return false;
+        } catch {
+            return false;
+        }
+        try IConsensusLightClient(lightClient).verifyEvent(header, proof, emitter, eventDigest) returns (bool valid) {
+            return valid;
+        } catch {
+            return false;
+        }
+    }
+
+    function verifyLock(bytes calldata header, bytes calldata proof, address vault, bytes32 lockDigest)
+        external view returns (bool)
+    {
+        if (vault == address(0) || lockDigest == bytes32(0)) return false;
+        try IConsensusLightClient(lightClient).headerTimestamp(header) returns (uint256 timestamp) {
+            if (timestamp == 0 || timestamp > block.timestamp || block.timestamp - timestamp > proofMaxAge) return false;
+        } catch {
+            return false;
+        }
+        try IConsensusLightClient(lightClient).verifyFinality(header) returns (bool final_) {
+            if (!final_) return false;
+        } catch {
+            return false;
+        }
+        try IConsensusLightClient(lightClient).verifyLock(header, proof, vault, lockDigest) returns (bool valid) {
+            return valid;
+        } catch {
+            return false;
+        }
+    }
 }

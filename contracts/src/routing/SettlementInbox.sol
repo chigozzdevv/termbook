@@ -9,6 +9,14 @@ interface ISettlementReceiver {
     function onSettlement(bytes32 operationId, bytes32 creditId, address token, uint256 amount) external;
 }
 
+interface ISettlementDebt {
+    function core() external view returns (address);
+}
+
+interface ICreditDebt {
+    function creditDebt(bytes32 creditId) external view returns (uint256);
+}
+
 contract SettlementInbox is ISettlementInbox {
     using SafeTransferLib for address;
 
@@ -98,7 +106,8 @@ contract SettlementInbox is ISettlementInbox {
 
     function settle(uint256 amount) external guard {
         if (cancelled || (creditId == bytes32(0) && block.timestamp > deadline)) revert Expired();
-        if (amount == 0 || amount > available() || (received < minOut && block.timestamp <= deadline)) revert Nothing();
+        if (amount == 0 || amount > available()) revert Nothing();
+        if (creditId == bytes32(0) && (amount != available() || amount < minOut)) revert Nothing();
         applied += amount;
         uint256 vaultBalance = _balanceOf(vault);
         token.safeTransfer(vault, amount);
@@ -112,6 +121,9 @@ contract SettlementInbox is ISettlementInbox {
     function refund(uint256 amount) external guard {
         if (!cancelled && block.timestamp <= deadline) revert Expired();
         if (amount == 0 || amount > available()) revert Nothing();
+        if (creditId != bytes32(0) && ICreditDebt(ISettlementDebt(vault).core()).creditDebt(creditId) != 0) {
+            revert Nothing();
+        }
         refunded += amount;
         uint256 recipientBalance = _balanceOf(refundRecipient);
         token.safeTransfer(refundRecipient, amount);

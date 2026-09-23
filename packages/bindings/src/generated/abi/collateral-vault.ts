@@ -380,6 +380,39 @@ export const collateralVaultAbi = [
   },
   {
     "type": "function",
+    "name": "releaseAuthorized",
+    "inputs": [
+      {
+        "name": "lockId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "recipient",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "nonce",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "actionHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "releaseUsed",
     "inputs": [
       {
@@ -415,6 +448,34 @@ export const collateralVaultAbi = [
         "name": "amount",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "seizeAuthorized",
+    "inputs": [
+      {
+        "name": "lockId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "recipient",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "actionHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ],
     "outputs": [],
@@ -511,6 +572,43 @@ export const collateralVaultAbi = [
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RemoteActionApplied",
+    "inputs": [
+      {
+        "name": "actionHash",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "lockId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "recipient",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "kind",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
       }
     ],
     "anonymous": false

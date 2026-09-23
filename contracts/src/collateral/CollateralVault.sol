@@ -40,6 +40,7 @@ contract CollateralVault is ICollateralVault {
     event Locked(bytes32 indexed lockId, bytes32 indexed creditId, address indexed owner, uint256 amount);
     event Released(bytes32 indexed lockId, address indexed recipient, uint256 amount);
     event Seized(bytes32 indexed lockId, address indexed recipient, uint256 amount);
+    event RemoteActionApplied(bytes32 indexed actionHash, bytes32 indexed lockId, address indexed recipient, uint256 amount, uint8 kind);
     event PauseGuardianSet(address indexed guardian);
 
     constructor(address asset_, uint256 chainId__, address core_) {
@@ -88,7 +89,7 @@ contract CollateralVault is ICollateralVault {
         emit Locked(lockId, creditId, owner, amount);
     }
 
-    function release(bytes32 lockId, address recipient, uint256 amount, uint256 nonce) external {
+    function release(bytes32 lockId, address recipient, uint256 amount, uint256 nonce) public {
         if (msg.sender != core) revert Unauthorized();
         bytes32 key = keccak256(abi.encode(lockId, recipient, amount, nonce));
         if (releaseUsed[key]) revert Used();
@@ -105,7 +106,13 @@ contract CollateralVault is ICollateralVault {
         emit Released(lockId, recipient, amount);
     }
 
-    function seize(bytes32 lockId, address recipient, uint256 amount) external {
+    function releaseAuthorized(bytes32 lockId, address recipient, uint256 amount, uint256 nonce, bytes32 actionHash) external {
+        if (actionHash == bytes32(0)) revert InvalidBinding();
+        release(lockId, recipient, amount, nonce);
+        emit RemoteActionApplied(actionHash, lockId, recipient, amount, 0);
+    }
+
+    function seize(bytes32 lockId, address recipient, uint256 amount) public {
         if (msg.sender != core) revert Unauthorized();
         Lock storage l = locks[lockId];
         if (!lockExists[lockId]) revert Unknown();
@@ -118,6 +125,12 @@ contract CollateralVault is ICollateralVault {
         asset.safeTransfer(recipient, amount);
         if (asset.balanceOf(recipient) - beforeBalance != amount) revert InvalidBinding();
         emit Seized(lockId, recipient, amount);
+    }
+
+    function seizeAuthorized(bytes32 lockId, address recipient, uint256 amount, bytes32 actionHash) external {
+        if (actionHash == bytes32(0)) revert InvalidBinding();
+        seize(lockId, recipient, amount);
+        emit RemoteActionApplied(actionHash, lockId, recipient, amount, 1);
     }
 
     function lockInfo(bytes32 lockId)

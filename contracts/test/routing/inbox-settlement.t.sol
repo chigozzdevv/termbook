@@ -33,11 +33,21 @@ contract InboxSettlementTest is Test {
     }
 
     function testMinOutEnforced() public {
-        SettlementInbox gated = new SettlementInbox(bytes32("op9"), address(receiver), address(token), bytes32("c1"), 1000, 1000, address(3), block.timestamp + 1 days);
+        SettlementInbox gated = new SettlementInbox(bytes32("op9"), address(receiver), address(token), bytes32(0), 1000, 1000, address(3), block.timestamp + 1 days);
         token.mint(address(gated), 500);
         gated.notifyReceipt(500);
         vm.expectRevert(SettlementInbox.Nothing.selector);
         gated.settle(500);
+    }
+
+    function testLpMustSettleEntireReceiptOnce() public {
+        SettlementInbox lp = new SettlementInbox(bytes32("lp"), address(receiver), address(token), bytes32(0), 500, 1000, address(3), block.timestamp + 1 days);
+        token.mint(address(lp), 1000);
+        lp.notifyAll();
+        vm.expectRevert(SettlementInbox.Nothing.selector);
+        lp.settle(500);
+        lp.settle(1000);
+        assertEq(lp.applied(), 1000);
     }
 
     function testReceiptCapIsEnforced() public {

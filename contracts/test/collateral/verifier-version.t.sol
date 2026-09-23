@@ -58,6 +58,7 @@ contract VerifierVersionTest is Test {
         core.setVerifierRegistry(address(registry));
         verifier = address(new MockVersionedVerifier(1));
         registry.setVerifier(99, verifier, 1, 1 days);
+        core.setSourceCollateralVault(99, address(token), address(0x1234));
         house = vm.addr(houseKey);
         borrower = vm.addr(borrowerKey);
         token.mint(address(this), 100);

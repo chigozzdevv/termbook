@@ -522,6 +522,29 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "authorizeRemoteSeizure",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "deadline",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "authorizeReturn",
     "inputs": [
       {
@@ -781,6 +804,29 @@ export const termbookCoreAbi = [
   {
     "type": "function",
     "name": "confirmRemoteReturn",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "header",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "proof",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "confirmRemoteSeizure",
     "inputs": [
       {
         "name": "creditId",
@@ -1084,6 +1130,25 @@ export const termbookCoreAbi = [
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "creditVault",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -1720,6 +1785,25 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "pendingRemoteSeizure",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "proveCollateral",
     "inputs": [
       {
@@ -2163,6 +2247,25 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "remoteActionNonce",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "remoteCollateral",
     "inputs": [
       {
@@ -2176,6 +2279,63 @@ export const termbookCoreAbi = [
         "name": "",
         "type": "bool",
         "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "remoteReturnActionHash",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "remoteSeizureActionHash",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "remoteSeizureRecipient",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -2834,6 +2994,52 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "setSourceCollateralVault",
+    "inputs": [
+      {
+        "name": "sourceChain",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "asset",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "collateralVault",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setSourceRecoveryVault",
+    "inputs": [
+      {
+        "name": "sourceChain",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "asset",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "recoveryVault",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setVerifierRegistry",
     "inputs": [
       {
@@ -2844,6 +3050,54 @@ export const termbookCoreAbi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "sourceCollateralVault",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "sourceRecoveryVault",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -3160,6 +3414,31 @@ export const termbookCoreAbi = [
   },
   {
     "type": "event",
+    "name": "RemoteActionAuthorized",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "actionHash",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "kind",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "RemoteReturnRequested",
     "inputs": [
       {
@@ -3185,6 +3464,31 @@ export const termbookCoreAbi = [
         "type": "address",
         "indexed": false,
         "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RemoteSeizureConfirmed",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "actionHash",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false

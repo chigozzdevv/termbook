@@ -955,6 +955,34 @@ export const houseVaultAbi = [
   },
   {
     "type": "function",
+    "name": "registerInboxFromFactory",
+    "inputs": [
+      {
+        "name": "inbox",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "kind",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "recipient",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "minShares",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "release",
     "inputs": [
       {

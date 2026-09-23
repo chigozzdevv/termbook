@@ -9,6 +9,8 @@ const contracts = {
   CreditAccount: "credit-account",
   HouseVault: "house-vault",
   CollateralVault: "collateral-vault",
+  RemoteCollateralController: "remote-collateral-controller",
+  SourceRecoveryVault: "source-recovery-vault",
   SettlementInbox: "settlement-inbox",
   AppGateway: "app-gateway",
   RiskEngine: "risk-engine",

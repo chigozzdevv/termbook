@@ -3,6 +3,7 @@ import type { HouseSummary, DepositArgs, HouseAccountSummary, HouseDepositResult
 import type { ActivityCallback, Unsubscribe, TxHash } from "../types/client.types.js";
 import type { HouseActivity } from "../types/house.types.js";
 import { houseVaultAbi } from "@termbook/bindings";
+import { settlementNonce } from "../settlement/settlement.js";
 
 export class House {
   client: TermbookClient;
@@ -95,21 +96,26 @@ export class HouseAccount {
     if (args.source) {
       if (args.source.provider !== "aurora_intents" || args.source.maxAmountIn <= 0n || args.source.chainId <= 0) throw new Error("settlement-route-required");
       const asset = await this.house.client.rpc.read<`0x${string}`>(this.house.id, houseVaultAbi, "asset");
-      const operationId = await this.house.client.settlement.register({
+      const operation = await this.house.client.settlement.register({
         kind: "lp_deposit",
         payer: this.owner,
-        nonce: BigInt(Math.floor(Date.now() / 1000)),
+        nonce: settlementNonce(),
         chainId: args.source.chainId,
+        routeId: args.source.routeId,
+        routeVersion: args.source.routeVersion,
         asset: args.source.asset,
         settlementAsset: asset,
         vault: this.house.id,
         maxAmountIn: args.source.maxAmountIn,
+        maxReceived: args.source.maxReceived,
         minAmountOut: args.amount,
         deadline: args.deadline,
         sourceRefund: args.source.sourceRefund,
         monadRefund: args.source.monadRefund,
+        lpRecipient: this.owner,
+        minShares: args.minShares,
       });
-      return { shares: 0n, status: "pending", operationId };
+      return { shares: 0n, status: "pending", registration: operation, ...operation };
     }
     return this.house.deposit(args);
   }

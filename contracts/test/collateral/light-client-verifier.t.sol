@@ -43,6 +43,20 @@ contract MockConsensusLightClient is IConsensusLightClient {
         return inclusion;
     }
 
+    function verifyEvent(bytes calldata, bytes calldata proof, address emitter, bytes32 digest)
+        external view returns (bool)
+    {
+        (address provenEmitter, bytes32 provenDigest) = abi.decode(proof, (address, bytes32));
+        return inclusion && emitter == provenEmitter && digest == provenDigest;
+    }
+
+    function verifyLock(bytes calldata, bytes calldata proof, address vault, bytes32 digest)
+        external view returns (bool)
+    {
+        (address provenVault, bytes32 provenDigest) = abi.decode(proof, (address, bytes32));
+        return inclusion && vault == provenVault && digest == provenDigest;
+    }
+
     function proofLeaf(bytes calldata proof) external pure returns (bytes32 leaf) {
         leaf = abi.decode(proof, (bytes32));
     }
@@ -67,6 +81,10 @@ contract LightClientVerifierTest is Test {
         assertEq(verifier.headerRoot(header), root);
         assertEq(verifier.proofLeaf(proof), root);
         assertTrue(ethereumVerifier.verifyFinality(header));
+        bytes32 digest = keccak256("lock");
+        bytes memory lockProof = abi.encode(address(0xBEEF), digest);
+        assertTrue(verifier.verifyLock(header, lockProof, address(0xBEEF), digest));
+        assertFalse(verifier.verifyLock(header, lockProof, address(0xCAFE), digest));
 
         client.setResults(false, false);
         assertFalse(verifier.verifyFinality(header));

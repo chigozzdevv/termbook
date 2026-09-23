@@ -5,6 +5,9 @@ export type RepayArgs = {
     chainId: number;
     asset: `0x${string}`;
     maxAmountIn: bigint;
+    maxReceived: bigint;
+    routeId: `0x${string}`;
+    routeVersion: `0x${string}`;
     sourceRefund: `0x${string}`;
     monadRefund: `0x${string}`;
   };
@@ -16,4 +19,11 @@ export type RepayResult = {
   status: "applied" | "partial" | "refunded" | "pending";
   tx?: `0x${string}`;
   operationId?: `0x${string}`;
+  inbox?: `0x${string}`;
+  depositAddress?: `0x${string}`;
+  amountIn?: bigint;
+  deadline?: string;
+  providerQuote?: unknown;
+  registration?: SettlementRegistration;
 };
+import type { SettlementRegistration } from "../settlement/settlement.js";

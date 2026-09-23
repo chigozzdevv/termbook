@@ -6,6 +6,7 @@ import {Events} from "../shared/Events.sol";
 import {RevisionLib} from "../shared/RevisionLib.sol";
 import {AuthLib} from "../shared/AuthLib.sol";
 import {SafeTransferLib} from "../shared/SafeTransferLib.sol";
+import {RemoteAction} from "../collateral/RemoteAction.sol";
 import {ITermbookCore} from "./ITermbookCore.sol";
 import {IExitVerifier} from "../integration/IExitVerifier.sol";
 
@@ -132,6 +133,10 @@ interface IVerifierCore {
     function verifyInclusion(bytes calldata proof, bytes32 root) external view returns (bool);
     function headerRoot(bytes calldata header) external view returns (bytes32);
     function proofLeaf(bytes calldata proof) external view returns (bytes32);
+    function verifyEvent(bytes calldata header, bytes calldata proof, address emitter, bytes32 eventDigest)
+        external view returns (bool);
+    function verifyLock(bytes calldata header, bytes calldata proof, address vault, bytes32 lockDigest)
+        external view returns (bool);
 }
 
 contract TermbookCore is ITermbookCore {
@@ -237,10 +242,20 @@ contract TermbookCore is ITermbookCore {
     mapping(bytes32 => bool) public remoteCollateral;
     mapping(bytes32 => bool) public bondSettled;
     mapping(bytes32 => uint256) public pendingRemoteReturn;
+    mapping(bytes32 => uint256) public pendingRemoteSeizure;
+    mapping(bytes32 => uint256) public remoteActionNonce;
+    mapping(bytes32 => bytes32) public remoteReturnActionHash;
+    mapping(bytes32 => bytes32) public remoteSeizureActionHash;
+    mapping(bytes32 => address) public remoteSeizureRecipient;
+    mapping(uint256 => mapping(address => address)) public sourceCollateralVault;
+    mapping(uint256 => mapping(address => address)) public sourceRecoveryVault;
     mapping(address => bool) public recoveryKeepers;
     mapping(bytes32 => uint256) public healthSnapshotAt;
     mapping(bytes32 => uint256) public healthSnapshotRevision;
     uint256 public healthMaxAge = 1 days;
+
+    event RemoteActionAuthorized(bytes32 indexed creditId, bytes32 indexed actionHash, uint8 kind);
+    event RemoteSeizureConfirmed(bytes32 indexed creditId, bytes32 indexed actionHash, uint256 amount);
 
     error Expired();
     error Unauthorized();
@@ -317,6 +332,18 @@ contract TermbookCore is ITermbookCore {
     function setRecoveryKeeper(address keeper, bool active) external onlyGovernance {
         if (keeper == address(0)) revert InvalidAuthority();
         recoveryKeepers[keeper] = active;
+    }
+
+    function setSourceRecoveryVault(uint256 sourceChain, address asset, address recoveryVault) external onlyGovernance {
+        if (sourceChain == 0 || sourceChain == block.chainid || asset == address(0) || recoveryVault == address(0)) {
+            revert InvalidAuthority();
+        }
+        sourceRecoveryVault[sourceChain][asset] = recoveryVault;
+    }
+
+    function setSourceCollateralVault(uint256 sourceChain, address asset, address collateralVault) external onlyGovernance {
+        if (sourceChain == 0 || sourceChain == block.chainid || asset == address(0)) revert InvalidAuthority();
+        sourceCollateralVault[sourceChain][asset] = collateralVault;
     }
 
     function setPaused(bool value) external {
@@ -853,6 +880,7 @@ contract TermbookCore is ITermbookCore {
         bool remote = sourceChain != block.chainid;
         if (
             collateralAsset == address(0)
+                || (remote && sourceCollateralVault[sourceChain][collateralAsset] != collateralVault)
                 || (!remote
                     && (collateralAsset.code.length == 0
                         || collateralVault.code.length == 0
@@ -898,6 +926,7 @@ contract TermbookCore is ITermbookCore {
         address owner,
         address returnRecipient
     ) external {
+        if (sourceCollateralVault[sourceChain][collateralAsset] != collateralVault) revert InvalidCollateral();
         _setCollateral(creditId, msg.sender, returnRecipient, collateralVault, owner, true, sourceChain);
         if (sourceChain == 0 || sourceChain == block.chainid || collateralAsset == address(0) || collateralAmount == 0) revert InvalidCollateral();
         Credit storage c = _credits[creditId];
@@ -967,6 +996,7 @@ contract TermbookCore is ITermbookCore {
             c.facility != Types.Facility.Aborted || c.collateralBound || lockId == bytes32(0) || sourceChain == 0
                 || sourceChain == block.chainid || collateralVault == address(0) || collateralAsset == address(0)
                 || collateralAmount == 0 || owner == address(0) || returnRecipient == address(0)
+                || sourceCollateralVault[sourceChain][collateralAsset] != collateralVault
         ) revert InvalidCollateral();
         if (returnRecipient != c.returnRecipient && c.returnRecipient != address(0)) revert InvalidCollateral();
         if (c.collateralVault != address(0) && c.collateralVault != collateralVault) revert InvalidCollateral();
@@ -1054,18 +1084,6 @@ contract TermbookCore is ITermbookCore {
         ) {
             revert InvalidCollateral();
         }
-        try IVerifierCore(impl).verifyFinality(header) returns (bool final_) {
-            if (!final_) revert InvalidCollateral();
-        } catch {
-            revert InvalidCollateral();
-        }
-        bytes32 root;
-        try IVerifierCore(impl).headerRoot(header) returns (bytes32 root_) {
-            root = root_;
-        } catch {
-            revert InvalidCollateral();
-        }
-        if (proof.length < 128) revert InvalidCollateral();
         address owner = collateralOwnerOf[creditId];
         bytes32 expected = keccak256(
             abi.encode(
@@ -1073,25 +1091,18 @@ contract TermbookCore is ITermbookCore {
                 c.lockId,
                 c.borrower,
                 owner,
+                c.collateralVault,
                 c.collateralAsset,
                 c.collateralAmount,
                 sourceChain,
                 c.returnRecipient
             )
         );
-        bytes32 leaf;
-        try IVerifierCore(impl).proofLeaf(proof) returns (bytes32 leaf_) {
-            leaf = leaf_;
+        try IVerifierCore(impl).verifyLock(header, proof, c.collateralVault, expected) returns (bool verified) {
+            if (!verified) revert InvalidCollateral();
         } catch {
             revert InvalidCollateral();
         }
-        bool included;
-        try IVerifierCore(impl).verifyInclusion(proof, root) returns (bool included_) {
-            included = included_;
-        } catch {
-            revert InvalidCollateral();
-        }
-        if (leaf != expected || !included) revert InvalidCollateral();
         collateralProven[creditId] = true;
         if (c.facility != Types.Facility.Aborted) _maybeReady(c, creditId);
     }
@@ -1235,11 +1246,18 @@ contract TermbookCore is ITermbookCore {
         if (c.facility == Types.Facility.Closing) _requireExitReady(c, creditId);
         if (amount == 0 || amount > c.collateralAmount) revert InvalidCollateral();
         if (remoteCollateral[creditId]) {
+            if (pendingRemoteReturn[creditId] != 0 || pendingRemoteSeizure[creditId] != 0) revert Pending();
             uint256 available = c.collateralAmount - pendingRemoteReturn[creditId];
             if (amount > available) revert InvalidCollateral();
             pendingRemoteReturn[creditId] += amount;
+            uint256 nonce = ++remoteActionNonce[creditId];
+            bytes32 actionHash = RemoteAction.hash(_remoteAction(
+                c, creditId, RemoteAction.RELEASE, c.returnRecipient, amount, nonce, type(uint256).max
+            ));
+            remoteReturnActionHash[creditId] = actionHash;
             c.revision = RevisionLib.next(c.revision);
             emit Events.RemoteReturnRequested(creditId, lockId, amount, c.returnRecipient);
+            emit RemoteActionAuthorized(creditId, actionHash, RemoteAction.RELEASE);
             return;
         }
         ICollateralVaultCore(c.collateralVault).release(lockId, c.returnRecipient, amount, c.revision);
@@ -1252,61 +1270,66 @@ contract TermbookCore is ITermbookCore {
         emit Events.CollateralReturned(creditId, lockId, amount);
     }
 
+    function _remoteAction(
+        Credit storage c,
+        bytes32 creditId,
+        uint8 kind,
+        address recipient,
+        uint256 amount,
+        uint256 nonce,
+        uint256 deadline
+    ) internal view returns (RemoteAction.Authorization memory action) {
+        action = RemoteAction.Authorization({
+            monadChain: block.chainid,
+            monadCore: address(this),
+            sourceChain: collateralSourceChainOf[creditId],
+            sourceVault: c.collateralVault,
+            creditId: creditId,
+            lockId: c.lockId,
+            asset: c.collateralAsset,
+            kind: kind,
+            recipient: recipient,
+            amount: amount,
+            nonce: nonce,
+            deadline: deadline
+        });
+    }
+
+    function authorizeRemoteSeizure(bytes32 creditId, uint256 amount, uint256 deadline) external nonReentrant {
+        Credit storage c = _credits[creditId];
+        if (!recoveryKeepers[msg.sender]) revert Unauthorized();
+        if (
+            !remoteCollateral[creditId]
+                || (c.facility != Types.Facility.Liquidating && c.facility != Types.Facility.RecoveryPending)
+                || c.recoveryFinalized || pendingRemoteSeizure[creditId] != 0
+                || pendingRemoteReturn[creditId] != 0 || amount == 0 || amount > c.collateralAmount
+                || c.debt == 0 || deadline <= block.timestamp || deadline > block.timestamp + 7 days
+        ) revert BadState();
+        address destination = sourceRecoveryVault[collateralSourceChainOf[creditId]][c.collateralAsset];
+        if (destination == address(0)) revert InvalidCollateral();
+        uint256 nonce = ++remoteActionNonce[creditId];
+        bytes32 actionHash = RemoteAction.hash(_remoteAction(
+            c, creditId, RemoteAction.SEIZE, destination, amount, nonce, deadline
+        ));
+        pendingRemoteSeizure[creditId] = amount;
+        remoteSeizureActionHash[creditId] = actionHash;
+        remoteSeizureRecipient[creditId] = destination;
+        c.revision = RevisionLib.next(c.revision);
+        emit RemoteActionAuthorized(creditId, actionHash, RemoteAction.SEIZE);
+    }
+
     function confirmRemoteReturn(bytes32 creditId, bytes calldata header, bytes calldata proof) external nonReentrant {
         Credit storage c = _credits[creditId];
         if (
             (c.facility != Types.Facility.Closing && c.facility != Types.Facility.Aborted)
                 || !remoteCollateral[creditId] || pendingRemoteReturn[creditId] == 0 || verifierRegistry == address(0)
         ) revert Pending();
-        uint256 sourceChain = collateralSourceChainOf[creditId];
-        (address impl,, bool active,, bytes32 codeHash) = IVerifierRegistryCore(verifierRegistry).verifiers(sourceChain);
-        if (!active || impl.code.length == 0) revert InvalidCollateral();
-        (, uint256 version,,,) = IVerifierRegistryCore(verifierRegistry).verifiers(sourceChain);
-        if (
-            c.verifierVersion == 0 || version != c.verifierVersion || codeHash != c.verifierCodeHash
-                || impl.codehash != c.verifierCodeHash
-        ) {
-            revert InvalidCollateral();
-        }
-        try IVerifierCore(impl).verifyFinality(header) returns (bool final_) {
-            if (!final_) revert InvalidCollateral();
-        } catch {
-            revert InvalidCollateral();
-        }
-        bytes32 root;
-        try IVerifierCore(impl).headerRoot(header) returns (bytes32 root_) {
-            root = root_;
-        } catch {
-            revert InvalidCollateral();
-        }
-        bytes32 leaf;
-        try IVerifierCore(impl).proofLeaf(proof) returns (bytes32 leaf_) {
-            leaf = leaf_;
-        } catch {
-            revert InvalidCollateral();
-        }
         uint256 amount = pendingRemoteReturn[creditId];
-        bytes32 expected = keccak256(
-            abi.encode(
-                creditId,
-                c.lockId,
-                c.borrower,
-                collateralOwnerOf[creditId],
-                c.collateralAsset,
-                amount,
-                sourceChain,
-                c.returnRecipient,
-                bytes32("release")
-            )
-        );
-        bool included;
-        try IVerifierCore(impl).verifyInclusion(proof, root) returns (bool included_) {
-            included = included_;
-        } catch {
-            revert InvalidCollateral();
-        }
-        if (leaf != expected || !included) revert InvalidCollateral();
+        _verifyRemoteEvent(c, creditId, header, proof, keccak256(abi.encode(
+            remoteReturnActionHash[creditId], c.lockId, c.returnRecipient, amount, RemoteAction.RELEASE
+        )));
         pendingRemoteReturn[creditId] = 0;
+        remoteReturnActionHash[creditId] = bytes32(0);
         c.collateralAmount -= amount;
         if (c.collateralAmount == 0) {
             c.collateralReturned = true;
@@ -1314,6 +1337,51 @@ contract TermbookCore is ITermbookCore {
         }
         c.revision = RevisionLib.next(c.revision);
         emit Events.CollateralReturned(creditId, c.lockId, amount);
+    }
+
+    function confirmRemoteSeizure(bytes32 creditId, bytes calldata header, bytes calldata proof)
+        external nonReentrant
+    {
+        Credit storage c = _credits[creditId];
+        if (
+            !remoteCollateral[creditId] || pendingRemoteSeizure[creditId] == 0
+                || (c.facility != Types.Facility.Liquidating && c.facility != Types.Facility.RecoveryPending)
+        ) revert Pending();
+        uint256 amount = pendingRemoteSeizure[creditId];
+        address recipient = remoteSeizureRecipient[creditId];
+        _verifyRemoteEvent(c, creditId, header, proof, keccak256(abi.encode(
+            remoteSeizureActionHash[creditId], c.lockId, recipient, amount, RemoteAction.SEIZE
+        )));
+        bytes32 actionHash = remoteSeizureActionHash[creditId];
+        pendingRemoteSeizure[creditId] = 0;
+        remoteSeizureActionHash[creditId] = bytes32(0);
+        remoteSeizureRecipient[creditId] = address(0);
+        c.collateralAmount -= amount;
+        c.facility = Types.Facility.RecoveryPending;
+        c.revision = RevisionLib.next(c.revision);
+        emit RemoteSeizureConfirmed(creditId, actionHash, amount);
+    }
+
+    function _verifyRemoteEvent(
+        Credit storage c,
+        bytes32 creditId,
+        bytes calldata header,
+        bytes calldata proof,
+        bytes32 eventDigest
+    ) internal view {
+        if (verifierRegistry == address(0)) revert InvalidCollateral();
+        (address impl, uint256 version, bool active,, bytes32 codeHash) =
+            IVerifierRegistryCore(verifierRegistry).verifiers(collateralSourceChainOf[creditId]);
+        if (
+            !active || impl.code.length == 0 || c.verifierVersion == 0
+                || version != c.verifierVersion || codeHash != c.verifierCodeHash
+                || impl.codehash != c.verifierCodeHash
+        ) revert InvalidCollateral();
+        try IVerifierCore(impl).verifyEvent(header, proof, c.collateralVault, eventDigest) returns (bool verified) {
+            if (!verified) revert InvalidCollateral();
+        } catch {
+            revert InvalidCollateral();
+        }
     }
 
     function withdrawCollateral(bytes32 creditId, uint256 amount) external nonReentrant {
@@ -1774,7 +1842,7 @@ contract TermbookCore is ITermbookCore {
     function cure(bytes32 creditId) external nonReentrant {
         Credit storage c = _credits[creditId];
         if (c.facility != Types.Facility.RecoveryPending) revert BadState();
-        if (block.timestamp >= c.maturity || c.payment == Types.Payment.Defaulted || c.recoveryFinalized) {
+        if (block.timestamp >= c.maturity || c.payment == Types.Payment.Defaulted || c.recoveryFinalized || pendingRemoteSeizure[creditId] != 0) {
             revert BadState();
         }
         _accrue(c, creditId);
@@ -1802,7 +1870,7 @@ contract TermbookCore is ITermbookCore {
 
     function finalizeRecovery(bytes32 creditId) external {
         Credit storage c = _credits[creditId];
-        if (msg.sender != c.vault || c.facility != Types.Facility.RecoveryPending) revert Unauthorized();
+        if (msg.sender != c.vault || c.facility != Types.Facility.RecoveryPending || pendingRemoteSeizure[creditId] != 0) revert Unauthorized();
         c.recoveryFinalized = true;
         c.revision = RevisionLib.next(c.revision);
     }
@@ -1843,6 +1911,10 @@ contract TermbookCore is ITermbookCore {
 
     function creditDebt(bytes32 creditId) external view returns (uint256) {
         return _previewDebt(_credits[creditId], creditId);
+    }
+
+    function creditVault(bytes32 creditId) external view returns (address) {
+        return _credits[creditId].vault;
     }
 
     function creditRevision(bytes32 creditId) external view returns (uint256) {

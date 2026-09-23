@@ -2,6 +2,44 @@ import type { TermbookClient } from "../client/client.js";
 import type { ReceiptView } from "./receipt.js";
 import type { OperationKind } from "./operation.js";
 import { operationId } from "./operation.js";
+import { inboxFactoryAbi, sourceRecoveryVaultAbi } from "@termbook/bindings";
+import { quoteHash, verifyQuoteSignature, type OneClickQuoteResponse } from "@defuse-protocol/one-click-sdk-typescript";
+import { createPublicClient, http, keccak256, stringToHex } from "viem";
+import type { Wallet } from "../types/client.types.js";
+
+const zeroAddress = "0x0000000000000000000000000000000000000000" as const;
+const zeroBytes32 = "0x0000000000000000000000000000000000000000000000000000000000000000" as const;
+const erc20TransferAbi = [{ type: "function", name: "transfer", stateMutability: "nonpayable", inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "bool" }] }] as const;
+
+export type SettlementRegistration = {
+  operationId: `0x${string}`;
+  kind: OperationKind;
+  payer: `0x${string}`;
+  sourceChain: number;
+  sourceAsset: `0x${string}`;
+  sourceRefund: `0x${string}`;
+  inbox: `0x${string}`;
+  depositAddress: `0x${string}`;
+  amountIn: bigint;
+  deadline: string;
+  providerQuote: OneClickQuoteResponse;
+};
+
+export type RecoveryFunding = {
+  creditId: `0x${string}`;
+  operationId: `0x${string}`;
+  inbox: `0x${string}`;
+  depositAddress: `0x${string}`;
+  amount: bigint;
+  quoteHash: `0x${string}`;
+  nonce: bigint;
+  deadline: bigint;
+};
+
+export function settlementNonce(): bigint {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return BigInt(`0x${Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("")}`);
+}
 
 export class Settlement {
   client: TermbookClient;
@@ -15,24 +53,161 @@ export class Settlement {
     return this.client.rpc.inboxStatus(inbox);
   }
 
+  async fundErc20(registration: SettlementRegistration, sourceRpcUrl: string, sourceWallet: Wallet): Promise<`0x${string}`> {
+    if (registration.kind === "recovery" || !sourceWallet.writeContract || sourceWallet.address.toLowerCase() !== registration.payer.toLowerCase()) throw new Error("source-wallet-required");
+    const quote = registration.providerQuote;
+    if (
+      !verifyQuoteSignature(quote) || quote.quoteRequest.recipient.toLowerCase() !== registration.inbox.toLowerCase()
+        || quote.quoteRequest.refundTo.toLowerCase() !== registration.sourceRefund.toLowerCase()
+        || quote.quote?.depositAddress?.toLowerCase() !== registration.depositAddress.toLowerCase()
+        || BigInt(quote.quote.amountIn) !== registration.amountIn
+        || Date.parse(registration.deadline) <= Date.now()
+    ) throw new Error("settlement-invalid");
+    const chain = createPublicClient({ transport: http(sourceRpcUrl) });
+    if (await chain.getChainId() !== registration.sourceChain) throw new Error("chain-mismatch");
+    const tx = await sourceWallet.writeContract({
+      address: registration.sourceAsset,
+      abi: erc20TransferAbi,
+      functionName: "transfer",
+      args: [registration.depositAddress, registration.amountIn],
+      account: sourceWallet.address,
+    });
+    const receipt = await chain.waitForTransactionReceipt({ hash: tx });
+    if (receipt.status !== "success") throw new Error("source-transfer-reverted");
+    return tx;
+  }
+
+  recoveryFunding(registration: SettlementRegistration, recoveryVault: `0x${string}`, creditId: `0x${string}`, nonce: bigint, deadline: number): {
+    funding: RecoveryFunding;
+    typedData: unknown;
+  } {
+    if (
+      registration.kind !== "recovery" || registration.sourceRefund.toLowerCase() !== recoveryVault.toLowerCase()
+        || !verifyQuoteSignature(registration.providerQuote) || nonce < 0n
+        || deadline <= Date.now() / 1000 || deadline > Date.parse(registration.deadline) / 1000
+    ) throw new Error("recovery-route-invalid");
+    const funding: RecoveryFunding = {
+      creditId,
+      operationId: registration.operationId,
+      inbox: registration.inbox,
+      depositAddress: registration.depositAddress,
+      amount: registration.amountIn,
+      quoteHash: keccak256(stringToHex(quoteHash(registration.providerQuote))),
+      nonce,
+      deadline: BigInt(deadline),
+    };
+    const typedData = {
+      domain: { name: "Termbook", version: "1", chainId: registration.sourceChain, verifyingContract: recoveryVault },
+      primaryType: "RecoveryFunding",
+      types: { RecoveryFunding: [
+        { name: "creditId", type: "bytes32" }, { name: "operationId", type: "bytes32" },
+        { name: "inbox", type: "address" }, { name: "depositAddress", type: "address" },
+        { name: "amount", type: "uint256" }, { name: "quoteHash", type: "bytes32" },
+        { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" },
+        { name: "monadChain", type: "uint256" }, { name: "asset", type: "address" },
+      ] },
+      message: { ...funding, monadChain: BigInt(this.client.config.chainId), asset: registration.sourceAsset },
+    };
+    return { funding, typedData };
+  }
+
+  async fundRecovery(registration: SettlementRegistration, recoveryVault: `0x${string}`, funding: RecoveryFunding, signature: `0x${string}`, sourceRpcUrl: string, sourceWallet: Wallet): Promise<`0x${string}`> {
+    if (
+      registration.kind !== "recovery" || registration.sourceRefund.toLowerCase() !== recoveryVault.toLowerCase()
+        || funding.operationId.toLowerCase() !== registration.operationId.toLowerCase()
+        || funding.inbox.toLowerCase() !== registration.inbox.toLowerCase()
+        || funding.depositAddress.toLowerCase() !== registration.depositAddress.toLowerCase()
+        || funding.amount !== registration.amountIn
+        || funding.quoteHash !== keccak256(stringToHex(quoteHash(registration.providerQuote)))
+        || !verifyQuoteSignature(registration.providerQuote) || !sourceWallet.writeContract
+    ) throw new Error("recovery-route-invalid");
+    const chain = createPublicClient({ transport: http(sourceRpcUrl) });
+    if (await chain.getChainId() !== registration.sourceChain) throw new Error("chain-mismatch");
+    const tx = await sourceWallet.writeContract({
+      address: recoveryVault,
+      abi: sourceRecoveryVaultAbi,
+      functionName: "fund",
+      args: [funding, signature],
+      account: sourceWallet.address,
+    });
+    const receipt = await chain.waitForTransactionReceipt({ hash: tx });
+    if (receipt.status !== "success") throw new Error("source-transfer-reverted");
+    return tx;
+  }
+
   async register(input: {
     kind: OperationKind;
     payer: `0x${string}`;
     nonce: bigint;
     chainId: number;
     creditId?: `0x${string}`;
-    routeVersion?: `0x${string}`;
+    routeVersion: `0x${string}`;
+    routeId: `0x${string}`;
     asset: `0x${string}`;
     settlementAsset: `0x${string}`;
     vault: `0x${string}`;
     maxAmountIn: bigint;
     minAmountOut: bigint;
+    maxReceived: bigint;
     deadline: number;
     sourceRefund: `0x${string}`;
     monadRefund: `0x${string}`;
-  }): Promise<`0x${string}`> {
+    lpRecipient?: `0x${string}`;
+    minShares?: bigint;
+  }): Promise<SettlementRegistration> {
+    const factory = this.client.config.settlementFactory;
+    if (!factory || input.payer.toLowerCase() !== this.client.signer.address().toLowerCase() || !input.routeVersion || input.maxAmountIn <= 0n || input.maxReceived < input.minAmountOut || input.deadline <= Date.now() / 1000) throw new Error("settlement-route-required");
     const id = operationId({ kind: input.kind, payer: input.payer, nonce: input.nonce, chainId: input.chainId, creditId: input.creditId, routeVersion: input.routeVersion, asset: input.asset, vault: input.vault });
-    const result = await this.client.authenticatedPost<{ operationId?: string; operation_id?: string }>("/settlement", {
+    const kind = input.kind === "repay" ? 0 : input.kind === "recovery" ? 1 : 2;
+    const operation = {
+      operationId: id,
+      kind,
+      payer: input.payer,
+      sourceChain: BigInt(input.chainId),
+      sourceAsset: input.asset,
+      vault: input.vault,
+      token: input.settlementAsset,
+      creditId: input.creditId ?? zeroBytes32,
+      maxAmountIn: input.maxAmountIn,
+      minOut: input.minAmountOut,
+      maxReceived: input.maxReceived,
+      sourceRefund: input.sourceRefund,
+      refundRecipient: input.monadRefund,
+      deadline: BigInt(input.deadline),
+      routeId: input.routeId,
+      routeVersion: input.routeVersion,
+      lpRecipient: input.lpRecipient ?? zeroAddress,
+      minShares: input.minShares ?? 0n,
+    };
+    const inboxBefore = await this.client.rpc.read<`0x${string}`>(factory, inboxFactoryAbi, "inboxOf", [id]);
+    if (inboxBefore.toLowerCase() === zeroAddress) {
+      const signature = await this.client.signer.sign({
+        domain: { name: "Termbook", version: "1", chainId: this.client.config.chainId, verifyingContract: factory },
+        primaryType: "SettlementOperation",
+        types: { SettlementOperation: [
+          { name: "operationId", type: "bytes32" }, { name: "kind", type: "uint8" },
+          { name: "payer", type: "address" }, { name: "sourceChain", type: "uint256" },
+          { name: "sourceAsset", type: "address" }, { name: "vault", type: "address" },
+          { name: "token", type: "address" }, { name: "creditId", type: "bytes32" },
+          { name: "maxAmountIn", type: "uint256" }, { name: "minOut", type: "uint256" },
+          { name: "maxReceived", type: "uint256" }, { name: "sourceRefund", type: "address" },
+          { name: "refundRecipient", type: "address" }, { name: "deadline", type: "uint256" },
+          { name: "routeId", type: "bytes32" }, { name: "routeVersion", type: "bytes32" },
+          { name: "lpRecipient", type: "address" }, { name: "minShares", type: "uint256" },
+        ] },
+        message: operation,
+      });
+      const tx = await this.client.rpc.write(factory, inboxFactoryAbi, "createAuthorized", [operation, signature]);
+      await this.client.rpc.wait(tx);
+    }
+    const inbox = await this.client.rpc.read<`0x${string}`>(factory, inboxFactoryAbi, "inboxOf", [id]);
+    if (inbox.toLowerCase() === zeroAddress) throw new Error("settlement-invalid");
+    const until = Date.now() + 60_000;
+    while ((await this.client.rpc.client.readContract({ address: factory, abi: inboxFactoryAbi, functionName: "inboxOf", args: [id], blockTag: "finalized" })).toLowerCase() !== inbox.toLowerCase()) {
+      if (Date.now() > until) throw new Error("settlement-finality-timeout");
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    const result = await this.client.authenticatedPost<{ operationId?: string; inbox?: string; quote?: OneClickQuoteResponse }>("/settlement", {
       operationId: id,
       kind: input.kind,
       nonce: input.nonce.toString(),
@@ -40,6 +215,7 @@ export class Settlement {
       sourceAsset: input.asset,
       token: input.settlementAsset,
       maxAmountIn: input.maxAmountIn.toString(),
+      maxReceived: input.maxReceived.toString(),
       minAmountOut: input.minAmountOut.toString(),
       vault: input.vault,
       creditId: input.creditId,
@@ -49,9 +225,25 @@ export class Settlement {
       sourceRefundRecipient: input.sourceRefund,
       monadRefundRecipient: input.monadRefund,
       routeVersion: input.routeVersion,
+      routeId: input.routeId,
+      lpRecipient: input.lpRecipient,
+      minShares: input.minShares?.toString(),
     });
-    const saved = result.operationId ?? result.operation_id;
-    if (!saved || !/^0x[a-fA-F0-9]{64}$/.test(saved)) throw new Error("settlement-invalid");
-    return saved as `0x${string}`;
+    const providerQuote = result.quote;
+    const quote = providerQuote?.quote;
+    const quotedRequest = providerQuote?.quoteRequest;
+    if (
+      result.operationId?.toLowerCase() !== id.toLowerCase() || result.inbox?.toLowerCase() !== inbox.toLowerCase()
+        || !providerQuote || !quotedRequest || !verifyQuoteSignature(providerQuote)
+        || quotedRequest.recipient.toLowerCase() !== inbox.toLowerCase()
+        || quotedRequest.refundTo.toLowerCase() !== input.sourceRefund.toLowerCase()
+        || quotedRequest.amount !== input.maxAmountIn.toString()
+        || !quote?.depositAddress || !/^0x[a-fA-F0-9]{40}$/.test(quote.depositAddress) || quote.depositMemo
+        || !quote.amountIn || BigInt(quote.amountIn) !== input.maxAmountIn
+        || BigInt(quote.minAmountOut) < input.minAmountOut
+        || BigInt(quote.amountOut) > input.maxReceived
+        || !quote.deadline || Date.parse(quote.deadline) > input.deadline * 1000
+    ) throw new Error("settlement-invalid");
+    return { operationId: id, kind: input.kind, payer: input.payer, sourceChain: input.chainId, sourceAsset: input.asset, sourceRefund: input.sourceRefund, inbox, depositAddress: quote.depositAddress as `0x${string}`, amountIn: BigInt(quote.amountIn), deadline: quote.deadline, providerQuote };
   }
 }

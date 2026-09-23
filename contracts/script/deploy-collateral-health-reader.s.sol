@@ -10,6 +10,7 @@ contract DeployCollateralHealthReader is Script {
         address core = vm.envAddress("MONAD_CORE_ADDRESS");
         address governance = vm.envAddress("GOVERNANCE_ADDRESS");
         address oracleRegistry = vm.envAddress("ORACLE_REGISTRY_ADDRESS");
+        require(block.chainid == vm.envUint("MONAD_CHAIN_ID"), "invalid-chain");
         vm.startBroadcast(key);
         reader = new CollateralHealthReader(core, governance, oracleRegistry);
         vm.stopBroadcast();

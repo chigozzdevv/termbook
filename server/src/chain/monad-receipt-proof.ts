@@ -3,6 +3,7 @@ import {
   type Address, type Hex, type TransactionReceipt,
 } from "viem";
 import { monadClient } from "./monad.client.js";
+import { env } from "../config/env.js";
 
 type Rlp = Hex | Rlp[];
 type Entry = { key: number[]; value: Hex };
@@ -148,8 +149,12 @@ export async function fetchMonadReceiptProof(input: {
   if (!word.test(input.txHash)) throw new Error("authorization-tx-invalid");
   const chain = monadClient();
   const receipt = await chain.getTransactionReceipt({ hash: input.txHash });
+  const chainId = await chain.getChainId();
+  if ((chainId !== 143 && chainId !== 10143) || chainId !== env.monadChainId) {
+    throw new Error("authorization-monad-chain-unsupported");
+  }
   const finalized = await chain.getBlock({ blockTag: "finalized" });
-  if (receipt.blockNumber > finalized.number) throw new Error("authorization-not-finalized");
+  if (receipt.blockNumber + 3n > finalized.number) throw new Error("authorization-not-verified");
   const block = await chain.getBlock({ blockNumber: receipt.blockNumber });
   if (block.hash.toLowerCase() !== receipt.blockHash.toLowerCase()
     || block.transactions[receipt.transactionIndex]?.toLowerCase() !== input.txHash.toLowerCase()) {

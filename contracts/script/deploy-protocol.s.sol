@@ -34,10 +34,13 @@ contract DeployProtocol is Script {
         )
     {
         uint256 key = vm.envUint("DEPLOYER_PRIVATE_KEY");
+        require(block.chainid == vm.envUint("MONAD_CHAIN_ID"), "invalid-chain");
         address deployer = vm.addr(key);
-        address governance = vm.envOr("GOVERNANCE", deployer);
-        address guardian = vm.envOr("GUARDIAN", deployer);
-        address manager = vm.envOr("HOUSE_MANAGER", deployer);
+        address governance = vm.envAddress("GOVERNANCE");
+        address guardian = vm.envAddress("GUARDIAN");
+        address manager = vm.envAddress("HOUSE_MANAGER");
+        address asset = vm.envAddress("SETTLEMENT_ASSET");
+        require(asset.code.length != 0, "settlement-asset-missing");
         vm.startBroadcast(key);
         protocolGovernance = new ProtocolGovernance(governance);
         guardianController = new Guardian(guardian, governance);
@@ -56,12 +59,8 @@ contract DeployProtocol is Script {
         core.setVerifierRegistry(address(verifierRegistry));
         core.setHealthSource(address(healthSource));
         core.setGovernance(address(protocolGovernance));
-        address asset = vm.envOr("SETTLEMENT_ASSET", address(0));
-        if (asset != address(0)) {
-            houseVault = address(
-                new HouseVault(asset, address(core), manager, address(inboxFactory), address(guardianController))
-            );
-        }
+        houseVault =
+            address(new HouseVault(asset, address(core), manager, address(inboxFactory), address(guardianController)));
         vm.stopBroadcast();
     }
 }

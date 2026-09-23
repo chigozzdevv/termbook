@@ -23,8 +23,35 @@ pnpm build
 pnpm lint
 pnpm typecheck
 pnpm test
-forge test
+forge test --root contracts
 ```
+
+## Deployment stages
+
+`scripts/deploy.sh` takes one stage and one RPC. `protocol`, `routing`,
+`ethereum-verifier`, `native-collateral`, and `collateral-health-reader` require
+Foundry 1.8 or newer, the Monad RPC, and `MONAD_CHAIN_ID`. The wrapper selects
+Monad execution. `source` requires the Ethereum mainnet RPC,
+`SOURCE_CHAIN_ID=1`, and `MONAD_CHAIN_ID=143`. The Ethereum verifier stage
+also requires Monad mainnet. Every stage checks the connected chain before
+broadcasting.
+
+Deploy `protocol` first with explicit `GOVERNANCE`, `GUARDIAN`,
+`HOUSE_MANAGER`, and `SETTLEMENT_ASSET`, then keep its `InboxFactory` address.
+Run `routing` with that address as `MONAD_FACTORY_ADDRESS` and the protocol
+governance contract as `GOVERNANCE_ADDRESS`; governance then calls
+`InboxFactory.setRouteRegistry(routes)`. The routing stage deploys only the
+registry. On Ethereum, `source` deploys the Monad verifier, recovery vault, and
+controller; the controller creates its collateral vault. This stage requires a
+deployed Ethereum governance contract and checks the Monad Core, HouseVault,
+and inbox factory bindings at a Verified block using `MONAD_RPC_URL` and their
+reviewed deployment code hashes. That RPC must serve historical state. Bind
+`SourceRecoveryVault.setController(controller)` before the next stage. Run
+`ethereum-verifier` on Monad with the source addresses and their Ethereum
+runtime code hashes. Its wrapper checks the source chain, code hashes, and
+vault bindings before broadcasting. Governance then admits the verifiers,
+binds the vaults and recovery route, and unpauses the source controller. These
+stages require audited consensus light clients before live funds are accepted.
 
 ## Collateral markets
 
@@ -104,7 +131,8 @@ and `SOURCE_PROOF_URL` for finalized Ethereum action receipts. For an expired
 seizure or return that was never executed, `POST /collateral/actions/cancel`
 prepares a cancellation using a finalized Ethereum storage proof from
 `/absence/{actionHash}`. Production consensus clients and header proof producers
-are still required.
+are still required. Monad receipt proof generation waits until the source block
+reaches Verified execution, three blocks after Finalized.
 
 Configuration requires `SETTLEMENT_FACTORY`, `AURORA_API_KEY`,
 `SETTLEMENT_KEEPER_KEY`, and `AURORA_ROUTES` on the server. Each JSON route entry

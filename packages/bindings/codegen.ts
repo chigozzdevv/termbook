@@ -9,6 +9,7 @@ const contracts = {
   CreditAccount: "credit-account",
   HouseVault: "house-vault",
   CollateralVault: "collateral-vault",
+  NativeCollateralVault: "native-collateral-vault",
   RemoteCollateralController: "remote-collateral-controller",
   SourceRecoveryVault: "source-recovery-vault",
   SettlementInbox: "settlement-inbox",
@@ -24,6 +25,7 @@ const contracts = {
   VerifierRegistry: "verifier-registry",
   OracleRegistry: "oracle-registry",
   HealthSource: "health-source",
+  CollateralHealthReader: "collateral-health-reader",
   FlowExecutor: "flow-executor",
 } as const;
 

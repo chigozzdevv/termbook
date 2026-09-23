@@ -91,6 +91,10 @@ interface IHealthSourceCore {
         returns (Types.HealthSnapshot memory);
 }
 
+interface IOracleRegistrySaleCore {
+    function read(bytes32 id) external view returns (uint256 value, uint256 updatedAt, uint80 roundId);
+}
+
 interface IIntegrationRegistryCore {
     function validateCall(bytes32 versionId, address target, bytes calldata data, address account, uint256 drawAmount)
         external
@@ -205,6 +209,19 @@ contract TermbookCore is ITermbookCore {
         uint256 commitmentFeeBps;
     }
 
+    struct LocalSalePolicy {
+        address oracleRegistry;
+        bytes32 priceId;
+        uint16 minimumPriceBps;
+        uint8 collateralDecimals;
+        uint8 settlementDecimals;
+        uint128 maxCollateralPerSale;
+        bytes32 collateralCodeHash;
+        bytes32 settlementCodeHash;
+        bytes32 oracleCodeHash;
+        bool active;
+    }
+
     address public governance;
     address public guardian;
     address public riskEngine;
@@ -252,10 +269,14 @@ contract TermbookCore is ITermbookCore {
     mapping(address => bool) public recoveryKeepers;
     mapping(bytes32 => uint256) public healthSnapshotAt;
     mapping(bytes32 => uint256) public healthSnapshotRevision;
+    mapping(bytes32 => LocalSalePolicy) public localSalePolicies;
     uint256 public healthMaxAge = 1 days;
 
     event RemoteActionAuthorized(bytes32 indexed creditId, bytes32 indexed actionHash, uint8 kind);
     event RemoteSeizureConfirmed(bytes32 indexed creditId, bytes32 indexed actionHash, uint256 amount);
+    event LocalSalePolicySet(bytes32 indexed marketId, address indexed collateralAsset, address indexed settlementAsset);
+    event LocalSalePolicyDisabled(bytes32 indexed marketId);
+    event LocalCollateralSold(bytes32 indexed creditId, address indexed buyer, uint256 collateralAmount, uint256 settlementAmount);
 
     error Expired();
     error Unauthorized();
@@ -274,6 +295,7 @@ contract TermbookCore is ITermbookCore {
     error InvalidAuthority();
 
     uint256 private constant BPS = 10_000;
+    uint256 private constant MINIMUM_SALE_PRICE_BPS = 9_000;
     uint256 private constant YEAR = 365 days;
 
     modifier nonReentrant() {
@@ -332,6 +354,76 @@ contract TermbookCore is ITermbookCore {
     function setRecoveryKeeper(address keeper, bool active) external onlyGovernance {
         if (keeper == address(0)) revert InvalidAuthority();
         recoveryKeepers[keeper] = active;
+    }
+
+    function localSaleMarketId(address collateralAsset, address settlementAsset) public view returns (bytes32) {
+        return keccak256(abi.encode(block.chainid, collateralAsset, settlementAsset));
+    }
+
+    function setLocalSalePolicy(
+        address collateralAsset,
+        address settlementAsset,
+        address oracleRegistry,
+        bytes32 priceId,
+        uint16 minimumPriceBps,
+        uint128 maxCollateralPerSale
+    ) external onlyGovernance {
+        bytes32 marketId = localSaleMarketId(collateralAsset, settlementAsset);
+        if (
+            collateralAsset == settlementAsset || collateralAsset.code.length == 0 || settlementAsset.code.length == 0
+                || oracleRegistry.code.length == 0 || priceId == bytes32(0)
+                || minimumPriceBps < MINIMUM_SALE_PRICE_BPS || minimumPriceBps > BPS
+                || maxCollateralPerSale == 0 || localSalePolicies[marketId].oracleRegistry != address(0)
+        ) revert InvalidCollateral();
+        uint8 collateralDecimals = _tokenDecimals(collateralAsset);
+        uint8 settlementDecimals = _tokenDecimals(settlementAsset);
+        if (collateralDecimals > 18 || settlementDecimals > 18) revert InvalidCollateral();
+        (uint256 price,,) = IOracleRegistrySaleCore(oracleRegistry).read(priceId);
+        if (price == 0 || price > type(uint128).max) revert InvalidCollateral();
+        localSalePolicies[marketId] = LocalSalePolicy({
+            oracleRegistry: oracleRegistry,
+            priceId: priceId,
+            minimumPriceBps: minimumPriceBps,
+            collateralDecimals: collateralDecimals,
+            settlementDecimals: settlementDecimals,
+            maxCollateralPerSale: maxCollateralPerSale,
+            collateralCodeHash: collateralAsset.codehash,
+            settlementCodeHash: settlementAsset.codehash,
+            oracleCodeHash: oracleRegistry.codehash,
+            active: true
+        });
+        emit LocalSalePolicySet(marketId, collateralAsset, settlementAsset);
+    }
+
+    function disableLocalSalePolicy(address collateralAsset, address settlementAsset) external onlyGovernance {
+        bytes32 marketId = localSaleMarketId(collateralAsset, settlementAsset);
+        LocalSalePolicy storage policy = localSalePolicies[marketId];
+        if (!policy.active) revert InvalidCollateral();
+        policy.active = false;
+        emit LocalSalePolicyDisabled(marketId);
+    }
+
+    function _tokenDecimals(address token) internal view returns (uint8 decimals_) {
+        (bool ok, bytes memory data) = token.staticcall(abi.encodeWithSignature("decimals()"));
+        if (!ok || data.length < 32) revert InvalidCollateral();
+        decimals_ = abi.decode(data, (uint8));
+    }
+
+    function _requireLocalSalePolicy(address collateralAsset, address settlementAsset)
+        internal
+        view
+        returns (LocalSalePolicy memory policy, uint256 price)
+    {
+        policy = localSalePolicies[localSaleMarketId(collateralAsset, settlementAsset)];
+        if (
+            !policy.active || collateralAsset.codehash != policy.collateralCodeHash
+                || settlementAsset.codehash != policy.settlementCodeHash
+                || policy.oracleRegistry.codehash != policy.oracleCodeHash
+                || _tokenDecimals(collateralAsset) != policy.collateralDecimals
+                || _tokenDecimals(settlementAsset) != policy.settlementDecimals
+        ) revert InvalidCollateral();
+        (price,,) = IOracleRegistrySaleCore(policy.oracleRegistry).read(policy.priceId);
+        if (price == 0 || price > type(uint128).max) revert InvalidCollateral();
     }
 
     function setSourceRecoveryVault(uint256 sourceChain, address asset, address recoveryVault) external onlyGovernance {
@@ -888,6 +980,9 @@ contract TermbookCore is ITermbookCore {
                         || ICollateralVaultCore(collateralVault).asset() != collateralAsset
                         || ICollateralVaultCore(collateralVault).chainId_() != block.chainid))
         ) revert InvalidCollateral();
+        if (!remote && collateralAsset != IHouseVaultCore(c.vault).asset()) {
+            _requireLocalSalePolicy(collateralAsset, IHouseVaultCore(c.vault).asset());
+        }
         collateralOwnerOf[creditId] = owner;
         collateralSourceChainOf[creditId] = sourceChain;
         c.collateralVault = collateralVault;
@@ -896,7 +991,7 @@ contract TermbookCore is ITermbookCore {
         c.returnRecipient = returnRecipient;
         remoteCollateral[creditId] = remote;
         if (remote) _pinVerifier(c, sourceChain);
-        c.facility = remote ? Types.Facility.CollateralProving : Types.Facility.CollateralLocking;
+        c.facility = Types.Facility.CollateralLocking;
         c.revision = RevisionLib.next(c.revision);
     }
 
@@ -953,6 +1048,12 @@ contract TermbookCore is ITermbookCore {
                 revert InvalidCollateral();
             }
             sourceChain = ICollateralVaultCore(collateralVault).chainId_();
+            if (sourceChain != block.chainid) revert InvalidCollateral();
+            address collateralAsset = ICollateralVaultCore(collateralVault).asset();
+            address settlementAsset = IHouseVaultCore(c.vault).asset();
+            if (collateralAsset == address(0) || collateralAsset.code.length == 0) revert InvalidCollateral();
+            if (collateralAsset != settlementAsset) _requireLocalSalePolicy(collateralAsset, settlementAsset);
+            c.collateralAsset = collateralAsset;
         } else if (sourceChain == 0 || sourceChain == block.chainid) {
             revert InvalidCollateral();
         }
@@ -1051,6 +1152,9 @@ contract TermbookCore is ITermbookCore {
             revert InvalidCollateral();
         }
         if (block.timestamp > deadline && c.facility != Types.Facility.Aborted) revert Expired();
+        if (c.facility != Types.Facility.Aborted && lockAsset != IHouseVaultCore(c.vault).asset()) {
+            _requireLocalSalePolicy(lockAsset, IHouseVaultCore(c.vault).asset());
+        }
         c.collateralAsset = lockAsset;
         c.collateralAmount = amount;
         collateralSourceChainOf[creditId] = sourceChain;
@@ -1239,11 +1343,13 @@ contract TermbookCore is ITermbookCore {
 
     function authorizeReturn(bytes32 creditId, bytes32 lockId, uint256 amount) external nonReentrant {
         Credit storage c = _credits[creditId];
+        bool repaidRecovery = _repaidRecoveryCanReturn(c, creditId);
         if (
-            msg.sender != c.borrower || (c.facility != Types.Facility.Closing && c.facility != Types.Facility.Aborted)
+            msg.sender != c.borrower
+                || (c.facility != Types.Facility.Closing && c.facility != Types.Facility.Aborted && !repaidRecovery)
                 || lockId != c.lockId || c.collateralReturned
         ) revert Unauthorized();
-        if (c.facility == Types.Facility.Closing) _requireExitReady(c, creditId);
+        if (c.facility == Types.Facility.Closing || repaidRecovery) _requireExitReady(c, creditId);
         if (amount == 0 || amount > c.collateralAmount) revert InvalidCollateral();
         if (remoteCollateral[creditId]) {
             if (pendingRemoteReturn[creditId] != 0 || pendingRemoteSeizure[creditId] != 0) revert Pending();
@@ -1321,7 +1427,8 @@ contract TermbookCore is ITermbookCore {
     function confirmRemoteReturn(bytes32 creditId, bytes calldata header, bytes calldata proof) external nonReentrant {
         Credit storage c = _credits[creditId];
         if (
-            (c.facility != Types.Facility.Closing && c.facility != Types.Facility.Aborted)
+            (c.facility != Types.Facility.Closing && c.facility != Types.Facility.Aborted
+                && !_repaidRecoveryCanReturn(c, creditId))
                 || !remoteCollateral[creditId] || pendingRemoteReturn[creditId] == 0 || verifierRegistry == address(0)
         ) revert Pending();
         uint256 amount = pendingRemoteReturn[creditId];
@@ -1337,6 +1444,11 @@ contract TermbookCore is ITermbookCore {
         }
         c.revision = RevisionLib.next(c.revision);
         emit Events.CollateralReturned(creditId, c.lockId, amount);
+    }
+
+    function _repaidRecoveryCanReturn(Credit storage c, bytes32 creditId) internal view returns (bool) {
+        return (c.facility == Types.Facility.RecoveryPending || c.facility == Types.Facility.Liquidated)
+            && c.debt == 0 && pendingRemoteSeizure[creditId] == 0;
     }
 
     function confirmRemoteSeizure(bytes32 creditId, bytes calldata header, bytes calldata proof)
@@ -1819,7 +1931,48 @@ contract TermbookCore is ITermbookCore {
                 || c.collateralAsset != IHouseVaultCore(c.vault).asset()
         ) revert InvalidCollateral();
         ICollateralVaultCore(c.collateralVault).seize(c.lockId, c.vault, amount);
-        uint256 remaining = amount;
+        _applyCollateralRecovery(c, creditId, amount, amount);
+    }
+
+    function recoverLocalCollateralWithBid(bytes32 creditId, uint256 collateralAmount, uint256 settlementAmount)
+        external
+        nonReentrant
+    {
+        Credit storage c = _credits[creditId];
+        if (
+            (c.facility != Types.Facility.Liquidating && c.facility != Types.Facility.RecoveryPending)
+                || remoteCollateral[creditId] || c.collateralVault == address(0) || c.lockId == bytes32(0)
+        ) revert BadState();
+        _accrue(c, creditId);
+        address settlementAsset = IHouseVaultCore(c.vault).asset();
+        if (c.collateralAsset == settlementAsset || collateralAmount == 0 || collateralAmount > c.collateralAmount
+            || settlementAmount == 0 || settlementAmount > c.debt) revert InvalidCollateral();
+        (LocalSalePolicy memory policy, uint256 price) = _requireLocalSalePolicy(c.collateralAsset, settlementAsset);
+        if (collateralAmount > policy.maxCollateralPerSale) revert InvalidCollateral();
+        uint256 fairValue = _mulDivUp(collateralAmount, price, 10 ** policy.collateralDecimals);
+        uint256 fairSettlement = _mulDivUp(fairValue, 10 ** policy.settlementDecimals, 1e18);
+        uint256 minimumBid = _mulDivUp(fairSettlement, policy.minimumPriceBps, BPS);
+        if (settlementAmount < minimumBid) revert InvalidCollateral();
+
+        uint256 beforeHouse = settlementAsset.balanceOf(c.vault);
+        settlementAsset.safeTransferFrom(msg.sender, c.vault, settlementAmount);
+        if (settlementAsset.balanceOf(c.vault) - beforeHouse != settlementAmount) revert InvalidCollateral();
+        uint256 beforeBuyer = c.collateralAsset.balanceOf(msg.sender);
+        ICollateralVaultCore(c.collateralVault).seize(c.lockId, msg.sender, collateralAmount);
+        if (c.collateralAsset.balanceOf(msg.sender) - beforeBuyer != collateralAmount) revert InvalidCollateral();
+        _applyCollateralRecovery(c, creditId, settlementAmount, collateralAmount);
+        emit LocalCollateralSold(creditId, msg.sender, collateralAmount, settlementAmount);
+    }
+
+    function _mulDivUp(uint256 a, uint256 b, uint256 denominator) internal pure returns (uint256) {
+        uint256 product = a * b;
+        return product == 0 ? 0 : (product - 1) / denominator + 1;
+    }
+
+    function _applyCollateralRecovery(Credit storage c, bytes32 creditId, uint256 settlementAmount, uint256 collateralAmount)
+        internal
+    {
+        uint256 remaining = settlementAmount;
         uint256 feePaid = remaining > c.accruedFees ? c.accruedFees : remaining;
         remaining -= feePaid;
         uint256 interestPaid = remaining > c.accruedInterest ? c.accruedInterest : remaining;
@@ -1829,14 +1982,14 @@ contract TermbookCore is ITermbookCore {
         c.accruedFees -= feePaid;
         c.accruedInterest -= interestPaid;
         c.principal -= principalPaid;
-        IHouseVaultCore(c.vault).receiveRepay(creditId, amount, principalPaid, interestPaid, feePaid);
-        c.debt -= amount;
-        c.collateralAmount -= amount;
-        c.recovery += amount;
+        IHouseVaultCore(c.vault).receiveRepay(creditId, settlementAmount, principalPaid, interestPaid, feePaid);
+        c.debt -= settlementAmount;
+        c.collateralAmount -= collateralAmount;
+        c.recovery += settlementAmount;
         c.facility = Types.Facility.RecoveryPending;
         c.revision = RevisionLib.next(c.revision);
         if (c.debt == 0) c.payment = Types.Payment.Repaid;
-        emit Events.RecoveryPayment(creditId, amount, c.debt);
+        emit Events.RecoveryPayment(creditId, settlementAmount, c.debt);
     }
 
     function cure(bytes32 creditId) external nonReentrant {

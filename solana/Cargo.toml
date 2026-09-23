@@ -1,0 +1,19 @@
+[package]
+name = "termbook-solana-collateral"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+no-entrypoint = []
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("custom-heap", "custom-panic"))', 'cfg(target_os, values("solana"))'] }
+
+[dependencies]
+borsh = { version = "1.8.0", features = ["derive"] }
+solana-program = "3.0.0"
+solana-system-interface = { version = "3.3.0", features = ["bincode"] }

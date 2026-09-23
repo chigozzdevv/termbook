@@ -1,0 +1,11 @@
+# Solana collateral custody core
+
+This native Solana program defines a per-credit SOL custody account. The collateral owner signs `Lock`; the account binds the Monad borrower and Core, Solana genesis identity, Credit and lock IDs, terms hash, return recipient, recovery vault, amount, setup deadline, and verifier version. `Apply` validates a proposed release or seizure against that immutable binding and a strictly increasing nonce.
+
+The module is **fail closed**. `require_admitted_verifier` rejects every lock and every action, so this build cannot custody SOL. This avoids accepting deposits that could never be safely returned. The planned custody account is a program-derived address holding native lamports, not an SPL token account or a bridged SOL token. `NATIVE_SOL_ASSET_ID` is the schema marker for those lamports, not a mint address.
+
+To activate custody, implement and audit a Solana program that verifies finalized Monad consensus and the inclusion of the exact Core authorization. Pin its program ID, consensus version, bootstrap checkpoint, proof age, Solana genesis identity, and code/upgrade policy. Replace `require_admitted_verifier` with a proof check before enabling `Lock`, and implement state changes and lamport transfers in `Apply` only after proof succeeds. The verifier must establish the authorization's full bytes, including source genesis, Solana vault and recipient pubkeys, nonce, amount, and expiry. A relayer signature, RPC result, or admin key is insufficient.
+
+Monad Core also needs a Solana-specific authorization and lock-proof schema. Its current remote collateral types use EVM `address` values for source asset, vault, owner, and recipient, which cannot carry a 32-byte Solana pubkey. Monad must prove finalized Solana lock state before counting SOL, and later prove finalized Solana release or seizure execution before clearing pending actions. A recovery vault and Aurora sale route must then deliver USDC proceeds to the House.
+
+Run `cargo test --offline` from this directory.

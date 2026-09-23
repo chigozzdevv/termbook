@@ -8,6 +8,8 @@ import { RpcClient } from "../transport/rpc.js";
 import { Signer } from "../wallet/signer.js";
 import { Settlement } from "../settlement/settlement.js";
 import { HttpClient } from "../transport/http.js";
+import type { CollateralSetupBinding } from "@termbook/schema";
+import { CollateralSetup, restoreCollateralSetup, type CollateralSetupOptions } from "../collateral/setup.js";
 
 export class TermbookClient {
   config: ResolvedClientConfig;
@@ -36,6 +38,14 @@ export class TermbookClient {
 
   credit(id: `0x${string}`): Credit {
     return new Credit(this, id);
+  }
+
+  collateral_setup(binding: CollateralSetupBinding | string, options: CollateralSetupOptions = {}): CollateralSetup {
+    if (typeof binding === "string") {
+      const restored = restoreCollateralSetup(binding);
+      return new CollateralSetup(this, restored.binding, { ...options, checkpoint: restored.checkpoint });
+    }
+    return new CollateralSetup(this, binding, options);
   }
 
   house(id: `0x${string}`): House {

@@ -7,6 +7,7 @@ import { settlementNonce } from "../settlement/settlement.js";
 import { CreditApp } from "../app/app.js";
 import { CreditAccount } from "../account/account.js";
 import { CreditCollateral } from "../collateral/collateral.js";
+import type { CollateralSetup } from "../collateral/setup.js";
 import { houseVaultAbi, termbookCoreAbi } from "@termbook/bindings";
 
 const facilities = [
@@ -34,6 +35,7 @@ export class Credit {
   app: CreditApp;
   account: CreditAccount;
   collateral: CreditCollateral;
+  setup?: CollateralSetup;
 
   constructor(client: TermbookClient, id: `0x${string}`) {
     if (!/^0x[a-fA-F0-9]{64}$/.test(id)) throw new Error("param-invalid");

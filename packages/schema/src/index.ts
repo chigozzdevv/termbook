@@ -4,6 +4,7 @@ export * from "./quote.js";
 export * from "./house.js";
 export * from "./credit.js";
 export * from "./collateral.js";
+export * from "./collateral-setup.js";
 export * from "./settlement.js";
 export * from "./liquidity.js";
 export * from "./integration.js";

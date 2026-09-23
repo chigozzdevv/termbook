@@ -26,6 +26,7 @@ contract CollateralVault is ICollateralVault {
     mapping(bytes32 => uint256) public lockDeadline;
     mapping(bytes32 => uint256) public lockRevision;
     mapping(bytes32 => bool) public releaseUsed;
+    mapping(bytes32 => bytes32) public lockCommitments;
 
     error Exists();
     error Unknown();
@@ -38,9 +39,12 @@ contract CollateralVault is ICollateralVault {
     error InvalidBinding();
 
     event Locked(bytes32 indexed lockId, bytes32 indexed creditId, address indexed owner, uint256 amount);
+    event LockCommitted(bytes32 indexed lockId, bytes32 indexed commitment);
     event Released(bytes32 indexed lockId, address indexed recipient, uint256 amount);
     event Seized(bytes32 indexed lockId, address indexed recipient, uint256 amount);
-    event RemoteActionApplied(bytes32 indexed actionHash, bytes32 indexed lockId, address indexed recipient, uint256 amount, uint8 kind);
+    event RemoteActionApplied(
+        bytes32 indexed actionHash, bytes32 indexed lockId, address indexed recipient, uint256 amount, uint8 kind
+    );
     event PauseGuardianSet(address indexed guardian);
 
     constructor(address asset_, uint256 chainId__, address core_) {
@@ -89,6 +93,34 @@ contract CollateralVault is ICollateralVault {
         emit Locked(lockId, creditId, owner, amount);
     }
 
+    function lockRemoteWithDeadline(
+        bytes32 lockId,
+        bytes32 creditId,
+        address borrower,
+        address owner,
+        uint256 amount,
+        address recipient,
+        uint256 deadline,
+        uint256 revision
+    ) external {
+        if (borrower == address(0) || lockId == bytes32(0) || chainId_ != block.chainid) {
+            revert InvalidBinding();
+        }
+        lockWithDeadline(lockId, creditId, owner, amount, recipient, deadline, revision);
+        bytes32 commitment =
+            keccak256(abi.encode(creditId, lockId, borrower, owner, address(this), asset, amount, chainId_, recipient));
+        lockCommitments[lockId] = commitment;
+        emit LockCommitted(lockId, commitment);
+    }
+
+    function lockCommitmentStorageSlot(bytes32 lockId) external pure returns (bytes32) {
+        uint256 slot;
+        assembly {
+            slot := lockCommitments.slot
+        }
+        return keccak256(abi.encode(lockId, slot));
+    }
+
     function release(bytes32 lockId, address recipient, uint256 amount, uint256 nonce) public {
         if (msg.sender != core) revert Unauthorized();
         bytes32 key = keccak256(abi.encode(lockId, recipient, amount, nonce));
@@ -106,7 +138,9 @@ contract CollateralVault is ICollateralVault {
         emit Released(lockId, recipient, amount);
     }
 
-    function releaseAuthorized(bytes32 lockId, address recipient, uint256 amount, uint256 nonce, bytes32 actionHash) external {
+    function releaseAuthorized(bytes32 lockId, address recipient, uint256 amount, uint256 nonce, bytes32 actionHash)
+        external
+    {
         if (actionHash == bytes32(0)) revert InvalidBinding();
         release(lockId, recipient, amount, nonce);
         emit RemoteActionApplied(actionHash, lockId, recipient, amount, 0);

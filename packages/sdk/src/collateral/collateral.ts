@@ -37,18 +37,19 @@ export class CreditCollateral {
     if (sourceChainValue !== this.client.config.chainId) {
       if (typeof args.lockId !== "string" || !/^0x[a-fA-F0-9]{64}$/.test(args.lockId) || typeof args.header !== "string" || typeof args.proof !== "string") throw new Error("collateral-proof-required");
       const facility = await this.client.rpc.facility(this.creditId);
-      let tx: TxHash;
+      const bound = Boolean(detail(details, "collateralBound", 23));
+      if (bound && detail(details, "lockId", 22)?.toString().toLowerCase() !== args.lockId.toLowerCase()) throw new Error("collateral-lock-mismatch");
       if (facility === 0) {
-        tx = await this.client.rpc.coreWrite("setRemoteCollateral", [this.creditId, BigInt(sourceChainValue), vault, asset, args.amount, owner, recipient]);
-        await this.client.rpc.wait(tx);
+        const setTx = await this.client.rpc.coreWrite("setRemoteCollateral", [this.creditId, BigInt(sourceChainValue), vault, asset, args.amount, owner, recipient]);
+        await this.client.rpc.wait(setTx);
       } else if (facility !== 1 && facility !== 2) {
         throw new Error("collateral-state-invalid");
       }
-      if (facility === 0 || facility === 1) {
-        tx = await this.client.rpc.coreWrite("bindRemoteCollateral", [this.creditId, args.lockId]);
-        await this.client.rpc.wait(tx);
+      if (!bound) {
+        const bindTx = await this.client.rpc.coreWrite("bindRemoteCollateral", [this.creditId, args.lockId]);
+        await this.client.rpc.wait(bindTx);
       }
-      tx = await this.client.rpc.coreWrite("proveCollateral", [this.creditId, BigInt(sourceChainValue), args.header, args.proof]);
+      const tx = await this.client.rpc.coreWrite("proveCollateral", [this.creditId, BigInt(sourceChainValue), args.header, args.proof]);
       await this.client.rpc.wait(tx);
       return { lockId: args.lockId, tx };
     }

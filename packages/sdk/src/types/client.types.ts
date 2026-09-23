@@ -16,6 +16,7 @@ export type Wallet = {
   signDigest?: (digest: TxHash) => Promise<TxHash>;
   writeContract?: (request: ContractWriteRequest) => Promise<TxHash>;
   waitForTransactionReceipt?: (hash: TxHash) => Promise<unknown>;
+  getChainId?: () => Promise<number>;
 };
 
 export type ClientConfig = {

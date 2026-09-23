@@ -113,6 +113,44 @@ export const collateralVaultAbi = [
   },
   {
     "type": "function",
+    "name": "lockCommitmentStorageSlot",
+    "inputs": [
+      {
+        "name": "lockId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "lockCommitments",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "lockDeadline",
     "inputs": [
       {
@@ -217,6 +255,54 @@ export const collateralVaultAbi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "lockRemoteWithDeadline",
+    "inputs": [
+      {
+        "name": "lockId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "borrower",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "owner",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "recipient",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "deadline",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "revision",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -506,6 +592,25 @@ export const collateralVaultAbi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "event",
+    "name": "LockCommitted",
+    "inputs": [
+      {
+        "name": "lockId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "commitment",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      }
+    ],
+    "anonymous": false
   },
   {
     "type": "event",

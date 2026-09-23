@@ -6,6 +6,7 @@ import {MockERC20} from "../MockERC20.sol";
 import {TermbookCore} from "../../src/credit/TermbookCore.sol";
 import {HouseVault} from "../../src/house/HouseVault.sol";
 import {VerifierRegistry} from "../../src/collateral/VerifierRegistry.sol";
+import {Types} from "../../src/shared/Types.sol";
 
 contract MockVersionedVerifier {
     uint256 public immutable version;
@@ -123,5 +124,38 @@ contract VerifierVersionTest is Test {
         registry.setVerifier(99, address(new MockVersionedVerifier(2)), 2, 1 days);
         vm.expectRevert(TermbookCore.InvalidCollateral.selector);
         core.proveCollateral(creditId, 99, hex"", hex"");
+    }
+
+    function testFullRemoteQuoteCanBindLockBeforeProof() public {
+        Types.Quote memory quote;
+        quote.borrower = borrower;
+        quote.owner = borrower;
+        quote.intentId = keccak256("quoted-intent");
+        quote.house = house;
+        quote.vault = address(vault);
+        quote.sourceChain = 99;
+        quote.collateralVault = address(0x1234);
+        quote.collateralAsset = address(token);
+        quote.collateralAmount = 100;
+        quote.returnRecipient = borrower;
+        quote.settlementAsset = address(token);
+        quote.limit = 100;
+        quote.bundleId = keccak256("bundle");
+        quote.setupDeadline = block.timestamp + 1 days;
+        quote.maturity = block.timestamp + 30 days;
+        quote.nonce = 1;
+        quote.expiry = block.timestamp + 1 days;
+        quote.termsHash = keccak256("terms");
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(houseKey, core.quoteDigestFull(quote));
+        quote.signature = abi.encodePacked(r, s, v);
+
+        vm.prank(borrower);
+        core.acceptQuote(quote);
+        bytes32 creditId = keccak256(abi.encode(quote.intentId, borrower, house, quote.nonce));
+        assertEq(uint256(core.creditFacility(creditId)), uint256(Types.Facility.CollateralLocking));
+
+        vm.prank(borrower);
+        core.bindRemoteCollateral(creditId, keccak256("quoted-lock"));
+        assertEq(uint256(core.creditFacility(creditId)), uint256(Types.Facility.CollateralProving));
     }
 }

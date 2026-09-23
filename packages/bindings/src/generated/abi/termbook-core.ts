@@ -1168,6 +1168,24 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "disableLocalSalePolicy",
+    "inputs": [
+      {
+        "name": "collateralAsset",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "settlementAsset",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "domain",
     "inputs": [],
     "outputs": [
@@ -1647,6 +1665,94 @@ export const termbookCoreAbi = [
     "outputs": [
       {
         "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "localSaleMarketId",
+    "inputs": [
+      {
+        "name": "collateralAsset",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "settlementAsset",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "localSalePolicies",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "oracleRegistry",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "priceId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "minimumPriceBps",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "collateralDecimals",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "settlementDecimals",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "maxCollateralPerSale",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "collateralCodeHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "settlementCodeHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "oracleCodeHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "active",
         "type": "bool",
         "internalType": "bool"
       }
@@ -2219,6 +2325,29 @@ export const termbookCoreAbi = [
       },
       {
         "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "recoverLocalCollateralWithBid",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "collateralAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "settlementAmount",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -2836,6 +2965,44 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "setLocalSalePolicy",
+    "inputs": [
+      {
+        "name": "collateralAsset",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "settlementAsset",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "oracleRegistry",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "priceId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "minimumPriceBps",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "maxCollateralPerSale",
+        "type": "uint128",
+        "internalType": "uint128"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setPaused",
     "inputs": [
       {
@@ -3383,6 +3550,75 @@ export const termbookCoreAbi = [
         "type": "bytes32",
         "indexed": true,
         "internalType": "bytes32"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "LocalCollateralSold",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "buyer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "collateralAmount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "settlementAmount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "LocalSalePolicyDisabled",
+    "inputs": [
+      {
+        "name": "marketId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "LocalSalePolicySet",
+    "inputs": [
+      {
+        "name": "marketId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "collateralAsset",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "settlementAsset",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
       }
     ],
     "anonymous": false

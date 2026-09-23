@@ -80,10 +80,10 @@ export function assertRuntimeConfig(): void {
   if (beaconValues.some(Boolean)) {
     if (beaconValues.some((value) => !value) || env.monadChainId !== 143
       || !/^0x[a-fA-F0-9]{40}$/.test(beaconValues[0]!)
-      || !/^0x[a-fA-F0-9]{64}$/.test(beaconValues[3]!)) {
+      || !/^0x[a-fA-F0-9]{64}$/.test(beaconValues[2]!)) {
       throw new Error("ethereum-beacon-worker-config-invalid");
     }
-    for (const value of [beaconValues[1]!, beaconValues[2]!]) {
+    for (const value of [beaconValues[1]!]) {
       let url: URL;
       try { url = new URL(value); } catch { throw new Error("ethereum-beacon-worker-config-invalid"); }
       if (url.protocol !== "https:" && url.protocol !== "http:") {
@@ -92,7 +92,7 @@ export function assertRuntimeConfig(): void {
     }
     if ([env.collateralKeeperKey, env.monadConfirmKeeperKey, env.settlementKeeperKey,
       process.env["SOLANA_COLLATERAL_KEEPER_KEY"]].some((key) =>
-      key && key.toLowerCase() === beaconValues[3]!.toLowerCase())) {
+      key && key.toLowerCase() === beaconValues[2]!.toLowerCase())) {
       throw new Error("ethereum-beacon-keeper-key-conflict");
     }
   }

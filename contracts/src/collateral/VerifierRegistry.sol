@@ -52,7 +52,7 @@ contract VerifierRegistry {
         }
         if (
             admittedChainId != chainId || admittedVersion != version || admittedBootstrap == bytes32(0)
-                || lightClient.code.length == 0 || admittedMaxAge == 0 || maxAge > admittedMaxAge
+                || lightClient.code.length == 0 || admittedMaxAge == 0 || maxAge != admittedMaxAge
         ) revert Invalid();
         try IConsensusLightClient(lightClient).chainId() returns (uint256 clientChainId) {
             if (clientChainId != admittedChainId) revert Invalid();

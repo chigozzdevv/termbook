@@ -46,7 +46,9 @@ abstract contract LightClientVerifier is IVerifier, IVerifierAdmission {
 
     function verifyFinality(bytes calldata header) external view returns (bool) {
         try IConsensusLightClient(lightClient).headerTimestamp(header) returns (uint256 timestamp) {
-            if (timestamp == 0 || timestamp > block.timestamp || block.timestamp - timestamp > proofMaxAge) return false;
+            if (timestamp == 0 || timestamp > block.timestamp || block.timestamp - timestamp > proofMaxAge) {
+                return false;
+            }
         } catch {
             return false;
         }
@@ -74,11 +76,15 @@ abstract contract LightClientVerifier is IVerifier, IVerifierAdmission {
     }
 
     function verifyEvent(bytes calldata header, bytes calldata proof, address emitter, bytes32 eventDigest)
-        external view returns (bool)
+        external
+        view
+        returns (bool)
     {
         if (emitter == address(0) || eventDigest == bytes32(0)) return false;
         try IConsensusLightClient(lightClient).headerTimestamp(header) returns (uint256 timestamp) {
-            if (timestamp == 0 || timestamp > block.timestamp || block.timestamp - timestamp > proofMaxAge) return false;
+            if (timestamp == 0 || timestamp > block.timestamp || block.timestamp - timestamp > proofMaxAge) {
+                return false;
+            }
         } catch {
             return false;
         }
@@ -95,11 +101,16 @@ abstract contract LightClientVerifier is IVerifier, IVerifierAdmission {
     }
 
     function verifyLock(bytes calldata header, bytes calldata proof, address vault, bytes32 lockDigest)
-        external view returns (bool)
+        external
+        view
+        virtual
+        returns (bool)
     {
         if (vault == address(0) || lockDigest == bytes32(0)) return false;
         try IConsensusLightClient(lightClient).headerTimestamp(header) returns (uint256 timestamp) {
-            if (timestamp == 0 || timestamp > block.timestamp || block.timestamp - timestamp > proofMaxAge) return false;
+            if (timestamp == 0 || timestamp > block.timestamp || block.timestamp - timestamp > proofMaxAge) {
+                return false;
+            }
         } catch {
             return false;
         }

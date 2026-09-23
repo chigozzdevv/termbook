@@ -39,19 +39,27 @@ contract MockConsensusLightClient is IConsensusLightClient {
         (, root) = abi.decode(header, (uint256, bytes32));
     }
 
+    function finalizedExecutionStateRoot(bytes calldata header) external pure returns (bytes32 root) {
+        (, root) = abi.decode(header, (uint256, bytes32));
+    }
+
     function verifyInclusion(bytes calldata, bytes32) external view returns (bool) {
         return inclusion;
     }
 
     function verifyEvent(bytes calldata, bytes calldata proof, address emitter, bytes32 digest)
-        external view returns (bool)
+        external
+        view
+        returns (bool)
     {
         (address provenEmitter, bytes32 provenDigest) = abi.decode(proof, (address, bytes32));
         return inclusion && emitter == provenEmitter && digest == provenDigest;
     }
 
     function verifyLock(bytes calldata, bytes calldata proof, address vault, bytes32 digest)
-        external view returns (bool)
+        external
+        view
+        returns (bool)
     {
         (address provenVault, bytes32 provenDigest) = abi.decode(proof, (address, bytes32));
         return inclusion && vault == provenVault && digest == provenDigest;
@@ -62,19 +70,21 @@ contract MockConsensusLightClient is IConsensusLightClient {
     }
 }
 
-contract LegacyFinalityVerifier {
-}
+contract LegacyFinalityVerifier {}
 
 contract LightClientVerifierTest is Test {
     function testFinalityAndInclusionDelegateToChainClient() public {
-        MockConsensusLightClient client =
-            new MockConsensusLightClient(99, 7, keccak256("bootstrap"), 1 days);
+        MockConsensusLightClient client = new MockConsensusLightClient(99, 7, keccak256("bootstrap"), 1 days);
         MonadVerifier verifier = new MonadVerifier(address(client));
-        EthereumVerifier ethereumVerifier = new EthereumVerifier(address(client));
+        MockConsensusLightClient ethereumClient =
+            new MockConsensusLightClient(1, 7, keccak256("ethereum-bootstrap"), 1 days);
+        EthereumVerifier ethereumVerifier =
+            new EthereumVerifier(address(ethereumClient), address(0xBEEF), keccak256("source-vault-runtime"));
         bytes32 root = keccak256("root");
         bytes memory header = abi.encode(block.timestamp, root);
         bytes memory proof = abi.encode(root);
         client.setResults(true, true);
+        ethereumClient.setResults(true, true);
 
         assertTrue(verifier.verifyFinality(header));
         assertTrue(verifier.verifyInclusion(proof, root));
@@ -92,8 +102,7 @@ contract LightClientVerifierTest is Test {
     }
 
     function testStaleHeaderFailsClosed() public {
-        MockConsensusLightClient client =
-            new MockConsensusLightClient(99, 7, keccak256("bootstrap"), 1 days);
+        MockConsensusLightClient client = new MockConsensusLightClient(99, 7, keccak256("bootstrap"), 1 days);
         MonadVerifier verifier = new MonadVerifier(address(client));
         client.setResults(true, true);
         vm.warp(2 days);
@@ -105,5 +114,14 @@ contract LightClientVerifierTest is Test {
         address legacy = address(new LegacyFinalityVerifier());
         vm.expectRevert(VerifierRegistry.Invalid.selector);
         registry.setVerifier(99, legacy, 1, 1 days);
+    }
+
+    function testRegistryAgeMatchesVerifierEnforcement() public {
+        VerifierRegistry registry = new VerifierRegistry(address(this));
+        MockConsensusLightClient client = new MockConsensusLightClient(99, 7, keccak256("bootstrap"), 1 days);
+        MonadVerifier verifier = new MonadVerifier(address(client));
+        vm.expectRevert(VerifierRegistry.Invalid.selector);
+        registry.setVerifier(99, address(verifier), 7, 1 hours);
+        registry.setVerifier(99, address(verifier), 7, 1 days);
     }
 }

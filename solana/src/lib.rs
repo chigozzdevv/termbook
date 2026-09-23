@@ -131,7 +131,12 @@ fn process_lock(
         return Err(ProgramError::MissingRequiredSignature);
     }
     let (expected, bump) = Pubkey::find_program_address(&[LOCK_SEED, &request.lock_id], program_id);
-    if *lock.key != expected || !lock.data_is_empty() || lock.lamports() != 0 {
+    if *lock.key != expected
+        || !lock.data_is_empty()
+        || lock.lamports() != 0
+        || request.return_recipient == expected.to_bytes()
+        || request.recovery_vault == expected.to_bytes()
+    {
         return Err(VaultError::InvalidBinding.into());
     }
     let record = LockRecord {
@@ -196,14 +201,61 @@ fn process_action(
     if *lock.key != expected || record.bump != bump {
         return Err(VaultError::InvalidBinding.into());
     }
-    validate_action(
-        &record,
-        action,
-        destination.key,
-        Clock::get()?.unix_timestamp,
-    )?;
+    let now = Clock::get()?.unix_timestamp;
+    validate_action(&record, action, destination.key, now)?;
     require_admitted_verifier()?;
-    Err(VaultError::VerifierUnavailable.into())
+    apply_verified_action(
+        lock,
+        destination,
+        record,
+        action,
+        now,
+        Rent::get()?.minimum_balance(lock.data_len()),
+    )
+}
+
+fn apply_verified_action(
+    lock: &AccountInfo,
+    destination: &AccountInfo,
+    mut record: LockRecord,
+    action: &RemoteAuthorization,
+    now: i64,
+    rent_reserve: u64,
+) -> ProgramResult {
+    if lock.key == destination.key || !lock.is_writable || !destination.is_writable {
+        return Err(VaultError::InvalidBinding.into());
+    }
+    validate_action(&record, action, destination.key, now)?;
+    let balance = lock.lamports();
+    let required = rent_reserve
+        .checked_add(record.remaining_amount)
+        .ok_or(ProgramError::ArithmeticOverflow)?;
+    if balance < required {
+        return Err(VaultError::InvalidBinding.into());
+    }
+    let destination_balance = destination
+        .lamports()
+        .checked_add(action.amount_lamports)
+        .ok_or(ProgramError::ArithmeticOverflow)?;
+    record.remaining_amount = record
+        .remaining_amount
+        .checked_sub(action.amount_lamports)
+        .ok_or(VaultError::InvalidAction)?;
+    record.last_nonce = action.nonce;
+    let serialized = borsh::to_vec(&record).map_err(|_| ProgramError::InvalidAccountData)?;
+    if serialized.len() != lock.data_len() {
+        return Err(ProgramError::InvalidAccountData);
+    }
+    let remaining_balance = balance
+        .checked_sub(action.amount_lamports)
+        .ok_or(ProgramError::ArithmeticOverflow)?;
+    let mut lock_data = lock.try_borrow_mut_data()?;
+    let mut lock_lamports = lock.try_borrow_mut_lamports()?;
+    let mut destination_lamports = destination.try_borrow_mut_lamports()?;
+    lock_data.copy_from_slice(&serialized);
+    **lock_lamports = remaining_balance;
+    **destination_lamports = destination_balance;
+    Ok(())
 }
 
 pub fn validate_lock(request: &LockRequest, owner: &Pubkey, now: i64) -> ProgramResult {
@@ -462,6 +514,146 @@ mod tests {
         assert_eq!(
             require_admitted_verifier(),
             Err(VaultError::VerifierUnavailable.into())
+        );
+    }
+
+    #[test]
+    fn verified_actions_move_only_collateral_and_preserve_state() {
+        let mut stored = record();
+        let lock_key = Pubkey::new_from_array(stored.source_vault);
+        let recipient_key = Pubkey::new_from_array(stored.return_recipient);
+        let recovery_key = Pubkey::new_from_array(stored.recovery_vault);
+        let program_id = Pubkey::new_unique();
+        let system_id = system_program::id();
+        let rent_reserve = 20_000;
+        let mut lock_balance = rent_reserve + stored.initial_amount + 50;
+        let mut recipient_balance = 100;
+        let mut recovery_balance = 200;
+        let mut lock_data = borsh::to_vec(&stored).unwrap();
+        let mut recipient_data = [];
+        let mut recovery_data = [];
+        let lock_account = AccountInfo::new(
+            &lock_key,
+            false,
+            true,
+            &mut lock_balance,
+            &mut lock_data,
+            &program_id,
+            false,
+        );
+        let recipient_account = AccountInfo::new(
+            &recipient_key,
+            false,
+            true,
+            &mut recipient_balance,
+            &mut recipient_data,
+            &system_id,
+            false,
+        );
+        let recovery_account = AccountInfo::new(
+            &recovery_key,
+            false,
+            true,
+            &mut recovery_balance,
+            &mut recovery_data,
+            &system_id,
+            false,
+        );
+
+        let release = action(RELEASE);
+        apply_verified_action(
+            &lock_account,
+            &recipient_account,
+            stored,
+            &release,
+            50,
+            rent_reserve,
+        )
+        .unwrap();
+        stored = LockRecord::try_from_slice(&lock_account.data.borrow()).unwrap();
+        assert_eq!(stored.remaining_amount, 500_000_000);
+        assert_eq!(stored.last_nonce, 1);
+        assert_eq!(recipient_account.lamports(), 500_000_100);
+        assert_eq!(lock_account.lamports(), rent_reserve + 500_000_050);
+
+        let mut seizure = action(SEIZE);
+        seizure.nonce = 2;
+        apply_verified_action(
+            &lock_account,
+            &recovery_account,
+            stored,
+            &seizure,
+            50,
+            rent_reserve,
+        )
+        .unwrap();
+        stored = LockRecord::try_from_slice(&lock_account.data.borrow()).unwrap();
+        assert_eq!(stored.remaining_amount, 0);
+        assert_eq!(stored.last_nonce, 2);
+        assert_eq!(recovery_account.lamports(), 500_000_200);
+        assert_eq!(lock_account.lamports(), rent_reserve + 50);
+    }
+
+    #[test]
+    fn verified_action_rejects_replay_and_missing_collateral() {
+        let stored = record();
+        let lock_key = Pubkey::new_from_array(stored.source_vault);
+        let recipient_key = Pubkey::new_from_array(stored.return_recipient);
+        let program_id = Pubkey::new_unique();
+        let system_id = system_program::id();
+        let rent_reserve = 20_000;
+        let mut lock_balance = rent_reserve + stored.initial_amount - 1;
+        let mut recipient_balance = 100;
+        let mut lock_data = borsh::to_vec(&stored).unwrap();
+        let mut recipient_data = [];
+        let lock_account = AccountInfo::new(
+            &lock_key,
+            false,
+            true,
+            &mut lock_balance,
+            &mut lock_data,
+            &program_id,
+            false,
+        );
+        let recipient_account = AccountInfo::new(
+            &recipient_key,
+            false,
+            true,
+            &mut recipient_balance,
+            &mut recipient_data,
+            &system_id,
+            false,
+        );
+        let release = action(RELEASE);
+        assert_eq!(
+            apply_verified_action(
+                &lock_account,
+                &recipient_account,
+                stored.clone(),
+                &release,
+                50,
+                rent_reserve,
+            ),
+            Err(VaultError::InvalidBinding.into())
+        );
+        assert_eq!(
+            lock_account.lamports(),
+            rent_reserve + stored.initial_amount - 1
+        );
+        assert_eq!(recipient_account.lamports(), 100);
+
+        let mut consumed = stored;
+        consumed.last_nonce = 1;
+        assert_eq!(
+            apply_verified_action(
+                &lock_account,
+                &recipient_account,
+                consumed,
+                &release,
+                50,
+                rent_reserve,
+            ),
+            Err(VaultError::Replay.into())
         );
     }
 }

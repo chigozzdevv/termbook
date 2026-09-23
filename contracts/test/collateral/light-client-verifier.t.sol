@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 import {MonadVerifier} from "../../src/collateral/MonadVerifier.sol";
 import {EthereumVerifier} from "../../src/collateral/EthereumVerifier.sol";
+import {LightClientVerifier} from "../../src/collateral/LightClientVerifier.sol";
 import {VerifierRegistry} from "../../src/collateral/VerifierRegistry.sol";
 import {IConsensusLightClient} from "../../src/collateral/IVerifier.sol";
 
@@ -43,6 +44,10 @@ contract MockConsensusLightClient is IConsensusLightClient {
         (, root) = abi.decode(header, (uint256, bytes32));
     }
 
+    function finalizedExecutionReceiptsRoot(bytes calldata header) external pure returns (bytes32 root) {
+        (,, root) = abi.decode(header, (uint256, bytes32, bytes32));
+    }
+
     function verifyInclusion(bytes calldata, bytes32) external view returns (bool) {
         return inclusion;
     }
@@ -79,7 +84,10 @@ contract LightClientVerifierTest is Test {
         MockConsensusLightClient ethereumClient =
             new MockConsensusLightClient(1, 7, keccak256("ethereum-bootstrap"), 1 days);
         EthereumVerifier ethereumVerifier =
-            new EthereumVerifier(address(ethereumClient), address(0xBEEF), keccak256("source-vault-runtime"));
+            new EthereumVerifier(
+                address(ethereumClient), address(0xBEEF), keccak256("source-vault-runtime"),
+                address(0xC0DE), keccak256("source-controller-runtime")
+            );
         bytes32 root = keccak256("root");
         bytes memory header = abi.encode(block.timestamp, root);
         bytes memory proof = abi.encode(root);
@@ -107,6 +115,26 @@ contract LightClientVerifierTest is Test {
         client.setResults(true, true);
         vm.warp(2 days);
         assertFalse(verifier.verifyFinality(abi.encode(uint256(1), keccak256("root"))));
+    }
+
+    function testRuntimeCodeChangeFailsClosed() public {
+        MockConsensusLightClient client = new MockConsensusLightClient(99, 7, keccak256("bootstrap"), 1 days);
+        MonadVerifier verifier = new MonadVerifier(address(client));
+        bytes32 root = keccak256("root");
+        bytes memory header = abi.encode(block.timestamp, root);
+        bytes memory proof = abi.encode(root);
+        client.setResults(true, true);
+        assertTrue(verifier.verifyFinality(header));
+        assertEq(verifier.lightClientCodeHash(), address(client).codehash);
+
+        vm.etch(address(client), hex"00");
+        assertFalse(verifier.verifyFinality(header));
+        assertFalse(verifier.verifyInclusion(proof, root));
+        assertFalse(verifier.verifyLock(header, abi.encode(address(0xBEEF), root), address(0xBEEF), root));
+        vm.expectRevert(LightClientVerifier.InvalidLightClient.selector);
+        verifier.headerRoot(header);
+        vm.expectRevert(LightClientVerifier.InvalidLightClient.selector);
+        verifier.proofLeaf(proof);
     }
 
     function testRegistryRejectsVerifierWithoutAdmissionMetadata() public {

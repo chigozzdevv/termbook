@@ -74,6 +74,9 @@ importers:
       "@defuse-protocol/one-click-sdk-typescript":
         specifier: 0.1.26
         version: 0.1.26
+      "@termbook/bindings":
+        specifier: workspace:^
+        version: link:../packages/bindings
       "@termbook/schema":
         specifier: workspace:^
         version: link:../packages/schema

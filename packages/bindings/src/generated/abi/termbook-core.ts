@@ -22,6 +22,19 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "SOLANA_NATIVE_ASSET_ID",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "abort",
     "inputs": [
       {
@@ -249,6 +262,188 @@ export const termbookCoreAbi = [
             "name": "signature",
             "type": "bytes",
             "internalType": "bytes"
+          }
+        ]
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "acceptSolanaQuote",
+    "inputs": [
+      {
+        "name": "solana",
+        "type": "tuple",
+        "internalType": "struct Types.SolanaQuote",
+        "components": [
+          {
+            "name": "quote",
+            "type": "tuple",
+            "internalType": "struct Types.Quote",
+            "components": [
+              {
+                "name": "borrower",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "owner",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "intentId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "house",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "vault",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "sourceChain",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "collateralVault",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "collateralAsset",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "collateralAmount",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "returnRecipient",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "settlementAsset",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "limit",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "bundleId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "setupDeadline",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "maturity",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "gracePeriod",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "reservationBond",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "nonce",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "expiry",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "termsHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "revolving",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "aprBps",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "originationFee",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "commitmentFeeBps",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "signature",
+                "type": "bytes",
+                "internalType": "bytes"
+              }
+            ]
+          },
+          {
+            "name": "sourceGenesis",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "sourceVault",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "sourceAsset",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "sourceOwner",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "returnRecipient",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "recoveryVault",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "verifierVersion",
+            "type": "uint64",
+            "internalType": "uint64"
           }
         ]
       }
@@ -568,6 +763,35 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "authorizeSourceRecoveryReturn",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "deadline",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "actionHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "bindAccount",
     "inputs": [
       {
@@ -670,6 +894,29 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "bindSolanaCollateral",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "lockId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "lockPda",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "bondSettled",
     "inputs": [
       {
@@ -705,6 +952,52 @@ export const termbookCoreAbi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "cancelExpiredRemoteReturn",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "header",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "proof",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "cancelExpiredRemoteSeizure",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "header",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "proof",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -1179,6 +1472,42 @@ export const termbookCoreAbi = [
         "name": "settlementAsset",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "disableRemoteSalePolicy",
+    "inputs": [
+      {
+        "name": "sourceChain",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "collateralAsset",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "settlementAsset",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "disableSolanaMarket",
+    "inputs": [
+      {
+        "name": "sourceChain",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [],
@@ -1854,6 +2183,30 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "minimumRemoteRecoveryProceeds",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "collateralAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "nonceUsed",
     "inputs": [
       {
@@ -1940,6 +2293,29 @@ export const termbookCoreAbi = [
         "name": "sourceChain",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "header",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "proof",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "proveSolanaCollateral",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
       },
       {
         "name": "header",
@@ -2395,6 +2771,25 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "recoveryRefundRecipientOf",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "remoteActionNonce",
     "inputs": [
       {
@@ -2500,6 +2895,113 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "remoteReturnDeadline",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "remoteSaleMarketId",
+    "inputs": [
+      {
+        "name": "sourceChain",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "collateralAsset",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "settlementAsset",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "remoteSalePolicies",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "oracleRegistry",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "priceId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "minimumPriceBps",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "collateralDecimals",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "settlementDecimals",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "maxCollateralPerRoute",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "settlementCodeHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "oracleCodeHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "active",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "remoteSeizureActionHash",
     "inputs": [
       {
@@ -2513,6 +3015,44 @@ export const termbookCoreAbi = [
         "name": "",
         "type": "bytes32",
         "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "remoteSeizureConfirmed",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "remoteSeizureDeadline",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -3162,6 +3702,54 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "setRemoteSalePolicy",
+    "inputs": [
+      {
+        "name": "sourceChain",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "collateralAsset",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "settlementAsset",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "oracleRegistry",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "priceId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "collateralDecimals",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "minimumPriceBps",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "maxCollateralPerRoute",
+        "type": "uint128",
+        "internalType": "uint128"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setRisk",
     "inputs": [
       {
@@ -3246,6 +3834,34 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "setSolanaMarket",
+    "inputs": [
+      {
+        "name": "sourceChain",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "sourceGenesis",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "programId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "recoveryVault",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setSourceCollateralVault",
     "inputs": [
       {
@@ -3305,6 +3921,402 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "solanaActionHash",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "kind",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "nonce",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "deadline",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "solanaAlias",
+    "inputs": [
+      {
+        "name": "sourceGenesis",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "identity",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "solanaCollateral",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "solanaIdentityOf",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "sourceGenesis",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "programId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "sourceAsset",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "sourceOwner",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "returnRecipient",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "recoveryVault",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "verifierVersion",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "solanaLockDigest",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "solanaLockPdaOf",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "solanaMarkets",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "sourceGenesis",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "programId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "sourceAsset",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "recoveryVault",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "active",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "solanaQuoteDigest",
+    "inputs": [
+      {
+        "name": "quote",
+        "type": "tuple",
+        "internalType": "struct Types.SolanaQuote",
+        "components": [
+          {
+            "name": "quote",
+            "type": "tuple",
+            "internalType": "struct Types.Quote",
+            "components": [
+              {
+                "name": "borrower",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "owner",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "intentId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "house",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "vault",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "sourceChain",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "collateralVault",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "collateralAsset",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "collateralAmount",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "returnRecipient",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "settlementAsset",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "limit",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "bundleId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "setupDeadline",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "maturity",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "gracePeriod",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "reservationBond",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "nonce",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "expiry",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "termsHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "revolving",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "aprBps",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "originationFee",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "commitmentFeeBps",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "signature",
+                "type": "bytes",
+                "internalType": "bytes"
+              }
+            ]
+          },
+          {
+            "name": "sourceGenesis",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "sourceVault",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "sourceAsset",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "sourceOwner",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "returnRecipient",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "recoveryVault",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "verifierVersion",
+            "type": "uint64",
+            "internalType": "uint64"
+          }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "sourceCollateralVault",
     "inputs": [
       {
@@ -3323,6 +4335,40 @@ export const termbookCoreAbi = [
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "sourceRecoveryReturnHash",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "nonce",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "deadline",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ],
     "stateMutability": "view"
@@ -3785,6 +4831,25 @@ export const termbookCoreAbi = [
   },
   {
     "type": "event",
+    "name": "RemoteReturnCancelled",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "actionHash",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "RemoteReturnRequested",
     "inputs": [
       {
@@ -3810,6 +4875,63 @@ export const termbookCoreAbi = [
         "type": "address",
         "indexed": false,
         "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RemoteSalePolicyDisabled",
+    "inputs": [
+      {
+        "name": "marketId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RemoteSalePolicySet",
+    "inputs": [
+      {
+        "name": "marketId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "sourceChain",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "collateralAsset",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RemoteSeizureCancelled",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "actionHash",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
       }
     ],
     "anonymous": false
@@ -3857,6 +4979,74 @@ export const termbookCoreAbi = [
       },
       {
         "name": "debt",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SolanaMarketSet",
+    "inputs": [
+      {
+        "name": "sourceChain",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "sourceGenesis",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "programId",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SourceRecoveryReturnAuthorized",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "actionHash",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "owner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "nonce",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "deadline",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"

@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {CollateralVault} from "../../src/collateral/CollateralVault.sol";
 import {SourceRecoveryVault} from "../../src/collateral/SourceRecoveryVault.sol";
 import {MockERC20} from "../MockERC20.sol";
+import {MockRecoveryOperationVerifier} from "../MockRecoveryOperationVerifier.sol";
 
 contract ShortTransferFromToken {
     mapping(address => uint256) public balanceOf;
@@ -38,11 +39,15 @@ contract RemoteLockCommitmentTest is Test {
     address public recoveryVault;
     address public monadCore = address(0xCAFE);
     uint256 public monadChain = 143;
+    MockRecoveryOperationVerifier verifier;
 
     function setUp() public {
         token = new MockERC20();
         token.mint(owner, 200);
-        SourceRecoveryVault recovery = new SourceRecoveryVault(address(token), 143, address(this), owner);
+        verifier = new MockRecoveryOperationVerifier(monadChain);
+        SourceRecoveryVault recovery = new SourceRecoveryVault(
+            address(token), monadChain, address(0xFACA), address(verifier), address(this), owner, borrower
+        );
         recovery.setController(address(this));
         recoveryVault = address(recovery);
         vault = new CollateralVault(address(token), block.chainid, address(this));
@@ -120,7 +125,9 @@ contract RemoteLockCommitmentTest is Test {
     }
 
     function testWrongRecoveryControllerCannotCreateCommitment() public {
-        recoveryVault = address(new SourceRecoveryVault(address(token), 143, address(this), owner));
+        recoveryVault = address(new SourceRecoveryVault(
+            address(token), monadChain, address(0xFACA), address(verifier), address(this), owner, borrower
+        ));
         vm.prank(owner);
         vm.expectRevert(CollateralVault.InvalidBinding.selector);
         vault.lockRemoteWithDeadline(lockId, creditId, borrower, owner, 100, recipient, block.timestamp + 1 days, 1);

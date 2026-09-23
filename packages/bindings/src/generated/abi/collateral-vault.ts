@@ -80,6 +80,13 @@ export const collateralVaultAbi = [
   },
   {
     "type": "function",
+    "name": "enableRemoteMode",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "isNativeCollateralVault",
     "inputs": [],
     "outputs": [
@@ -520,6 +527,19 @@ export const collateralVaultAbi = [
         "internalType": "bytes32"
       }
     ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "remoteMode",
+    "inputs": [],
     "outputs": [
       {
         "name": "",

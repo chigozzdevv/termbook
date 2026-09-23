@@ -34,6 +34,17 @@ library Types {
         bytes signature;
     }
 
+    struct SolanaQuote {
+        Quote quote;
+        bytes32 sourceGenesis;
+        bytes32 sourceVault;
+        bytes32 sourceAsset;
+        bytes32 sourceOwner;
+        bytes32 returnRecipient;
+        bytes32 recoveryVault;
+        uint64 verifierVersion;
+    }
+
     struct SessionAuth {
         bytes32 creditId;
         address sessionKey;

@@ -45,6 +45,28 @@ contract InboxRefundTest is Test {
         assertEq(inbox.refunded(), 0);
     }
 
+    function testBorrowerCannotCancelCreditInboxBeforeDelivery() public {
+        vm.prank(address(3));
+        vm.expectRevert(SettlementInbox.InvalidRecipient.selector);
+        inbox.cancel();
+        token.mint(address(inbox), 100);
+        inbox.notifyAll();
+        inbox.settle(100);
+        assertEq(inbox.applied(), 100);
+    }
+
+    function testOverCapRecoveryCannotRefundUntrackedWhileDebtRemains() public {
+        receiver.setDebt(bytes32("c2"), 1_000);
+        token.mint(address(inbox), 1_001);
+        inbox.notifyReceipt(1_000);
+        vm.warp(block.timestamp + 2 days);
+        vm.expectRevert(SettlementInbox.Nothing.selector);
+        inbox.refundUntracked(1);
+        inbox.settle(1_000);
+        assertEq(token.balanceOf(address(3)), 0);
+        assertEq(inbox.applied(), 1_000);
+    }
+
     function testExcessAfterReceiptCapReturnsOnlyToBoundRecipient() public {
         token.mint(address(inbox), 1_100);
         inbox.notifyReceipt(1_000);

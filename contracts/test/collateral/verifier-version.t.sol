@@ -9,6 +9,8 @@ import {VerifierRegistry} from "../../src/collateral/VerifierRegistry.sol";
 import {CollateralVault} from "../../src/collateral/CollateralVault.sol";
 import {SourceRecoveryVault} from "../../src/collateral/SourceRecoveryVault.sol";
 import {Types} from "../../src/shared/Types.sol";
+import {MockRemoteSaleOracle} from "../MockRemoteSaleOracle.sol";
+import {MockRecoveryOperationVerifier} from "../MockRecoveryOperationVerifier.sol";
 
 contract MockVersionedVerifier {
     uint256 public immutable version;
@@ -63,6 +65,7 @@ contract VerifierVersionTest is Test {
     TermbookCore core;
     HouseVault vault;
     VerifierRegistry registry;
+    MockRemoteSaleOracle oracle;
     uint256 houseKey = 0xBEEF;
     uint256 borrowerKey = 0xCAFE;
     address house;
@@ -79,11 +82,15 @@ contract VerifierVersionTest is Test {
         monadChain = block.chainid;
         vault = new HouseVault(address(token), address(core), address(this), address(0), address(0));
         registry = new VerifierRegistry(address(this));
+        oracle = new MockRemoteSaleOracle();
         core.setVerifierRegistry(address(registry));
         verifier = address(new MockVersionedVerifier(1));
         registry.setVerifier(99, verifier, 1, 1 days);
         core.setSourceCollateralVault(99, address(token), address(0x1234));
         core.setSourceRecoveryVault(99, address(token), address(0x5678));
+        core.setRemoteSalePolicy(
+            99, address(token), address(token), address(oracle), keccak256("remote-price"), 18, 9_000, 1_000
+        );
         house = vm.addr(houseKey);
         borrower = vm.addr(borrowerKey);
         token.mint(address(this), 100);
@@ -232,7 +239,11 @@ contract VerifierVersionTest is Test {
         MockCommitmentVerifier commitmentVerifier = new MockCommitmentVerifier();
         registry.setVerifier(99, address(commitmentVerifier), 1, 1 days);
         vm.chainId(99);
-        SourceRecoveryVault recovery = new SourceRecoveryVault(address(token), monadChain, address(this), borrower);
+        MockRecoveryOperationVerifier recoveryVerifier = new MockRecoveryOperationVerifier(monadChain);
+        SourceRecoveryVault recovery = new SourceRecoveryVault(
+            address(token), monadChain, address(0xFACA), address(recoveryVerifier), address(this), borrower,
+            address(this)
+        );
         recovery.setController(address(this));
         recoveryVault = address(recovery);
         CollateralVault source = new CollateralVault(address(token), 99, address(this));
@@ -320,5 +331,32 @@ contract VerifierVersionTest is Test {
         vm.prank(borrower);
         vm.expectRevert(TermbookCore.InvalidCollateral.selector);
         noRecovery.setRemoteCollateral(second, 99, address(0x1234), address(token), 100, borrower, borrower);
+    }
+
+    function testRemoteSetupRequiresLiveSalePolicy() public {
+        (TermbookCore target, bytes32 creditId) = _freshReservedCredit(true, true);
+        vm.prank(borrower);
+        vm.expectRevert(TermbookCore.InvalidCollateral.selector);
+        target.setRemoteCollateral(creditId, 99, address(0x1234), address(token), 100, borrower, borrower);
+        TermbookCore.Credit memory credit = target.creditDetails(creditId);
+        target.setRemoteSalePolicy(
+            99, address(token), HouseVault(credit.vault).asset(), address(oracle),
+            keccak256("remote-price"), 18, 9_000, 1_000
+        );
+        vm.prank(borrower);
+        target.setRemoteCollateral(creditId, 99, address(0x1234), address(token), 100, borrower, borrower);
+        assertTrue(target.remoteCollateral(creditId));
+    }
+
+    function testAbortedCreditCanBindLateRemoteLockWithoutSalePolicy() public {
+        (TermbookCore target, bytes32 creditId) = _freshReservedCredit(true, true);
+        vm.prank(borrower);
+        target.abort(creditId);
+        vm.prank(borrower);
+        target.bindLateRemoteCollateral(
+            creditId, keccak256("late-lock"), 99, address(0x1234), address(token), 100, borrower, borrower
+        );
+        assertTrue(target.remoteCollateral(creditId));
+        assertEq(uint256(target.creditFacility(creditId)), uint256(Types.Facility.Aborted));
     }
 }

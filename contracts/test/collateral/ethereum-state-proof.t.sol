@@ -18,7 +18,9 @@ contract EthereumStateProofTest is Test {
         vm.warp(2 days);
         client = new MockConsensusLightClient(1, 1, keccak256("checkpoint"), 1 days);
         vault = new CollateralVault(address(new MockERC20()), 1, address(this));
-        verifier = new EthereumVerifier(address(client), address(vault), address(vault).codehash);
+        verifier = new EthereumVerifier(
+            address(client), address(vault), address(vault).codehash, address(this), address(this).codehash
+        );
         client.setResults(true, true);
     }
 
@@ -86,15 +88,88 @@ contract EthereumStateProofTest is Test {
         assertFalse(verifier.verifyLock(header, hex"123456", address(vault), digest));
         MockConsensusLightClient wrongChain = new MockConsensusLightClient(11155111, 1, keccak256("checkpoint"), 1 days);
         vm.expectRevert();
-        new EthereumVerifier(address(wrongChain), address(vault), address(vault).codehash);
+        new EthereumVerifier(address(wrongChain), address(vault), address(vault).codehash, address(this), address(this).codehash);
         vm.expectRevert();
-        new EthereumVerifier(address(client), address(0), address(vault).codehash);
+        new EthereumVerifier(address(client), address(0), address(vault).codehash, address(this), address(this).codehash);
         vm.expectRevert();
-        new EthereumVerifier(address(client), address(vault), bytes32(0));
+        new EthereumVerifier(address(client), address(vault), bytes32(0), address(this), address(this).codehash);
+        vm.expectRevert();
+        new EthereumVerifier(address(client), address(vault), address(vault).codehash, address(0), address(this).codehash);
+        vm.expectRevert();
+        new EthereumVerifier(address(client), address(vault), address(vault).codehash, address(this), bytes32(0));
     }
 
     function testMappingSlotMatchesDeployedVaultLayout() public {
         assertEq(vault.lockCommitmentStorageSlot(lockId), keccak256(abi.encode(lockId, uint256(6))));
+    }
+
+    function testCancelsOnlyAfterFinalizedControllerStorageAbsence() public view {
+        bytes32 actionHash = keccak256("seizure-action");
+        (bytes memory header, bytes memory proof) = _absenceProof(actionHash, false, false, address(this).codehash);
+        assertTrue(verifier.verifyUnconsumedAction(header, proof, address(this), actionHash, block.timestamp - 1));
+        assertFalse(verifier.verifyUnconsumedAction(header, proof, address(this), actionHash, block.timestamp));
+        assertFalse(verifier.verifyUnconsumedAction(header, proof, address(vault), actionHash, block.timestamp - 1));
+        assertFalse(verifier.verifyUnconsumedAction(header, proof, address(this), keccak256("other"), block.timestamp - 1));
+        (bytes32 provenActionHash, bytes[] memory accountNodes, bytes[] memory storageNodes) =
+            abi.decode(proof, (bytes32, bytes[], bytes[]));
+        assertEq(provenActionHash, actionHash);
+        bytes[] memory extraNodes = new bytes[](1);
+        extraNodes[0] = accountNodes[0];
+        assertFalse(verifier.verifyUnconsumedAction(
+            header, abi.encode(actionHash, accountNodes, extraNodes), address(this), actionHash, block.timestamp - 1
+        ));
+        assertEq(storageNodes.length, 0);
+    }
+
+    function testVerifiesMissingLeafAndRejectsOccupiedSlotOrCodeChange() public view {
+        bytes32 actionHash = keccak256("seizure-action");
+        (bytes memory missingHeader, bytes memory missingProof) =
+            _absenceProof(actionHash, false, true, address(this).codehash);
+        assertTrue(verifier.verifyUnconsumedAction(
+            missingHeader, missingProof, address(this), actionHash, block.timestamp - 1
+        ));
+        (bytes memory occupiedHeader, bytes memory occupiedProof) =
+            _absenceProof(actionHash, true, true, address(this).codehash);
+        assertFalse(verifier.verifyUnconsumedAction(
+            occupiedHeader, occupiedProof, address(this), actionHash, block.timestamp - 1
+        ));
+        (bytes memory wrongCodeHeader, bytes memory wrongCodeProof) =
+            _absenceProof(actionHash, false, false, keccak256("wrong-controller"));
+        assertFalse(verifier.verifyUnconsumedAction(
+            wrongCodeHeader, wrongCodeProof, address(this), actionHash, block.timestamp - 1
+        ));
+    }
+
+    function _absenceProof(bytes32 actionHash, bool occupied, bool nonempty, bytes32 controllerCodeHash)
+        internal
+        view
+        returns (bytes memory header, bytes memory proof)
+    {
+        bytes32 storageRoot = keccak256(hex"80");
+        bytes[] memory storageNodes;
+        if (nonempty) {
+            bytes32 provenActionHash = occupied ? actionHash : keccak256("another-action");
+            bytes32 slot = keccak256(abi.encode(provenActionHash, uint256(0)));
+            bytes32 key = keccak256(abi.encodePacked(slot));
+            bytes memory storageLeaf = _rlpList(
+                bytes.concat(_rlpBytes(_compactLeaf(key, 0)), _rlpBytes(_rlpBytes(hex"01")))
+            );
+            storageNodes = new bytes[](1);
+            storageNodes[0] = storageLeaf;
+            storageRoot = keccak256(storageLeaf);
+        } else {
+            storageNodes = new bytes[](0);
+        }
+        bytes memory account = _rlpList(bytes.concat(
+            _rlpBytes(hex""), _rlpBytes(hex""),
+            _rlpBytes(abi.encodePacked(storageRoot)), _rlpBytes(abi.encodePacked(controllerCodeHash))
+        ));
+        bytes32 accountKey = keccak256(abi.encodePacked(address(this)));
+        bytes memory accountLeaf = _rlpList(bytes.concat(_rlpBytes(_compactLeaf(accountKey, 0)), _rlpBytes(account)));
+        bytes[] memory accountNodes = new bytes[](1);
+        accountNodes[0] = accountLeaf;
+        header = abi.encode(block.timestamp, keccak256(accountLeaf));
+        proof = abi.encode(actionHash, accountNodes, storageNodes);
     }
 
     function _proof(address sourceVault, bytes32 sourceLockId, bytes32 sourceDigest, bool branch)

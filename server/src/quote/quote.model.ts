@@ -3,6 +3,8 @@ import mongoose from "mongoose";
 const quoteSchema = new mongoose.Schema(
   {
     quoteId: { type: String, required: true, unique: true },
+    kind: String,
+    solana: mongoose.Schema.Types.Mixed,
     intentId: String,
     borrower: String,
     house: String,

@@ -3,7 +3,11 @@ import { quoteRepo } from "./quote.repo.js";
 import { constants } from "../config/constants.js";
 import { intentRepo } from "../intent/intent.repo.js";
 import { env } from "../config/env.js";
+import { monadClient } from "../chain/monad.client.js";
 import { encodeAbiParameters, keccak256, recoverAddress, recoverMessageAddress } from "viem";
+import { matchesSolanaAliases, solanaQuoteDigest, type SolanaQuoteIdentity } from "./solana.js";
+
+const solanaMarketAbi = [{ type: "function", name: "solanaMarkets", stateMutability: "view", inputs: [{ type: "uint256" }], outputs: [{ type: "bytes32" }, { type: "bytes32" }, { type: "bytes32" }, { type: "bytes32" }, { type: "bool" }] }] as const;
 
 async function recoverQuoteSigner(digest: `0x${string}`, signature: `0x${string}`): Promise<string | undefined> {
   try {
@@ -35,9 +39,53 @@ export const quoteService = {
     const now = Math.floor(Date.now() / 1000);
     if (Number(input["expiry"] ?? 0) <= now || Number(input["expiry"] ?? 0) > Number(intent["expiresAt"] ?? 0)) throw new Error("offer-expired");
     if (String(input["borrower"]).toLowerCase() !== String(intent["borrower"]).toLowerCase()) throw new Error("quote-borrower-mismatch");
-    if (input["sourceChain"] !== undefined && Number(input["sourceChain"]) !== Number(intent["chainId"])) throw new Error("quote-collateral-mismatch");
-    if (input["collateralAsset"] !== undefined && String(input["collateralAsset"]).toLowerCase() !== String(intent["asset"]).toLowerCase()) throw new Error("quote-collateral-mismatch");
-    if (input["collateralAmount"] !== undefined && BigInt(String(input["collateralAmount"])) !== BigInt(String(intent["amount"]))) throw new Error("quote-collateral-mismatch");
+    let solana: SolanaQuoteIdentity | undefined;
+    if (input["kind"] === "solana") {
+      const source = input["solana"] as Record<string, unknown> | undefined;
+      const requested = intent["collateral"] as Record<string, unknown> | undefined;
+      if (!source || !requested || !input["sourceChain"] || !input["collateralAmount"]) throw new Error("quote-collateral-mismatch");
+      const chain = requested["chain"] as Record<string, unknown> | undefined;
+      const asset = requested["asset"] as Record<string, unknown> | undefined;
+      const owner = requested["owner"] as Record<string, unknown> | undefined;
+      const recipient = requested["returnRecipient"] as Record<string, unknown> | undefined;
+      const genesis = String(source["sourceGenesis"]).toLowerCase() as `0x${string}`;
+      const sourceAsset = String(source["sourceAsset"]).toLowerCase() as `0x${string}`;
+      const sourceOwner = String(source["sourceOwner"]).toLowerCase() as `0x${string}`;
+      const sourceRecipient = String(source["returnRecipient"]).toLowerCase() as `0x${string}`;
+      if (chain?.["namespace"] !== "solana" || String(chain["reference"]).toLowerCase() !== genesis
+        || asset?.["namespace"] !== "solana" || asset["kind"] !== "native"
+        || owner?.["namespace"] !== "solana" || recipient?.["namespace"] !== "solana"
+        || String(asset?.["assetBytes"]).toLowerCase() !== sourceAsset
+        || String(owner?.["accountBytes"]).toLowerCase() !== sourceOwner
+        || String(recipient?.["accountBytes"]).toLowerCase() !== sourceRecipient
+        || BigInt(String(requested["amount"])) !== BigInt(String(input["collateralAmount"]))) throw new Error("quote-collateral-mismatch");
+      solana = {
+        sourceGenesis: genesis,
+        sourceVault: String(source["sourceVault"]) as `0x${string}`,
+        sourceAsset,
+        sourceOwner,
+        returnRecipient: sourceRecipient,
+        recoveryVault: String(source["recoveryVault"]) as `0x${string}`,
+        verifierVersion: BigInt(String(source["verifierVersion"])),
+      };
+      if (!matchesSolanaAliases({
+        owner: String(input["owner"]), collateralVault: String(input["collateralVault"]),
+        collateralAsset: String(input["collateralAsset"]), returnRecipient: String(input["returnRecipient"]),
+      }, solana)) throw new Error("quote-solana-alias-mismatch");
+      const market = await monadClient().readContract({
+        address: env.core as `0x${string}`,
+        abi: solanaMarketAbi,
+        functionName: "solanaMarkets",
+        args: [BigInt(String(input["sourceChain"]))],
+      });
+      if (!market[4] || market[0].toLowerCase() !== genesis || market[1].toLowerCase() !== String(source["sourceVault"]).toLowerCase()
+        || market[2].toLowerCase() !== sourceAsset || market[3].toLowerCase() !== String(source["recoveryVault"]).toLowerCase()) throw new Error("quote-solana-market-mismatch");
+    } else {
+      if (intent["collateral"]) throw new Error("quote-collateral-mismatch");
+      if (input["sourceChain"] !== undefined && Number(input["sourceChain"]) !== Number(intent["chainId"])) throw new Error("quote-collateral-mismatch");
+      if (input["collateralAsset"] !== undefined && String(input["collateralAsset"]).toLowerCase() !== String(intent["asset"]).toLowerCase()) throw new Error("quote-collateral-mismatch");
+      if (input["collateralAmount"] !== undefined && BigInt(String(input["collateralAmount"])) !== BigInt(String(intent["amount"]))) throw new Error("quote-collateral-mismatch");
+    }
     const domain = String(input["domain"] ?? env.coreDomain);
     if (!/^0x[a-fA-F0-9]{64}$/.test(domain)) throw new Error("quote-domain-required");
     if (env.coreDomain && domain.toLowerCase() !== env.coreDomain.toLowerCase()) throw new Error("quote-domain-mismatch");
@@ -84,9 +132,10 @@ export const quoteService = {
           ],
     ));
     const signature = String(input["signature"]) as `0x${string}`;
-    let signer = await recoverQuoteSigner(digest, signature);
+    const signedDigest = solana ? solanaQuoteDigest(digest, solana) : digest;
+    let signer = await recoverQuoteSigner(signedDigest, signature);
     if (signer?.toLowerCase() !== String(input["house"]).toLowerCase()) {
-      signer = await recoverPersonalSigner(digest, signature);
+      signer = await recoverPersonalSigner(signedDigest, signature);
     }
     if (signer?.toLowerCase() !== String(input["house"]).toLowerCase()) throw new Error("quote-signature-invalid");
     const quoteId = `q_${randomBytes(8).toString("hex")}`;

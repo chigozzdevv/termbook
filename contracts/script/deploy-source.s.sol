@@ -7,18 +7,27 @@ import {RemoteCollateralController} from "../src/collateral/RemoteCollateralCont
 import {SourceRecoveryVault} from "../src/collateral/SourceRecoveryVault.sol";
 
 contract DeploySource is Script {
-    function run() external returns (RemoteCollateralController controller, SourceRecoveryVault recovery, address verifier) {
+    function run()
+        external
+        returns (RemoteCollateralController controller, SourceRecoveryVault recovery, address verifier)
+    {
         uint256 key = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address core = vm.envAddress("MONAD_CORE_ADDRESS");
+        address factory = vm.envAddress("MONAD_FACTORY_ADDRESS");
         address asset = vm.envAddress("COLLATERAL_ASSET");
         uint256 monadChain = vm.envUint("MONAD_CHAIN_ID");
         address lightClient = vm.envAddress("LIGHT_CLIENT_ADDRESS");
         address routeSigner = vm.envAddress("ROUTE_SIGNER");
+        address riskSigner = vm.envAddress("RECOVERY_RISK_SIGNER");
+        address governance = vm.envAddress("SOURCE_GOVERNANCE");
+        address pauseGuardian = vm.envAddress("SOURCE_PAUSE_GUARDIAN");
         vm.startBroadcast(key);
         verifier = address(new MonadVerifier(lightClient));
-        recovery = new SourceRecoveryVault(asset, monadChain, vm.addr(key), routeSigner);
-        controller = new RemoteCollateralController(asset, monadChain, core, address(recovery), verifier);
-        recovery.setController(address(controller));
+        recovery = new SourceRecoveryVault(asset, monadChain, factory, verifier, governance, routeSigner, riskSigner);
+        controller = new RemoteCollateralController(
+            asset, monadChain, core, address(recovery), verifier, governance, pauseGuardian
+        );
+        // Governance calls recovery.setController(address(controller)) before source locks.
         vm.stopBroadcast();
     }
 }

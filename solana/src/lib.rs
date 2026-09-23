@@ -3,6 +3,7 @@ use solana_program::{
     account_info::{next_account_info, AccountInfo},
     clock::Clock,
     entrypoint::ProgramResult,
+    keccak,
     program::invoke_signed,
     program_error::ProgramError,
     pubkey::Pubkey,
@@ -15,7 +16,7 @@ use solana_system_interface::{instruction as system_instruction, program as syst
 solana_program::entrypoint!(process_instruction);
 
 const LOCK_SEED: &[u8] = b"termbook-lock";
-const LOCK_VERSION: u8 = 1;
+const LOCK_VERSION: u8 = 2;
 pub const NATIVE_SOL_ASSET_ID: [u8; 32] = [1; 32];
 
 #[repr(u32)]
@@ -36,7 +37,14 @@ impl From<VaultError> for ProgramError {
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
 pub enum VaultInstruction {
     Lock(LockRequest),
-    Apply(RemoteAuthorization),
+    Apply(ApplyRequest),
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+pub struct ApplyRequest {
+    pub authorization: RemoteAuthorization,
+    pub finalized_header: Vec<u8>,
+    pub authorization_proof: Vec<u8>,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
@@ -66,6 +74,7 @@ pub struct LockRecord {
     pub monad_core: [u8; 20],
     pub monad_borrower: [u8; 20],
     pub source_genesis: [u8; 32],
+    pub source_program: [u8; 32],
     pub source_vault: [u8; 32],
     pub asset: [u8; 32],
     pub return_recipient: [u8; 32],
@@ -76,6 +85,7 @@ pub struct LockRecord {
     pub setup_deadline: i64,
     pub verifier_version: u64,
     pub last_nonce: u64,
+    pub last_action_hash: [u8; 32],
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
@@ -107,7 +117,7 @@ pub fn process_instruction(
         .map_err(|_| ProgramError::InvalidInstructionData)?;
     match instruction {
         VaultInstruction::Lock(request) => process_lock(program_id, accounts, &request),
-        VaultInstruction::Apply(action) => process_action(program_id, accounts, &action),
+        VaultInstruction::Apply(request) => process_action(program_id, accounts, &request),
     }
 }
 
@@ -149,6 +159,7 @@ fn process_lock(
         monad_core: request.monad_core,
         monad_borrower: request.monad_borrower,
         source_genesis: request.source_genesis,
+        source_program: program_id.to_bytes(),
         source_vault: lock.key.to_bytes(),
         asset: NATIVE_SOL_ASSET_ID,
         return_recipient: request.return_recipient,
@@ -159,6 +170,7 @@ fn process_lock(
         setup_deadline: request.setup_deadline,
         verifier_version: request.verifier_version,
         last_nonce: 0,
+        last_action_hash: [0; 32],
     };
     let serialized = borsh::to_vec(&record).map_err(|_| ProgramError::InvalidAccountData)?;
     let rent = Rent::get()?.minimum_balance(serialized.len());
@@ -184,7 +196,7 @@ fn process_lock(
 fn process_action(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
-    action: &RemoteAuthorization,
+    request: &ApplyRequest,
 ) -> ProgramResult {
     let mut accounts = accounts.iter();
     let lock = next_account_info(&mut accounts)?;
@@ -194,7 +206,7 @@ fn process_action(
     }
     let record = LockRecord::try_from_slice(&lock.data.borrow())
         .map_err(|_| ProgramError::InvalidAccountData)?;
-    if record.version != LOCK_VERSION || record.source_vault != lock.key.to_bytes() {
+    if record.version != LOCK_VERSION || record.source_vault != lock.key.to_bytes() || record.source_program != program_id.to_bytes() {
         return Err(VaultError::InvalidBinding.into());
     }
     let (expected, bump) = Pubkey::find_program_address(&[LOCK_SEED, &record.lock_id], program_id);
@@ -202,13 +214,14 @@ fn process_action(
         return Err(VaultError::InvalidBinding.into());
     }
     let now = Clock::get()?.unix_timestamp;
-    validate_action(&record, action, destination.key, now)?;
-    require_admitted_verifier()?;
+    validate_action(&record, &request.authorization, destination.key, now)?;
+    let action_hash = solana_action_hash(&record, &request.authorization)?;
+    verify_authorization(request, &action_hash)?;
     apply_verified_action(
         lock,
         destination,
         record,
-        action,
+        &request.authorization,
         now,
         Rent::get()?.minimum_balance(lock.data_len()),
     )
@@ -242,6 +255,7 @@ fn apply_verified_action(
         .checked_sub(action.amount_lamports)
         .ok_or(VaultError::InvalidAction)?;
     record.last_nonce = action.nonce;
+    record.last_action_hash = solana_action_hash(&record, action)?;
     let serialized = borsh::to_vec(&record).map_err(|_| ProgramError::InvalidAccountData)?;
     if serialized.len() != lock.data_len() {
         return Err(ProgramError::InvalidAccountData);
@@ -303,7 +317,7 @@ pub fn validate_action(
     if action.nonce <= lock.last_nonce || action.nonce == 0 {
         return Err(VaultError::Replay.into());
     }
-    if now > action.deadline {
+    if action.deadline <= 0 || now > action.deadline {
         return Err(VaultError::Expired.into());
     }
     let expected_recipient = if action.kind == RELEASE {
@@ -319,6 +333,51 @@ pub fn validate_action(
 
 fn require_admitted_verifier() -> ProgramResult {
     Err(VaultError::VerifierUnavailable.into())
+}
+
+fn verify_authorization(request: &ApplyRequest, action_hash: &[u8; 32]) -> ProgramResult {
+    if request.finalized_header.is_empty() || request.authorization_proof.is_empty() || *action_hash == [0; 32] {
+        return Err(VaultError::InvalidAction.into());
+    }
+    require_admitted_verifier()
+}
+
+fn uint_word(value: u64) -> [u8; 32] {
+    let mut word = [0; 32];
+    word[24..].copy_from_slice(&value.to_be_bytes());
+    word
+}
+
+fn address_word(value: &[u8; 20]) -> [u8; 32] {
+    let mut word = [0; 32];
+    word[12..].copy_from_slice(value);
+    word
+}
+
+pub fn solana_action_hash(record: &LockRecord, action: &RemoteAuthorization) -> Result<[u8; 32], ProgramError> {
+    let deadline = u64::try_from(action.deadline).map_err(|_| VaultError::InvalidAction)?;
+    let domain = keccak::hash(b"Termbook Solana action v1");
+    let mut encoded = Vec::with_capacity(15 * 32);
+    for word in [
+        domain.to_bytes(),
+        uint_word(record.monad_chain),
+        address_word(&record.monad_core),
+        record.source_genesis,
+        record.source_program,
+        record.source_vault,
+        record.credit_id,
+        record.lock_id,
+        record.asset,
+        uint_word(u64::from(action.kind)),
+        action.recipient,
+        uint_word(action.amount_lamports),
+        uint_word(action.nonce),
+        uint_word(deadline),
+        uint_word(record.verifier_version),
+    ] {
+        encoded.extend_from_slice(&word);
+    }
+    Ok(keccak::hash(&encoded).to_bytes())
 }
 
 #[cfg(test)]
@@ -354,6 +413,7 @@ mod tests {
             monad_core: input.monad_core,
             monad_borrower: input.monad_borrower,
             source_genesis: input.source_genesis,
+            source_program: [11; 32],
             source_vault: [10; 32],
             asset: NATIVE_SOL_ASSET_ID,
             return_recipient: input.return_recipient,
@@ -364,6 +424,7 @@ mod tests {
             setup_deadline: input.setup_deadline,
             verifier_version: input.verifier_version,
             last_nonce: 0,
+            last_action_hash: [0; 32],
         }
     }
 
@@ -515,6 +576,33 @@ mod tests {
             require_admitted_verifier(),
             Err(VaultError::VerifierUnavailable.into())
         );
+        let authorization = action(RELEASE);
+        let empty = ApplyRequest {
+            authorization: authorization.clone(),
+            finalized_header: Vec::new(),
+            authorization_proof: vec![1],
+        };
+        assert_eq!(verify_authorization(&empty, &[1; 32]), Err(VaultError::InvalidAction.into()));
+        let request = ApplyRequest {
+            authorization,
+            finalized_header: vec![1],
+            authorization_proof: vec![2],
+        };
+        let encoded = borsh::to_vec(&VaultInstruction::Apply(request.clone())).unwrap();
+        assert_eq!(VaultInstruction::try_from_slice(&encoded).unwrap(), VaultInstruction::Apply(request.clone()));
+        assert_eq!(verify_authorization(&request, &[1; 32]), Err(VaultError::VerifierUnavailable.into()));
+    }
+
+    #[test]
+    fn action_hash_matches_solidity_abi_encoding() {
+        let actual = solana_action_hash(&record(), &action(RELEASE)).unwrap();
+        let expected = [
+            0xa2, 0x48, 0x40, 0x84, 0x39, 0x61, 0x44, 0x78,
+            0x09, 0x0e, 0x45, 0xf5, 0x7d, 0x43, 0x80, 0x72,
+            0xef, 0x16, 0x12, 0x31, 0xc6, 0x8b, 0x1f, 0xd5,
+            0x6e, 0xe0, 0xad, 0x73, 0x9a, 0xb2, 0x8a, 0xcd,
+        ];
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -573,6 +661,7 @@ mod tests {
         stored = LockRecord::try_from_slice(&lock_account.data.borrow()).unwrap();
         assert_eq!(stored.remaining_amount, 500_000_000);
         assert_eq!(stored.last_nonce, 1);
+        assert_eq!(stored.last_action_hash, solana_action_hash(&record(), &release).unwrap());
         assert_eq!(recipient_account.lamports(), 500_000_100);
         assert_eq!(lock_account.lamports(), rent_reserve + 500_000_050);
 
@@ -590,6 +679,7 @@ mod tests {
         stored = LockRecord::try_from_slice(&lock_account.data.borrow()).unwrap();
         assert_eq!(stored.remaining_amount, 0);
         assert_eq!(stored.last_nonce, 2);
+        assert_eq!(stored.last_action_hash, solana_action_hash(&record(), &seizure).unwrap());
         assert_eq!(recovery_account.lamports(), 500_000_200);
         assert_eq!(lock_account.lamports(), rent_reserve + 50);
     }

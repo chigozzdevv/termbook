@@ -25,7 +25,8 @@ contract MockRouteCore {
     function creditFacility(bytes32) external pure returns (uint8) { return 8; }
     function remoteCollateral(bytes32) external pure returns (bool) { return true; }
     function recoveryKeepers(address candidate) external view returns (bool) { return candidate == keeper; }
-    function collateralOwnerOf(bytes32) external view returns (address) { return keeper; }
+    function recoveryRefundRecipientOf(bytes32) external view returns (address) { return keeper; }
+    function minimumRemoteRecoveryProceeds(bytes32, uint256) external pure returns (uint256) { return 350; }
     function remoteRecoveryContext(bytes32) external view returns (uint256, address, address) {
         return (1, sourceAsset, keeper);
     }
@@ -86,6 +87,7 @@ contract AuthorizedInboxTest is Test {
             InboxFactory.Operation memory op = _operation(kind);
             address inbox = factory.createAuthorized(op, _signature(op));
             assertEq(factory.inboxOf(op.operationId), inbox);
+            assertEq(factory.operationDigestOf(op.operationId), factory.operationDigest(op));
             assertTrue(house.settlementInboxes(inbox));
             assertEq(SettlementInbox(inbox).creditId(), op.creditId);
         }
@@ -142,6 +144,14 @@ contract AuthorizedInboxTest is Test {
         op.sourceRefund = payer;
         op.refundRecipient = address(0xD00D);
         signature = _signature(op);
+        vm.expectRevert(InboxFactory.Invalid.selector);
+        factory.createAuthorized(op, signature);
+    }
+
+    function testRecoveryRequiresOracleFloor() public {
+        InboxFactory.Operation memory op = _operation(1);
+        op.minOut = 349;
+        bytes memory signature = _signature(op);
         vm.expectRevert(InboxFactory.Invalid.selector);
         factory.createAuthorized(op, signature);
     }

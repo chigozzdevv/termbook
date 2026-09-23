@@ -40,6 +40,7 @@ export async function closeRedis(): Promise<void> {
 export function jobId(job: Job): string {
   const p = job.payload;
   const raw = (p["operationId"] ??
+    p["actionHash"] ??
     p["lockId"] ??
     p["creditId"] ??
     p["intentId"] ??

@@ -98,6 +98,7 @@ contract SettlementInbox is ISettlementInbox {
     }
 
     function cancel() external {
+        if (creditId != bytes32(0)) revert InvalidRecipient();
         if (msg.sender != vault && msg.sender != refundRecipient) revert InvalidRecipient();
         if (block.timestamp > deadline) revert Expired();
         if (available() != 0) revert Nothing();
@@ -133,6 +134,9 @@ contract SettlementInbox is ISettlementInbox {
 
     function refundUntracked(uint256 amount) external guard {
         if (block.timestamp <= deadline) revert Expired();
+        if (creditId != bytes32(0) && ICreditDebt(ISettlementDebt(vault).core()).creditDebt(creditId) != 0) {
+            revert Nothing();
+        }
         uint256 balance = _balance();
         uint256 outstanding = available();
         if (amount == 0 || balance < outstanding || amount > balance - outstanding) revert Nothing();

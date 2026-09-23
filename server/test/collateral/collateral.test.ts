@@ -13,4 +13,14 @@ describe("collateral tracking", () => {
     expect(collateralSchema.safeParse({ ...input, sourceRpc: "http://127.0.0.1:8080" }).success).toBe(false);
     expect(collateralSchema.safeParse(input).success).toBe(true);
   });
+
+  it("normalizes lock and credit identifiers before persistence", () => {
+    const parsed = collateralSchema.parse({
+      ...input,
+      lockId: `0x${"AB".repeat(32)}`,
+      owner: `0x${"CD".repeat(20)}`,
+    });
+    expect(parsed.lockId).toBe(`0x${"ab".repeat(32)}`);
+    expect(parsed.owner).toBe(`0x${"cd".repeat(20)}`);
+  });
 });

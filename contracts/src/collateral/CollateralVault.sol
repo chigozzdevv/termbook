@@ -34,6 +34,7 @@ contract CollateralVault is ICollateralVault {
     mapping(bytes32 => uint256) public lockRevision;
     mapping(bytes32 => bool) public releaseUsed;
     mapping(bytes32 => bytes32) public lockCommitments;
+    bool public remoteMode;
 
     error Exists();
     error Unknown();
@@ -76,8 +77,14 @@ contract CollateralVault is ICollateralVault {
         emit PauseGuardianSet(guardian);
     }
 
+    function enableRemoteMode() external {
+        if (msg.sender != core || remoteMode) revert Unauthorized();
+        remoteMode = true;
+    }
+
     function lock(bytes32 lockId, bytes32 creditId, address owner, uint256 amount, address recipient) external {
-        lockWithDeadline(lockId, creditId, owner, amount, recipient, type(uint256).max, 1);
+        if (remoteMode) revert InvalidBinding();
+        _lockWithDeadline(lockId, creditId, owner, amount, recipient, type(uint256).max, 1);
     }
 
     function lockWithDeadline(
@@ -89,6 +96,19 @@ contract CollateralVault is ICollateralVault {
         uint256 deadline,
         uint256 revision
     ) public {
+        if (remoteMode) revert InvalidBinding();
+        _lockWithDeadline(lockId, creditId, owner, amount, recipient, deadline, revision);
+    }
+
+    function _lockWithDeadline(
+        bytes32 lockId,
+        bytes32 creditId,
+        address owner,
+        uint256 amount,
+        address recipient,
+        uint256 deadline,
+        uint256 revision
+    ) internal {
         if (lockExists[lockId]) revert Exists();
         if (paused || msg.sender != owner || owner == address(0) || creditId == bytes32(0)) revert Unauthorized();
         if (amount == 0 || revision == 0) revert InvalidAmount();
@@ -142,7 +162,7 @@ contract CollateralVault is ICollateralVault {
         } catch {
             revert InvalidBinding();
         }
-        lockWithDeadline(lockId, creditId, owner, amount, recipient, deadline, revision);
+        _lockWithDeadline(lockId, creditId, owner, amount, recipient, deadline, revision);
         bytes32 commitment =
             keccak256(abi.encode(
                 creditId, lockId, borrower, owner, address(this), asset, amount, chainId_, recipient,

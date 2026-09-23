@@ -143,6 +143,36 @@ interface IVerifierCore {
         external view returns (bool);
 }
 
+interface ISolanaVerifierCore {
+    function verifySolanaLock(
+        bytes calldata header,
+        bytes calldata proof,
+        bytes32 sourceGenesis,
+        bytes32 programId,
+        bytes32 lockDigest
+    ) external view returns (bool);
+    function verifySolanaAction(
+        bytes calldata header,
+        bytes calldata proof,
+        bytes32 sourceGenesis,
+        bytes32 programId,
+        bytes32 lockPda,
+        bytes32 actionDigest
+    ) external view returns (bool);
+}
+
+interface IUnconsumedRemoteActionVerifier {
+    function sourceController() external view returns (address);
+    function sourceVault() external view returns (address);
+    function verifyUnconsumedAction(
+        bytes calldata header,
+        bytes calldata proof,
+        address controller,
+        bytes32 actionHash,
+        uint256 deadline
+    ) external view returns (bool);
+}
+
 contract TermbookCore is ITermbookCore {
     using SafeTransferLib for address;
 
@@ -222,6 +252,36 @@ contract TermbookCore is ITermbookCore {
         bool active;
     }
 
+    struct SolanaMarket {
+        bytes32 sourceGenesis;
+        bytes32 programId;
+        bytes32 sourceAsset;
+        bytes32 recoveryVault;
+        bool active;
+    }
+
+    struct SolanaIdentity {
+        bytes32 sourceGenesis;
+        bytes32 programId;
+        bytes32 sourceAsset;
+        bytes32 sourceOwner;
+        bytes32 returnRecipient;
+        bytes32 recoveryVault;
+        uint64 verifierVersion;
+    }
+
+    struct RemoteSalePolicy {
+        address oracleRegistry;
+        bytes32 priceId;
+        uint16 minimumPriceBps;
+        uint8 collateralDecimals;
+        uint8 settlementDecimals;
+        uint128 maxCollateralPerRoute;
+        bytes32 settlementCodeHash;
+        bytes32 oracleCodeHash;
+        bool active;
+    }
+
     address public governance;
     address public guardian;
     address public riskEngine;
@@ -262,8 +322,11 @@ contract TermbookCore is ITermbookCore {
     mapping(bytes32 => uint256) public pendingRemoteSeizure;
     mapping(bytes32 => uint256) public remoteActionNonce;
     mapping(bytes32 => bytes32) public remoteReturnActionHash;
+    mapping(bytes32 => uint256) public remoteReturnDeadline;
     mapping(bytes32 => bytes32) public remoteSeizureActionHash;
     mapping(bytes32 => address) public remoteSeizureRecipient;
+    mapping(bytes32 => uint256) public remoteSeizureDeadline;
+    mapping(bytes32 => bool) public remoteSeizureConfirmed;
     mapping(uint256 => mapping(address => address)) public sourceCollateralVault;
     mapping(uint256 => mapping(address => address)) public sourceRecoveryVault;
     mapping(bytes32 => address) public remoteRecoveryVaultOf;
@@ -271,15 +334,29 @@ contract TermbookCore is ITermbookCore {
     mapping(bytes32 => uint256) public healthSnapshotAt;
     mapping(bytes32 => uint256) public healthSnapshotRevision;
     mapping(bytes32 => LocalSalePolicy) public localSalePolicies;
+    mapping(bytes32 => RemoteSalePolicy) public remoteSalePolicies;
     mapping(address => bytes32) public localCollateralVaultCodeHash;
+    mapping(uint256 => SolanaMarket) public solanaMarkets;
+    mapping(bytes32 => SolanaIdentity) public solanaIdentityOf;
+    mapping(bytes32 => bool) public solanaCollateral;
+    mapping(bytes32 => bytes32) public solanaLockPdaOf;
     uint256 public healthMaxAge = 1 days;
 
     event RemoteActionAuthorized(bytes32 indexed creditId, bytes32 indexed actionHash, uint8 kind);
     event RemoteSeizureConfirmed(bytes32 indexed creditId, bytes32 indexed actionHash, uint256 amount);
+    event RemoteSeizureCancelled(bytes32 indexed creditId, bytes32 indexed actionHash);
+    event RemoteReturnCancelled(bytes32 indexed creditId, bytes32 indexed actionHash);
+    event SourceRecoveryReturnAuthorized(
+        bytes32 indexed creditId, bytes32 indexed actionHash, address indexed owner,
+        uint256 amount, uint256 nonce, uint256 deadline
+    );
     event LocalSalePolicySet(bytes32 indexed marketId, address indexed collateralAsset, address indexed settlementAsset);
     event LocalSalePolicyDisabled(bytes32 indexed marketId);
     event LocalCollateralVaultSet(address indexed vault, address indexed asset, bytes32 codeHash);
     event LocalCollateralSold(bytes32 indexed creditId, address indexed buyer, uint256 collateralAmount, uint256 settlementAmount);
+    event SolanaMarketSet(uint256 indexed sourceChain, bytes32 indexed sourceGenesis, bytes32 programId);
+    event RemoteSalePolicySet(bytes32 indexed marketId, uint256 indexed sourceChain, address indexed collateralAsset);
+    event RemoteSalePolicyDisabled(bytes32 indexed marketId);
 
     error Expired();
     error Unauthorized();
@@ -300,6 +377,12 @@ contract TermbookCore is ITermbookCore {
     uint256 private constant BPS = 10_000;
     uint256 private constant MINIMUM_SALE_PRICE_BPS = 9_000;
     uint256 private constant YEAR = 365 days;
+    bytes32 private constant SOLANA_ALIAS_DOMAIN = keccak256("Termbook Solana alias v1");
+    bytes32 private constant SOLANA_QUOTE_DOMAIN = keccak256("Termbook Solana quote v1");
+    bytes32 private constant SOLANA_LOCK_DOMAIN = keccak256("Termbook Solana lock v1");
+    bytes32 private constant SOLANA_ACTION_DOMAIN = keccak256("Termbook Solana action v1");
+    bytes32 private constant SOURCE_RECOVERY_RETURN_DOMAIN = keccak256("Termbook source recovery return v1");
+    bytes32 public constant SOLANA_NATIVE_ASSET_ID = 0x0101010101010101010101010101010101010101010101010101010101010101;
 
     modifier nonReentrant() {
         if (entered) revert Frozen();
@@ -434,6 +517,109 @@ contract TermbookCore is ITermbookCore {
         emit LocalSalePolicyDisabled(marketId);
     }
 
+    function remoteSaleMarketId(uint256 sourceChain, address collateralAsset, address settlementAsset)
+        public
+        pure
+        returns (bytes32)
+    {
+        return keccak256(abi.encode(sourceChain, collateralAsset, settlementAsset));
+    }
+
+    function setRemoteSalePolicy(
+        uint256 sourceChain,
+        address collateralAsset,
+        address settlementAsset,
+        address oracleRegistry,
+        bytes32 priceId,
+        uint8 collateralDecimals,
+        uint16 minimumPriceBps,
+        uint128 maxCollateralPerRoute
+    ) external onlyGovernance {
+        bytes32 marketId = remoteSaleMarketId(sourceChain, collateralAsset, settlementAsset);
+        if (
+            sourceChain == 0 || sourceChain == block.chainid || collateralAsset == address(0)
+                || sourceCollateralVault[sourceChain][collateralAsset] == address(0)
+                || sourceRecoveryVault[sourceChain][collateralAsset] == address(0)
+                || settlementAsset.code.length == 0 || oracleRegistry.code.length == 0 || priceId == bytes32(0)
+                || collateralDecimals > 18 || minimumPriceBps < MINIMUM_SALE_PRICE_BPS
+                || minimumPriceBps > BPS || maxCollateralPerRoute == 0
+                || remoteSalePolicies[marketId].active
+        ) revert InvalidCollateral();
+        uint8 settlementDecimals = _tokenDecimals(settlementAsset);
+        if (settlementDecimals > 18) revert InvalidCollateral();
+        (uint256 price,,) = IOracleRegistrySaleCore(oracleRegistry).read(priceId);
+        if (price == 0 || price > type(uint128).max) revert InvalidCollateral();
+        remoteSalePolicies[marketId] = RemoteSalePolicy({
+            oracleRegistry: oracleRegistry,
+            priceId: priceId,
+            minimumPriceBps: minimumPriceBps,
+            collateralDecimals: collateralDecimals,
+            settlementDecimals: settlementDecimals,
+            maxCollateralPerRoute: maxCollateralPerRoute,
+            settlementCodeHash: settlementAsset.codehash,
+            oracleCodeHash: oracleRegistry.codehash,
+            active: true
+        });
+        emit RemoteSalePolicySet(marketId, sourceChain, collateralAsset);
+    }
+
+    function disableRemoteSalePolicy(uint256 sourceChain, address collateralAsset, address settlementAsset)
+        external
+        onlyGovernance
+    {
+        bytes32 marketId = remoteSaleMarketId(sourceChain, collateralAsset, settlementAsset);
+        if (!remoteSalePolicies[marketId].active) revert InvalidCollateral();
+        remoteSalePolicies[marketId].active = false;
+        emit RemoteSalePolicyDisabled(marketId);
+    }
+
+    function _requireRemoteSalePolicy(uint256 sourceChain, address collateralAsset, address settlementAsset)
+        internal
+        view
+        returns (uint256 price)
+    {
+        RemoteSalePolicy storage policy =
+            remoteSalePolicies[remoteSaleMarketId(sourceChain, collateralAsset, settlementAsset)];
+        if (
+            !policy.active || policy.oracleRegistry.code.length == 0
+                || policy.oracleRegistry.codehash != policy.oracleCodeHash
+                || settlementAsset.codehash != policy.settlementCodeHash
+                || _tokenDecimals(settlementAsset) != policy.settlementDecimals
+                || policy.priceId == bytes32(0) || policy.maxCollateralPerRoute == 0
+        ) revert InvalidCollateral();
+        try IOracleRegistrySaleCore(policy.oracleRegistry).read(policy.priceId) returns (
+            uint256 value, uint256 updatedAt, uint80 roundId
+        ) {
+            if (value == 0 || value > type(uint128).max || updatedAt == 0 || updatedAt > block.timestamp || roundId == 0)
+            {
+                revert InvalidCollateral();
+            }
+            price = value;
+        } catch {
+            revert InvalidCollateral();
+        }
+    }
+
+    function minimumRemoteRecoveryProceeds(bytes32 creditId, uint256 collateralAmount)
+        external
+        view
+        returns (uint256)
+    {
+        Credit storage c = _credits[creditId];
+        if (!remoteCollateral[creditId] || collateralAmount == 0 || c.vault == address(0)) {
+            revert InvalidCollateral();
+        }
+        address settlementAsset = IHouseVaultCore(c.vault).asset();
+        RemoteSalePolicy storage policy = remoteSalePolicies[
+            remoteSaleMarketId(collateralSourceChainOf[creditId], c.collateralAsset, settlementAsset)
+        ];
+        if (collateralAmount > policy.maxCollateralPerRoute) revert InvalidCollateral();
+        uint256 price = _requireRemoteSalePolicy(collateralSourceChainOf[creditId], c.collateralAsset, settlementAsset);
+        uint256 fairValue = _mulDivUp(collateralAmount, price, 10 ** policy.collateralDecimals);
+        uint256 fairSettlement = _mulDivUp(fairValue, 10 ** policy.settlementDecimals, 1e18);
+        return _mulDivUp(fairSettlement, policy.minimumPriceBps, BPS);
+    }
+
     function _tokenDecimals(address token) internal view returns (uint8 decimals_) {
         (bool ok, bytes memory data) = token.staticcall(abi.encodeWithSignature("decimals()"));
         if (!ok || data.length < 32) revert InvalidCollateral();
@@ -461,12 +647,53 @@ contract TermbookCore is ITermbookCore {
         if (sourceChain == 0 || sourceChain == block.chainid || asset == address(0) || recoveryVault == address(0)) {
             revert InvalidAuthority();
         }
+        if (solanaMarkets[sourceChain].sourceGenesis != bytes32(0)) revert InvalidAuthority();
         sourceRecoveryVault[sourceChain][asset] = recoveryVault;
     }
 
     function setSourceCollateralVault(uint256 sourceChain, address asset, address collateralVault) external onlyGovernance {
         if (sourceChain == 0 || sourceChain == block.chainid || asset == address(0)) revert InvalidAuthority();
+        if (solanaMarkets[sourceChain].sourceGenesis != bytes32(0)) revert InvalidAuthority();
         sourceCollateralVault[sourceChain][asset] = collateralVault;
+    }
+
+    function solanaAlias(bytes32 sourceGenesis, bytes32 identity) public pure returns (address) {
+        return address(uint160(uint256(keccak256(abi.encode(SOLANA_ALIAS_DOMAIN, sourceGenesis, identity)))));
+    }
+
+    function recoveryRefundRecipientOf(bytes32 creditId) external view returns (address) {
+        return solanaCollateral[creditId] ? _credits[creditId].borrower : collateralOwnerOf[creditId];
+    }
+
+    function setSolanaMarket(
+        uint256 sourceChain,
+        bytes32 sourceGenesis,
+        bytes32 programId,
+        bytes32 recoveryVault
+    ) external onlyGovernance {
+        if (
+            sourceChain == 0 || sourceChain == block.chainid || sourceGenesis == bytes32(0)
+                || programId == bytes32(0) || recoveryVault == bytes32(0)
+                || solanaMarkets[sourceChain].sourceGenesis != bytes32(0)
+        ) revert InvalidAuthority();
+        address assetAlias = solanaAlias(sourceGenesis, SOLANA_NATIVE_ASSET_ID);
+        address vaultAlias = solanaAlias(sourceGenesis, programId);
+        address recoveryAlias = solanaAlias(sourceGenesis, recoveryVault);
+        if (
+            sourceCollateralVault[sourceChain][assetAlias] != address(0)
+                || sourceRecoveryVault[sourceChain][assetAlias] != address(0)
+        ) revert InvalidAuthority();
+        solanaMarkets[sourceChain] = SolanaMarket(
+            sourceGenesis, programId, SOLANA_NATIVE_ASSET_ID, recoveryVault, true
+        );
+        sourceCollateralVault[sourceChain][assetAlias] = vaultAlias;
+        sourceRecoveryVault[sourceChain][assetAlias] = recoveryAlias;
+        emit SolanaMarketSet(sourceChain, sourceGenesis, programId);
+    }
+
+    function disableSolanaMarket(uint256 sourceChain) external onlyGovernance {
+        if (!solanaMarkets[sourceChain].active) revert InvalidAuthority();
+        solanaMarkets[sourceChain].active = false;
     }
 
     function setPaused(bool value) external {
@@ -615,6 +842,22 @@ contract TermbookCore is ITermbookCore {
                 quote.aprBps,
                 quote.originationFee,
                 quote.commitmentFeeBps
+            )
+        );
+    }
+
+    function solanaQuoteDigest(Types.SolanaQuote calldata quote) public view returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                SOLANA_QUOTE_DOMAIN,
+                quoteDigestFull(quote.quote),
+                quote.sourceGenesis,
+                quote.sourceVault,
+                quote.sourceAsset,
+                quote.sourceOwner,
+                quote.returnRecipient,
+                quote.recoveryVault,
+                quote.verifierVersion
             )
         );
     }
@@ -835,6 +1078,69 @@ contract TermbookCore is ITermbookCore {
         }
     }
 
+    function acceptSolanaQuote(Types.SolanaQuote calldata solana) external nonReentrant {
+        Types.Quote calldata quote = solana.quote;
+        SolanaMarket storage market = solanaMarkets[quote.sourceChain];
+        if (
+            !market.active || market.sourceGenesis != solana.sourceGenesis
+                || market.programId != solana.sourceVault || market.sourceAsset != solana.sourceAsset
+                || market.recoveryVault != solana.recoveryVault || solana.sourceOwner == bytes32(0)
+                || solana.returnRecipient == bytes32(0) || solana.verifierVersion == 0
+                || quote.collateralAmount == 0 || quote.collateralAmount > type(uint64).max
+                || quote.setupDeadline > uint256(uint64(type(int64).max))
+                || block.chainid > type(uint64).max
+                || quote.collateralVault != solanaAlias(solana.sourceGenesis, solana.sourceVault)
+                || quote.collateralAsset != solanaAlias(solana.sourceGenesis, solana.sourceAsset)
+                || quote.owner != solanaAlias(solana.sourceGenesis, solana.sourceOwner)
+                || quote.returnRecipient != solanaAlias(solana.sourceGenesis, solana.returnRecipient)
+                || quote.settlementAsset != _vaultAsset(quote.vault)
+                || !AuthLib.verify(solanaQuoteDigest(solana), quote.signature, quote.house)
+        ) revert InvalidCollateral();
+        bytes32 creditId = keccak256(abi.encode(quote.intentId, quote.borrower, quote.house, quote.nonce));
+        AcceptParams memory p = AcceptParams(
+            creditId,
+            quote.intentId,
+            quote.borrower,
+            quote.house,
+            quote.vault,
+            quote.limit,
+            quote.maturity,
+            quote.revolving,
+            quote.bundleId,
+            quote.setupDeadline,
+            quote.gracePeriod,
+            quote.reservationBond,
+            quote.termsHash,
+            quote.nonce,
+            quote.expiry,
+            quote.signature,
+            quote.aprBps,
+            quote.originationFee,
+            quote.commitmentFeeBps
+        );
+        _accept(p, true, false);
+        solanaCollateral[creditId] = true;
+        _setQuotedCollateral(
+            creditId,
+            quote.owner,
+            quote.sourceChain,
+            quote.collateralVault,
+            quote.collateralAsset,
+            quote.collateralAmount,
+            quote.returnRecipient
+        );
+        if (_credits[creditId].verifierVersion != solana.verifierVersion) revert InvalidCollateral();
+        solanaIdentityOf[creditId] = SolanaIdentity(
+            solana.sourceGenesis,
+            solana.sourceVault,
+            solana.sourceAsset,
+            solana.sourceOwner,
+            solana.returnRecipient,
+            solana.recoveryVault,
+            solana.verifierVersion
+        );
+    }
+
     function _accept(AcceptParams memory p, bool fullDigest, bool termsDigest) internal {
         if (paused) revert Frozen();
         if (msg.sender != p.borrower) revert Unauthorized();
@@ -1009,6 +1315,7 @@ contract TermbookCore is ITermbookCore {
         bool remote = sourceChain != block.chainid;
         if (
             collateralVault == address(0) || collateralAsset == address(0)
+                || (solanaMarkets[sourceChain].sourceGenesis != bytes32(0) && !solanaCollateral[creditId])
                 || (remote && sourceCollateralVault[sourceChain][collateralAsset] != collateralVault)
                 || (!remote && _requireLocalCollateralVault(collateralVault) != collateralAsset)
         ) revert InvalidCollateral();
@@ -1023,6 +1330,7 @@ contract TermbookCore is ITermbookCore {
         c.returnRecipient = returnRecipient;
         remoteCollateral[creditId] = remote;
         if (remote) {
+            _requireRemoteSalePolicy(sourceChain, collateralAsset, IHouseVaultCore(c.vault).asset());
             _pinVerifier(c, sourceChain);
             _pinRemoteRecovery(creditId, sourceChain, collateralAsset);
         }
@@ -1056,12 +1364,14 @@ contract TermbookCore is ITermbookCore {
         address owner,
         address returnRecipient
     ) external {
+        if (solanaMarkets[sourceChain].sourceGenesis != bytes32(0)) revert InvalidCollateral();
         if (sourceCollateralVault[sourceChain][collateralAsset] != collateralVault) revert InvalidCollateral();
         _setCollateral(creditId, msg.sender, returnRecipient, collateralVault, owner, true, sourceChain);
         if (sourceChain == 0 || sourceChain == block.chainid || collateralAsset == address(0) || collateralAmount == 0) revert InvalidCollateral();
         Credit storage c = _credits[creditId];
         c.collateralAsset = collateralAsset;
         c.collateralAmount = collateralAmount;
+        _requireRemoteSalePolicy(sourceChain, collateralAsset, IHouseVaultCore(c.vault).asset());
         _pinRemoteRecovery(creditId, sourceChain, collateralAsset);
     }
 
@@ -1102,10 +1412,26 @@ contract TermbookCore is ITermbookCore {
         Credit storage c = _credits[creditId];
         if (msg.sender != c.borrower) revert Unauthorized();
         if (
-            c.facility != Types.Facility.CollateralLocking || !remoteCollateral[creditId] || c.collateralBound
+            c.facility != Types.Facility.CollateralLocking || !remoteCollateral[creditId] || solanaCollateral[creditId]
+                || c.collateralBound
                 || lockId == bytes32(0)
         ) revert InvalidCollateral();
         c.lockId = lockId;
+        c.collateralBound = true;
+        c.facility = Types.Facility.CollateralProving;
+        lockBound[creditId][lockId] = true;
+        c.revision = RevisionLib.next(c.revision);
+    }
+
+    function bindSolanaCollateral(bytes32 creditId, bytes32 lockId, bytes32 lockPda) external {
+        Credit storage c = _credits[creditId];
+        if (msg.sender != c.borrower) revert Unauthorized();
+        if (
+            c.facility != Types.Facility.CollateralLocking || !solanaCollateral[creditId]
+                || c.collateralBound || lockId == bytes32(0) || lockPda == bytes32(0)
+        ) revert InvalidCollateral();
+        c.lockId = lockId;
+        solanaLockPdaOf[creditId] = lockPda;
         c.collateralBound = true;
         c.facility = Types.Facility.CollateralProving;
         lockBound[creditId][lockId] = true;
@@ -1128,6 +1454,7 @@ contract TermbookCore is ITermbookCore {
             c.facility != Types.Facility.Aborted || c.collateralBound || lockId == bytes32(0) || sourceChain == 0
                 || sourceChain == block.chainid || collateralVault == address(0) || collateralAsset == address(0)
                 || collateralAmount == 0 || owner == address(0) || returnRecipient == address(0)
+                || solanaMarkets[sourceChain].sourceGenesis != bytes32(0)
                 || sourceCollateralVault[sourceChain][collateralAsset] != collateralVault
         ) revert InvalidCollateral();
         if (returnRecipient != c.returnRecipient && c.returnRecipient != address(0)) revert InvalidCollateral();
@@ -1208,6 +1535,7 @@ contract TermbookCore is ITermbookCore {
         nonReentrant
     {
         Credit storage c = _credits[creditId];
+        if (solanaCollateral[creditId]) revert InvalidCollateral();
         if (
             (c.facility != Types.Facility.CollateralProving && c.facility != Types.Facility.Aborted)
                 || !c.collateralBound || verifierRegistry == address(0)
@@ -1251,6 +1579,71 @@ contract TermbookCore is ITermbookCore {
         if (c.facility != Types.Facility.Aborted) _maybeReady(c, creditId);
     }
 
+    function solanaLockDigest(bytes32 creditId) public view returns (bytes32) {
+        Credit storage c = _credits[creditId];
+        SolanaIdentity storage identity = solanaIdentityOf[creditId];
+        if (!solanaCollateral[creditId] || c.lockId == bytes32(0) || solanaLockPdaOf[creditId] == bytes32(0)) {
+            revert InvalidCollateral();
+        }
+        return keccak256(
+            abi.encode(
+                SOLANA_LOCK_DOMAIN,
+                creditId,
+                c.lockId,
+                identity.sourceGenesis,
+                identity.programId,
+                solanaLockPdaOf[creditId],
+                identity.sourceAsset,
+                identity.sourceOwner,
+                c.borrower,
+                identity.returnRecipient,
+                identity.recoveryVault,
+                block.chainid,
+                address(this),
+                c.collateralAmount,
+                c.setupDeadline,
+                c.termsHash,
+                identity.verifierVersion
+            )
+        );
+    }
+
+    function _pinnedSolanaVerifier(Credit storage c, bytes32 creditId) internal view returns (address impl) {
+        if (!solanaCollateral[creditId] || verifierRegistry == address(0)) revert InvalidCollateral();
+        uint256 version;
+        bool active;
+        bytes32 codeHash;
+        (impl, version, active,, codeHash) =
+            IVerifierRegistryCore(verifierRegistry).verifiers(collateralSourceChainOf[creditId]);
+        if (
+            !active || impl.code.length == 0 || c.verifierVersion == 0
+                || version != c.verifierVersion || codeHash != c.verifierCodeHash
+                || impl.codehash != c.verifierCodeHash
+        ) revert InvalidCollateral();
+    }
+
+    function proveSolanaCollateral(bytes32 creditId, bytes calldata header, bytes calldata proof)
+        external
+        nonReentrant
+    {
+        Credit storage c = _credits[creditId];
+        if (
+            (c.facility != Types.Facility.CollateralProving && c.facility != Types.Facility.Aborted)
+                || !c.collateralBound
+        ) revert InvalidCollateral();
+        address impl = _pinnedSolanaVerifier(c, creditId);
+        SolanaIdentity storage identity = solanaIdentityOf[creditId];
+        try ISolanaVerifierCore(impl).verifySolanaLock(
+            header, proof, identity.sourceGenesis, identity.programId, solanaLockDigest(creditId)
+        ) returns (bool verified) {
+            if (!verified) revert InvalidCollateral();
+        } catch {
+            revert InvalidCollateral();
+        }
+        collateralProven[creditId] = true;
+        if (c.facility != Types.Facility.Aborted) _maybeReady(c, creditId);
+    }
+
     function bindAccount(bytes32 creditId, address account) external nonReentrant {
         Credit storage c = _credits[creditId];
         if (msg.sender != c.borrower) revert Unauthorized();
@@ -1278,6 +1671,11 @@ contract TermbookCore is ITermbookCore {
             block.timestamp <= c.setupDeadline && c.account != address(0) && c.collateralBound
                 && collateralProven[creditId]
         ) {
+            if (remoteCollateral[creditId]) {
+                _requireRemoteSalePolicy(
+                    collateralSourceChainOf[creditId], c.collateralAsset, IHouseVaultCore(c.vault).asset()
+                );
+            }
             _settleBond(c, creditId);
             c.facility = Types.Facility.Ready;
             c.payment = Types.Payment.Current;
@@ -1397,10 +1795,15 @@ contract TermbookCore is ITermbookCore {
             if (amount > available) revert InvalidCollateral();
             pendingRemoteReturn[creditId] += amount;
             uint256 nonce = ++remoteActionNonce[creditId];
-            bytes32 actionHash = RemoteAction.hash(_remoteAction(
-                c, creditId, RemoteAction.RELEASE, c.returnRecipient, amount, nonce, type(uint256).max
-            ));
+            uint256 deadline = solanaCollateral[creditId]
+                ? uint256(uint64(type(int64).max)) : block.timestamp + 7 days;
+            bytes32 actionHash = solanaCollateral[creditId]
+                ? solanaActionHash(creditId, RemoteAction.RELEASE, amount, nonce, deadline)
+                : RemoteAction.hash(_remoteAction(
+                    c, creditId, RemoteAction.RELEASE, c.returnRecipient, amount, nonce, deadline
+                ));
             remoteReturnActionHash[creditId] = actionHash;
+            remoteReturnDeadline[creditId] = deadline;
             c.revision = RevisionLib.next(c.revision);
             emit Events.RemoteReturnRequested(creditId, lockId, amount, c.returnRecipient);
             emit RemoteActionAuthorized(creditId, actionHash, RemoteAction.RELEASE);
@@ -1441,6 +1844,40 @@ contract TermbookCore is ITermbookCore {
         });
     }
 
+    function solanaActionHash(bytes32 creditId, uint8 kind, uint256 amount, uint256 nonce, uint256 deadline)
+        public
+        view
+        returns (bytes32)
+    {
+        Credit storage c = _credits[creditId];
+        SolanaIdentity storage identity = solanaIdentityOf[creditId];
+        if (
+            !solanaCollateral[creditId] || c.lockId == bytes32(0) || solanaLockPdaOf[creditId] == bytes32(0)
+                || kind > RemoteAction.SEIZE || amount == 0 || amount > type(uint64).max
+                || nonce == 0 || nonce > type(uint64).max || deadline > uint256(uint64(type(int64).max))
+        ) revert InvalidCollateral();
+        bytes32 recipient = kind == RemoteAction.RELEASE ? identity.returnRecipient : identity.recoveryVault;
+        return keccak256(
+            abi.encode(
+                SOLANA_ACTION_DOMAIN,
+                block.chainid,
+                address(this),
+                identity.sourceGenesis,
+                identity.programId,
+                solanaLockPdaOf[creditId],
+                creditId,
+                c.lockId,
+                identity.sourceAsset,
+                kind,
+                recipient,
+                amount,
+                nonce,
+                deadline,
+                identity.verifierVersion
+            )
+        );
+    }
+
     function authorizeRemoteSeizure(bytes32 creditId, uint256 amount, uint256 deadline) external nonReentrant {
         Credit storage c = _credits[creditId];
         if (!recoveryKeepers[msg.sender]) revert Unauthorized();
@@ -1454,12 +1891,15 @@ contract TermbookCore is ITermbookCore {
         address destination = remoteRecoveryVaultOf[creditId];
         if (destination == address(0)) revert InvalidCollateral();
         uint256 nonce = ++remoteActionNonce[creditId];
-        bytes32 actionHash = RemoteAction.hash(_remoteAction(
-            c, creditId, RemoteAction.SEIZE, destination, amount, nonce, deadline
-        ));
+        bytes32 actionHash = solanaCollateral[creditId]
+            ? solanaActionHash(creditId, RemoteAction.SEIZE, amount, nonce, deadline)
+            : RemoteAction.hash(_remoteAction(
+                c, creditId, RemoteAction.SEIZE, destination, amount, nonce, deadline
+            ));
         pendingRemoteSeizure[creditId] = amount;
         remoteSeizureActionHash[creditId] = actionHash;
         remoteSeizureRecipient[creditId] = destination;
+        remoteSeizureDeadline[creditId] = deadline;
         c.revision = RevisionLib.next(c.revision);
         emit RemoteActionAuthorized(creditId, actionHash, RemoteAction.SEIZE);
     }
@@ -1472,11 +1912,15 @@ contract TermbookCore is ITermbookCore {
                 || !remoteCollateral[creditId] || pendingRemoteReturn[creditId] == 0 || verifierRegistry == address(0)
         ) revert Pending();
         uint256 amount = pendingRemoteReturn[creditId];
-        _verifyRemoteEvent(c, creditId, header, proof, keccak256(abi.encode(
-            remoteReturnActionHash[creditId], c.lockId, c.returnRecipient, amount, RemoteAction.RELEASE
-        )));
+        bytes32 eventDigest = solanaCollateral[creditId]
+            ? remoteReturnActionHash[creditId]
+            : keccak256(abi.encode(
+                remoteReturnActionHash[creditId], c.lockId, c.returnRecipient, amount, RemoteAction.RELEASE
+            ));
+        _verifyRemoteEvent(c, creditId, header, proof, eventDigest);
         pendingRemoteReturn[creditId] = 0;
         remoteReturnActionHash[creditId] = bytes32(0);
+        remoteReturnDeadline[creditId] = 0;
         c.collateralAmount -= amount;
         if (c.collateralAmount == 0) {
             c.collateralReturned = true;
@@ -1501,17 +1945,145 @@ contract TermbookCore is ITermbookCore {
         ) revert Pending();
         uint256 amount = pendingRemoteSeizure[creditId];
         address recipient = remoteSeizureRecipient[creditId];
-        _verifyRemoteEvent(c, creditId, header, proof, keccak256(abi.encode(
-            remoteSeizureActionHash[creditId], c.lockId, recipient, amount, RemoteAction.SEIZE
-        )));
+        bytes32 eventDigest = solanaCollateral[creditId]
+            ? remoteSeizureActionHash[creditId]
+            : keccak256(abi.encode(
+                remoteSeizureActionHash[creditId], c.lockId, recipient, amount, RemoteAction.SEIZE
+            ));
+        _verifyRemoteEvent(c, creditId, header, proof, eventDigest);
         bytes32 actionHash = remoteSeizureActionHash[creditId];
         pendingRemoteSeizure[creditId] = 0;
         remoteSeizureActionHash[creditId] = bytes32(0);
         remoteSeizureRecipient[creditId] = address(0);
+        remoteSeizureDeadline[creditId] = 0;
+        remoteSeizureConfirmed[creditId] = true;
         c.collateralAmount -= amount;
         c.facility = Types.Facility.RecoveryPending;
         c.revision = RevisionLib.next(c.revision);
         emit RemoteSeizureConfirmed(creditId, actionHash, amount);
+    }
+
+    function cancelExpiredRemoteSeizure(bytes32 creditId, bytes calldata header, bytes calldata proof)
+        external nonReentrant
+    {
+        Credit storage c = _credits[creditId];
+        bytes32 actionHash = remoteSeizureActionHash[creditId];
+        uint256 deadline = remoteSeizureDeadline[creditId];
+        if (
+            !remoteCollateral[creditId] || solanaCollateral[creditId]
+                || collateralSourceChainOf[creditId] != 1 || pendingRemoteSeizure[creditId] == 0
+                || actionHash == bytes32(0) || deadline == 0 || block.timestamp <= deadline
+                || verifierRegistry == address(0)
+        ) revert Pending();
+        (address impl, uint256 version, bool active,, bytes32 codeHash) =
+            IVerifierRegistryCore(verifierRegistry).verifiers(1);
+        if (
+            !active || impl.code.length == 0 || c.verifierVersion == 0
+                || version != c.verifierVersion || codeHash != c.verifierCodeHash
+                || impl.codehash != c.verifierCodeHash
+        ) revert InvalidCollateral();
+        address controller;
+        try IUnconsumedRemoteActionVerifier(impl).sourceController() returns (address configured) {
+            controller = configured;
+        } catch {
+            revert InvalidCollateral();
+        }
+        if (controller == address(0)) revert InvalidCollateral();
+        try IUnconsumedRemoteActionVerifier(impl).sourceVault() returns (address configured) {
+            if (configured != c.collateralVault) revert InvalidCollateral();
+        } catch {
+            revert InvalidCollateral();
+        }
+        try IUnconsumedRemoteActionVerifier(impl).verifyUnconsumedAction(
+            header, proof, controller, actionHash, deadline
+        ) returns (bool verified) {
+            if (!verified) revert InvalidCollateral();
+        } catch {
+            revert InvalidCollateral();
+        }
+        pendingRemoteSeizure[creditId] = 0;
+        remoteSeizureActionHash[creditId] = bytes32(0);
+        remoteSeizureRecipient[creditId] = address(0);
+        remoteSeizureDeadline[creditId] = 0;
+        c.revision = RevisionLib.next(c.revision);
+        emit RemoteSeizureCancelled(creditId, actionHash);
+    }
+
+    function cancelExpiredRemoteReturn(bytes32 creditId, bytes calldata header, bytes calldata proof)
+        external nonReentrant
+    {
+        Credit storage c = _credits[creditId];
+        bytes32 actionHash = remoteReturnActionHash[creditId];
+        uint256 deadline = remoteReturnDeadline[creditId];
+        if (
+            !remoteCollateral[creditId] || solanaCollateral[creditId]
+                || collateralSourceChainOf[creditId] != 1 || pendingRemoteReturn[creditId] == 0
+                || actionHash == bytes32(0) || deadline == 0 || block.timestamp <= deadline
+                || verifierRegistry == address(0)
+        ) revert Pending();
+        (address impl, uint256 version, bool active,, bytes32 codeHash) =
+            IVerifierRegistryCore(verifierRegistry).verifiers(1);
+        if (
+            !active || impl.code.length == 0 || c.verifierVersion == 0
+                || version != c.verifierVersion || codeHash != c.verifierCodeHash
+                || impl.codehash != c.verifierCodeHash
+        ) revert InvalidCollateral();
+        address controller;
+        try IUnconsumedRemoteActionVerifier(impl).sourceController() returns (address configured) {
+            controller = configured;
+        } catch {
+            revert InvalidCollateral();
+        }
+        if (controller == address(0)) revert InvalidCollateral();
+        try IUnconsumedRemoteActionVerifier(impl).sourceVault() returns (address configured) {
+            if (configured != c.collateralVault) revert InvalidCollateral();
+        } catch {
+            revert InvalidCollateral();
+        }
+        try IUnconsumedRemoteActionVerifier(impl).verifyUnconsumedAction(
+            header, proof, controller, actionHash, deadline
+        ) returns (bool verified) {
+            if (!verified) revert InvalidCollateral();
+        } catch {
+            revert InvalidCollateral();
+        }
+        pendingRemoteReturn[creditId] = 0;
+        remoteReturnActionHash[creditId] = bytes32(0);
+        remoteReturnDeadline[creditId] = 0;
+        c.revision = RevisionLib.next(c.revision);
+        emit RemoteReturnCancelled(creditId, actionHash);
+    }
+
+    function sourceRecoveryReturnHash(bytes32 creditId, uint256 amount, uint256 nonce, uint256 deadline)
+        public view returns (bytes32)
+    {
+        Credit storage c = _credits[creditId];
+        return keccak256(abi.encode(
+            SOURCE_RECOVERY_RETURN_DOMAIN, block.chainid, address(this), collateralSourceChainOf[creditId],
+            remoteRecoveryVaultOf[creditId], creditId, c.collateralAsset, collateralOwnerOf[creditId],
+            amount, nonce, deadline
+        ));
+    }
+
+    function authorizeSourceRecoveryReturn(bytes32 creditId, uint256 amount, uint256 deadline)
+        external nonReentrant returns (bytes32 actionHash)
+    {
+        Credit storage c = _credits[creditId];
+        address owner = collateralOwnerOf[creditId];
+        if (msg.sender != c.borrower && msg.sender != owner) revert Unauthorized();
+        if (
+            !remoteCollateral[creditId] || solanaCollateral[creditId] || !remoteSeizureConfirmed[creditId]
+                || c.debt != 0
+                || pendingRemoteSeizure[creditId] != 0
+                || (c.facility != Types.Facility.RecoveryPending && c.facility != Types.Facility.Liquidated)
+                || remoteRecoveryVaultOf[creditId] == address(0) || owner == address(0)
+                || amount == 0 || deadline <= block.timestamp || deadline > block.timestamp + 7 days
+        ) revert BadState();
+        uint256 nonce = ++remoteActionNonce[creditId];
+        actionHash = sourceRecoveryReturnHash(creditId, amount, nonce, deadline);
+        c.revision = RevisionLib.next(c.revision);
+        emit SourceRecoveryReturnAuthorized(creditId, actionHash, owner, amount, nonce, deadline);
+        emit RemoteActionAuthorized(creditId, actionHash, RemoteAction.RELEASE);
     }
 
     function _verifyRemoteEvent(
@@ -1521,6 +2093,23 @@ contract TermbookCore is ITermbookCore {
         bytes calldata proof,
         bytes32 eventDigest
     ) internal view {
+        if (solanaCollateral[creditId]) {
+            address solanaVerifier = _pinnedSolanaVerifier(c, creditId);
+            SolanaIdentity storage identity = solanaIdentityOf[creditId];
+            try ISolanaVerifierCore(solanaVerifier).verifySolanaAction(
+                header,
+                proof,
+                identity.sourceGenesis,
+                identity.programId,
+                solanaLockPdaOf[creditId],
+                eventDigest
+            ) returns (bool verified) {
+                if (!verified) revert InvalidCollateral();
+            } catch {
+                revert InvalidCollateral();
+            }
+            return;
+        }
         if (verifierRegistry == address(0)) revert InvalidCollateral();
         (address impl, uint256 version, bool active,, bytes32 codeHash) =
             IVerifierRegistryCore(verifierRegistry).verifiers(collateralSourceChainOf[creditId]);
@@ -1726,7 +2315,9 @@ contract TermbookCore is ITermbookCore {
         bool checkBeforeDraw
     ) internal {
         if (amount == 0 || amount > maxBound) revert OverLimit();
-        if (!remoteCollateral[creditId] && _requireLocalCollateralVault(c.collateralVault) != c.collateralAsset) {
+        if (remoteCollateral[creditId]) {
+            _requireRemoteSalePolicy(collateralSourceChainOf[creditId], c.collateralAsset, IHouseVaultCore(c.vault).asset());
+        } else if (_requireLocalCollateralVault(c.collateralVault) != c.collateralAsset) {
             revert InvalidCollateral();
         }
         _accrue(c, creditId);
@@ -2038,7 +2629,11 @@ contract TermbookCore is ITermbookCore {
     function cure(bytes32 creditId) external nonReentrant {
         Credit storage c = _credits[creditId];
         if (c.facility != Types.Facility.RecoveryPending) revert BadState();
-        if (block.timestamp >= c.maturity || c.payment == Types.Payment.Defaulted || c.recoveryFinalized || pendingRemoteSeizure[creditId] != 0) {
+        if (
+            block.timestamp >= c.maturity || c.payment == Types.Payment.Defaulted || c.recoveryFinalized
+                || pendingRemoteSeizure[creditId] != 0 || pendingRemoteReturn[creditId] != 0
+                || remoteSeizureConfirmed[creditId]
+        ) {
             revert BadState();
         }
         _accrue(c, creditId);

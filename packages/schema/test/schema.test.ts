@@ -3,6 +3,7 @@ import { collateralSelectSchema } from "../src/intent.js";
 import { quoteSchema } from "../src/quote.js";
 import { operationSchema } from "../src/settlement.js";
 import { collateralSetupBindingSchema, NATIVE_SOL_ASSET_BYTES } from "../src/collateral-setup.js";
+import { solanaIntentCollateralSchema } from "../src/intent.js";
 
 describe("schema", () => {
   it("rejects bad address", () => {
@@ -65,8 +66,14 @@ describe("schema", () => {
       asset: { namespace: "solana", reference: solana.reference, kind: "native", assetBytes: NATIVE_SOL_ASSET_BYTES },
       owner: solana,
       returnRecipient: solana,
+      recoveryVault: { ...solana, accountBytes: `0x${"8".repeat(64)}` },
+      sourceChainId: 1001,
+      verifierVersion: 1n,
     };
     expect(collateralSetupBindingSchema.parse(solanaBinding).asset.namespace).toBe("solana");
+    expect(solanaIntentCollateralSchema.parse({ chain: { namespace: "solana", reference: solana.reference }, asset: solanaBinding.asset, owner: solana, returnRecipient: solana, amount: "1" }).amount).toBe("1");
+    expect(() => solanaIntentCollateralSchema.parse({ chain: { namespace: "solana", reference: `0x${"e".repeat(64)}` }, asset: solanaBinding.asset, owner: solana, returnRecipient: solana, amount: "1" })).toThrow();
+    expect(() => collateralSetupBindingSchema.parse({ ...solanaBinding, recoveryVault: undefined })).toThrow();
     expect(() => collateralSetupBindingSchema.parse({ ...solanaBinding, asset: { ...solanaBinding.asset, assetBytes: `0x${"8".repeat(64)}` } })).toThrow();
     expect(() => collateralSetupBindingSchema.parse({ ...solanaBinding, owner: { ...solana, accountBytes: `0x${"0".repeat(64)}` } })).toThrow();
     expect(() => collateralSetupBindingSchema.parse({ ...solanaBinding, owner: { ...solana, accountBytes: `0x${"9".repeat(40)}` } })).toThrow();

@@ -4,8 +4,9 @@ import type { OperationKind } from "./operation.js";
 import { operationId } from "./operation.js";
 import { inboxFactoryAbi, sourceRecoveryVaultAbi } from "@termbook/bindings";
 import { quoteHash, verifyQuoteSignature, type OneClickQuoteResponse } from "@defuse-protocol/one-click-sdk-typescript";
-import { createPublicClient, http, keccak256, stringToHex } from "viem";
+import { createPublicClient, hashTypedData, http, keccak256, stringToHex } from "viem";
 import type { Wallet } from "../types/client.types.js";
+import { HttpClient } from "../transport/http.js";
 
 const zeroAddress = "0x0000000000000000000000000000000000000000" as const;
 const zeroBytes32 = "0x0000000000000000000000000000000000000000000000000000000000000000" as const;
@@ -13,6 +14,8 @@ const erc20TransferAbi = [{ type: "function", name: "transfer", stateMutability:
 
 export type SettlementRegistration = {
   operationId: `0x${string}`;
+  registrationTxHash?: `0x${string}`;
+  operation?: RecoveryOperation;
   kind: OperationKind;
   payer: `0x${string}`;
   sourceChain: number;
@@ -23,6 +26,34 @@ export type SettlementRegistration = {
   amountIn: bigint;
   deadline: string;
   providerQuote: OneClickQuoteResponse;
+};
+
+export type RecoveryOperation = {
+  operationId: `0x${string}`;
+  kind: number;
+  payer: `0x${string}`;
+  sourceChain: bigint;
+  sourceAsset: `0x${string}`;
+  vault: `0x${string}`;
+  token: `0x${string}`;
+  creditId: `0x${string}`;
+  maxAmountIn: bigint;
+  minOut: bigint;
+  maxReceived: bigint;
+  sourceRefund: `0x${string}`;
+  refundRecipient: `0x${string}`;
+  deadline: bigint;
+  routeId: `0x${string}`;
+  routeVersion: `0x${string}`;
+  lpRecipient: `0x${string}`;
+  minShares: bigint;
+};
+
+export type RecoveryProof = {
+  header: `0x${string}`;
+  proof: `0x${string}`;
+  routeSignature: `0x${string}`;
+  riskSignature: `0x${string}`;
 };
 
 export type RecoveryFunding = {
@@ -111,15 +142,47 @@ export class Settlement {
     return { funding, typedData };
   }
 
-  async fundRecovery(registration: SettlementRegistration, recoveryVault: `0x${string}`, funding: RecoveryFunding, signature: `0x${string}`, sourceRpcUrl: string, sourceWallet: Wallet): Promise<`0x${string}`> {
+  async approveRecoveryRisk(creditId: `0x${string}`, operationId: `0x${string}`): Promise<{ operationId: string; fundingDigest: string; state: string }> {
+    if (!this.client.config.apiBase || !/^0x[a-fA-F0-9]{64}$/.test(creditId)
+      || !/^0x[a-fA-F0-9]{64}$/.test(operationId)) throw new Error("recovery-risk-plan-required");
+    const plan = await new HttpClient(this.client.config.apiBase).get<{
+      operationId: `0x${string}`;
+      riskSigner: `0x${string}`;
+      fundingDigest: `0x${string}`;
+      typedData: unknown;
+    }>(`/recovery/risk-approval-plan?creditId=${creditId}&operationId=${operationId}`);
+    if (plan.operationId.toLowerCase() !== operationId.toLowerCase()
+      || plan.riskSigner.toLowerCase() !== this.client.signer.address().toLowerCase()
+      || hashTypedData(plan.typedData as never).toLowerCase() !== plan.fundingDigest.toLowerCase()) {
+      throw new Error("recovery-risk-plan-invalid");
+    }
+    const signature = await this.client.signer.sign(plan.typedData);
+    return this.client.authenticatedPost("/recovery/risk-approval", {
+      creditId, operationId, signature,
+    });
+  }
+
+  async fundRecovery(registration: SettlementRegistration, recoveryVault: `0x${string}`, funding: RecoveryFunding, authorization: RecoveryProof, sourceRpcUrl: string, sourceWallet: Wallet): Promise<`0x${string}`> {
+    const operation = registration.operation;
     if (
       registration.kind !== "recovery" || registration.sourceRefund.toLowerCase() !== recoveryVault.toLowerCase()
+        || !operation || operation.kind !== 1
+        || operation.operationId.toLowerCase() !== registration.operationId.toLowerCase()
+        || operation.creditId.toLowerCase() !== funding.creditId.toLowerCase()
+        || operation.sourceChain !== BigInt(registration.sourceChain)
+        || operation.sourceAsset.toLowerCase() !== registration.sourceAsset.toLowerCase()
+        || operation.sourceRefund.toLowerCase() !== recoveryVault.toLowerCase()
+        || operation.maxAmountIn !== funding.amount || operation.deadline < funding.deadline
         || funding.operationId.toLowerCase() !== registration.operationId.toLowerCase()
         || funding.inbox.toLowerCase() !== registration.inbox.toLowerCase()
         || funding.depositAddress.toLowerCase() !== registration.depositAddress.toLowerCase()
         || funding.amount !== registration.amountIn
         || funding.quoteHash !== keccak256(stringToHex(quoteHash(registration.providerQuote)))
         || !verifyQuoteSignature(registration.providerQuote) || !sourceWallet.writeContract
+        || !/^0x(?:[a-fA-F0-9]{2})+$/.test(authorization.header)
+        || !/^0x(?:[a-fA-F0-9]{2})+$/.test(authorization.proof)
+        || !/^0x(?:[a-fA-F0-9]{2})+$/.test(authorization.routeSignature)
+        || !/^0x(?:[a-fA-F0-9]{2})+$/.test(authorization.riskSignature)
     ) throw new Error("recovery-route-invalid");
     const chain = createPublicClient({ transport: http(sourceRpcUrl) });
     if (await chain.getChainId() !== registration.sourceChain) throw new Error("chain-mismatch");
@@ -127,7 +190,7 @@ export class Settlement {
       address: recoveryVault,
       abi: sourceRecoveryVaultAbi,
       functionName: "fund",
-      args: [funding, signature],
+      args: [funding, operation, authorization.header, authorization.proof, authorization.routeSignature, authorization.riskSignature],
       account: sourceWallet.address,
     });
     const receipt = await chain.waitForTransactionReceipt({ hash: tx });
@@ -154,12 +217,13 @@ export class Settlement {
     monadRefund: `0x${string}`;
     lpRecipient?: `0x${string}`;
     minShares?: bigint;
+    registrationTxHash?: `0x${string}`;
   }): Promise<SettlementRegistration> {
     const factory = this.client.config.settlementFactory;
     if (!factory || input.payer.toLowerCase() !== this.client.signer.address().toLowerCase() || !input.routeVersion || input.maxAmountIn <= 0n || input.maxReceived < input.minAmountOut || input.deadline <= Date.now() / 1000) throw new Error("settlement-route-required");
     const id = operationId({ kind: input.kind, payer: input.payer, nonce: input.nonce, chainId: input.chainId, creditId: input.creditId, routeVersion: input.routeVersion, asset: input.asset, vault: input.vault });
     const kind = input.kind === "repay" ? 0 : input.kind === "recovery" ? 1 : 2;
-    const operation = {
+    const operation: RecoveryOperation = {
       operationId: id,
       kind,
       payer: input.payer,
@@ -180,6 +244,7 @@ export class Settlement {
       minShares: input.minShares ?? 0n,
     };
     const inboxBefore = await this.client.rpc.read<`0x${string}`>(factory, inboxFactoryAbi, "inboxOf", [id]);
+    let registrationTxHash = input.registrationTxHash;
     if (inboxBefore.toLowerCase() === zeroAddress) {
       const signature = await this.client.signer.sign({
         domain: { name: "Termbook", version: "1", chainId: this.client.config.chainId, verifyingContract: factory },
@@ -199,6 +264,10 @@ export class Settlement {
       });
       const tx = await this.client.rpc.write(factory, inboxFactoryAbi, "createAuthorized", [operation, signature]);
       await this.client.rpc.wait(tx);
+      registrationTxHash = tx;
+    }
+    if (input.kind === "recovery" && (!registrationTxHash || !/^0x[a-fA-F0-9]{64}$/.test(registrationTxHash))) {
+      throw new Error("recovery-registration-tx-required");
     }
     const inbox = await this.client.rpc.read<`0x${string}`>(factory, inboxFactoryAbi, "inboxOf", [id]);
     if (inbox.toLowerCase() === zeroAddress) throw new Error("settlement-invalid");
@@ -209,6 +278,7 @@ export class Settlement {
     }
     const result = await this.client.authenticatedPost<{ operationId?: string; inbox?: string; quote?: OneClickQuoteResponse }>("/settlement", {
       operationId: id,
+      registrationTxHash,
       kind: input.kind,
       nonce: input.nonce.toString(),
       sourceChain: input.chainId,
@@ -244,6 +314,6 @@ export class Settlement {
         || BigInt(quote.amountOut) > input.maxReceived
         || !quote.deadline || Date.parse(quote.deadline) > input.deadline * 1000
     ) throw new Error("settlement-invalid");
-    return { operationId: id, kind: input.kind, payer: input.payer, sourceChain: input.chainId, sourceAsset: input.asset, sourceRefund: input.sourceRefund, inbox, depositAddress: quote.depositAddress as `0x${string}`, amountIn: BigInt(quote.amountIn), deadline: quote.deadline, providerQuote };
+    return { operationId: id, registrationTxHash, operation, kind: input.kind, payer: input.payer, sourceChain: input.chainId, sourceAsset: input.asset, sourceRefund: input.sourceRefund, inbox, depositAddress: quote.depositAddress as `0x${string}`, amountIn: BigInt(quote.amountIn), deadline: quote.deadline, providerQuote };
   }
 }

@@ -9,6 +9,7 @@ const intentSchema = new mongoose.Schema(
     amount: String,
     owner: String,
     recipient: String,
+    collateral: mongoose.Schema.Types.Mixed,
     duration: Number,
     limit: String,
     action: mongoose.Schema.Types.Mixed,

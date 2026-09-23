@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 const settlementSchema = new mongoose.Schema(
   {
     operationId: { type: String, required: true, unique: true },
+    registrationTxHash: String,
     kind: String,
     payer: String,
     nonce: String,
@@ -34,6 +35,8 @@ const settlementSchema = new mongoose.Schema(
     received: { type: String, default: "0" },
     applied: { type: String, default: "0" },
     refunded: { type: String, default: "0" },
+    recoveryShortfall: String,
+    recoveryShortfallAt: Number,
   },
   { timestamps: true },
 );

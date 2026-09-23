@@ -338,6 +338,25 @@ export const inboxFactoryAbi = [
   },
   {
     "type": "function",
+    "name": "operationDigestOf",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "registrar",
     "inputs": [],
     "outputs": [
@@ -402,6 +421,31 @@ export const inboxFactoryAbi = [
         "name": "inbox",
         "type": "address",
         "indexed": false,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RecoveryOperationCreated",
+    "inputs": [
+      {
+        "name": "operationId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "operationDigest",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "inbox",
+        "type": "address",
+        "indexed": true,
         "internalType": "address"
       }
     ],

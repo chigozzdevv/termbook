@@ -18,6 +18,7 @@ const inboxAbi = parseAbi([
   "function applied() view returns (uint256)",
   "function refunded() view returns (uint256)",
   "function notifyAll() returns (uint256)",
+  "function notifyReceipt(uint256 amount)",
   "function settle(uint256 amount)",
   "function refund(uint256 amount)",
   "function refundUntracked(uint256 amount)",
@@ -49,7 +50,9 @@ type Operation = {
   minAmountOut: string;
   maxReceived: string;
   quote?: OneClickQuoteResponse;
+  providerStatus?: string;
   providerStatusCheckedAt?: number;
+  recoveryShortfall?: string;
 };
 
 async function refreshProviderStatus(operation: Operation): Promise<void> {
@@ -70,10 +73,38 @@ async function refreshProviderStatus(operation: Operation): Promise<void> {
   }
 }
 
-async function submit(inbox: `0x${string}`, method: "notifyAll" | "settle" | "refund" | "refundUntracked", amount?: bigint): Promise<void> {
+async function trackRecoveryShortfall(
+  operation: Operation, received: bigint, refunded: bigint, balance: bigint, available: bigint,
+  minOut: bigint, cap: bigint, deadline: bigint,
+): Promise<void> {
+  if (operation.kind !== "recovery" || !["SUCCESS", "REFUNDED", "FAILED"].includes(operation.providerStatus ?? "")
+    || !operation.providerStatusCheckedAt || Date.now() - operation.providerStatusCheckedAt > 300_000
+    || (operation.providerStatus === "SUCCESS" && BigInt(Math.floor(Date.now() / 1000)) <= deadline + 600n)) return;
+  const untracked = balance - available;
+  const capacity = cap - received;
+  const creditable = untracked < capacity ? untracked : capacity;
+  const realized = received - refunded + creditable;
+  const deficit = realized < minOut ? minOut - realized : 0n;
+  if (deficit === 0n && !operation.recoveryShortfall) return;
+  const shortfall = deficit.toString();
+  const updated = await SettlementModel.updateOne(
+    { operationId: operation.operationId, inbox: operation.inbox, recoveryShortfall: { $ne: shortfall } },
+    { $set: { recoveryShortfall: shortfall, recoveryShortfallAt: Date.now() } },
+  );
+  if (updated.modifiedCount > 0) {
+    logger.warn(deficit > 0n ? "recovery-proceeds-shortfall" : "recovery-proceeds-shortfall-resolved", {
+      operationId: operation.operationId, minimum: minOut.toString(), realized: realized.toString(),
+      shortfall, providerStatus: operation.providerStatus,
+    });
+  }
+}
+
+async function submit(inbox: `0x${string}`, method: "notifyAll" | "notifyReceipt" | "settle" | "refund" | "refundUntracked", amount?: bigint): Promise<void> {
   const account = privateKeyToAccount(env.settlementKeeperKey as `0x${string}`);
   const data = method === "notifyAll"
     ? encodeFunctionData({ abi: inboxAbi, functionName: "notifyAll" })
+    : method === "notifyReceipt"
+      ? encodeFunctionData({ abi: inboxAbi, functionName: "notifyReceipt", args: [amount!] })
     : method === "settle"
       ? encodeFunctionData({ abi: inboxAbi, functionName: "settle", args: [amount!] })
       : method === "refund"
@@ -118,16 +149,26 @@ async function reconcile(operation: Operation): Promise<boolean> {
   });
   const available = received - applied - refunded;
   if (balance < available) throw new Error("settlement-custody-shortfall");
+  await trackRecoveryShortfall(operation, received, refunded, balance, available, minOut, cap, deadline);
   const now = BigInt(Math.floor(Date.now() / 1000));
   if (balance > available) {
     const untracked = balance - available;
-    if (untracked <= cap - received) {
-      await submit(inbox, "notifyAll");
+    const capacity = cap - received;
+    if (capacity > 0n) {
+      await submit(inbox, "notifyReceipt", untracked < capacity ? untracked : capacity);
       return true;
     }
     if (now > deadline) {
-      await submit(inbox, "refundUntracked", untracked);
-      return true;
+      if (creditId.toLowerCase() === zeroBytes32) {
+        await submit(inbox, "refundUntracked", untracked);
+        return true;
+      }
+      const core = await chain.readContract({ address: vault, abi: houseAbi, functionName: "core" });
+      const debt = await chain.readContract({ address: core, abi: coreAbi, functionName: "creditDebt", args: [creditId] });
+      if (debt === 0n) {
+        await submit(inbox, "refundUntracked", untracked);
+        return true;
+      }
     }
   }
   if (available === 0n) return false;

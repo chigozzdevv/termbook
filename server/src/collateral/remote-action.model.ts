@@ -1,0 +1,30 @@
+import mongoose from "mongoose";
+
+const remoteActionSchema = new mongoose.Schema({
+  actionHash: { type: String, required: true, unique: true },
+  creditId: { type: String, required: true, index: true },
+  kind: { type: Number, required: true, enum: [0, 1] },
+  authorizationTxHash: { type: String, required: true },
+  action: { type: mongoose.Schema.Types.Mixed, required: true },
+  state: { type: String, required: true, default: "pending" },
+  txHash: String,
+  rawTx: String,
+  sourceNonce: Number,
+  sourceBlockHash: String,
+  confirmTxHash: String,
+  confirmRawTx: String,
+  confirmNonce: Number,
+  confirmBlockHash: String,
+  failure: String,
+}, { timestamps: true });
+
+const signerSchema = new mongoose.Schema({
+  _id: { type: String, required: true },
+  actionHash: String,
+}, { timestamps: true });
+
+export const RemoteActionModel = mongoose.models["RemoteAction"]
+  ?? mongoose.model("RemoteAction", remoteActionSchema);
+
+export const RemoteActionSignerModel = mongoose.models["RemoteActionSigner"]
+  ?? mongoose.model("RemoteActionSigner", signerSchema);

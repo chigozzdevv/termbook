@@ -2,9 +2,15 @@
 pragma solidity ^0.8.24;
 
 import {IVerifier, IVerifierAdmission, IConsensusLightClient} from "./IVerifier.sol";
+import {EvmReceiptProof} from "./EvmReceiptProof.sol";
+
+interface IExecutionReceiptsLightClient {
+    function finalizedExecutionReceiptsRoot(bytes calldata header) external view returns (bytes32);
+}
 
 abstract contract LightClientVerifier is IVerifier, IVerifierAdmission {
     address public immutable lightClient;
+    bytes32 public immutable lightClientCodeHash;
     uint256 public immutable sourceChainId;
     uint256 public immutable consensusVersion;
     bytes32 public immutable bootstrapHash;
@@ -15,6 +21,7 @@ abstract contract LightClientVerifier is IVerifier, IVerifierAdmission {
     constructor(address lightClient_) {
         if (lightClient_ == address(0) || lightClient_.code.length == 0) revert InvalidLightClient();
         lightClient = lightClient_;
+        lightClientCodeHash = lightClient_.codehash;
         try IConsensusLightClient(lightClient_).chainId() returns (uint256 value) {
             sourceChainId = value;
         } catch {
@@ -45,6 +52,7 @@ abstract contract LightClientVerifier is IVerifier, IVerifierAdmission {
     }
 
     function verifyFinality(bytes calldata header) external view returns (bool) {
+        if (lightClient.codehash != lightClientCodeHash) return false;
         try IConsensusLightClient(lightClient).headerTimestamp(header) returns (uint256 timestamp) {
             if (timestamp == 0 || timestamp > block.timestamp || block.timestamp - timestamp > proofMaxAge) {
                 return false;
@@ -60,6 +68,7 @@ abstract contract LightClientVerifier is IVerifier, IVerifierAdmission {
     }
 
     function verifyInclusion(bytes calldata proof, bytes32 root) external view returns (bool) {
+        if (lightClient.codehash != lightClientCodeHash) return false;
         try IConsensusLightClient(lightClient).verifyInclusion(proof, root) returns (bool verified) {
             return verified;
         } catch {
@@ -68,36 +77,55 @@ abstract contract LightClientVerifier is IVerifier, IVerifierAdmission {
     }
 
     function headerRoot(bytes calldata header) external view returns (bytes32) {
+        if (lightClient.codehash != lightClientCodeHash) revert InvalidLightClient();
         return IConsensusLightClient(lightClient).headerRoot(header);
     }
 
     function proofLeaf(bytes calldata proof) external view returns (bytes32) {
+        if (lightClient.codehash != lightClientCodeHash) revert InvalidLightClient();
         return IConsensusLightClient(lightClient).proofLeaf(proof);
     }
 
     function verifyEvent(bytes calldata header, bytes calldata proof, address emitter, bytes32 eventDigest)
         external
         view
-        returns (bool)
-    {
-        if (emitter == address(0) || eventDigest == bytes32(0)) return false;
-        try IConsensusLightClient(lightClient).headerTimestamp(header) returns (uint256 timestamp) {
-            if (timestamp == 0 || timestamp > block.timestamp || block.timestamp - timestamp > proofMaxAge) {
-                return false;
-            }
+        virtual
+        returns (bool);
+
+    function _verifyReceiptEvent(
+        bytes calldata header,
+        bytes calldata proof,
+        address emitter,
+        bytes32 eventDigest,
+        bool authorization
+    ) internal view returns (bool) {
+        if (emitter == address(0) || eventDigest == bytes32(0) || proof.length == 0 || proof.length > 160_000) {
+            return false;
+        }
+        if (!this.verifyFinality(header)) return false;
+        bytes32 receiptsRoot;
+        try IExecutionReceiptsLightClient(lightClient).finalizedExecutionReceiptsRoot(header) returns (bytes32 root) {
+            receiptsRoot = root;
         } catch {
             return false;
         }
-        try IConsensusLightClient(lightClient).verifyFinality(header) returns (bool final_) {
-            if (!final_) return false;
-        } catch {
-            return false;
-        }
-        try IConsensusLightClient(lightClient).verifyEvent(header, proof, emitter, eventDigest) returns (bool valid) {
+        if (receiptsRoot == bytes32(0)) return false;
+        try this.verifyReceiptInRoot(receiptsRoot, proof, emitter, eventDigest, authorization) returns (bool valid) {
             return valid;
         } catch {
             return false;
         }
+    }
+
+    function verifyReceiptInRoot(
+        bytes32 receiptsRoot,
+        bytes calldata proof,
+        address emitter,
+        bytes32 eventDigest,
+        bool authorization
+    ) external view returns (bool) {
+        if (msg.sender != address(this)) return false;
+        return EvmReceiptProof.verify(receiptsRoot, proof, emitter, eventDigest, authorization);
     }
 
     function verifyLock(bytes calldata header, bytes calldata proof, address vault, bytes32 lockDigest)
@@ -107,6 +135,7 @@ abstract contract LightClientVerifier is IVerifier, IVerifierAdmission {
         returns (bool)
     {
         if (vault == address(0) || lockDigest == bytes32(0)) return false;
+        if (lightClient.codehash != lightClientCodeHash) return false;
         try IConsensusLightClient(lightClient).headerTimestamp(header) returns (uint256 timestamp) {
             if (timestamp == 0 || timestamp > block.timestamp || block.timestamp - timestamp > proofMaxAge) {
                 return false;

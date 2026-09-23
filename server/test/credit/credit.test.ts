@@ -23,7 +23,11 @@ describe("jobs", () => {
   });
 
   it("rejects bad proof input", async () => {
-    await expect(fetchProof("notaurl", "0x1")).rejects.toThrow();
+    await expect(fetchProof({
+      rpcUrl: "notaurl", finalityUrl: "https://proof.example", lockId: "0x1",
+      vault: "0x0000000000000000000000000000000000000001",
+      commitment: "0x2", expectedCodeHash: "0x3",
+    })).rejects.toThrow();
   });
 });
 

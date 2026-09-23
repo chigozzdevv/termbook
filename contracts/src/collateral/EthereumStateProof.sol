@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 library EthereumStateProof {
     uint256 internal constant MAX_NODES = 64;
     uint256 internal constant MAX_NODE_BYTES = 2048;
+    bytes32 internal constant EMPTY_TRIE_ROOT = keccak256(hex"80");
 
     struct Item {
         uint256 start;
@@ -35,6 +36,68 @@ library EthereumStateProof {
         if (codeHash != expectedCodeHash) return false;
         (bool storageFound, bytes memory value) = _value(storageRoot, keccak256(abi.encodePacked(slot)), storageNodes);
         return storageFound && _storageWord(value) == commitment;
+    }
+
+    function verifyAbsence(
+        bytes32 stateRoot,
+        address accountAddress,
+        bytes32 expectedCodeHash,
+        bytes32 slot,
+        bytes[] memory accountNodes,
+        bytes[] memory storageNodes
+    ) internal pure returns (bool) {
+        if (stateRoot == bytes32(0) || accountAddress == address(0) || expectedCodeHash == bytes32(0)) {
+            return false;
+        }
+        (bool accountFound, bytes memory account) =
+            _value(stateRoot, keccak256(abi.encodePacked(accountAddress)), accountNodes);
+        if (!accountFound) return false;
+        (bytes32 storageRoot, bytes32 codeHash) = _accountRoots(account);
+        if (codeHash != expectedCodeHash) return false;
+        return _absent(storageRoot, keccak256(abi.encodePacked(slot)), storageNodes);
+    }
+
+    function _absent(bytes32 root, bytes32 key, bytes[] memory nodes) private pure returns (bool) {
+        if (root == EMPTY_TRIE_ROOT) return nodes.length == 0;
+        if (root == bytes32(0) || nodes.length == 0 || nodes.length > MAX_NODES) revert InvalidProof();
+        bytes32 nextHash = root;
+        bytes memory inlineNode;
+        bool embedded;
+        uint256 nodeIndex;
+        uint256 pathIndex;
+        for (uint256 steps; steps < MAX_NODES + 64; ++steps) {
+            bytes memory node;
+            if (embedded) {
+                node = inlineNode;
+                embedded = false;
+            } else {
+                if (nodeIndex == nodes.length) return false;
+                node = nodes[nodeIndex++];
+                if (node.length == 0 || node.length > MAX_NODE_BYTES || keccak256(node) != nextHash) return false;
+            }
+            Item memory top = _item(node, 0, node.length);
+            if (!top.list || top.end != node.length) revert InvalidProof();
+            Item[] memory children = _children(node, top);
+            if (children.length == 17) {
+                if (pathIndex == 64) {
+                    return !children[16].list && children[16].length == 0 && nodeIndex == nodes.length;
+                }
+                Item memory child = children[_nibble(key, pathIndex++)];
+                if (child.length == 0 && !child.list) return nodeIndex == nodes.length;
+                (nextHash, inlineNode, embedded) = _reference(node, child);
+            } else if (children.length == 2) {
+                if (children[0].list) revert InvalidProof();
+                (bool matches, bool leaf, uint256 consumed) = _matchPath(_payload(node, children[0]), key, pathIndex);
+                if (!matches) return nodeIndex == nodes.length;
+                pathIndex += consumed;
+                if (leaf) return false;
+                if (consumed == 0) revert InvalidProof();
+                (nextHash, inlineNode, embedded) = _reference(node, children[1]);
+            } else {
+                revert InvalidProof();
+            }
+        }
+        revert InvalidProof();
     }
 
     function _value(bytes32 root, bytes32 key, bytes[] memory nodes)

@@ -1,8 +1,11 @@
 import { connectDb } from "./database/database.client.js";
 import { runCreditWorker } from "./credit/credit.worker.js";
 import { runCollateralWorker } from "./collateral/collateral.worker.js";
+import { runRemoteActionWorker } from "./collateral/remote-action.worker.js";
 import { runSettlementWorker } from "./settlement/settlement.worker.js";
 import { runRecoveryWorker } from "./recovery/recovery.worker.js";
+import { runRecoveryRefundWorker } from "./recovery/refund.worker.js";
+import { assertRecoveryWorkerConfig } from "./recovery/recovery.config.js";
 import { startWorkers, stopWorkers } from "./queue/queue.worker.js";
 import { closeRedis } from "./queue/queue.client.js";
 import { logger } from "./logging/logger.js";
@@ -11,14 +14,17 @@ import { assertRuntimeConfig, assertSettlementWorkerConfig } from "./config/env.
 async function main(): Promise<void> {
   assertRuntimeConfig();
   assertSettlementWorkerConfig();
+  assertRecoveryWorkerConfig();
   await connectDb();
   await startWorkers();
   const tick = async (): Promise<void> => {
     const results = await Promise.allSettled([
       runCreditWorker(),
       runCollateralWorker(),
+      runRemoteActionWorker(),
       runSettlementWorker(),
       runRecoveryWorker(),
+      runRecoveryRefundWorker(),
     ]);
     const counts = results.map((result, index) => {
       if (result.status === "fulfilled") return result.value;

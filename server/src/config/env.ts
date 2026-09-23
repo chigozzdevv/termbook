@@ -3,7 +3,12 @@ export const env = {
   mongoUrl: process.env["MONGO_URL"] ?? "mongodb://127.0.0.1:27017/termbook",
   redisUrl: process.env["REDIS_URL"] ?? "",
   rpcUrl: process.env["RPC_URL"] ?? "http://127.0.0.1:8545",
+  sourceRpcUrl: process.env["SOURCE_RPC_URL"] ?? "",
   sourceProofUrl: process.env["SOURCE_PROOF_URL"] ?? "",
+  collateralKeeperKey: process.env["COLLATERAL_KEEPER_KEY"] ?? "",
+  monadProofUrl: process.env["MONAD_PROOF_URL"] ?? "",
+  sourceActionKeeperKey: process.env["SOURCE_ACTION_KEEPER_KEY"] ?? "",
+  monadConfirmKeeperKey: process.env["MONAD_CONFIRM_KEEPER_KEY"] ?? "",
   settlementFactory: process.env["SETTLEMENT_FACTORY"] ?? "",
   auroraApiKey: process.env["AURORA_API_KEY"] ?? "",
   auroraRoutes: process.env["AURORA_ROUTES"] ?? "",
@@ -22,14 +27,41 @@ export function assertRuntimeConfig(): void {
   if (!Number.isSafeInteger(env.monadChainId) || env.monadChainId <= 0 || !/^0x[a-fA-F0-9]{64}$/.test(env.coreDomain)) {
     throw new Error("server-chain-config-invalid");
   }
-  if (env.sourceProofUrl) {
-    let proofUrl: URL;
+  for (const [name, value] of [
+    ["SOURCE_RPC_URL", env.sourceRpcUrl], ["SOURCE_PROOF_URL", env.sourceProofUrl], ["MONAD_PROOF_URL", env.monadProofUrl],
+  ] as const) {
+    if (!value) continue;
+    let endpoint: URL;
     try {
-      proofUrl = new URL(env.sourceProofUrl);
+      endpoint = new URL(value);
     } catch {
-      throw new Error("SOURCE_PROOF_URL is invalid");
+      throw new Error(`${name} is invalid`);
     }
-    if (proofUrl.protocol !== "http:" && proofUrl.protocol !== "https:") throw new Error("SOURCE_PROOF_URL is invalid");
+    if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") throw new Error(`${name} is invalid`);
+  }
+  if (env.collateralKeeperKey && !/^0x[a-fA-F0-9]{64}$/.test(env.collateralKeeperKey)) {
+    throw new Error("COLLATERAL_KEEPER_KEY is invalid");
+  }
+  if (env.sourceActionKeeperKey && !/^0x[a-fA-F0-9]{64}$/.test(env.sourceActionKeeperKey)) {
+    throw new Error("SOURCE_ACTION_KEEPER_KEY is invalid");
+  }
+  if (env.monadConfirmKeeperKey && !/^0x[a-fA-F0-9]{64}$/.test(env.monadConfirmKeeperKey)) {
+    throw new Error("MONAD_CONFIRM_KEEPER_KEY is invalid");
+  }
+  if (env.collateralKeeperKey && ![env.sourceRpcUrl, env.sourceProofUrl].every(Boolean)) {
+    throw new Error("collateral-worker-config-incomplete");
+  }
+  if ([env.sourceActionKeeperKey, env.monadConfirmKeeperKey].some(Boolean)
+    && ![env.sourceRpcUrl, env.sourceProofUrl, env.monadProofUrl, env.sourceActionKeeperKey, env.monadConfirmKeeperKey].every(Boolean)) {
+    throw new Error("remote-action-worker-config-incomplete");
+  }
+  if (env.monadConfirmKeeperKey && [env.collateralKeeperKey, env.settlementKeeperKey]
+    .some((key) => key && key.toLowerCase() === env.monadConfirmKeeperKey.toLowerCase())) {
+    throw new Error("monad-confirm-keeper-key-conflict");
+  }
+  if (env.sourceActionKeeperKey && process.env["RECOVERY_FUNDING_KEY"]
+    && env.sourceActionKeeperKey.toLowerCase() === process.env["RECOVERY_FUNDING_KEY"]!.toLowerCase()) {
+    throw new Error("source-action-keeper-key-conflict");
   }
   if (env.auroraRoutes && (!/^0x[a-fA-F0-9]{40}$/.test(env.settlementFactory) || !env.auroraApiKey)) {
     throw new Error("aurora-config-invalid");

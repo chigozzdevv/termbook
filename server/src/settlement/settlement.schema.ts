@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const settlementSchema = z.object({
   operationId: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
+  registrationTxHash: z.string().regex(/^0x[a-fA-F0-9]{64}$/).optional(),
   kind: z.enum(["repay", "recovery", "lp_deposit"]),
   payer: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
   nonce: z.string().regex(/^\d+$/).refine((value) => BigInt(value) >= 0n),
@@ -23,6 +24,7 @@ export const settlementSchema = z.object({
   minShares: z.string().regex(/^\d+$/).optional(),
 }).superRefine((value, ctx) => {
   if (value.kind !== "lp_deposit" && !value.creditId) ctx.addIssue({ code: "custom", path: ["creditId"], message: "credit-required" });
+  if (value.kind === "recovery" && !value.registrationTxHash) ctx.addIssue({ code: "custom", path: ["registrationTxHash"], message: "registration-tx-required" });
   if (value.kind === "lp_deposit" && value.creditId) ctx.addIssue({ code: "custom", path: ["creditId"], message: "credit-not-allowed" });
   if (value.kind === "lp_deposit" && (!value.lpRecipient || !value.minShares || BigInt(value.minShares) === 0n)) ctx.addIssue({ code: "custom", path: ["lpRecipient"], message: "lp-terms-required" });
   if (value.kind !== "lp_deposit" && (value.lpRecipient || value.minShares)) ctx.addIssue({ code: "custom", path: ["lpRecipient"], message: "lp-terms-not-allowed" });

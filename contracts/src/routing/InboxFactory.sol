@@ -20,7 +20,9 @@ interface IRouteCreditCore {
     function creditFacility(bytes32 creditId) external view returns (uint8);
     function remoteCollateral(bytes32 creditId) external view returns (bool);
     function recoveryKeepers(address keeper) external view returns (bool);
-    function collateralOwnerOf(bytes32 creditId) external view returns (address);
+    function recoveryRefundRecipientOf(bytes32 creditId) external view returns (address);
+    function minimumRemoteRecoveryProceeds(bytes32 creditId, uint256 collateralAmount)
+        external view returns (uint256);
     function remoteRecoveryContext(bytes32 creditId)
         external
         view
@@ -32,6 +34,7 @@ contract InboxFactory {
     address public registrar;
     address public routeRegistry;
     mapping(bytes32 => address) public inboxOf;
+    mapping(bytes32 => bytes32) public operationDigestOf;
     bytes32 public constant OPERATION_TYPEHASH = keccak256(
         "SettlementOperation(bytes32 operationId,uint8 kind,address payer,uint256 sourceChain,address sourceAsset,address vault,address token,bytes32 creditId,uint256 maxAmountIn,uint256 minOut,uint256 maxReceived,address sourceRefund,address refundRecipient,uint256 deadline,bytes32 routeId,bytes32 routeVersion,address lpRecipient,uint256 minShares)"
     );
@@ -60,6 +63,7 @@ contract InboxFactory {
     error Invalid();
 
     event InboxCreated(bytes32 indexed operationId, address inbox);
+    event RecoveryOperationCreated(bytes32 indexed operationId, bytes32 indexed operationDigest, address indexed inbox);
     event RegistrarSet(address indexed registrar);
     event RouteRegistrySet(address indexed registry);
 
@@ -118,7 +122,8 @@ contract InboxFactory {
                         || (facility != 8 && facility != 9 && facility != 10)
                         || sourceChain != op.sourceChain || sourceAsset != op.sourceAsset
                         || recoveryVault != op.sourceRefund
-                        || core.collateralOwnerOf(op.creditId) != op.refundRecipient
+                        || core.recoveryRefundRecipientOf(op.creditId) != op.refundRecipient
+                        || op.minOut < core.minimumRemoteRecoveryProceeds(op.creditId, op.maxAmountIn)
                 ) revert Invalid();
             }
         }
@@ -135,8 +140,11 @@ contract InboxFactory {
             op.maxReceived, op.refundRecipient, op.deadline
         ));
         inboxOf[op.operationId] = inbox;
+        bytes32 digest = operationDigest(op);
+        operationDigestOf[op.operationId] = digest;
         IHouseInboxRegistration(op.vault).registerInboxFromFactory(inbox, op.kind, op.lpRecipient, op.minShares);
         emit InboxCreated(op.operationId, inbox);
+        if (op.kind == 1) emit RecoveryOperationCreated(op.operationId, digest, inbox);
     }
 
     function create(

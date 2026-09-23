@@ -1,18 +1,10 @@
 import { randomBytes } from "node:crypto";
+import type { z } from "zod";
 import { intentRepo } from "./intent.repo.js";
+import type { intentSchema } from "./intent.schema.js";
 
 export const intentService = {
-  async create(input: {
-    borrower: string;
-    chainId: number;
-    asset: string;
-    amount: string;
-    owner?: string;
-    recipient?: string;
-    duration: number;
-    limit?: string;
-    action?: Record<string, unknown>;
-  }) {
+  async create(input: z.infer<typeof intentSchema>) {
     const intentId = `0x${randomBytes(32).toString("hex")}`;
     const expiresAt = Math.floor(Date.now() / 1000) + input.duration;
     await intentRepo.create({ intentId, ...input, expiresAt, status: "open", used: false });

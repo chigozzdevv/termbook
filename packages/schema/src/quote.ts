@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { addressSchema, bytes32Schema } from "./auth.js";
+import { NATIVE_SOL_ASSET_BYTES, solanaKeySchema } from "./collateral-setup.js";
 
 export const quoteSchema = z.object({
   id: z.string().min(1),
@@ -31,3 +32,25 @@ export const quoteSchema = z.object({
 });
 
 export type Quote = z.infer<typeof quoteSchema>;
+
+export const solanaQuoteSchema = quoteSchema.extend({
+  kind: z.literal("solana"),
+  owner: addressSchema,
+  sourceChain: z.number().int().positive(),
+  collateralVault: addressSchema,
+  collateralAsset: addressSchema,
+  returnRecipient: addressSchema,
+  collateralAmount: z.bigint().positive(),
+  settlementAsset: addressSchema,
+  solana: z.object({
+    sourceGenesis: solanaKeySchema,
+    sourceVault: solanaKeySchema,
+    sourceAsset: z.literal(NATIVE_SOL_ASSET_BYTES),
+    sourceOwner: solanaKeySchema,
+    returnRecipient: solanaKeySchema,
+    recoveryVault: solanaKeySchema,
+    verifierVersion: z.bigint().positive(),
+  }),
+});
+
+export type SolanaQuote = z.infer<typeof solanaQuoteSchema>;

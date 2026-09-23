@@ -3,7 +3,7 @@ import { addressSchema, bytes32Schema } from "./auth.js";
 
 const evmAddressSchema = addressSchema.transform((value): `0x${string}` => value as `0x${string}`);
 const hashSchema = bytes32Schema.transform((value): `0x${string}` => value as `0x${string}`);
-const solanaKeySchema = z.string().regex(/^0x[a-fA-F0-9]{64}$/).refine((value) => !/^0x0{64}$/i.test(value)).transform((value): `0x${string}` => value.toLowerCase() as `0x${string}`);
+export const solanaKeySchema = z.string().regex(/^0x[a-fA-F0-9]{64}$/).refine((value) => !/^0x0{64}$/i.test(value)).transform((value): `0x${string}` => value.toLowerCase() as `0x${string}`);
 export const NATIVE_SOL_ASSET_BYTES = `0x${"01".repeat(32)}` as const;
 export const collateralChainSchema = z.discriminatedUnion("namespace", [
   z.object({ namespace: z.literal("eip155"), reference: z.string().regex(/^[1-9][0-9]*$/) }),
@@ -55,6 +55,9 @@ export const collateralSetupBindingSchema = z.object({
   amount: z.bigint().positive(),
   owner: collateralAccountSchema,
   returnRecipient: collateralAccountSchema,
+  recoveryVault: collateralAccountSchema.optional(),
+  sourceChainId: z.number().int().positive().optional(),
+  verifierVersion: z.bigint().positive().optional(),
   setupDeadline: z.number().int().positive(),
   nonce: z.bigint().nonnegative(),
 }).superRefine((binding, ctx) => {
@@ -62,6 +65,12 @@ export const collateralSetupBindingSchema = z.object({
   for (const [name, account] of [["sourceVault", binding.sourceVault], ["owner", binding.owner], ["returnRecipient", binding.returnRecipient]] as const) {
     if (`${account.namespace}:${account.reference}` !== chain) ctx.addIssue({ code: "custom", path: [name], message: "collateral-chain-mismatch" });
     if (account.namespace === "eip155" && /^0x0{40}$/i.test(account.accountBytes)) ctx.addIssue({ code: "custom", path: [name], message: "zero-address" });
+  }
+  if (binding.asset.namespace === "solana") {
+    if (!binding.recoveryVault || binding.recoveryVault.namespace !== "solana" || binding.recoveryVault.reference !== binding.asset.reference) ctx.addIssue({ code: "custom", path: ["recoveryVault"], message: "solana-recovery-vault-required" });
+    if (!binding.sourceChainId || binding.sourceChainId === binding.monadChainId || !binding.verifierVersion || binding.verifierVersion > (1n << 64n) - 1n || binding.amount > (1n << 64n) - 1n) ctx.addIssue({ code: "custom", path: ["verifierVersion"], message: "solana-market-binding-required" });
+  } else if (binding.recoveryVault || binding.sourceChainId || binding.verifierVersion) {
+    ctx.addIssue({ code: "custom", path: ["recoveryVault"], message: "evm-recovery-vault-pinned-on-core" });
   }
   for (const name of ["core", "borrower", "house"] as const) {
     if (/^0x0{40}$/i.test(binding[name])) ctx.addIssue({ code: "custom", path: [name], message: "zero-address" });

@@ -11,6 +11,7 @@ import { encodeAbiParameters, keccak256, stringToHex } from "viem";
 import type { TermbookClient } from "../client/client.js";
 import type { TxHash } from "../types/client.types.js";
 import { Credit } from "../credit/credit.js";
+import { solanaAlias } from "./solana.js";
 
 export type SourceLockObservation = { state: "missing" | "submitted" | "finalized" | "failed"; txId?: string };
 
@@ -18,6 +19,7 @@ export type SourceLockWallet = {
   account: CollateralAccount;
   preflight?: (binding: CollateralSetupBinding) => Promise<void>;
   remoteRecoveryVault?: (binding: CollateralSetupBinding) => Promise<`0x${string}`>;
+  lockPda?: (binding: CollateralSetupBinding, lockId: TxHash) => Promise<`0x${string}`>;
   observeLock: (binding: CollateralSetupBinding, lockId: TxHash, txId?: string) => Promise<SourceLockObservation>;
   submitLock: (binding: CollateralSetupBinding, lockId: TxHash, revision: bigint) => Promise<{ txId: string }>;
 };
@@ -59,6 +61,10 @@ function equalHex(a: string, b: string): boolean {
   return a.toLowerCase() === b.toLowerCase();
 }
 
+function solanaAliasOrRaw(genesis: `0x${string}` | undefined, id: `0x${string}`): `0x${string}` {
+  return genesis ? solanaAlias(genesis, id) : id;
+}
+
 function accountHash(account: CollateralAccount): TxHash {
   return keccak256(encodeAbiParameters(
     [{ type: "string" }, { type: "string" }, { type: "bytes" }],
@@ -72,6 +78,25 @@ export function collateralSetupHash(value: CollateralSetupBinding): TxHash {
     [{ type: "string" }, { type: "string" }, { type: "string" }, { type: "bytes" }],
     [binding.asset.namespace, binding.asset.reference, binding.asset.kind, binding.asset.assetBytes],
   ));
+  if (binding.asset.namespace === "solana") {
+    return keccak256(encodeAbiParameters(
+      [
+        { type: "bytes32" }, { type: "uint256" }, { type: "uint256" }, { type: "address" },
+        { type: "bytes32" }, { type: "bytes32" }, { type: "bytes32" }, { type: "address" },
+        { type: "address" }, { type: "bytes32" }, { type: "bytes32" }, { type: "uint256" },
+        { type: "bytes32" }, { type: "bytes32" }, { type: "bytes32" }, { type: "uint256" },
+        { type: "uint256" }, { type: "uint256" },
+      ],
+      [
+        keccak256(stringToHex("TermbookSolanaCollateralSetupV1")), BigInt(binding.monadChainId),
+        BigInt(binding.sourceChainId!), binding.core, binding.creditId, binding.intentId,
+        binding.termsHash, binding.borrower, binding.house, accountHash(binding.sourceVault),
+        assetHash, binding.amount, accountHash(binding.owner), accountHash(binding.returnRecipient),
+        accountHash(binding.recoveryVault!), BigInt(binding.setupDeadline), binding.nonce,
+        binding.verifierVersion!,
+      ],
+    ));
+  }
   return keccak256(encodeAbiParameters(
     [
       { type: "bytes32" }, { type: "uint256" }, { type: "address" }, { type: "bytes32" },
@@ -98,7 +123,8 @@ export function restoreCollateralSetup(value: string): { binding: CollateralSetu
   if (!raw || typeof raw !== "object" || !("binding" in raw) || !("checkpoint" in raw) || !raw.binding || typeof raw.binding !== "object") throw new Error("setup-snapshot-invalid");
   const encoded = raw.binding as Record<string, unknown>;
   if (typeof encoded["amount"] !== "string" || !/^[1-9][0-9]*$/.test(encoded["amount"]) || typeof encoded["nonce"] !== "string" || !/^[0-9]+$/.test(encoded["nonce"])) throw new Error("setup-snapshot-invalid");
-  const binding = collateralSetupBindingSchema.parse({ ...encoded, amount: BigInt(encoded["amount"]), nonce: BigInt(encoded["nonce"]) });
+  if (encoded["verifierVersion"] !== undefined && (typeof encoded["verifierVersion"] !== "string" || !/^[1-9][0-9]*$/.test(encoded["verifierVersion"]))) throw new Error("setup-snapshot-invalid");
+  const binding = collateralSetupBindingSchema.parse({ ...encoded, amount: BigInt(encoded["amount"]), nonce: BigInt(encoded["nonce"]), verifierVersion: encoded["verifierVersion"] === undefined ? undefined : BigInt(encoded["verifierVersion"]) });
   const checkpoint = collateralSetupCheckpointSchema.parse(raw.checkpoint);
   if (!equalHex(checkpoint.bindingHash, collateralSetupHash(binding)) || !equalHex(checkpoint.creditId, binding.creditId) || !equalHex(checkpoint.termsHash, binding.termsHash)) throw new Error("setup-checkpoint-mismatch");
   return { binding, checkpoint };
@@ -134,7 +160,7 @@ export class CollateralSetup {
   }
 
   serialize(): string {
-    return JSON.stringify({ binding: { ...this.binding, amount: this.binding.amount.toString(), nonce: this.binding.nonce.toString() }, checkpoint: this.snapshot() });
+    return JSON.stringify({ binding: { ...this.binding, amount: this.binding.amount.toString(), nonce: this.binding.nonce.toString(), verifierVersion: this.binding.verifierVersion?.toString() }, checkpoint: this.snapshot() });
   }
 
   private sameAccount(left: CollateralAccount, right: CollateralAccount): boolean {
@@ -160,9 +186,8 @@ export class CollateralSetup {
   }
 
   private sourceChainId(): number {
-    if (this.binding.asset.namespace !== "eip155") throw new CollateralChainNotIntegratedError(this.binding.asset.namespace);
-    const id = Number(this.binding.asset.reference);
-    if (!Number.isSafeInteger(id) || id <= 0) throw new Error("source-chain-invalid");
+    const id = this.binding.asset.namespace === "solana" ? this.binding.sourceChainId : Number(this.binding.asset.reference);
+    if (id === undefined || !Number.isSafeInteger(id) || id <= 0) throw new Error("source-chain-invalid");
     return id;
   }
 
@@ -176,15 +201,35 @@ export class CollateralSetup {
     const revision = BigInt(String(field(details, "revision", 17) ?? 0));
     if (revision === 0n) return { exists: false, facility: 0, revision, bound: false, proven: false, account: "", lockId: "" };
     const b = this.binding;
+    const solana = b.asset.namespace === "solana";
+    const genesis = solana ? b.asset.reference as `0x${string}` : undefined;
     const expected: [unknown, string][] = [
       [field(details, "borrower", 2), b.borrower], [field(details, "house", 3), b.house],
-      [field(details, "termsHash", 21), b.termsHash], [field(details, "collateralVault", 6), b.sourceVault.accountBytes],
-      [field(details, "collateralAsset", 7), b.asset.assetBytes], [field(details, "returnRecipient", 8), b.returnRecipient.accountBytes],
+      [field(details, "termsHash", 21), b.termsHash],
+      [field(details, "collateralVault", 6), solanaAliasOrRaw(genesis, b.sourceVault.accountBytes)],
+      [field(details, "collateralAsset", 7), solanaAliasOrRaw(genesis, b.asset.assetBytes)],
+      [field(details, "returnRecipient", 8), solanaAliasOrRaw(genesis, b.returnRecipient.accountBytes)],
     ];
     if (expected.some(([actual, wanted]) => typeof actual !== "string" || !equalHex(actual, wanted)) || BigInt(String(field(details, "collateralAmount", 9) ?? 0)) !== b.amount) throw new Error("setup-core-binding-mismatch");
     const sourceChain = await this.client.rpc.read<bigint>(b.core, termbookCoreAbi, "collateralSourceChainOf", [b.creditId]);
     const owner = await this.client.rpc.read<string>(b.core, termbookCoreAbi, "collateralOwnerOf", [b.creditId]);
-    if (sourceChain !== BigInt(this.sourceChainId()) || !equalHex(owner, b.owner.accountBytes)) throw new Error("setup-core-binding-mismatch");
+    if (sourceChain !== BigInt(this.sourceChainId()) || !equalHex(owner, solanaAliasOrRaw(genesis, b.owner.accountBytes))) throw new Error("setup-core-binding-mismatch");
+    if (solana) {
+      const identity = await this.client.rpc.read<Record<string, unknown>>(b.core, termbookCoreAbi, "solanaIdentityOf", [b.creditId]);
+      const fields: [string, string][] = [
+        ["sourceGenesis", b.asset.reference], ["programId", b.sourceVault.accountBytes],
+        ["sourceAsset", b.asset.assetBytes], ["sourceOwner", b.owner.accountBytes],
+        ["returnRecipient", b.returnRecipient.accountBytes], ["recoveryVault", b.recoveryVault!.accountBytes],
+      ];
+      if (fields.some(([name, wanted], index) => !equalHex(String(field(identity, name, index) ?? ""), wanted))
+        || BigInt(String(field(identity, "verifierVersion", 6) ?? 0)) !== b.verifierVersion) throw new Error("setup-solana-identity-mismatch");
+      const market = await this.client.rpc.read<Record<string, unknown>>(b.core, termbookCoreAbi, "solanaMarkets", [BigInt(this.sourceChainId())]);
+      if (!field(market, "active", 4)
+        || !equalHex(String(field(market, "sourceGenesis", 0) ?? ""), b.asset.reference)
+        || !equalHex(String(field(market, "programId", 1) ?? ""), b.sourceVault.accountBytes)
+        || !equalHex(String(field(market, "sourceAsset", 2) ?? ""), b.asset.assetBytes)
+        || !equalHex(String(field(market, "recoveryVault", 3) ?? ""), b.recoveryVault!.accountBytes)) throw new Error("setup-solana-market-mismatch");
+    }
     const lockId = String(field(details, "lockId", 22) ?? "");
     const bound = Boolean(field(details, "collateralBound", 23));
     if (bound && !equalHex(lockId, this.bindingHash)) throw new Error("setup-lock-mismatch");
@@ -203,7 +248,8 @@ export class CollateralSetup {
   async resume(): Promise<CollateralSetupCheckpoint> {
     const b = this.binding;
     const sourceChain = this.sourceChainId();
-    if (b.sourceVault.namespace !== "eip155" || b.owner.namespace !== "eip155" || b.returnRecipient.namespace !== "eip155") throw new CollateralChainNotIntegratedError(b.asset.namespace);
+    const solana = b.asset.namespace === "solana";
+    if (b.sourceVault.namespace !== b.asset.namespace || b.owner.namespace !== b.asset.namespace || b.returnRecipient.namespace !== b.asset.namespace) throw new CollateralChainNotIntegratedError(b.asset.namespace);
     let state = await this.coreState();
     if (this.current.borrowerTx && !state.exists) {
       await this.client.rpc.wait(this.current.borrowerTx);
@@ -246,7 +292,10 @@ export class CollateralSetup {
         await this.record("awaiting_source_wallet");
         return this.snapshot();
       }
-      if (sourceChain !== b.monadChainId) {
+      if (solana) {
+        if (!wallet.remoteRecoveryVault || !equalHex(await wallet.remoteRecoveryVault(b), b.recoveryVault!.accountBytes)) throw new Error("source-recovery-vault-mismatch");
+        if (!wallet.lockPda) throw new Error("source-lock-pda-unavailable");
+      } else if (sourceChain !== b.monadChainId) {
         if (!wallet.remoteRecoveryVault) throw new Error("source-recovery-vault-unavailable");
         const sourceRecovery = await wallet.remoteRecoveryVault(b);
         const pinnedRecovery = await this.client.rpc.read<string>(b.core, termbookCoreAbi, "remoteRecoveryVaultOf", [b.creditId]);
@@ -264,9 +313,11 @@ export class CollateralSetup {
         return this.snapshot();
       }
       await this.record("proof_pending", { sourceTx: lock.txId ?? this.current.sourceTx, lockId: this.bindingHash });
-      const functionName = sourceChain === b.monadChainId ? "bindCollateral" : "bindRemoteCollateral";
+      const functionName = solana ? "bindSolanaCollateral" : sourceChain === b.monadChainId ? "bindCollateral" : "bindRemoteCollateral";
       await this.checkBorrowerWallet();
-      const tx = await this.client.rpc.coreWrite(functionName, [b.creditId, this.bindingHash]);
+      const lockPda = solana ? await wallet.lockPda!(b, this.bindingHash) : undefined;
+      if (solana && (typeof lockPda !== "string" || !/^0x[a-fA-F0-9]{64}$/.test(lockPda) || /^0x0{64}$/i.test(lockPda))) throw new Error("source-lock-pda-invalid");
+      const tx = await this.client.rpc.coreWrite(functionName, solana ? [b.creditId, this.bindingHash, lockPda] : [b.creditId, this.bindingHash]);
       await this.record("proof_pending", { bindTx: tx });
       await this.client.rpc.wait(tx);
       state = await this.coreState();
@@ -283,7 +334,9 @@ export class CollateralSetup {
         return this.snapshot();
       }
       await this.checkBorrowerWallet();
-      const tx = await this.client.rpc.coreWrite("proveCollateral", [b.creditId, BigInt(sourceChain), proof.header, proof.proof]);
+      const tx = solana
+        ? await this.client.rpc.coreWrite("proveSolanaCollateral", [b.creditId, proof.header, proof.proof])
+        : await this.client.rpc.coreWrite("proveCollateral", [b.creditId, BigInt(sourceChain), proof.header, proof.proof]);
       await this.record("proof_submitted", { proofTx: tx });
       await this.client.rpc.wait(tx);
       state = await this.coreState();

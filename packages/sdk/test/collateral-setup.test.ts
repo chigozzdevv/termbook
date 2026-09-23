@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { CollateralSetupBinding } from "@termbook/schema";
 import type { TermbookClient } from "../src/client/client.js";
-import { CollateralChainNotIntegratedError, CollateralSetup, collateralSetupHash, restoreCollateralSetup } from "../src/collateral/setup.js";
+import { CollateralSetup, collateralSetupHash, restoreCollateralSetup } from "../src/collateral/setup.js";
 import { Intent } from "../src/intent/intent.js";
 import { EvmSourceLockWallet, evmRemoteLockCommitment, evmSourceLockCall } from "../src/collateral/evm-source.js";
 import { encodeAbiParameters, keccak256 } from "viem";
@@ -268,15 +268,20 @@ describe("collateral setup", () => {
     expect(() => new CollateralSetup(client, b, { sourceWallet: { account: { ...b.owner, accountBytes: address("d") }, observeLock: async () => ({ state: "missing" }), submitLock: async () => ({ txId: hash("e") }) } })).toThrow("source-wallet-mismatch");
   });
 
-  it("rejects Solana selections at the legacy EVM quote boundary", async () => {
+  it("submits native Solana intent without truncating 32-byte identities", async () => {
     const source = { namespace: "solana" as const, reference: `0x${"f".repeat(64)}` as `0x${string}` };
     const key = `0x${"1".repeat(64)}` as `0x${string}`;
-    const client = { signer: { address: () => address("5") } } as TermbookClient;
+    let submitted: unknown;
+    const client = {
+      config: { apiBase: "https://invalid.example" }, signer: { address: () => address("5") },
+      authenticatedPost: async (_path: string, payload: unknown) => { submitted = payload; return { intentId: hash("1") }; },
+    } as unknown as TermbookClient;
     const intent = new Intent(client, {
       collateral: { chain: source, asset: { ...source, kind: "native", assetBytes: NATIVE_SOL_ASSET_BYTES }, amount: 1n, owner: { ...source, accountBytes: key }, returnRecipient: { ...source, accountBytes: key } },
       credit: { limit: 10n, duration: 3600 },
     });
-    await expect(intent.submit()).rejects.toBeInstanceOf(CollateralChainNotIntegratedError);
+    expect(await intent.submit()).toBe(hash("1"));
+    expect(submitted).toMatchObject({ collateral: { chain: source, owner: { ...source, accountBytes: key }, amount: "1" } });
   });
 
   it("accepts the borrower quote first and returns pending while source finality is outstanding", async () => {

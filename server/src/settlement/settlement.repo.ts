@@ -2,7 +2,7 @@ import { SettlementModel } from "./settlement.model.js";
 import { randomUUID } from "node:crypto";
 import { HttpError } from "../http/http.errors.js";
 
-const identityKeys = ["kind", "payer", "nonce", "sourceChain", "sourceAsset", "vault", "token", "creditId", "maxAmountIn", "maxReceived", "minAmountOut", "deadline", "refundRecipient", "sourceRefundRecipient", "monadRefundRecipient", "routeId", "routeVersion", "lpRecipient", "minShares", "inbox"];
+const identityKeys = ["kind", "payer", "nonce", "sourceChain", "sourceAsset", "vault", "token", "creditId", "maxAmountIn", "maxReceived", "minAmountOut", "deadline", "refundRecipient", "sourceRefundRecipient", "monadRefundRecipient", "routeId", "routeVersion", "lpRecipient", "minShares", "inbox", "registrationTxHash"];
 
 function assertSame(existing: Record<string, unknown>, doc: Record<string, unknown>): void {
   for (const key of identityKeys) {

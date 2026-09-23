@@ -3,6 +3,10 @@ import { decodeAbiParameters } from "viem";
 import { fetchProof, lockCommitmentSlot } from "../../src/chain/source.client.js";
 import { lockCommitment } from "../../src/collateral/collateral.worker.js";
 
+vi.mock("../../src/chain/ethereum-execution-header.js", () => ({
+  buildEthereumSourceHeader: vi.fn(async () => "0x1234"),
+}));
+
 const lockId = `0x${"11".repeat(32)}` as const;
 const commitment = `0x${"22".repeat(32)}` as const;
 const codeHash = `0x${"33".repeat(32)}` as const;
@@ -38,7 +42,7 @@ function mockSource(overrides: {
     const url = String(raw);
     const request = options?.body ? JSON.parse(String(options.body)) as { method: string; params: unknown[] } : undefined;
     requests.push({ method: request?.method, params: request?.params, url });
-    if (!request) return response({ header: "0x1234", blockNumber: "0xa", blockHash, stateRoot });
+    if (!request) return response({ finalizedBeaconRoot: `0x${"99".repeat(32)}`, blockNumber: "0xa", blockHash, stateRoot });
     if (request.method === "eth_chainId") return rpcResponse(overrides.chainId ?? "0x1");
     if (request.method === "eth_getBlockByNumber" && request.params[0] === "finalized") {
       return rpcResponse({ number: overrides.finalized ?? "0xb" });

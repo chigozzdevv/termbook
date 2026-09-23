@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {EthereumVerifier} from "../../src/monad/collateral/EthereumVerifier.sol";
 import {MonadVerifier} from "../../src/ethereum/collateral/MonadVerifier.sol";
 import {MockConsensusLightClient} from "./light-client-verifier.t.sol";
+import {EthereumHeaderFixture} from "./EthereumHeaderFixture.sol";
 
 contract EvmReceiptProofTest is Test {
     MockConsensusLightClient ethereumClient;
@@ -34,8 +35,8 @@ contract EvmReceiptProofTest is Test {
 
     function testVerifiesFinalizedEthereumAppliedLog() public {
         bytes32 digest = keccak256(abi.encode(actionHash, lockId, recipient, uint256(400), uint8(1)));
-        (bytes memory header, bytes memory proof) = _proof(_appliedReceipt(400, 1, recipient), 0, 0, false);
-        (,, bytes32 receiptsRoot) = abi.decode(header, (uint256, bytes32, bytes32));
+        (bytes memory header, bytes memory proof) = _ethereumProof(_appliedReceipt(400, 1, recipient), 0, 0, false);
+        (, bytes32 receiptsRoot,) = EthereumHeaderFixture.roots(header);
         assertEq(receiptsRoot, 0xb1ad6fbf80b264f407f6079a0fb9a22d8c21e6573d8848be1729375237d8c754);
         assertEq(digest, 0x1a21ff0d99c308d4c18674e4e852277b291659c646232d2a265f51588a3bd6e5);
         assertTrue(ethereumVerifier.verifyEvent(header, proof, sourceVault, digest));
@@ -44,12 +45,11 @@ contract EvmReceiptProofTest is Test {
         ethereumClient.setResults(false, true);
         assertFalse(ethereumVerifier.verifyEvent(header, proof, sourceVault, digest));
         ethereumClient.setResults(true, true);
-        (,, bytes32 root) = abi.decode(header, (uint256, bytes32, bytes32));
-        assertFalse(
-            ethereumVerifier.verifyEvent(
-                abi.encode(block.timestamp - 1 days - 1, bytes32(uint256(1)), root), proof, sourceVault, digest
-            )
-        );
+        (, bytes32 root,) = EthereumHeaderFixture.roots(header);
+        bytes memory oldHeader =
+            EthereumHeaderFixture.header(block.timestamp - 1 days - 1, bytes32(uint256(1)), root);
+        assertFalse(ethereumVerifier.verifyFinality(oldHeader));
+        assertTrue(ethereumVerifier.verifyEvent(oldHeader, proof, sourceVault, digest));
     }
 
     function testVerifiesFinalizedMonadAuthorizationInTypedReceipt() public view {
@@ -97,7 +97,7 @@ contract EvmReceiptProofTest is Test {
         bytes32 digest = keccak256(abi.encode(actionHash, lockId, recipient, uint256(400), uint8(1)));
         bytes memory receipt =
             _receiptLogs(bytes.concat(_appliedLog(300, 1, recipient), _appliedLog(400, 1, recipient)), true);
-        (bytes memory header, bytes memory proof) = _proof(receipt, 0, 1, false);
+        (bytes memory header, bytes memory proof) = _ethereumProof(receipt, 0, 1, false);
         assertTrue(ethereumVerifier.verifyEvent(header, proof, sourceVault, digest));
         (uint256 txIndex,, bytes[] memory nodes) = abi.decode(proof, (uint256, uint256, bytes[]));
         assertFalse(ethereumVerifier.verifyEvent(header, abi.encode(txIndex, uint256(0), nodes), sourceVault, digest));
@@ -123,7 +123,7 @@ contract EvmReceiptProofTest is Test {
 
     function testRejectsWrongPathLogPositionRootAndExtraNodes() public view {
         bytes32 digest = keccak256(abi.encode(actionHash, lockId, recipient, uint256(400), uint8(1)));
-        (bytes memory header, bytes memory proof) = _proof(_appliedReceipt(400, 1, recipient), 0, 0, false);
+        (bytes memory header, bytes memory proof) = _ethereumProof(_appliedReceipt(400, 1, recipient), 0, 0, false);
         (uint256 txIndex, uint256 logIndex, bytes[] memory nodes) = abi.decode(proof, (uint256, uint256, bytes[]));
         assertFalse(ethereumVerifier.verifyEvent(header, abi.encode(txIndex + 1, logIndex, nodes), sourceVault, digest));
         assertFalse(ethereumVerifier.verifyEvent(header, abi.encode(txIndex, logIndex + 1, nodes), sourceVault, digest));
@@ -133,12 +133,18 @@ contract EvmReceiptProofTest is Test {
         assertFalse(ethereumVerifier.verifyEvent(header, abi.encode(txIndex, logIndex, extra), sourceVault, digest));
         assertFalse(
             ethereumVerifier.verifyEvent(
-                abi.encode(block.timestamp, bytes32(uint256(1)), keccak256("wrong-root")), proof, sourceVault, digest
+                EthereumHeaderFixture.header(block.timestamp, bytes32(uint256(1)), keccak256("wrong-root")),
+                proof,
+                sourceVault,
+                digest
             )
         );
         assertFalse(
             ethereumVerifier.verifyEvent(
-                abi.encode(block.timestamp, bytes32(uint256(1)), bytes32(0)), proof, sourceVault, digest
+                EthereumHeaderFixture.header(block.timestamp, bytes32(uint256(1)), bytes32(0)),
+                proof,
+                sourceVault,
+                digest
             )
         );
         assertFalse(ethereumVerifier.verifyEvent(header, hex"1234", sourceVault, digest));
@@ -146,15 +152,15 @@ contract EvmReceiptProofTest is Test {
 
     function testRejectsForgedLogFieldsAndFailedReceipt() public view {
         bytes32 digest = keccak256(abi.encode(actionHash, lockId, recipient, uint256(400), uint8(1)));
-        (bytes memory header, bytes memory proof) = _proof(_appliedReceipt(400, 0, recipient), 0, 0, false);
+        (bytes memory header, bytes memory proof) = _ethereumProof(_appliedReceipt(400, 0, recipient), 0, 0, false);
         assertFalse(ethereumVerifier.verifyEvent(header, proof, sourceVault, digest));
-        (header, proof) = _proof(_appliedReceipt(0, 1, recipient), 0, 0, false);
+        (header, proof) = _ethereumProof(_appliedReceipt(0, 1, recipient), 0, 0, false);
         assertFalse(ethereumVerifier.verifyEvent(header, proof, sourceVault, digest));
-        (header, proof) = _proof(_appliedReceipt(400, 1, address(0xBAD)), 0, 0, false);
+        (header, proof) = _ethereumProof(_appliedReceipt(400, 1, address(0xBAD)), 0, 0, false);
         assertFalse(ethereumVerifier.verifyEvent(header, proof, sourceVault, digest));
-        (header, proof) = _proof(_receipt(_appliedLog(400, 1, recipient), false), 0, 0, false);
+        (header, proof) = _ethereumProof(_receipt(_appliedLog(400, 1, recipient), false), 0, 0, false);
         assertFalse(ethereumVerifier.verifyEvent(header, proof, sourceVault, digest));
-        (header, proof) = _proof(hex"c100", 0, 0, false);
+        (header, proof) = _ethereumProof(hex"c100", 0, 0, false);
         assertFalse(ethereumVerifier.verifyEvent(header, proof, sourceVault, digest));
     }
 
@@ -196,6 +202,17 @@ contract EvmReceiptProofTest is Test {
         }
         header = abi.encode(block.timestamp, bytes32(uint256(1)), root);
         proof = abi.encode(txIndex, logIndex, nodes);
+    }
+
+    function _ethereumProof(bytes memory receipt, uint256 txIndex, uint256 logIndex, bool branch)
+        internal
+        view
+        returns (bytes memory header, bytes memory proof)
+    {
+        (bytes memory rootsHeader, bytes memory receiptProof) = _proof(receipt, txIndex, logIndex, branch);
+        (uint256 timestamp, bytes32 stateRoot, bytes32 receiptsRoot) =
+            abi.decode(rootsHeader, (uint256, bytes32, bytes32));
+        return (EthereumHeaderFixture.header(timestamp, stateRoot, receiptsRoot), receiptProof);
     }
 
     function _extensionProof(bytes memory receipt) internal view returns (bytes memory header, bytes memory proof) {

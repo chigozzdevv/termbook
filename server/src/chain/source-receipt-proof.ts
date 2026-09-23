@@ -3,6 +3,7 @@ import {
   type Address, type Hex, type TransactionReceipt,
 } from "viem";
 import { env } from "../config/env.js";
+import { buildEthereumSourceHeader } from "./ethereum-execution-header.js";
 import { buildReceiptProof } from "./monad-receipt-proof.js";
 
 const word = /^0x[0-9a-fA-F]{64}$/;
@@ -90,8 +91,7 @@ export async function fetchSourceAppliedProof(input: AppliedProofRequest) {
   } catch {
     throw new Error("source-action-header-invalid");
   }
-  if (typeof parsed["header"] !== "string" || !/^0x(?:[0-9a-fA-F]{2})+$/.test(parsed["header"])
-    || parsed["header"].length > 192_002
+  if (typeof parsed["finalizedBeaconRoot"] !== "string" || !word.test(parsed["finalizedBeaconRoot"])
     || typeof parsed["blockNumber"] !== "string"
     || !/^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/.test(parsed["blockNumber"])
     || BigInt(parsed["blockNumber"]) !== block.number
@@ -100,8 +100,20 @@ export async function fetchSourceAppliedProof(input: AppliedProofRequest) {
     || parsed["receiptsRoot"].toLowerCase() !== block.receiptsRoot.toLowerCase()) {
     throw new Error("source-action-header-mismatch");
   }
+  const raw: unknown = await source.request({ method: "eth_getBlockByHash", params: [block.hash, false] });
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("source-action-header-mismatch");
+  const selected = raw as Record<string, unknown>;
+  if (typeof selected["number"] !== "string" || !/^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/.test(selected["number"])
+    || BigInt(selected["number"]) !== block.number
+    || typeof selected["hash"] !== "string" || selected["hash"].toLowerCase() !== block.hash.toLowerCase()
+    || typeof selected["stateRoot"] !== "string" || selected["stateRoot"].toLowerCase() !== block.stateRoot.toLowerCase()
+    || typeof selected["receiptsRoot"] !== "string" || selected["receiptsRoot"].toLowerCase() !== block.receiptsRoot.toLowerCase()) {
+    throw new Error("source-action-header-mismatch");
+  }
+  const header = await buildEthereumSourceHeader(selected, parsed["finalizedBeaconRoot"] as Hex,
+    { historicalEvent: true });
   return {
-    header: parsed["header"] as Hex, proof: assembled.proof,
+    header, proof: assembled.proof,
     receiptsRoot: assembled.receiptsRoot, blockHash: block.hash,
     blockNumber: block.number, txIndex: receipt.transactionIndex, logIndex,
   };

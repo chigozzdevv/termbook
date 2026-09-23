@@ -20,7 +20,7 @@ export type RepayResult = {
   tx?: `0x${string}`;
   operationId?: `0x${string}`;
   inbox?: `0x${string}`;
-  depositAddress?: `0x${string}`;
+  depositAddress?: string;
   amountIn?: bigint;
   deadline?: string;
   providerQuote?: unknown;

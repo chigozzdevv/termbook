@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {EthereumVerifier} from "../../src/monad/collateral/EthereumVerifier.sol";
 import {CollateralVault} from "../../src/shared/collateral/CollateralVault.sol";
 import {MockConsensusLightClient} from "./light-client-verifier.t.sol";
+import {EthereumHeaderFixture} from "./EthereumHeaderFixture.sol";
 import {MockERC20} from "../MockERC20.sol";
 
 contract EthereumStateProofTest is Test {
@@ -30,13 +31,27 @@ contract EthereumStateProofTest is Test {
         assertFalse(verifier.verifyLock(header, proof, address(0xBAD), digest));
         assertFalse(verifier.verifyLock(header, proof, address(vault), keccak256("other")));
         assertFalse(
-            verifier.verifyLock(abi.encode(block.timestamp, keccak256("other-root")), proof, address(vault), digest)
+            verifier.verifyLock(
+                EthereumHeaderFixture.header(block.timestamp, keccak256("other-root"), bytes32(uint256(1))),
+                proof,
+                address(vault),
+                digest
+            )
         );
     }
 
     function testVerifiesHashedBranchStorageProof() public {
         (bytes memory header, bytes memory proof) = _proof(address(vault), lockId, digest, true);
         assertTrue(verifier.verifyLock(header, proof, address(vault), digest));
+    }
+
+    function testRejectsHeaderNotBoundToFinalizedBlockHashOrTimestamp() public {
+        (bytes memory header, bytes memory proof) = _proof(address(vault), lockId, digest, false);
+        client.setFinalizedHashOverride(keccak256("different-finalized-block"));
+        assertFalse(verifier.verifyLock(header, proof, address(vault), digest));
+        client.setFinalizedHashOverride(bytes32(0));
+        client.setTimestampOverride(block.timestamp - 1);
+        assertFalse(verifier.verifyLock(header, proof, address(vault), digest));
     }
 
     function testVerifiesCanonicalStorageWordWithLeadingZeroBytes() public {
@@ -68,9 +83,14 @@ contract EthereumStateProofTest is Test {
         client.setResults(false, true);
         assertFalse(verifier.verifyLock(header, proof, address(vault), digest));
         client.setResults(true, true);
-        (, bytes32 stateRoot) = abi.decode(header, (uint256, bytes32));
+        (bytes32 stateRoot,,) = EthereumHeaderFixture.roots(header);
         assertFalse(
-            verifier.verifyLock(abi.encode(block.timestamp - 1 days - 1, stateRoot), proof, address(vault), digest)
+            verifier.verifyLock(
+                EthereumHeaderFixture.header(block.timestamp - 1 days - 1, stateRoot, bytes32(uint256(1))),
+                proof,
+                address(vault),
+                digest
+            )
         );
     }
 
@@ -82,7 +102,10 @@ contract EthereumStateProofTest is Test {
         assertFalse(verifier.verifyLock(header, malformed, address(vault), digest));
         assertFalse(
             verifier.verifyLock(
-                abi.encode(block.timestamp, keccak256(accountNodes[0])), malformed, address(vault), digest
+                EthereumHeaderFixture.header(block.timestamp, keccak256(accountNodes[0]), bytes32(uint256(1))),
+                malformed,
+                address(vault),
+                digest
             )
         );
         assertFalse(verifier.verifyLock(header, hex"123456", address(vault), digest));
@@ -168,7 +191,7 @@ contract EthereumStateProofTest is Test {
         bytes memory accountLeaf = _rlpList(bytes.concat(_rlpBytes(_compactLeaf(accountKey, 0)), _rlpBytes(account)));
         bytes[] memory accountNodes = new bytes[](1);
         accountNodes[0] = accountLeaf;
-        header = abi.encode(block.timestamp, keccak256(accountLeaf));
+        header = EthereumHeaderFixture.header(block.timestamp, keccak256(accountLeaf), bytes32(uint256(1)));
         proof = abi.encode(actionHash, accountNodes, storageNodes);
     }
 
@@ -225,7 +248,7 @@ contract EthereumStateProofTest is Test {
         bytes memory accountLeaf = _rlpList(bytes.concat(_rlpBytes(_compactLeaf(accountKey, 0)), _rlpBytes(account)));
         bytes[] memory accountNodes = new bytes[](1);
         accountNodes[0] = accountLeaf;
-        header = abi.encode(block.timestamp, keccak256(accountLeaf));
+        header = EthereumHeaderFixture.header(block.timestamp, keccak256(accountLeaf), bytes32(uint256(1)));
         proof = abi.encode(sourceLockId, accountNodes, storageNodes);
     }
 

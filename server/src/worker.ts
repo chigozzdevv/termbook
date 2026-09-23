@@ -2,6 +2,9 @@ import { connectDb } from "./database/database.client.js";
 import { runCreditWorker } from "./credit/credit.worker.js";
 import { runCollateralWorker } from "./collateral/collateral.worker.js";
 import { runRemoteActionWorker } from "./collateral/remote-action.worker.js";
+import { runSolanaLockWorker } from "./collateral/solana.worker.js";
+import { runEthereumBeaconWorker } from "./chain/ethereum-beacon.worker.js";
+import { solanaProofConfig } from "./collateral/solana.config.js";
 import { runSettlementWorker } from "./settlement/settlement.worker.js";
 import { runRecoveryWorker } from "./recovery/recovery.worker.js";
 import { runRecoveryRefundWorker } from "./recovery/refund.worker.js";
@@ -15,6 +18,7 @@ async function main(): Promise<void> {
   assertRuntimeConfig();
   assertSettlementWorkerConfig();
   assertRecoveryWorkerConfig();
+  solanaProofConfig();
   await connectDb();
   await startWorkers();
   const tick = async (): Promise<void> => {
@@ -22,6 +26,8 @@ async function main(): Promise<void> {
       runCreditWorker(),
       runCollateralWorker(),
       runRemoteActionWorker(),
+      runSolanaLockWorker(),
+      runEthereumBeaconWorker(),
       runSettlementWorker(),
       runRecoveryWorker(),
       runRecoveryRefundWorker(),

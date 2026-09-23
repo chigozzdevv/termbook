@@ -1,4 +1,10 @@
 import { z } from "zod";
+import { solanaBase58Bytes } from "../collateral/solana-proof.js";
+
+const sourceRefund = z.string().refine((value) => {
+  if (/^0x[a-fA-F0-9]{40}$/.test(value)) return true;
+  try { solanaBase58Bytes(value); return true; } catch { return false; }
+});
 
 export const settlementSchema = z.object({
   operationId: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
@@ -16,7 +22,7 @@ export const settlementSchema = z.object({
   minAmountOut: z.string().regex(/^\d+$/).refine((value) => BigInt(value) > 0n),
   deadline: z.number().int().positive(),
   refundRecipient: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
-  sourceRefundRecipient: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+  sourceRefundRecipient: sourceRefund,
   monadRefundRecipient: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
   routeId: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
   routeVersion: z.string().regex(/^0x[a-fA-F0-9]{64}$/),

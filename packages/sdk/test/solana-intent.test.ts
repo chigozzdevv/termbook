@@ -68,7 +68,8 @@ describe("Solana collateral acceptance", () => {
           if (fn === "collateralSourceChainOf") return 1001n;
           if (fn === "collateralOwnerOf") return alias(owner);
           if (fn === "solanaIdentityOf") return { sourceGenesis: genesis, programId, sourceAsset: NATIVE_SOL_ASSET_BYTES, sourceOwner: owner, returnRecipient: recipient, recoveryVault, verifierVersion: 1n };
-          if (fn === "solanaMarkets") return { sourceGenesis: genesis, programId, sourceAsset: NATIVE_SOL_ASSET_BYTES, recoveryVault, active: true };
+          if (fn === "solanaMarkets") return { sourceGenesis: genesis, programId,
+            programDataHash: key("f"), sourceAsset: NATIVE_SOL_ASSET_BYTES, active: true };
           if (fn === "collateralProven") return false;
           throw new Error(`unexpected-read:${fn}`);
         },

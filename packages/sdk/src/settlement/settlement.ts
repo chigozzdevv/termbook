@@ -7,12 +7,13 @@ import { quoteHash, verifyQuoteSignature, type OneClickQuoteResponse } from "@de
 import { createPublicClient, hashTypedData, http, keccak256, stringToHex } from "viem";
 import type { Wallet } from "../types/client.types.js";
 import { HttpClient } from "../transport/http.js";
+import { solanaPubkeyBytes } from "../collateral/solana.js";
 
 const zeroAddress = "0x0000000000000000000000000000000000000000" as const;
 const zeroBytes32 = "0x0000000000000000000000000000000000000000000000000000000000000000" as const;
 const erc20TransferAbi = [{ type: "function", name: "transfer", stateMutability: "nonpayable", inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "bool" }] }] as const;
 
-export type SettlementRegistration = {
+type SettlementRegistrationBase = {
   operationId: `0x${string}`;
   registrationTxHash?: `0x${string}`;
   operation?: RecoveryOperation;
@@ -22,11 +23,15 @@ export type SettlementRegistration = {
   sourceAsset: `0x${string}`;
   sourceRefund: `0x${string}`;
   inbox: `0x${string}`;
-  depositAddress: `0x${string}`;
   amountIn: bigint;
   deadline: string;
   providerQuote: OneClickQuoteResponse;
 };
+
+export type SettlementRegistration = SettlementRegistrationBase & (
+  | { sourceAddressFormat: "evm"; sourceRefundRecipient: `0x${string}`; depositAddress: `0x${string}` }
+  | { sourceAddressFormat: "solana"; sourceRefundRecipient: string; depositAddress: string }
+);
 
 export type RecoveryOperation = {
   operationId: `0x${string}`;
@@ -85,15 +90,8 @@ export class Settlement {
   }
 
   async fundErc20(registration: SettlementRegistration, sourceRpcUrl: string, sourceWallet: Wallet): Promise<`0x${string}`> {
-    if (registration.kind === "recovery" || !sourceWallet.writeContract || sourceWallet.address.toLowerCase() !== registration.payer.toLowerCase()) throw new Error("source-wallet-required");
-    const quote = registration.providerQuote;
-    if (
-      !verifyQuoteSignature(quote) || quote.quoteRequest.recipient.toLowerCase() !== registration.inbox.toLowerCase()
-        || quote.quoteRequest.refundTo.toLowerCase() !== registration.sourceRefund.toLowerCase()
-        || quote.quote?.depositAddress?.toLowerCase() !== registration.depositAddress.toLowerCase()
-        || BigInt(quote.quote.amountIn) !== registration.amountIn
-        || Date.parse(registration.deadline) <= Date.now()
-    ) throw new Error("settlement-invalid");
+    if (registration.sourceAddressFormat !== "evm" || registration.kind === "recovery" || !sourceWallet.writeContract || sourceWallet.address.toLowerCase() !== registration.payer.toLowerCase()) throw new Error("source-wallet-required");
+    if (!validEvmQuote(registration)) throw new Error("settlement-invalid");
     const chain = createPublicClient({ transport: http(sourceRpcUrl) });
     if (await chain.getChainId() !== registration.sourceChain) throw new Error("chain-mismatch");
     const tx = await sourceWallet.writeContract({
@@ -113,9 +111,11 @@ export class Settlement {
     typedData: unknown;
   } {
     if (
-      registration.kind !== "recovery" || registration.sourceRefund.toLowerCase() !== recoveryVault.toLowerCase()
-        || !verifyQuoteSignature(registration.providerQuote) || nonce < 0n
-        || deadline <= Date.now() / 1000 || deadline > Date.parse(registration.deadline) / 1000
+      registration.sourceAddressFormat !== "evm" || registration.kind !== "recovery"
+        || registration.sourceRefund.toLowerCase() !== recoveryVault.toLowerCase()
+        || !validEvmQuote(registration) || nonce < 0n
+        || deadline <= Date.now() / 1000 || !Number.isFinite(Date.parse(registration.deadline))
+        || deadline > Date.parse(registration.deadline) / 1000
     ) throw new Error("recovery-route-invalid");
     const funding: RecoveryFunding = {
       creditId,
@@ -165,7 +165,8 @@ export class Settlement {
   async fundRecovery(registration: SettlementRegistration, recoveryVault: `0x${string}`, funding: RecoveryFunding, authorization: RecoveryProof, sourceRpcUrl: string, sourceWallet: Wallet): Promise<`0x${string}`> {
     const operation = registration.operation;
     if (
-      registration.kind !== "recovery" || registration.sourceRefund.toLowerCase() !== recoveryVault.toLowerCase()
+      registration.sourceAddressFormat !== "evm" || registration.kind !== "recovery"
+        || registration.sourceRefund.toLowerCase() !== recoveryVault.toLowerCase()
         || !operation || operation.kind !== 1
         || operation.operationId.toLowerCase() !== registration.operationId.toLowerCase()
         || operation.creditId.toLowerCase() !== funding.creditId.toLowerCase()
@@ -178,7 +179,7 @@ export class Settlement {
         || funding.depositAddress.toLowerCase() !== registration.depositAddress.toLowerCase()
         || funding.amount !== registration.amountIn
         || funding.quoteHash !== keccak256(stringToHex(quoteHash(registration.providerQuote)))
-        || !verifyQuoteSignature(registration.providerQuote) || !sourceWallet.writeContract
+        || !validEvmQuote(registration) || !sourceWallet.writeContract
         || !/^0x(?:[a-fA-F0-9]{2})+$/.test(authorization.header)
         || !/^0x(?:[a-fA-F0-9]{2})+$/.test(authorization.proof)
         || !/^0x(?:[a-fA-F0-9]{2})+$/.test(authorization.routeSignature)
@@ -214,6 +215,8 @@ export class Settlement {
     maxReceived: bigint;
     deadline: number;
     sourceRefund: `0x${string}`;
+    sourceAddressFormat?: "evm" | "solana";
+    sourceRefundRecipient?: string;
     monadRefund: `0x${string}`;
     lpRecipient?: `0x${string}`;
     minShares?: bigint;
@@ -221,6 +224,14 @@ export class Settlement {
   }): Promise<SettlementRegistration> {
     const factory = this.client.config.settlementFactory;
     if (!factory || input.payer.toLowerCase() !== this.client.signer.address().toLowerCase() || !input.routeVersion || input.maxAmountIn <= 0n || input.maxReceived < input.minAmountOut || input.deadline <= Date.now() / 1000) throw new Error("settlement-route-required");
+    const sourceAddressFormat = input.sourceAddressFormat ?? "evm";
+    const sourceRefundRecipient = input.sourceRefundRecipient ?? input.sourceRefund;
+    if ((sourceAddressFormat !== "evm" && sourceAddressFormat !== "solana")
+      || !/^0x[a-fA-F0-9]{40}$/.test(input.sourceRefund)
+      || (sourceAddressFormat === "evm" && (!/^0x[a-fA-F0-9]{40}$/.test(sourceRefundRecipient)
+        || sourceRefundRecipient.toLowerCase() !== input.sourceRefund.toLowerCase()))
+      || (sourceAddressFormat === "solana" && (!input.sourceRefundRecipient
+        || !isSolanaPubkey(sourceRefundRecipient)))) throw new Error("settlement-route-required");
     const id = operationId({ kind: input.kind, payer: input.payer, nonce: input.nonce, chainId: input.chainId, creditId: input.creditId, routeVersion: input.routeVersion, asset: input.asset, vault: input.vault });
     const kind = input.kind === "repay" ? 0 : input.kind === "recovery" ? 1 : 2;
     const operation: RecoveryOperation = {
@@ -292,7 +303,7 @@ export class Settlement {
       payer: input.payer,
       deadline: input.deadline,
       refundRecipient: input.monadRefund,
-      sourceRefundRecipient: input.sourceRefund,
+      sourceRefundRecipient,
       monadRefundRecipient: input.monadRefund,
       routeVersion: input.routeVersion,
       routeId: input.routeId,
@@ -302,18 +313,51 @@ export class Settlement {
     const providerQuote = result.quote;
     const quote = providerQuote?.quote;
     const quotedRequest = providerQuote?.quoteRequest;
+    const quoteDeadline = Date.parse(quote?.deadline ?? "");
     if (
       result.operationId?.toLowerCase() !== id.toLowerCase() || result.inbox?.toLowerCase() !== inbox.toLowerCase()
         || !providerQuote || !quotedRequest || !verifyQuoteSignature(providerQuote)
         || quotedRequest.recipient.toLowerCase() !== inbox.toLowerCase()
-        || quotedRequest.refundTo.toLowerCase() !== input.sourceRefund.toLowerCase()
+        || (sourceAddressFormat === "evm"
+          ? quotedRequest.refundTo.toLowerCase() !== sourceRefundRecipient.toLowerCase()
+          : quotedRequest.refundTo !== sourceRefundRecipient)
         || quotedRequest.amount !== input.maxAmountIn.toString()
-        || !quote?.depositAddress || !/^0x[a-fA-F0-9]{40}$/.test(quote.depositAddress) || quote.depositMemo
+        || !quote?.depositAddress || (sourceAddressFormat === "evm"
+          ? !/^0x[a-fA-F0-9]{40}$/.test(quote.depositAddress)
+          : !isSolanaPubkey(quote.depositAddress)) || quote.depositMemo
         || !quote.amountIn || BigInt(quote.amountIn) !== input.maxAmountIn
         || BigInt(quote.minAmountOut) < input.minAmountOut
         || BigInt(quote.amountOut) > input.maxReceived
-        || !quote.deadline || Date.parse(quote.deadline) > input.deadline * 1000
+        || !quote.deadline || !Number.isFinite(quoteDeadline) || quoteDeadline <= Date.now()
+        || quoteDeadline > input.deadline * 1000
     ) throw new Error("settlement-invalid");
-    return { operationId: id, registrationTxHash, operation, kind: input.kind, payer: input.payer, sourceChain: input.chainId, sourceAsset: input.asset, sourceRefund: input.sourceRefund, inbox, depositAddress: quote.depositAddress as `0x${string}`, amountIn: BigInt(quote.amountIn), deadline: quote.deadline, providerQuote };
+    const registration = { operationId: id, registrationTxHash, operation, kind: input.kind, payer: input.payer,
+      sourceChain: input.chainId, sourceAsset: input.asset, sourceRefund: input.sourceRefund, inbox,
+      amountIn: BigInt(quote.amountIn), deadline: quote.deadline, providerQuote };
+    if (sourceAddressFormat === "solana") {
+      return { ...registration, sourceAddressFormat, sourceRefundRecipient, depositAddress: quote.depositAddress };
+    }
+    return { ...registration, sourceAddressFormat, sourceRefundRecipient: sourceRefundRecipient as `0x${string}`,
+      depositAddress: quote.depositAddress as `0x${string}` };
   }
+}
+
+function isSolanaPubkey(value: string): boolean {
+  try { solanaPubkeyBytes(value); return true; } catch { return false; }
+}
+
+function validEvmQuote(registration: SettlementRegistration): boolean {
+  if (registration.sourceAddressFormat !== "evm") return false;
+  const quote = registration.providerQuote;
+  return /^0x[a-fA-F0-9]{40}$/.test(registration.depositAddress)
+    && /^0x[a-fA-F0-9]{40}$/.test(registration.sourceRefundRecipient)
+    && registration.sourceRefundRecipient.toLowerCase() === registration.sourceRefund.toLowerCase()
+    && verifyQuoteSignature(quote)
+    && quote.quoteRequest?.recipient?.toLowerCase() === registration.inbox.toLowerCase()
+    && quote.quoteRequest?.refundTo?.toLowerCase() === registration.sourceRefundRecipient.toLowerCase()
+    && quote.quote?.depositAddress?.toLowerCase() === registration.depositAddress.toLowerCase()
+    && BigInt(quote.quote.amountIn) === registration.amountIn
+    && quote.quote.deadline === registration.deadline
+    && Number.isFinite(Date.parse(registration.deadline))
+    && Date.parse(registration.deadline) > Date.now();
 }

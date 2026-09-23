@@ -2,6 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { decodeAbiParameters, keccak256 } from "viem";
 import { consumedActionSlot, fetchUnconsumedActionProof } from "../../src/chain/source.client.js";
 
+vi.mock("../../src/chain/ethereum-execution-header.js", () => ({
+  buildEthereumSourceHeader: vi.fn(async () => "0x1234"),
+}));
+
 const actionHash = `0x${"11".repeat(32)}` as const;
 const controller = `0x${"22".repeat(20)}` as const;
 const codeHash = `0x${"33".repeat(32)}` as const;
@@ -18,7 +22,7 @@ function source(overrides: { timestamp?: string; value?: string; storageHash?: s
   vi.stubGlobal("fetch", vi.fn(async (raw: string | URL | Request, options?: RequestInit) => {
     const request = options?.body ? JSON.parse(String(options.body)) as { method: string; params: unknown[] } : undefined;
     requests.push({ method: request?.method, params: request?.params, url: String(raw) });
-    if (!request) return reply({ header: "0x1234", blockNumber: "0xa", blockHash, stateRoot });
+    if (!request) return reply({ finalizedBeaconRoot: `0x${"99".repeat(32)}`, blockNumber: "0xa", blockHash, stateRoot });
     let result: unknown;
     if (request.method === "eth_chainId") result = "0x1";
     else if (request.method === "eth_getBlockByNumber" && request.params[0] === "finalized") result = { number: "0xb" };

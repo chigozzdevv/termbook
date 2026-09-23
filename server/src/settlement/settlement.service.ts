@@ -4,6 +4,8 @@ import { env } from "../config/env.js";
 import { monadClient } from "../chain/monad.client.js";
 import { admittedRoute, requestAuroraQuote } from "./aurora.client.js";
 import { encodeAbiParameters, keccak256 } from "viem";
+import { solanaBase58Bytes } from "../collateral/solana-proof.js";
+import type { AuroraRoute } from "./aurora.client.js";
 import type { z } from "zod";
 import type { settlementSchema } from "./settlement.schema.js";
 
@@ -25,10 +27,16 @@ const houseAbi = [
   { type: "function", name: "lpInboxRecipient", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "address" }] },
   { type: "function", name: "lpInboxMinShares", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] },
 ] as const;
+const houseCoreAbi = [{ type: "function", name: "core", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] }] as const;
+const solanaIdentityAbi = [{ type: "function", name: "solanaIdentityOf", stateMutability: "view",
+  inputs: [{ type: "bytes32" }], outputs: [
+    { type: "bytes32" }, { type: "bytes32" }, { type: "bytes32" }, { type: "bytes32" },
+    { type: "bytes32" }, { type: "bytes32" }, { type: "uint64" },
+  ] }] as const;
 
 type Input = z.infer<typeof settlementSchema>;
 
-async function confirmedInbox(input: Input): Promise<`0x${string}`> {
+async function confirmedInbox(input: Input, route: AuroraRoute): Promise<`0x${string}`> {
   if (!/^0x[a-fA-F0-9]{40}$/.test(env.settlementFactory)) throw new HttpError(503, "settlement-route-unavailable");
   const chain = monadClient();
   if (await chain.getChainId() !== env.monadChainId) throw new HttpError(503, "settlement-chain-mismatch");
@@ -69,13 +77,22 @@ async function confirmedInbox(input: Input): Promise<`0x${string}`> {
       || (input.kind === "lp_deposit" && (lpRecipient.toLowerCase() !== input.lpRecipient?.toLowerCase() || minShares !== BigInt(input.minShares ?? "0")))
       || (input.kind !== "lp_deposit" && lpRecipient.toLowerCase() !== "0x0000000000000000000000000000000000000000")
   ) throw new HttpError(409, "settlement-inbox-mismatch");
+  if (route.sourceAddressFormat === "solana" && input.kind === "recovery") {
+    const core = await chain.readContract({ blockNumber: finalizedBlock, address: input.vault as `0x${string}`,
+      abi: houseCoreAbi, functionName: "core" });
+    const identity = await chain.readContract({ blockNumber: finalizedBlock, address: core,
+      abi: solanaIdentityAbi, functionName: "solanaIdentityOf", args: [input.creditId as `0x${string}`] });
+    if (identity[5] === zero || identity[5].toLowerCase() !== solanaBase58Bytes(input.sourceRefundRecipient)) {
+      throw new HttpError(409, "settlement-source-refund-mismatch");
+    }
+  }
   return inbox;
 }
 
 export const settlementService = {
   async register(input: Input) {
     const route = admittedRoute(input);
-    const inbox = await confirmedInbox(input);
+    const inbox = await confirmedInbox(input, route);
     const saved = await settlementRepo.save({ ...input, inbox });
     if (saved["quote"]) return saved;
     const lease = await settlementRepo.claimQuote(input.operationId);

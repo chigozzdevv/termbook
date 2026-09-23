@@ -2,9 +2,23 @@ import { quoteHash, verifyQuoteSignature, type OneClickQuoteResponse } from "@de
 import { z } from "zod";
 import { env } from "../config/env.js";
 import { HttpError } from "../http/http.errors.js";
+import { solanaBase58Bytes } from "../collateral/solana-proof.js";
 
 const address = z.string().regex(/^0x[a-fA-F0-9]{40}$/);
 const bytes32 = z.string().regex(/^0x[a-fA-F0-9]{64}$/);
+const solanaAddress = z.string().refine((value) => {
+  try { solanaBase58Bytes(value); return true; } catch { return false; }
+});
+const sourceAddress = z.union([address, solanaAddress]);
+
+function sameSourceAddress(left: string, right: string, format: "evm" | "solana"): boolean {
+  return format === "evm" ? left.toLowerCase() === right.toLowerCase() : left === right;
+}
+
+function validSourceAddress(value: string, format: "evm" | "solana"): boolean {
+  return format === "evm" ? address.safeParse(value).success : solanaAddress.safeParse(value).success;
+}
+
 const routeSchema = z.object({
   routeId: bytes32,
   routeVersion: bytes32,
@@ -17,7 +31,8 @@ const routeSchema = z.object({
   token: address,
   maxAmountIn: z.string().regex(/^\d+$/),
   slippageBps: z.number().int().min(0).max(1000),
-  recoveryVault: address.optional(),
+  sourceAddressFormat: z.enum(["evm", "solana"]).default("evm"),
+  recoveryVault: sourceAddress.optional(),
 });
 const quoteSchema = z.object({
   quoteRequest: z.object({
@@ -26,7 +41,7 @@ const quoteSchema = z.object({
     amount: z.string(), recipient: z.string(), refundTo: z.string(), slippageTolerance: z.number(),
   }).passthrough(),
   quote: z.object({
-    depositAddress: address, amountIn: z.string().regex(/^\d+$/),
+    depositAddress: sourceAddress, amountIn: z.string().regex(/^\d+$/),
     amountOut: z.string().regex(/^\d+$/), minAmountOut: z.string().regex(/^\d+$/),
     deadline: z.string(), depositMemo: z.unknown().optional(),
   }).passthrough(),
@@ -61,7 +76,11 @@ export function admittedRoute(input: {
     && candidate.vault.toLowerCase() === input.vault.toLowerCase()
     && candidate.token.toLowerCase() === input.token.toLowerCase()
     && BigInt(input.maxAmountIn) <= BigInt(candidate.maxAmountIn)
-    && (candidate.kind !== "recovery" || candidate.recoveryVault?.toLowerCase() === input.sourceRefundRecipient.toLowerCase()),
+    && validSourceAddress(input.sourceRefundRecipient, candidate.sourceAddressFormat)
+    && (candidate.kind !== "recovery" || (candidate.sourceAddressFormat === "solana"
+      ? candidate.recoveryVault === undefined
+      : candidate.recoveryVault !== undefined
+        && sameSourceAddress(candidate.recoveryVault, input.sourceRefundRecipient, "evm"))),
   );
   if (!route) throw new HttpError(403, "settlement-route-not-admitted");
   return route;
@@ -112,17 +131,19 @@ export async function requestAuroraQuote(input: {
   }
   const echoed = body.quoteRequest;
   const quote = body.quote;
+  const quoteDeadline = Date.parse(quote?.deadline ?? "");
   if (
     !echoed || !quote || echoed.dry !== false || echoed.swapType !== "EXACT_INPUT"
       || echoed.originAsset !== request.originAsset || echoed.destinationAsset !== request.destinationAsset
       || echoed.depositType !== "ORIGIN_CHAIN" || echoed.refundType !== "ORIGIN_CHAIN"
       || echoed.recipientType !== "DESTINATION_CHAIN" || echoed.amount !== request.amount
       || echoed.recipient.toLowerCase() !== input.inbox.toLowerCase()
-      || echoed.refundTo.toLowerCase() !== input.sourceRefundRecipient.toLowerCase()
+      || !sameSourceAddress(echoed.refundTo, input.sourceRefundRecipient, input.route.sourceAddressFormat)
       || echoed.slippageTolerance !== request.slippageTolerance
-      || !quote.depositAddress || !address.safeParse(quote.depositAddress).success
+      || !quote.depositAddress || !validSourceAddress(quote.depositAddress, input.route.sourceAddressFormat)
       || quote.depositMemo || !quote.deadline
-      || Date.parse(quote.deadline) <= Date.now() || Date.parse(quote.deadline) > input.deadline * 1000
+      || !Number.isFinite(quoteDeadline) || quoteDeadline <= Date.now()
+      || quoteDeadline > input.deadline * 1000
       || BigInt(quote.amountIn) !== BigInt(input.amountIn)
       || BigInt(quote.minAmountOut) < BigInt(input.minAmountOut)
       || BigInt(quote.amountOut) > BigInt(input.maxReceived)
@@ -142,7 +163,7 @@ const statusSchema = z.object({
 
 export async function requestAuroraStatus(quote: OneClickQuoteResponse) {
   const depositAddress = quote.quote.depositAddress;
-  if (!depositAddress || !address.safeParse(depositAddress).success) throw new HttpError(502, "aurora-status-invalid");
+  if (!depositAddress || !sourceAddress.safeParse(depositAddress).success) throw new HttpError(502, "aurora-status-invalid");
   const url = new URL("https://1click.chaindefuser.com/v0/status");
   url.searchParams.set("depositAddress", depositAddress);
   let response: Response;

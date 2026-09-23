@@ -2,7 +2,7 @@
 set -eu
 
 usage() {
-  echo "usage: scripts/deploy.sh {protocol|routing|source|ethereum-verifier|native-collateral|collateral-health-reader}" >&2
+  echo "usage: scripts/deploy.sh {protocol|routing|source|ethereum-beacon-client|ethereum-verifier|native-collateral|collateral-health-reader}" >&2
   exit 2
 }
 
@@ -48,7 +48,7 @@ case "$MONAD_CHAIN_ID" in
 esac
 
 case "$1" in
-  protocol|routing|ethereum-verifier|native-collateral|collateral-health-reader)
+  protocol|routing|ethereum-beacon-client|ethereum-verifier|native-collateral|collateral-health-reader)
     foundry_version=$(forge --version)
     if ! printf '%s\n' "$foundry_version" | awk -F '[ .-]' 'NR == 1 { exit !($3 > 1 || ($3 == 1 && $4 >= 8)) }'; then
       echo "Foundry 1.8 or newer is required for Monad deployment" >&2
@@ -62,8 +62,14 @@ case "$1" in
   *) usage ;;
 esac
 
-if [ "$1" = source ] || [ "$1" = ethereum-verifier ]; then
+if [ "$1" = source ] || [ "$1" = ethereum-beacon-client ] || [ "$1" = ethereum-verifier ]; then
   [ "$MONAD_CHAIN_ID" = 143 ] || { echo "Monad mainnet is required for Ethereum mainnet collateral" >&2; exit 1; }
+fi
+
+if [ "$1" = ethereum-beacon-client ]; then
+  : "${ETHEREUM_CHECKPOINT_FILE:?ETHEREUM_CHECKPOINT_FILE is required}"
+  : "${ETHEREUM_CHECKPOINT_GOVERNANCE:?ETHEREUM_CHECKPOINT_GOVERNANCE is required}"
+  [ -f "$ETHEREUM_CHECKPOINT_FILE" ] || fail "Ethereum checkpoint file missing"
 fi
 
 if [ "$1" = source ]; then
@@ -101,6 +107,7 @@ case "$1" in
   protocol) script=deploy-protocol.s.sol ;;
   routing) script=deploy-routing.s.sol ;;
   source) script=deploy-source.s.sol ;;
+  ethereum-beacon-client) script=deploy-ethereum-beacon-client.s.sol ;;
   ethereum-verifier) script=deploy-ethereum-verifier.s.sol ;;
   native-collateral) script=deploy-native-collateral.s.sol ;;
   collateral-health-reader) script=deploy-collateral-health-reader.s.sol ;;

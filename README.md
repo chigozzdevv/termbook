@@ -35,7 +35,7 @@ forge test --root contracts/evm
 ## Deployment stages
 
 `scripts/deploy.sh` takes one stage and one RPC. `protocol`, `routing`,
-`ethereum-verifier`, `native-collateral`, and `collateral-health-reader` require
+`ethereum-beacon-client`, `ethereum-verifier`, `native-collateral`, and `collateral-health-reader` require
 Foundry 1.8 or newer, the Monad RPC, and `MONAD_CHAIN_ID`. The wrapper selects
 Monad execution. `source` requires the Ethereum mainnet RPC,
 `SOURCE_CHAIN_ID=1`, and `MONAD_CHAIN_ID=143`. The Ethereum verifier stage
@@ -55,12 +55,24 @@ controller; the controller creates its collateral vault. This stage requires a
 deployed Ethereum governance contract and checks the Monad Core, HouseVault,
 and inbox factory bindings at a Verified block using `MONAD_RPC_URL` and their
 reviewed deployment code hashes. That RPC must serve historical state. Bind
-`SourceRecoveryVault.setController(controller)` before the next stage. Run
-`ethereum-verifier` on Monad with the source addresses and their Ethereum
+`SourceRecoveryVault.setController(controller)` before the next stage. Deploy
+`ethereum-beacon-client` on Monad from an independently verified recent Fulu
+checkpoint with `ETHEREUM_CHECKPOINT_FILE` and a deployed
+`ETHEREUM_CHECKPOINT_GOVERNANCE` contract, then run `ethereum-verifier` with
+`ETHEREUM_LIGHT_CLIENT_ADDRESS`, the source addresses, and their Ethereum
 runtime code hashes. Its wrapper checks the source chain, code hashes, and
 vault bindings before broadcasting. Governance then admits the verifiers,
 binds the vaults and recovery route, and unpauses the source controller. These
 stages require audited consensus light clients before live funds are accepted.
+
+The worker relays Ethereum Beacon updates when
+`ETHEREUM_LIGHT_CLIENT_ADDRESS`, `ETHEREUM_BEACON_API_URL`,
+`ETHEREUM_BEACON_WITNESS_URL`, and `ETHEREUM_BEACON_KEEPER_KEY` are configured.
+The witness endpoint receives `attested_root` and `signature_slot` query
+parameters and must return the BLS witness for that update. The worker checks
+the stored committee root, simulates the update, and warns when the checkpoint
+is over 12 days old. Governance must independently verify any checkpoint used
+to recover from expiry; the relay cannot establish weak subjectivity by itself.
 
 ## Collateral markets
 
@@ -71,8 +83,41 @@ USDC price, a recovery route, and the required governance configuration.
 | Asset | Lock location | Current implementation |
 | --- | --- | --- |
 | MON | Native MON enters `NativeCollateralVault` on Monad and is held as WMON. | Local custody, native return, WMON sale for USDC, and oracle-backed collateral-only health reader. Requires reviewed WMON and USDC deployments, feed, risk bands, exit verifier, and market admission. |
-| ETH | WETH stays in `CollateralVault` on Ethereum. | Full-field lock commitment and source-wallet flow are implemented. Finalized Ethereum-to-Monad lock and Monad-to-Ethereum action verifiers are required before accepting funds. |
-| SOL | Native SOL stays in a Solana program-derived account. | Typed quote and wallet identities are supported, but the program rejects deposits and actions until Solana and Monad finality verification is implemented and admitted. |
+| ETH | WETH stays in `CollateralVault` on Ethereum. | Lock custody and a Fulu Ethereum-to-Monad Beacon verifier are implemented. The Monad-to-Ethereum consensus verifier and live proof pipeline are required before accepting funds. |
+| SOL | Native SOL stays in a Solana program-derived account. | The SDK encodes the lock and source actions, and the server prepares proof-gated lock and action relays. The program rejects deposits and actions until both finality verifiers are implemented and admitted. |
+
+For SOL, a Solana wallet signs the SDK `SolanaSourceLockWallet` lock instruction.
+The borrower tracks its bound lock with `POST /collateral/solana`; the server
+proves the finalized Solana lock to Monad. After a Core return or seizure
+authorization, an authorized actor obtains
+`POST /collateral/solana/actions/plan`, submits that exact instruction on
+Solana, then obtains `POST /collateral/solana/actions/confirmation-plan` to
+confirm the finalized source action or cancellation on Monad. These endpoints
+require an admitted onchain verifier and a proof producer pinned to the market's
+Solana program data hash. After a confirmed seizure, a recovery keeper can
+request `POST /collateral/solana/recovery/funding-plan` for an already registered
+operation and finalized `SolanaRecoveryFundAuthorized` event. The SDK encodes
+the matching `FundRecovery` instruction. The
+`POST /collateral/solana/recovery/confirmation-plan` endpoint prepares a Monad
+confirmation from the finalized recovery ledger, or an expiry cancellation
+from proof that the funding did not execute. Core keeps the authorization
+pending until one of those proofs clears it. That authorization reserves the SOL
+for a bounded sale even if the debt is repaid later. If proceeds reach the
+Monad inbox after debt reaches zero, settlement cannot apply them and the
+inbox refunds available funds to the borrower after its deadline. A live SOL
+route needs an admitted Aurora quote with a Solana deposit pubkey and
+independent route and risk signatures. The funding plan checks the signed
+quote's exact deposit pubkey and source refund PDA. If a failed route returns
+SOL to that PDA, `ReconcileRecoveryRefund` credits the actual excess balance;
+`POST /collateral/solana/recovery/refund-reconciliation-plan` prepares the
+finalized proof that increases Core's available recovery balance. The source
+record proves returned SOL, not the sender of the transfer.
+When debt is zero, the borrower can request
+`POST /collateral/solana/recovery/payout-plan` for a finalized
+`SolanaRecoveryReturnAuthorized` event and return unallocated held SOL to the
+original Solana recipient. The SDK builds `RecoveryPayout`; the separate
+`payout-confirmation-plan` proves execution or expiry to clear Core's pending
+payout state.
 
 `CollateralHealthReader` values bound collateral and free USDC held in the
 Credit Account; it assigns zero value to application positions. Markets that
@@ -147,8 +192,10 @@ Configuration requires `SETTLEMENT_FACTORY`, `AURORA_API_KEY`,
 `SETTLEMENT_KEEPER_KEY`, and `AURORA_ROUTES` on the server. Each JSON route entry
 has `routeId`, `routeVersion`, `kind` (`repay`, `recovery`, or `lp_deposit`),
 `sourceChain`, `sourceAsset`, `sourceAssetId`, `destinationAssetId`, `vault`,
-`token`, `maxAmountIn`, and `slippageBps`. Recovery entries also require
-`recoveryVault`. The identifiers must name the same assets as the EVM addresses.
+`token`, `maxAmountIn`, and `slippageBps`. Ethereum recovery entries require
+`recoveryVault`. Solana routes set `sourceAddressFormat` to `solana`; their
+recovery refund address is the per-credit Solana account proven against Core.
+The identifiers must name the same assets as the EVM addresses.
 Governance must admit the corresponding pair and version in `RouteRegistry`, then
 set that registry on the House's `InboxFactory`. The factory address in the SDK
 and server must be the factory configured on the HouseVault.

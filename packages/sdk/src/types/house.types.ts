@@ -19,6 +19,6 @@ export type DepositArgs = {
   };
 };
 export type HouseAccountSummary = { owner: `0x${string}`; shares: bigint; sharePrice: bigint; assets: bigint };
-export type HouseDepositResult = { shares: bigint; status: "submitted" | "pending"; tx?: TxHash; operationId?: `0x${string}`; inbox?: `0x${string}`; depositAddress?: `0x${string}`; amountIn?: bigint; deadline?: string; providerQuote?: unknown; registration?: SettlementRegistration };
+export type HouseDepositResult = { shares: bigint; status: "submitted" | "pending"; tx?: TxHash; operationId?: `0x${string}`; inbox?: `0x${string}`; depositAddress?: string; amountIn?: bigint; deadline?: string; providerQuote?: unknown; registration?: SettlementRegistration };
 export type WithdrawalView = { id: bigint; owner: `0x${string}`; recipient: `0x${string}`; shares: bigint; amount: bigint; claimed: boolean; cancelled: boolean };
 export type HouseActivity = ActivityEvent;

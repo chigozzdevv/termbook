@@ -7,6 +7,7 @@ import {EthereumVerifier} from "../../src/monad/collateral/EthereumVerifier.sol"
 import {LightClientVerifier} from "../../src/shared/collateral/LightClientVerifier.sol";
 import {VerifierRegistry} from "../../src/monad/collateral/VerifierRegistry.sol";
 import {IConsensusLightClient} from "../../src/shared/collateral/IVerifier.sol";
+import {EthereumHeaderFixture} from "./EthereumHeaderFixture.sol";
 
 contract MockConsensusLightClient is IConsensusLightClient {
     uint256 public immutable chainId;
@@ -15,6 +16,8 @@ contract MockConsensusLightClient is IConsensusLightClient {
     uint256 public immutable proofMaxAge;
     bool public finality;
     bool public inclusion;
+    bytes32 public finalizedHashOverride;
+    uint256 public timestampOverride;
 
     constructor(uint256 chainId_, uint256 version_, bytes32 bootstrap_, uint256 maxAge_) {
         chainId = chainId_;
@@ -28,11 +31,32 @@ contract MockConsensusLightClient is IConsensusLightClient {
         inclusion = inclusion_;
     }
 
-    function headerTimestamp(bytes calldata header) external pure returns (uint256 timestamp) {
+    function setFinalizedHashOverride(bytes32 value) external {
+        finalizedHashOverride = value;
+    }
+
+    function setTimestampOverride(uint256 value) external {
+        timestampOverride = value;
+    }
+
+    function headerTimestamp(bytes calldata header) external view returns (uint256 timestamp) {
+        if (timestampOverride != 0) return timestampOverride;
+        if (chainId == 1) {
+            (,, timestamp) = EthereumHeaderFixture.roots(header);
+            return timestamp;
+        }
         (timestamp,) = abi.decode(header, (uint256, bytes32));
     }
 
+    function finalizedExecutionBlockHash(bytes calldata header) external view returns (bytes32) {
+        return finalizedHashOverride == bytes32(0) ? keccak256(EthereumHeaderFixture.raw(header)) : finalizedHashOverride;
+    }
+
     function verifyFinality(bytes calldata) external view returns (bool) {
+        return finality;
+    }
+
+    function verifyHistoricalFinality(bytes calldata) external view returns (bool) {
         return finality;
     }
 
@@ -98,7 +122,7 @@ contract LightClientVerifierTest is Test {
         assertTrue(verifier.verifyInclusion(proof, root));
         assertEq(verifier.headerRoot(header), root);
         assertEq(verifier.proofLeaf(proof), root);
-        assertTrue(ethereumVerifier.verifyFinality(header));
+        assertTrue(ethereumVerifier.verifyFinality(EthereumHeaderFixture.header(block.timestamp, root, root)));
         bytes32 digest = keccak256("lock");
         bytes memory lockProof = abi.encode(address(0xBEEF), digest);
         assertTrue(verifier.verifyLock(header, lockProof, address(0xBEEF), digest));

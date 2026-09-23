@@ -224,11 +224,13 @@ export class CollateralSetup {
       if (fields.some(([name, wanted], index) => !equalHex(String(field(identity, name, index) ?? ""), wanted))
         || BigInt(String(field(identity, "verifierVersion", 6) ?? 0)) !== b.verifierVersion) throw new Error("setup-solana-identity-mismatch");
       const market = await this.client.rpc.read<Record<string, unknown>>(b.core, termbookCoreAbi, "solanaMarkets", [BigInt(this.sourceChainId())]);
+      const programDataHash = field(market, "programDataHash", 2);
       if (!field(market, "active", 4)
         || !equalHex(String(field(market, "sourceGenesis", 0) ?? ""), b.asset.reference)
         || !equalHex(String(field(market, "programId", 1) ?? ""), b.sourceVault.accountBytes)
-        || !equalHex(String(field(market, "sourceAsset", 2) ?? ""), b.asset.assetBytes)
-        || !equalHex(String(field(market, "recoveryVault", 3) ?? ""), b.recoveryVault!.accountBytes)) throw new Error("setup-solana-market-mismatch");
+        || typeof programDataHash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(programDataHash)
+        || BigInt(programDataHash) === 0n
+        || !equalHex(String(field(market, "sourceAsset", 3) ?? ""), b.asset.assetBytes)) throw new Error("setup-solana-market-mismatch");
     }
     const lockId = String(field(details, "lockId", 22) ?? "");
     const bound = Boolean(field(details, "collateralBound", 23));

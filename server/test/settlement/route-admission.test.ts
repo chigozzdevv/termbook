@@ -34,4 +34,22 @@ describe("Aurora route admission", () => {
     expect(() => admittedRoute({ ...input, maxAmountIn: "101" })).toThrowError("settlement-route-not-admitted");
     expect(() => admittedRoute({ ...input, routeVersion: routeId })).toThrowError("settlement-route-not-admitted");
   });
+
+  it("admits a native Solana refund address only on a Solana route", () => {
+    const recoveryPubkey = "So11111111111111111111111111111111111111112";
+    env.auroraApiKey = "test-key";
+    const route = {
+      routeId, routeVersion, kind: "recovery", sourceChain: 99, sourceAsset,
+      sourceAssetId: "sol:mainnet:native", destinationAssetId: "monad:erc20:test",
+      sourceAddressFormat: "solana", vault, token, maxAmountIn: "100",
+      slippageBps: 50,
+    };
+    env.auroraRoutes = JSON.stringify([route]);
+    const solanaInput = { ...input, sourceChain: 99, sourceRefundRecipient: recoveryPubkey };
+    expect(admittedRoute(solanaInput).sourceAddressFormat).toBe("solana");
+    expect(() => admittedRoute({ ...solanaInput, sourceRefundRecipient: recoveryVault }))
+      .toThrowError("settlement-route-not-admitted");
+    env.auroraRoutes = JSON.stringify([{ ...route, recoveryVault: recoveryPubkey }]);
+    expect(() => admittedRoute(solanaInput)).toThrowError("settlement-route-not-admitted");
+  });
 });

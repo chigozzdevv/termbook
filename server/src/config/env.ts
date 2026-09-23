@@ -74,6 +74,28 @@ export function assertRuntimeConfig(): void {
     }
   }
   if (env.settlementKeeperKey && !/^0x[a-fA-F0-9]{64}$/.test(env.settlementKeeperKey)) throw new Error("settlement-keeper-config-invalid");
+  const beaconConfig = ["ETHEREUM_LIGHT_CLIENT_ADDRESS", "ETHEREUM_BEACON_API_URL",
+    "ETHEREUM_BEACON_WITNESS_URL", "ETHEREUM_BEACON_KEEPER_KEY"] as const;
+  const beaconValues = beaconConfig.map((name) => process.env[name] ?? "");
+  if (beaconValues.some(Boolean)) {
+    if (beaconValues.some((value) => !value) || env.monadChainId !== 143
+      || !/^0x[a-fA-F0-9]{40}$/.test(beaconValues[0]!)
+      || !/^0x[a-fA-F0-9]{64}$/.test(beaconValues[3]!)) {
+      throw new Error("ethereum-beacon-worker-config-invalid");
+    }
+    for (const value of [beaconValues[1]!, beaconValues[2]!]) {
+      let url: URL;
+      try { url = new URL(value); } catch { throw new Error("ethereum-beacon-worker-config-invalid"); }
+      if (url.protocol !== "https:" && url.protocol !== "http:") {
+        throw new Error("ethereum-beacon-worker-config-invalid");
+      }
+    }
+    if ([env.collateralKeeperKey, env.monadConfirmKeeperKey, env.settlementKeeperKey,
+      process.env["SOLANA_COLLATERAL_KEEPER_KEY"]].some((key) =>
+      key && key.toLowerCase() === beaconValues[3]!.toLowerCase())) {
+      throw new Error("ethereum-beacon-keeper-key-conflict");
+    }
+  }
 }
 
 export function assertSettlementWorkerConfig(): void {

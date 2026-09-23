@@ -124,6 +124,26 @@ contract RemoteLockCommitmentTest is Test {
         assertEq(token.balanceOf(address(vault)), 100);
     }
 
+    function testReleaseClearsRemoteCommitmentOnPartialWithdrawal() public {
+        _remoteLock(100);
+        vault.release(lockId, recipient, 25, 1);
+        assertEq(vault.lockCommitments(lockId), bytes32(0));
+        assertEq(vm.load(address(vault), vault.lockCommitmentStorageSlot(lockId)), bytes32(0));
+        (,,,, uint256 remaining,,,,,,) = vault.lockInfo(lockId);
+        assertEq(remaining, 75);
+        assertEq(token.balanceOf(recipient), 25);
+    }
+
+    function testSeizeClearsRemoteCommitmentOnPartialWithdrawal() public {
+        _remoteLock(100);
+        vault.seize(lockId, recoveryVault, 25);
+        assertEq(vault.lockCommitments(lockId), bytes32(0));
+        assertEq(vm.load(address(vault), vault.lockCommitmentStorageSlot(lockId)), bytes32(0));
+        (,,,, uint256 remaining,,,,,,) = vault.lockInfo(lockId);
+        assertEq(remaining, 75);
+        assertEq(token.balanceOf(recoveryVault), 25);
+    }
+
     function testWrongRecoveryControllerCannotCreateCommitment() public {
         recoveryVault = address(new SourceRecoveryVault(
             address(token), monadChain, address(0xFACA), address(verifier), address(this), owner, borrower

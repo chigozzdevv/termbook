@@ -1,4 +1,5 @@
 import { encodeAbiParameters, keccak256, type Address, type Hex } from "viem";
+import { buildEthereumSourceHeader } from "./ethereum-execution-header.js";
 
 const word = /^0x[0-9a-fA-F]{64}$/;
 const address = /^0x[0-9a-fA-F]{40}$/;
@@ -110,8 +111,7 @@ export async function fetchUnconsumedActionProof(input: {
   const response = await fetch(finality, { signal: AbortSignal.timeout(10_000), redirect: "error" }).catch(() => null);
   if (!response) throw new Error("proof-unavailable");
   const envelope = await jsonResponse(response, 200_000);
-  const header = hex(envelope["header"], /^0x(?:[0-9a-fA-F]{2})+$/);
-  if (header.length > 192_002) throw new Error("proof-invalid");
+  const finalizedBeaconRoot = hex(envelope["finalizedBeaconRoot"], word);
   const blockNumber = hex(envelope["blockNumber"], quantity);
   const blockHash = hex(envelope["blockHash"], word);
   const stateRoot = hex(envelope["stateRoot"], word);
@@ -123,6 +123,7 @@ export async function fetchUnconsumedActionProof(input: {
     || hex(selected["stateRoot"], word) !== stateRoot) throw new Error("proof-block-mismatch");
   const timestamp = hex(selected["timestamp"], quantity);
   if (BigInt(timestamp) <= input.deadline) throw new Error("proof-before-deadline");
+  const header = await buildEthereumSourceHeader(selected, finalizedBeaconRoot);
   const result = object(await rpc(source, "eth_getProof", [controller, [slot], { blockHash, requireCanonical: true }]));
   if (hex(result["address"], address) !== controller) throw new Error("proof-account-mismatch");
   const codeHash = hex(result["codeHash"], word);
@@ -167,8 +168,7 @@ export async function fetchProof(input: ProofRequest): Promise<ProofBundle> {
   const response = await fetch(finality, { signal: AbortSignal.timeout(10_000), redirect: "error" }).catch(() => null);
   if (!response) throw new Error("proof-unavailable");
   const envelope = await jsonResponse(response, 200_000);
-  const header = hex(envelope["header"], /^0x(?:[0-9a-fA-F]{2})+$/);
-  if (header.length > 192_002) throw new Error("proof-invalid");
+  const finalizedBeaconRoot = hex(envelope["finalizedBeaconRoot"], word);
   const blockNumber = hex(envelope["blockNumber"], quantity);
   const blockHash = hex(envelope["blockHash"], word);
   const stateRoot = hex(envelope["stateRoot"], word);
@@ -180,6 +180,7 @@ export async function fetchProof(input: ProofRequest): Promise<ProofBundle> {
   if (hex(selected["number"], quantity) !== blockNumber
     || hex(selected["hash"], word) !== blockHash
     || hex(selected["stateRoot"], word) !== stateRoot) throw new Error("proof-block-mismatch");
+  const header = await buildEthereumSourceHeader(selected, finalizedBeaconRoot);
 
   const result = object(await rpc(source, "eth_getProof", [vault, [slot], { blockHash, requireCanonical: true }]));
   if (hex(result["address"], address) !== vault) throw new Error("proof-account-mismatch");

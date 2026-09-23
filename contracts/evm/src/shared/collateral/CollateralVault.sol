@@ -189,6 +189,7 @@ contract CollateralVault is ICollateralVault {
         if (l.released || l.seized) revert Used();
         if (recipient != l.recipient || amount == 0 || amount > l.amount) revert InvalidBinding();
         l.amount -= amount;
+        delete lockCommitments[lockId];
         if (l.amount == 0) l.released = true;
         releaseUsed[key] = true;
         uint256 beforeBalance = asset.balanceOf(recipient);
@@ -213,6 +214,7 @@ contract CollateralVault is ICollateralVault {
             revert InvalidBinding();
         }
         l.amount -= amount;
+        delete lockCommitments[lockId];
         if (l.amount == 0) l.seized = true;
         uint256 beforeBalance = asset.balanceOf(recipient);
         asset.safeTransfer(recipient, amount);

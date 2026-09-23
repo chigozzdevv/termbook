@@ -6,6 +6,11 @@ export default ts.config(
   js.configs.recommended,
   ...ts.configs.recommended,
   {
+    files: ["contracts/solana/scripts/*.mjs"],
+    languageOptions: { globals: { Buffer: "readonly", console: "readonly", fetch: "readonly",
+      process: "readonly", setTimeout: "readonly" } },
+  },
+  {
     rules: {
       "@typescript-eslint/no-explicit-any": "error",
       "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }],

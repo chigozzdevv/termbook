@@ -9,6 +9,18 @@ export { CreditCollateral } from "./collateral/collateral.js";
 export { CollateralSetup, collateralSetupHash, restoreCollateralSetup, CollateralChainNotIntegratedError, CollateralSetupInterruptedError } from "./collateral/setup.js";
 export type { CollateralSetupOptions, SourceLockWallet, SourceLockObservation, CollateralProofSource } from "./collateral/setup.js";
 export { solanaAlias, solanaPubkeyBytes, solanaPubkeyBase58 } from "./collateral/solana.js";
+export { SolanaJsonRpc, SolanaSourceLockWallet, encodeSolanaLock, decodeSolanaLockRecord, decodeSolanaRecoveryRecord } from "./collateral/solana-source.js";
+export type { SolanaInstruction, SolanaWalletPort, SolanaRpcPort, SolanaSourceWalletConfig } from "./collateral/solana-source.js";
+export { solanaActionHash, solanaActionInstruction, parseSolanaActionPlan, submitSolanaAction } from "./collateral/solana-action.js";
+export type { SolanaRemoteAuthorization, SolanaActionPlan } from "./collateral/solana-action.js";
+export { solanaRecoveryFundingHash, solanaRecoveryFundingInstruction, parseSolanaRecoveryFundingPlan,
+  submitSolanaRecoveryFunding } from "./collateral/solana-recovery.js";
+export type { SolanaRecoveryFunding, SolanaRecoveryFundingPlan } from "./collateral/solana-recovery.js";
+export { solanaRecoveryPayoutHash, solanaRecoveryPayoutInstruction,
+  parseSolanaRecoveryPayoutPlan, submitSolanaRecoveryPayout } from "./collateral/solana-recovery.js";
+export type { SolanaRecoveryPayout, SolanaRecoveryPayoutPlan } from "./collateral/solana-recovery.js";
+export { solanaRecoveryRefundInstruction, submitSolanaRecoveryRefund } from "./collateral/solana-recovery.js";
+export type { SolanaRecoveryRefund } from "./collateral/solana-recovery.js";
 export { EvmSourceLockWallet, evmSourceLockCall, evmRemoteLockCommitment } from "./collateral/evm-source.js";
 export type { EvmSourceWalletConfig } from "./collateral/evm-source.js";
 export { Settlement } from "./settlement/settlement.js";

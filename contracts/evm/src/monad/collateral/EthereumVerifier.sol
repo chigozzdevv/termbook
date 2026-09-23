@@ -3,10 +3,12 @@ pragma solidity ^0.8.24;
 
 import {LightClientVerifier} from "../../shared/collateral/LightClientVerifier.sol";
 import {EthereumStateProof} from "./EthereumStateProof.sol";
+import {EthereumExecutionHeaderProof} from "./EthereumExecutionHeaderProof.sol";
 import {IConsensusLightClient} from "../../shared/collateral/IVerifier.sol";
 
-interface IEthereumExecutionLightClient {
-    function finalizedExecutionStateRoot(bytes calldata header) external view returns (bytes32);
+interface IEthereumFinalizedBlockClient {
+    function finalizedExecutionBlockHash(bytes calldata header) external view returns (bytes32);
+    function verifyHistoricalFinality(bytes calldata header) external view returns (bool);
 }
 
 contract EthereumVerifier is LightClientVerifier {
@@ -43,8 +45,47 @@ contract EthereumVerifier is LightClientVerifier {
         override
         returns (bool)
     {
-        if (emitter != sourceVault) return false;
-        return _verifyReceiptEvent(header, proof, emitter, eventDigest, false);
+        if (
+            emitter != sourceVault || eventDigest == bytes32(0) || proof.length == 0 || proof.length > 160_000
+        ) return false;
+        bytes32 receiptsRoot;
+        try this.verifiedHistoricalExecutionRoots(header) returns (bytes32, bytes32 root, uint256) {
+            receiptsRoot = root;
+        } catch {
+            return false;
+        }
+        try this.verifyReceiptInRoot(receiptsRoot, proof, emitter, eventDigest, false) returns (bool valid) {
+            return valid;
+        } catch {
+            return false;
+        }
+    }
+
+    function verifiedExecutionRoots(bytes calldata header)
+        external
+        view
+        returns (bytes32 stateRoot, bytes32 receiptsRoot, uint256 timestamp)
+    {
+        if (msg.sender != address(this) || !this.verifyFinality(header)) revert InvalidLightClient();
+        (bytes memory executionHeaderRlp,) = abi.decode(header, (bytes, bytes));
+        bytes32 finalizedHash = IEthereumFinalizedBlockClient(lightClient).finalizedExecutionBlockHash(header);
+        (stateRoot, receiptsRoot, timestamp) = EthereumExecutionHeaderProof.roots(executionHeaderRlp, finalizedHash);
+        if (timestamp != IConsensusLightClient(lightClient).headerTimestamp(header)) revert InvalidLightClient();
+    }
+
+    function verifiedHistoricalExecutionRoots(bytes calldata header)
+        external
+        view
+        returns (bytes32 stateRoot, bytes32 receiptsRoot, uint256 timestamp)
+    {
+        if (
+            msg.sender != address(this) || lightClient.codehash != lightClientCodeHash
+                || !IEthereumFinalizedBlockClient(lightClient).verifyHistoricalFinality(header)
+        ) revert InvalidLightClient();
+        (bytes memory executionHeaderRlp,) = abi.decode(header, (bytes, bytes));
+        bytes32 finalizedHash = IEthereumFinalizedBlockClient(lightClient).finalizedExecutionBlockHash(header);
+        (stateRoot, receiptsRoot, timestamp) = EthereumExecutionHeaderProof.roots(executionHeaderRlp, finalizedHash);
+        if (timestamp != IConsensusLightClient(lightClient).headerTimestamp(header)) revert InvalidLightClient();
     }
 
     function verifyLock(bytes calldata header, bytes calldata proof, address vault, bytes32 lockDigest)
@@ -56,9 +97,8 @@ contract EthereumVerifier is LightClientVerifier {
         if (vault != sourceVault || lockDigest == bytes32(0) || proof.length == 0 || proof.length > MAX_PROOF_BYTES) {
             return false;
         }
-        if (!this.verifyFinality(header)) return false;
         bytes32 stateRoot;
-        try IEthereumExecutionLightClient(lightClient).finalizedExecutionStateRoot(header) returns (bytes32 root) {
+        try this.verifiedExecutionRoots(header) returns (bytes32 root, bytes32, uint256) {
             stateRoot = root;
         } catch {
             return false;
@@ -97,16 +137,17 @@ contract EthereumVerifier is LightClientVerifier {
     ) external view returns (bool) {
         if (
             controller != sourceController || actionHash == bytes32(0) || deadline == 0 || proof.length == 0
-                || proof.length > MAX_PROOF_BYTES || !this.verifyFinality(header)
+                || proof.length > MAX_PROOF_BYTES
         ) return false;
-        if (!_sourceTimestampAfter(header, deadline)) return false;
         bytes32 stateRoot;
-        try IEthereumExecutionLightClient(lightClient).finalizedExecutionStateRoot(header) returns (bytes32 root) {
+        uint256 timestamp;
+        try this.verifiedExecutionRoots(header) returns (bytes32 root, bytes32, uint256 verifiedTimestamp) {
             stateRoot = root;
+            timestamp = verifiedTimestamp;
         } catch {
             return false;
         }
-        if (stateRoot == bytes32(0)) return false;
+        if (stateRoot == bytes32(0) || timestamp <= deadline) return false;
         try this.verifyUnconsumedInStateRoot(stateRoot, proof, controller, actionHash) returns (bool valid) {
             return valid;
         } catch {
@@ -130,11 +171,4 @@ contract EthereumVerifier is LightClientVerifier {
         );
     }
 
-    function _sourceTimestampAfter(bytes calldata header, uint256 deadline) private view returns (bool) {
-        try IConsensusLightClient(lightClient).headerTimestamp(header) returns (uint256 timestamp) {
-            return timestamp > deadline;
-        } catch {
-            return false;
-        }
-    }
 }

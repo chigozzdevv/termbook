@@ -42,25 +42,27 @@ export function admissibleBeaconUpdate(
 }
 
 async function nextUpdate(input: {
-  beaconApiUrl: string; witnessUrl: string;
+  beaconApiUrl: string;
   stored: { slot: bigint; currentRoot: Hex; nextRoot: Hex };
 }): Promise<Prepared> {
+  const signerRoots = { storedPeriod: input.stored.slot / 8192n,
+    currentRoot: input.stored.currentRoot, nextRoot: input.stored.nextRoot };
   try {
-    const latest = await fetchBeaconFinalityUpdate(input);
+    const latest = await fetchBeaconFinalityUpdate({ beaconApiUrl: input.beaconApiUrl, signerRoots });
     if (admissibleBeaconUpdate(latest, input.stored)) return latest;
   } catch (error) {
     logger.warn("ethereum-beacon-finality-fetch-failed", {
       reason: error instanceof Error ? error.message : "unknown",
     });
   }
-  const periodic = await fetchBeaconUpdate({ ...input, startPeriod: input.stored.slot / 8192n });
+  const periodic = await fetchBeaconUpdate({ beaconApiUrl: input.beaconApiUrl,
+    startPeriod: input.stored.slot / 8192n, signerRoots });
   if (!admissibleBeaconUpdate(periodic, input.stored)) throw new Error("ethereum-beacon-update-unavailable");
   return periodic;
 }
 
 async function relay(): Promise<number> {
   const beaconApiUrl = process.env["ETHEREUM_BEACON_API_URL"]!;
-  const witnessUrl = process.env["ETHEREUM_BEACON_WITNESS_URL"]!;
   const beaconClient = process.env["ETHEREUM_LIGHT_CLIENT_ADDRESS"] as Address;
   const account = privateKeyToAccount(process.env["ETHEREUM_BEACON_KEEPER_KEY"] as Hex);
   const chain = monadClient();
@@ -90,7 +92,7 @@ async function relay(): Promise<number> {
   const pendingNonce = await chain.getTransactionCount({ address: account.address, blockTag: "pending" });
   const finalizedNonce = await chain.getTransactionCount({ address: account.address, blockTag: "finalized" });
   if (pendingNonce !== finalizedNonce) return 0;
-  const prepared = await nextUpdate({ beaconApiUrl, witnessUrl,
+  const prepared = await nextUpdate({ beaconApiUrl,
     stored: { slot, currentRoot, nextRoot } });
   await chain.call({ account: account.address, to: beaconClient, data: prepared.calldata });
   const wallet = createWalletClient({ account, transport: http(env.rpcUrl) });

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { concatHex, encodeFunctionData, type Address, type Hex } from "viem";
 import { monadClient } from "./monad.client.js";
+import { buildBeaconWitness } from "./ethereum-beacon-witness.js";
 
 const wordPattern = /^0x[0-9a-fA-F]{64}$/;
 const hexPattern = /^0x(?:[0-9a-fA-F]{2})*$/;
@@ -269,8 +270,70 @@ function witnessEndpoint(base: string, update: unknown): URL {
   return endpoint;
 }
 
+type SignerRoots = { storedPeriod: bigint; currentRoot: Hex; nextRoot: Hex };
+
+function committee(value: unknown) {
+  const record_ = record(value);
+  return {
+    pubkeys: wordsOfBytes(record_["pubkeys"], 512, 48),
+    aggregatePubkey: bytes(record_["aggregate_pubkey"], 48),
+  };
+}
+
+function signerRoot(update: unknown, roots: SignerRoots): Hex {
+  const data = record(record(update)["data"]);
+  const period = decimal(data["signature_slot"]) / 8192n;
+  if (period === roots.storedPeriod) return word(roots.currentRoot);
+  if (period === roots.storedPeriod + 1n) return word(roots.nextRoot);
+  throw new Error("beacon-witness-unavailable");
+}
+
+async function builtinWitness(beaconApiUrl: string, update: unknown, roots: SignerRoots) {
+  const data = record(record(update)["data"]);
+  const expectedRoot = signerRoot(update, roots);
+  if (expectedRoot === zeroWord) throw new Error("beacon-witness-unavailable");
+  const aggregate = record(data["sync_aggregate"]);
+  const bits = bytes(aggregate["sync_committee_bits"], 64);
+  const signature = bytes(aggregate["sync_committee_signature"], 96);
+  const matched = (candidate: unknown) => {
+    try {
+      const parsed = committee(candidate);
+      if (syncCommitteeRoot(parsed.pubkeys, parsed.aggregatePubkey) !== expectedRoot) return null;
+      return buildBeaconWitness({ ...parsed, bits, signature });
+    } catch { return null; }
+  };
+  const embedded = matched(data["next_sync_committee"]);
+  if (embedded) return embedded;
+
+  const finalized = parseHeader(record(record(data["finalized_header"])["beacon"]));
+  const bootstrapUrl = new URL(beaconApiUrl);
+  bootstrapUrl.pathname = `${bootstrapUrl.pathname.replace(/\/$/, "")}/eth/v1/beacon/light_client/bootstrap/${beaconHeaderRoot(finalized)}`;
+  bootstrapUrl.search = "";
+  try {
+    const bootstrap = await fetchJson(bootstrapUrl, 100_000);
+    prepareBeaconBootstrap(bootstrap, beaconHeaderRoot(finalized));
+    const current = matched(record(record(bootstrap)["data"])["current_sync_committee"]);
+    if (current) return current;
+  } catch { /* Continue with a periodic update. */ }
+
+  const period = decimal(data["signature_slot"]) / 8192n;
+  if (period > 0n) {
+    const endpoint = new URL(beaconApiUrl);
+    endpoint.pathname = `${endpoint.pathname.replace(/\/$/, "")}/eth/v1/beacon/light_client/updates`;
+    endpoint.search = new URLSearchParams({ start_period: (period - 1n).toString(), count: "1" }).toString();
+    try {
+      const updates = await fetchJson(endpoint, 500_000);
+      if (Array.isArray(updates) && updates.length === 1) {
+        const previous = matched(record(record(updates[0])["data"])["next_sync_committee"]);
+        if (previous) return previous;
+      }
+    } catch { /* No matching signer committee was supplied. */ }
+  }
+  throw new Error("beacon-witness-unavailable");
+}
+
 export async function fetchBeaconUpdate(input: {
-  beaconApiUrl: string; startPeriod: bigint; witnessUrl: string;
+  beaconApiUrl: string; startPeriod: bigint; witnessUrl?: string; signerRoots?: SignerRoots;
 }) {
   if (input.startPeriod < 0n || input.startPeriod > maxUint64) throw new Error("beacon-proof-invalid");
   const endpoint = new URL(input.beaconApiUrl);
@@ -278,8 +341,13 @@ export async function fetchBeaconUpdate(input: {
   endpoint.search = new URLSearchParams({ start_period: input.startPeriod.toString(), count: "1" }).toString();
   const updates = await fetchJson(endpoint, 500_000);
   if (!Array.isArray(updates) || updates.length !== 1) throw new Error("beacon-proof-unavailable");
-  return prepareBeaconUpdate(updates[0], await fetchJson(witnessEndpoint(input.witnessUrl, updates[0]), 200_000));
+  const witness = input.witnessUrl
+    ? await fetchJson(witnessEndpoint(input.witnessUrl, updates[0]), 200_000)
+    : await builtinWitness(input.beaconApiUrl, updates[0], input.signerRoots ?? invalidSignerRoots());
+  return prepareBeaconUpdate(updates[0], witness);
 }
+
+function invalidSignerRoots(): never { throw new Error("beacon-witness-unavailable"); }
 
 export async function fetchBeaconBootstrap(input: { beaconApiUrl: string; trustedRoot: Hex }) {
   const trustedRoot = word(input.trustedRoot);
@@ -291,13 +359,16 @@ export async function fetchBeaconBootstrap(input: { beaconApiUrl: string; truste
 }
 
 export async function fetchBeaconFinalityUpdate(input: {
-  beaconApiUrl: string; witnessUrl: string;
+  beaconApiUrl: string; witnessUrl?: string; signerRoots?: SignerRoots;
 }) {
   const endpoint = new URL(input.beaconApiUrl);
   endpoint.pathname = `${endpoint.pathname.replace(/\/$/, "")}/eth/v1/beacon/light_client/finality_update`;
   endpoint.search = "";
   const update = await fetchJson(endpoint, 100_000);
-  return prepareBeaconUpdate(update, await fetchJson(witnessEndpoint(input.witnessUrl, update), 200_000));
+  const witness = input.witnessUrl
+    ? await fetchJson(witnessEndpoint(input.witnessUrl, update), 200_000)
+    : await builtinWitness(input.beaconApiUrl, update, input.signerRoots ?? invalidSignerRoots());
+  return prepareBeaconUpdate(update, witness);
 }
 
 export function prepareFinalizedBeaconBlock(input: {

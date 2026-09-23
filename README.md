@@ -67,9 +67,8 @@ stages require audited consensus light clients before live funds are accepted.
 
 The worker relays Ethereum Beacon updates when
 `ETHEREUM_LIGHT_CLIENT_ADDRESS`, `ETHEREUM_BEACON_API_URL`,
-`ETHEREUM_BEACON_WITNESS_URL`, and `ETHEREUM_BEACON_KEEPER_KEY` are configured.
-The witness endpoint receives `attested_root` and `signature_slot` query
-parameters and must return the BLS witness for that update. The worker checks
+and `ETHEREUM_BEACON_KEEPER_KEY` are configured. It builds the BLS witness
+from Beacon light-client committee data and checks
 the stored committee root, simulates the update, and warns when the checkpoint
 is over 12 days old. Governance must independently verify any checkpoint used
 to recover from expiry; the relay cannot establish weak subjectivity by itself.

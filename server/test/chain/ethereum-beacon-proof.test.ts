@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { bls12_381 } from "@noble/curves/bls12-381";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type Hex } from "viem";
 import { monadClient } from "../../src/chain/monad.client.js";
@@ -158,6 +159,37 @@ describe("Ethereum Beacon proof preparation", () => {
     expect(prepared.finalizedBeaconRoot).toBe(beaconHeaderRoot(fixture.finalized));
     expect(new URL(fetchMock.mock.calls[0]![0] as URL).pathname)
       .toBe("/eth/v1/beacon/light_client/finality_update");
+  });
+
+  it("builds the finality witness from a verified Beacon bootstrap", async () => {
+    const fixture = updateFixture();
+    const key = `0x${Buffer.from(bls12_381.G1.ProjectivePoint.BASE.toRawBytes(true)).toString("hex")}` as Hex;
+    const signature = `0x${Buffer.from(bls12_381.G2.ProjectivePoint.BASE.toRawBytes(true)).toString("hex")}` as Hex;
+    const pubkeys = Array<Hex>(512).fill(key);
+    const committeeRoot = syncCommitteeRoot(pubkeys, key);
+    const committeeBranch = Array<Hex>(6).fill(zero);
+    fixture.finalized.stateRoot = branchRoot(committeeRoot, committeeBranch, 86n);
+    fixture.response.data.finalized_header.beacon = headerJson(fixture.finalized);
+    fixture.attested.stateRoot = branchRoot(beaconHeaderRoot(fixture.finalized),
+      fixture.response.data.finality_branch, 169n);
+    fixture.response.data.attested_header.beacon = headerJson(fixture.attested);
+    fixture.response.data.sync_aggregate.sync_committee_signature = signature;
+    const bootstrap = { version: "fulu", data: {
+      header: { beacon: headerJson(fixture.finalized) },
+      current_sync_committee: { pubkeys, aggregate_pubkey: key },
+      current_sync_committee_branch: committeeBranch,
+    } };
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(fixture.response)))
+      .mockResolvedValueOnce(new Response(JSON.stringify(bootstrap)));
+    vi.stubGlobal("fetch", fetchMock);
+    const prepared = await fetchBeaconFinalityUpdate({
+      beaconApiUrl: "https://beacon.example",
+      signerRoots: { storedPeriod: fixture.finalized.slot / 8192n,
+        currentRoot: committeeRoot, nextRoot: zero },
+    });
+    expect(prepared.signerCommitteeRoot).toBe(committeeRoot);
+    expect(new URL(fetchMock.mock.calls[1]![0] as URL).pathname)
+      .toBe(`/eth/v1/beacon/light_client/bootstrap/${beaconHeaderRoot(fixture.finalized)}`);
   });
 
   it("checks historical block_roots and execution branches before encoding", async () => {

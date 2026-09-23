@@ -9,3 +9,4 @@ To activate custody, implement and audit a Solana program that verifies finalize
 Monad Core has a Solana quote, 32-byte source identity, lock digest, and action digest. It still needs an admitted finalized Solana proof verifier before counting SOL locks or confirming release and seizure execution. The Solana program needs the corresponding finalized Monad authorization verifier before enabling locks and actions. A Solana recovery vault and Aurora sale route must deliver USDC proceeds to the House after seizure.
 
 Run `cargo test --offline` from this directory.
+`cargo build-sbf` writes `target/deploy/sol_collateral-keypair.json`; preserve this ignored file to retain the program ID.

@@ -388,6 +388,8 @@ contract TermbookCore is ITermbookCore {
     uint256 public acceptedCredits;
     bool private entered;
     mapping(bytes32 => Credit) internal _credits;
+    mapping(bytes32 => uint256) public interestRemainder;
+    mapping(bytes32 => uint256) public commitmentFeeRemainder;
     mapping(address => bool) public vaultEverUsed;
     mapping(bytes32 => address) public exitVerifierOfBundle;
     mapping(bytes32 => bytes32) public exitVerifierCodeHash;
@@ -486,6 +488,7 @@ contract TermbookCore is ITermbookCore {
     event LocalCollateralSold(bytes32 indexed creditId, address indexed buyer, uint256 collateralAmount, uint256 settlementAmount);
     event AppRecoveryAdapterSet(bytes32 indexed bundleId, address indexed adapter);
     event AppRecoveryStep(bytes32 indexed creditId, address indexed adapter, address indexed target, bytes32 callHash);
+    event AppExitStep(bytes32 indexed creditId, address indexed adapter, address indexed target, bytes32 callHash);
     event SolanaMarketSet(
         uint256 indexed sourceChain, bytes32 indexed sourceGenesis, bytes32 programId, bytes32 programDataHash
     );
@@ -1874,7 +1877,9 @@ contract TermbookCore is ITermbookCore {
         uint256 interest;
         uint256 commitmentFee;
         if (c.principal > 0 && c.aprBps > 0) {
-            interest = c.principal * c.aprBps * elapsed / BPS / YEAR;
+            uint256 numerator = c.principal * c.aprBps * elapsed + interestRemainder[creditId];
+            interest = numerator / (BPS * YEAR);
+            interestRemainder[creditId] = numerator % (BPS * YEAR);
         }
         uint256 commitmentElapsed = elapsed;
         if (c.maturity > 0 && c.accruedAt >= c.maturity) commitmentElapsed = 0;
@@ -1884,13 +1889,20 @@ contract TermbookCore is ITermbookCore {
                 && commitmentElapsed > 0
         ) {
             uint256 committed = IHouseVaultCore(c.vault).creditCommitted(creditId);
-            if (committed > 0) commitmentFee = committed * c.commitmentFeeBps * commitmentElapsed / BPS / YEAR;
+            if (committed > 0) {
+                uint256 numerator = committed * c.commitmentFeeBps * commitmentElapsed + commitmentFeeRemainder[creditId];
+                commitmentFee = numerator / (BPS * YEAR);
+                commitmentFeeRemainder[creditId] = numerator % (BPS * YEAR);
+            }
         }
         uint256 total = interest + commitmentFee;
         if (total > 0) {
             c.accruedInterest += interest;
             c.accruedFees += commitmentFee;
             c.debt += total;
+            if (c.payment == Types.Payment.Repaid) {
+                c.payment = block.timestamp >= c.maturity ? Types.Payment.Matured : Types.Payment.Current;
+            }
             IHouseVaultCore(c.vault).recordAccruedReceivable(creditId, total);
         }
         c.accruedAt = block.timestamp;
@@ -1908,7 +1920,9 @@ contract TermbookCore is ITermbookCore {
     {
         if (c.accruedAt == 0 || block.timestamp <= c.accruedAt) return (0, 0);
         uint256 elapsed = block.timestamp - c.accruedAt;
-        if (c.principal > 0 && c.aprBps > 0) interest = c.principal * c.aprBps * elapsed / BPS / YEAR;
+        if (c.principal > 0 && c.aprBps > 0) {
+            interest = (c.principal * c.aprBps * elapsed + interestRemainder[creditId]) / (BPS * YEAR);
+        }
         uint256 commitmentElapsed = elapsed;
         if (c.maturity > 0 && c.accruedAt >= c.maturity) commitmentElapsed = 0;
         else if (c.maturity > 0 && block.timestamp > c.maturity) commitmentElapsed = c.maturity - c.accruedAt;
@@ -1917,7 +1931,10 @@ contract TermbookCore is ITermbookCore {
                 && commitmentElapsed > 0
         ) {
             uint256 committed = IHouseVaultCore(c.vault).creditCommitted(creditId);
-            if (committed > 0) commitmentFee = committed * c.commitmentFeeBps * commitmentElapsed / BPS / YEAR;
+            if (committed > 0) {
+                commitmentFee = (committed * c.commitmentFeeBps * commitmentElapsed + commitmentFeeRemainder[creditId])
+                    / (BPS * YEAR);
+            }
         }
     }
 
@@ -2878,6 +2895,7 @@ contract TermbookCore is ITermbookCore {
     }
 
     function _requireAppCall(Credit storage c, address target, bytes calldata data, uint256 amount) internal view {
+        if (block.timestamp >= c.maturity) revert Expired();
         if (data.length < 4) revert Unauthorized();
         bytes4 selector = bytes4(data[:4]);
         bool allowed = integrationRegistry != address(0)
@@ -2922,6 +2940,7 @@ contract TermbookCore is ITermbookCore {
         bool checkBeforeDraw
     ) internal {
         if (amount == 0 || amount > maxBound) revert OverLimit();
+        if (block.timestamp >= c.maturity) revert Expired();
         if (remoteCollateral[creditId]) {
             _requireRemoteSalePolicy(collateralSourceChainOf[creditId], c.collateralAsset, IHouseVaultCore(c.vault).asset());
         } else if (_requireLocalCollateralVault(c.collateralVault) != c.collateralAsset) {
@@ -2948,6 +2967,7 @@ contract TermbookCore is ITermbookCore {
         c.principal += amount;
         c.debt += amount;
         c.debt += originationFee;
+        c.payment = Types.Payment.Current;
         c.drawn += amount;
         c.nonce = recordedNonce;
         c.revision = RevisionLib.next(c.revision);
@@ -3003,7 +3023,7 @@ contract TermbookCore is ITermbookCore {
         }
         c.debt -= amount;
         c.revision = RevisionLib.next(c.revision);
-        if (c.debt == 0 && c.payment == Types.Payment.Current) c.payment = Types.Payment.Repaid;
+        if (c.debt == 0) c.payment = Types.Payment.Repaid;
         emit Events.Repaid(creditId, amount, c.debt);
     }
 
@@ -3033,7 +3053,7 @@ contract TermbookCore is ITermbookCore {
             if (c.facility != Types.Facility.Liquidated) c.facility = Types.Facility.RecoveryPending;
         }
         c.revision = RevisionLib.next(c.revision);
-        if (c.debt == 0 && c.payment == Types.Payment.Current) c.payment = Types.Payment.Repaid;
+        if (c.debt == 0) c.payment = Types.Payment.Repaid;
         emit Events.Repaid(creditId, amount, c.debt);
     }
 
@@ -3080,7 +3100,7 @@ contract TermbookCore is ITermbookCore {
 
     function markDefaulted(bytes32 creditId) external nonReentrant {
         Credit storage c = _credits[creditId];
-        if (block.timestamp <= c.maturity + c.grace || c.payment == Types.Payment.Repaid) revert BadState();
+        if (block.timestamp <= c.maturity + c.grace) revert BadState();
         _accrue(c, creditId);
         if (c.debt == 0) revert BadState();
         c.payment = Types.Payment.Defaulted;
@@ -3165,6 +3185,19 @@ contract TermbookCore is ITermbookCore {
         if (c.facility != Types.Facility.Liquidating && c.facility != Types.Facility.RecoveryPending) {
             revert BadState();
         }
+        _executeAppRecovery(c, creditId, instruction, false);
+    }
+
+    function exitApp(bytes32 creditId, bytes calldata instruction) external nonReentrant {
+        Credit storage c = _credits[creditId];
+        if (msg.sender != c.borrower) revert Unauthorized();
+        if (c.facility != Types.Facility.Ready && c.facility != Types.Facility.Closing) revert BadState();
+        _executeAppRecovery(c, creditId, instruction, true);
+    }
+
+    function _executeAppRecovery(Credit storage c, bytes32 creditId, bytes calldata instruction, bool borrowerExit)
+        internal
+    {
         _accrue(c, creditId);
         address adapter = _requireAppRecoveryAdapter(c.bundleId);
         (address target, bytes memory data, bytes32 expectedState) =
@@ -3181,7 +3214,8 @@ contract TermbookCore is ITermbookCore {
             revert BadState();
         }
         c.revision = RevisionLib.next(c.revision);
-        emit AppRecoveryStep(creditId, adapter, target, keccak256(data));
+        if (borrowerExit) emit AppExitStep(creditId, adapter, target, keccak256(data));
+        else emit AppRecoveryStep(creditId, adapter, target, keccak256(data));
     }
 
     function _requireAppRecoveryAdapter(bytes32 bundleId) internal view returns (address adapter) {
@@ -3381,6 +3415,9 @@ contract TermbookCore is ITermbookCore {
         c.accruedInterest += interest;
         c.accruedFees += fees;
         c.debt += interest + fees;
+        if (interest + fees > 0 && c.payment == Types.Payment.Repaid) {
+            c.payment = block.timestamp >= c.maturity ? Types.Payment.Matured : Types.Payment.Current;
+        }
         return c;
     }
 }

@@ -217,6 +217,14 @@ Deploy `app-health-reader` with `APP_BUNDLE_ID`, `COLLATERAL_READER_ADDRESS`,
 the adapter. Governance then registers that reader for the bundle in
 `HealthSource` before new Credits use it.
 
+Borrowers can call `credit.app.exit(instruction)` with their integration's
+recovery-adapter instruction to cancel or unwind without another draw. Core
+checks the same pinned adapter, registered recovery call, and verified outcome
+used by keeper recovery. This path remains available while paused, after
+maturity, or while closing; a specifically disabled recovery call still fails.
+Ordinary app actions stop at maturity. An exit does not authorize a withdrawal
+to the borrower or skip the separate repayment and collateral-return checks.
+
 ## Aurora value routing
 
 The settlement adapter uses Aurora Intents 1Click to quote an admitted ERC-20

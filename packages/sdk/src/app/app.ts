@@ -106,6 +106,14 @@ export class CreditApp {
     return this.client.config.actions?.map((entry) => entry.capability) ?? [];
   }
 
+  async exit(instruction: `0x${string}`): Promise<{ tx: `0x${string}` }> {
+    if (!/^0x(?:[a-fA-F0-9]{2})*$/.test(instruction)) throw new Error("param-invalid");
+    await this.client.ready();
+    const tx = await this.client.rpc.coreWrite("exitApp", [this.creditId, instruction]);
+    await this.client.rpc.wait(tx);
+    return { tx };
+  }
+
   private async collection(name: "positions" | "pending"): Promise<unknown[]> {
     await this.client.ready();
     if (!this.client.config.apiBase) throw new Error("application-state-unavailable");

@@ -90,6 +90,11 @@ contract FundedPositionTarget {
 
 contract FundedPositionRecoveryAdapter is IAppRecoveryAdapter {
     FundedPositionTarget public immutable target;
+    bool public valid = true;
+
+    function setValid(bool value) external {
+        valid = value;
+    }
 
     constructor(FundedPositionTarget target_) {
         target = target_;
@@ -112,7 +117,7 @@ contract FundedPositionRecoveryAdapter is IAppRecoveryAdapter {
         view
         returns (bool)
     {
-        return target.positions(account) == uint256(expectedState);
+        return valid && target.positions(account) == uint256(expectedState);
     }
 }
 
@@ -168,6 +173,15 @@ contract FundedPositionHealthSource is IHealthSource {
     MockERC20 public immutable token;
     TermbookCore public immutable core;
     FundedPositionTarget public immutable target;
+    bool public unavailable;
+
+    function setUnavailable(bool value) external {
+        unavailable = value;
+    }
+
+    function isReaderActive(bytes32) external pure returns (bool) {
+        return true;
+    }
 
     constructor(MockERC20 token_, TermbookCore core_, FundedPositionTarget target_) {
         token = token_;
@@ -180,6 +194,7 @@ contract FundedPositionHealthSource is IHealthSource {
         view
         returns (Types.HealthSnapshot memory)
     {
+        require(!unavailable);
         address account = core.creditAccount(creditId);
         uint256 cash = token.balanceOf(account);
         uint256 position = target.positions(account);
@@ -530,6 +545,29 @@ contract RealFlowTest is Test {
         assertEq(houseVault.accruedReceivables(), 0);
     }
 
+    function testFrequentAccrualCannotEraseInterestOrCommitmentFees() public {
+        bytes32 creditId = keccak256("accrual-rounding");
+        _prepareTerms(creditId);
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes32 digest = keccak256(abi.encode(core.domain(), creditId, uint256(400), uint256(400),
+            uint256(1), deadline, core.creditRevision(creditId)));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(borrowerKey, digest);
+        core.draw(creditId, 400, 400, 1, deadline, abi.encodePacked(r, s, v));
+        for (uint256 day = 0; day < 365; ++day) {
+            vm.warp(block.timestamp + 1 days);
+            uint256 previewDebt = core.creditDebt(creditId);
+            core.accrue(creditId);
+            assertEq(core.creditDebt(creditId), previewDebt);
+        }
+        TermbookCore.Credit memory credit = core.creditDetails(creditId);
+        assertEq(credit.accruedInterest, 40);
+        assertEq(credit.accruedFees, 20);
+        assertEq(credit.debt, 460);
+        assertEq(houseVault.accruedReceivables(), 60);
+        assertEq(core.interestRemainder(creditId), 0);
+        assertEq(core.commitmentFeeRemainder(creditId), 0);
+    }
+
     function testCollateralWithdrawalMaintainsHealthSnapshot() public {
         bytes32 creditId = keccak256("collateral-withdraw-credit");
         _prepare(creditId);
@@ -696,6 +734,117 @@ contract RealFlowTest is Test {
         assertEq(core.creditDebt(creditId), 0);
         assertEq(token.balanceOf(account), 0);
         assertEq(houseVault.drawnPrincipal(), 0);
+    }
+
+    function testBorrowerExitWorksDuringPauseAndFrozenIntegration() public {
+        bytes32 creditId = keccak256("borrower-exit");
+        bytes32 bundleId = keccak256("bundle");
+        FundedPositionTarget positionTarget = new FundedPositionTarget(token);
+        FundedPositionHealthSource source = new FundedPositionHealthSource(token, core, positionTarget);
+        FundedPositionRecoveryAdapter adapter = new FundedPositionRecoveryAdapter(positionTarget);
+        core.setHealthSource(address(source));
+        core.setAppRecoveryAdapter(bundleId, address(adapter));
+        IntegrationRegistry registry = new IntegrationRegistry(address(this));
+        core.setIntegrationRegistry(address(registry));
+        registry.approve(bundleId, keccak256("exit-manifest"));
+        registry.registerCall(bundleId, address(positionTarget), FundedPositionTarget.deposit.selector,
+            36, type(uint8).max, 0, 500);
+        registry.registerRecoveryCall(bundleId, address(positionTarget), FundedPositionTarget.withdraw.selector,
+            36, type(uint8).max);
+        registry.activate(bundleId);
+        (, address account) = _prepare(creditId);
+        bytes memory data = abi.encodeWithSelector(FundedPositionTarget.deposit.selector, 200);
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes32 digest = keccak256(abi.encode(core.domain(), creditId,
+            keccak256(abi.encode(address(positionTarget), data)), uint256(200), uint256(200),
+            uint256(10), deadline, core.creditRevision(creditId)));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(borrowerKey, digest);
+        core.executeAction(creditId, address(positionTarget), data, 200, 200, 10, deadline, abi.encodePacked(r, s, v));
+        core.setPaused(true);
+        registry.freeze(bundleId);
+        source.setUnavailable(true);
+        vm.warp(core.creditDetails(creditId).maturity);
+        vm.expectRevert(TermbookCore.Unauthorized.selector);
+        core.exitApp(creditId, abi.encode(uint256(100)));
+        adapter.setValid(false);
+        vm.expectRevert(TermbookCore.BadState.selector);
+        vm.prank(borrower);
+        core.exitApp(creditId, abi.encode(uint256(100)));
+        assertEq(positionTarget.positions(account), 200);
+        adapter.setValid(true);
+        vm.prank(borrower);
+        core.exitApp(creditId, abi.encode(uint256(100)));
+        assertEq(positionTarget.positions(account), 100);
+        assertEq(token.balanceOf(account), 100);
+        assertEq(token.balanceOf(borrower), 500);
+        assertEq(core.creditDebt(creditId), 200);
+        registry.disableRecoveryCall(bundleId, address(positionTarget), FundedPositionTarget.withdraw.selector);
+        vm.expectRevert(TermbookCore.BadHealth.selector);
+        vm.prank(borrower);
+        core.exitApp(creditId, abi.encode(uint256(100)));
+    }
+
+    function testAppActionsCannotBorrowOrSpendAfterMaturity() public {
+        bytes32 creditId = keccak256("matured-app-action");
+        _prepare(creditId);
+        vm.warp(core.creditDetails(creditId).maturity);
+        bytes memory data = abi.encodeWithSelector(RealFlowTarget.setValue.selector, 99);
+        vm.expectRevert(TermbookCore.Expired.selector);
+        core.executeAction(creditId, address(target), data, 100, 100, 1, block.timestamp + 1 hours, "");
+        vm.expectRevert(TermbookCore.Expired.selector);
+        core.executeFundedAction(creditId, address(target), data, 100, 100, 100, 1, block.timestamp + 1 hours, "");
+        vm.expectRevert(TermbookCore.Expired.selector);
+        core.previewFundedAction(creditId, address(target), data, 0, 100, 1);
+        assertEq(core.creditDebt(creditId), 0);
+        assertEq(target.value(), 0);
+    }
+
+    function testNewDebtAfterRepaymentCanDefault() public {
+        bytes32 creditId = keccak256("redraw-default");
+        _prepare(creditId);
+        uint256 deadline = block.timestamp + 1 hours;
+        for (uint256 nonce = 1; nonce <= 2; ++nonce) {
+            _recordHealth(creditId, Types.HealthSnapshot(0, 0, 0, 0, 0, 0, 0, 10_000, 0));
+            bytes32 digest = keccak256(abi.encode(core.domain(), creditId, uint256(100), uint256(100),
+                nonce, deadline, core.creditRevision(creditId)));
+            (uint8 v, bytes32 r, bytes32 s) = vm.sign(borrowerKey, digest);
+            core.draw(creditId, 100, 100, nonce, deadline, abi.encodePacked(r, s, v));
+            assertEq(uint256(core.creditDetails(creditId).payment), uint256(Types.Payment.Current));
+            if (nonce == 1) {
+                vm.startPrank(borrower);
+                token.approve(address(core), 100);
+                core.repay(creditId, 100);
+                vm.stopPrank();
+                assertEq(uint256(core.creditDetails(creditId).payment), uint256(Types.Payment.Repaid));
+            }
+        }
+        vm.warp(core.creditDetails(creditId).maturity + 1);
+        core.markDefaulted(creditId);
+        assertEq(uint256(core.creditDetails(creditId).payment), uint256(Types.Payment.Defaulted));
+        vm.startPrank(borrower);
+        token.approve(address(core), 100);
+        core.repay(creditId, 100);
+        vm.stopPrank();
+        assertEq(uint256(core.creditDetails(creditId).payment), uint256(Types.Payment.Repaid));
+    }
+
+    function testAccruedCommitmentFeesAfterRepaymentCanDefault() public {
+        bytes32 creditId = keccak256("commitment-default");
+        _prepareTerms(creditId);
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes32 digest = keccak256(abi.encode(core.domain(), creditId, uint256(100), uint256(100),
+            uint256(1), deadline, core.creditRevision(creditId)));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(borrowerKey, digest);
+        core.draw(creditId, 100, 100, 1, deadline, abi.encodePacked(r, s, v));
+        vm.startPrank(borrower);
+        token.approve(address(core), 110);
+        core.repay(creditId, 110);
+        vm.stopPrank();
+        assertEq(uint256(core.creditDetails(creditId).payment), uint256(Types.Payment.Repaid));
+        vm.warp(core.creditDetails(creditId).maturity + 1);
+        core.markDefaulted(creditId);
+        assertGt(core.creditDebt(creditId), 0);
+        assertEq(uint256(core.creditDetails(creditId).payment), uint256(Types.Payment.Defaulted));
     }
 
     function testAppHealthReaderCombinesCollateralAndAppRecoveryValue() public {

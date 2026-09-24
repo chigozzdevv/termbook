@@ -2,11 +2,23 @@ import { z } from "zod";
 import { capabilityDefinitionSchema } from "@termbook/schema";
 import { parseAbiItem } from "viem";
 
+const word = z.string().regex(/^0x[a-fA-F0-9]{64}$/).refine((value) => !/^0x0{64}$/i.test(value));
+export const integrationAcceptanceSchema = z.strictObject({
+  evidenceHash: word,
+  activeCreditId: word,
+  recoveredCreditId: word,
+  actionTransactions: z.record(z.string().min(1), z.strictObject({ creditId: word, txHash: word })),
+  recoveryTxHashes: z.array(word).min(1).max(32),
+}).refine((value) => value.activeCreditId.toLowerCase() !== value.recoveredCreditId.toLowerCase(), {
+  message: "integration-sample-duplicate",
+});
+
 export const integrationSchema = z.strictObject({
   versionId: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
   codeHash: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
   settlementAsset: z.string().regex(/^0x[a-fA-F0-9]{40}$/).refine((value) => !/^0x0{40}$/i.test(value)),
   actions: z.array(capabilityDefinitionSchema).min(1).max(32),
+  acceptance: integrationAcceptanceSchema,
 }).superRefine((value, ctx) => {
   const names = new Set<string>();
   for (const [index, action] of value.actions.entries()) {

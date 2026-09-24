@@ -4,6 +4,9 @@ import type { CapabilityDefinition } from "@termbook/schema";
 import { monadClient } from "../chain/monad.client.js";
 import { env } from "../config/env.js";
 import { integrationRepo } from "./integration.repo.js";
+import { validateIntegrationAcceptance } from "./integration.builder.js";
+import { integrationAcceptanceSchema } from "./integration.schema.js";
+import type { z } from "zod";
 
 const addressPattern = /^0x[a-fA-F0-9]{40}$/;
 const tokenPattern = /^tbk_[a-f0-9]{64}$/;
@@ -115,16 +118,19 @@ async function admittedActions(versionId: `0x${string}`, actions: CapabilityDefi
 }
 
 export const integrationService = {
-  async approve(input: { versionId: string; codeHash: string; settlementAsset: string; actions: CapabilityDefinition[] }) {
+  async approve(input: { versionId: string; codeHash: string; settlementAsset: string;
+    actions: CapabilityDefinition[]; acceptance: z.infer<typeof integrationAcceptanceSchema> }) {
     const versionId = input.versionId as `0x${string}`;
     if (!addressPattern.test(input.settlementAsset) || /^0x0{40}$/i.test(input.settlementAsset)) {
       throw new Error("settlement-asset-unavailable");
     }
     if (!await admitted(versionId, input.codeHash) || !await admittedActions(versionId, input.actions)) throw new Error("integration-not-admitted");
+    await validateIntegrationAcceptance(versionId, input.settlementAsset as `0x${string}`, input.actions, input.acceptance);
     const appToken = `tbk_${randomBytes(32).toString("hex")}`;
     try {
       await integrationRepo.create({ versionId: input.versionId.toLowerCase(), codeHash: input.codeHash.toLowerCase(),
         settlementAsset: input.settlementAsset.toLowerCase(), actions: input.actions,
+        acceptance: input.acceptance, accepted: true,
         tokenHash: tokenHash(appToken), active: true, frozen: false });
     } catch (error) {
       if (error && typeof error === "object" && "code" in error && error.code === 11000) throw new Error("integration-conflict", { cause: error });
@@ -136,7 +142,9 @@ export const integrationService = {
     if (!tokenPattern.test(appToken)) throw new Error("integration-not-found");
     const row = await integrationRepo.byTokenHash(tokenHash(appToken));
     const actions = row?.["actions"] as CapabilityDefinition[] | undefined;
-    if (!row || row["active"] !== true || row["frozen"] === true || !Array.isArray(actions)
+    if (!row || row["active"] !== true || row["accepted"] !== true
+      || row["frozen"] === true || !Array.isArray(actions)
+      || !integrationAcceptanceSchema.safeParse(row["acceptance"]).success
       || !addressPattern.test(String(row["settlementAsset"])) || /^0x0{40}$/i.test(String(row["settlementAsset"]))
       || !await admitted(String(row["versionId"]) as `0x${string}`, String(row["codeHash"]))
       || !await admittedActions(String(row["versionId"]) as `0x${string}`, actions)) {

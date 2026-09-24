@@ -8,6 +8,7 @@ export const integrationRepo = {
     return IntegrationModel.findOne({ tokenHash }).lean();
   },
   async list() {
-    return IntegrationModel.find({ active: true }).select("-tokenHash").lean();
+    return IntegrationModel.find({ active: true, accepted: true })
+      .select("-tokenHash -acceptance").lean();
   },
 };

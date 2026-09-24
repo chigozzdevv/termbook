@@ -44,11 +44,11 @@ export class CreditApp {
     }
     const { target, data, requiredInput } = buildAction(definition, action, { borrower, account, creditId: this.creditId });
     const asset = await this.client.rpc.read<`0x${string}`>(vault, [{ type: "function", name: "asset", inputs: [], outputs: [{ type: "address" }], stateMutability: "view" }] as const, "asset");
-    const freeAssets = await this.client.rpc.creditAccountTokenBalance(account, asset);
-    const amount = requiredDraw(requiredInput, freeAssets);
     const currentDebt = BigInt(String(field("debt", 11)));
     const originationFee = field("originationCharged", 37) ? 0n : BigInt(String(field("originationFee", 31) ?? 0));
     const revisionValue = BigInt(String(field("revision", 17)));
+    const freeAssets = await this.client.rpc.creditFreeCash(this.creditId, bundleId, revisionValue, currentDebt);
+    const amount = requiredDraw(requiredInput, freeAssets);
     const nonce = BigInt(String(field("nonce", 18))) + 1n;
     const registry = await this.client.rpc.read<`0x${string}`>(this.client.config.core, coreRegistryAbi, "integrationRegistry");
     if (!/^0x[a-fA-F0-9]{40}$/.test(registry) || /^0x0{40}$/i.test(registry)

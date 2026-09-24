@@ -174,6 +174,11 @@ contract FundedPositionHealthSource is IHealthSource {
     TermbookCore public immutable core;
     FundedPositionTarget public immutable target;
     bool public unavailable;
+    uint256 public reservedCash;
+
+    function setReservedCash(uint256 amount) external {
+        reservedCash = amount;
+    }
 
     function setUnavailable(bool value) external {
         unavailable = value;
@@ -196,7 +201,7 @@ contract FundedPositionHealthSource is IHealthSource {
     {
         require(!unavailable);
         address account = core.creditAccount(creditId);
-        uint256 cash = token.balanceOf(account);
+        uint256 cash = token.balanceOf(account) - reservedCash;
         uint256 position = target.positions(account);
         uint256 recovery = cash + 100 + position;
         return Types.HealthSnapshot(
@@ -734,6 +739,58 @@ contract RealFlowTest is Test {
         assertEq(core.creditDebt(creditId), 0);
         assertEq(token.balanceOf(account), 0);
         assertEq(houseVault.drawnPrincipal(), 0);
+    }
+
+    function testFundedActionCannotSpendReservedCash() public {
+        bytes32 creditId = keccak256("reserved-action-cash");
+        FundedPositionTarget positionTarget = new FundedPositionTarget(token);
+        FundedPositionHealthSource source = new FundedPositionHealthSource(token, core, positionTarget);
+        core.setHealthSource(address(source));
+        core.setAppRecoveryAdapter(keccak256("bundle"), address(new FundedPositionRecoveryAdapter(positionTarget)));
+        core.setApprovedCall(address(positionTarget), FundedPositionTarget.deposit.selector, true);
+        (, address account) = _prepare(creditId);
+        token.mint(account, 100);
+        source.setReservedCash(50);
+        uint256 deadline = block.timestamp + 1 hours;
+        for (uint256 spend = 200; spend >= 150; spend -= 50) {
+            bytes memory data = abi.encodeWithSelector(FundedPositionTarget.deposit.selector, spend);
+            bytes32 digest = keccak256(abi.encode(core.domain(), keccak256("Termbook funded action v1"), creditId,
+                keccak256(abi.encode(address(positionTarget), data)), uint256(100), spend, uint256(100),
+                uint256(10), deadline, core.creditRevision(creditId)));
+            (uint8 v, bytes32 r, bytes32 s) = vm.sign(borrowerKey, digest);
+            if (spend == 200) {
+                vm.expectRevert(TermbookCore.OverLimit.selector);
+                core.previewFundedAction(creditId, address(positionTarget), data, 100, spend, 10);
+                vm.expectRevert(TermbookCore.OverLimit.selector);
+            }
+            core.executeFundedAction(creditId, address(positionTarget), data, 100, spend, 100, 10,
+                deadline, abi.encodePacked(r, s, v));
+        }
+        assertEq(core.creditDebt(creditId), 100);
+        assertEq(positionTarget.positions(account), 150);
+        assertEq(token.balanceOf(account), 50);
+        assertEq(token.allowance(account, address(positionTarget)), 0);
+    }
+
+    function testZeroDrawActionAccruesDebtBeforeHealthCheck() public {
+        bytes32 creditId = keccak256("zero-draw-accrual");
+        _prepareTerms(creditId);
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes32 digest = keccak256(abi.encode(core.domain(), creditId, uint256(100), uint256(100),
+            uint256(1), deadline, core.creditRevision(creditId)));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(borrowerKey, digest);
+        core.draw(creditId, 100, 100, 1, deadline, abi.encodePacked(r, s, v));
+        vm.warp(block.timestamp + 365 days);
+        healthSource.setSnapshot(creditId, Types.HealthSnapshot(0, 100, 500, 0, 10_000, 0, 0, 600, 0));
+        deadline = block.timestamp + 1 hours;
+        bytes memory data = abi.encodeWithSelector(RealFlowTarget.setValue.selector, 99);
+        digest = keccak256(abi.encode(core.domain(), creditId, keccak256(abi.encode(address(target), data)),
+            uint256(0), uint256(0), uint256(2), deadline, core.creditRevision(creditId)));
+        (v, r, s) = vm.sign(borrowerKey, digest);
+        core.executeAction(creditId, address(target), data, 0, 0, 2, deadline, abi.encodePacked(r, s, v));
+        assertEq(core.creditDebt(creditId), 160);
+        assertEq(risk.snapshot(creditId).debt, 160);
+        assertEq(target.value(), 99);
     }
 
     function testBorrowerExitWorksDuringPauseAndFrozenIntegration() public {

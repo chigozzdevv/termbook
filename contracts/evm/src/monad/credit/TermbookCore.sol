@@ -2807,6 +2807,7 @@ contract TermbookCore is ITermbookCore {
         Credit storage c = _credits[creditId];
         if (c.facility != Types.Facility.Ready || paused) revert BadState();
         _requireAppCall(c, target, data, amount);
+        _accrue(c, creditId);
         bytes32 actionHash = keccak256(abi.encode(target, data));
         bytes32 digest =
             keccak256(abi.encode(domain, creditId, actionHash, amount, maxBound, borrowerNonce, deadline, c.revision));
@@ -2839,6 +2840,7 @@ contract TermbookCore is ITermbookCore {
         Credit storage c = _credits[creditId];
         if (c.facility != Types.Facility.Ready || paused || drawAmount > spendAmount) revert BadState();
         _requireAppCall(c, target, data, spendAmount);
+        _accrue(c, creditId);
         bytes32 digest = keccak256(abi.encode(
             domain, keccak256("Termbook funded action v1"), creditId, keccak256(abi.encode(target, data)),
             drawAmount, spendAmount, maxBound, borrowerNonce, deadline, c.revision
@@ -2852,6 +2854,7 @@ contract TermbookCore is ITermbookCore {
             c.nonce = borrowerNonce;
             c.revision = RevisionLib.next(c.revision);
         }
+        if (spendAmount > drawAmount) _requireFreeActionCash(c, creditId, spendAmount);
         result = _executeAppCall(c, target, data, spendAmount);
         _recordPostActionHealth(c, creditId);
     }
@@ -2878,6 +2881,7 @@ contract TermbookCore is ITermbookCore {
         if (c.facility != Types.Facility.Ready || paused || nonceUsed[creditId][borrowerNonce]
             || amount > spendAmount) revert BadState();
         _requireAppCall(c, target, data, spendAmount);
+        _accrue(c, creditId);
         if (amount > 0) {
             _draw(c, creditId, amount, amount, borrowerNonce, borrowerNonce, false);
         } else {
@@ -2885,6 +2889,7 @@ contract TermbookCore is ITermbookCore {
             c.nonce = borrowerNonce;
             c.revision = RevisionLib.next(c.revision);
         }
+        if (spendAmount > amount) _requireFreeActionCash(c, creditId, spendAmount);
         _executeAppCall(c, target, data, spendAmount);
         if (healthSource == address(0) || riskEngine == address(0)) revert BadHealth();
         Types.HealthSnapshot memory snap =
@@ -2902,6 +2907,14 @@ contract TermbookCore is ITermbookCore {
             ? IIntegrationRegistryCore(integrationRegistry).validateCall(c.bundleId, target, data, c.account, amount)
             : approvedCalls[target][selector];
         if (!allowed) revert Unauthorized();
+    }
+
+    function _requireFreeActionCash(Credit storage c, bytes32 creditId, uint256 spendAmount) internal view {
+        if (healthSource == address(0)) revert BadHealth();
+        Types.HealthSnapshot memory reading =
+            IHealthSourceCore(healthSource).snapshot(creditId, c.bundleId, c.revision, c.debt);
+        if (reading.debt != c.debt) revert BadHealth();
+        if (spendAmount > reading.cash) revert OverLimit();
     }
 
     function _executeAppCall(Credit storage c, address target, bytes calldata data, uint256 amount)

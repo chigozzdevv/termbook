@@ -4,6 +4,7 @@ import {
   collateralVaultAbi,
   creditAccountAbi,
   houseVaultAbi,
+  healthSourceAbi,
   riskEngineAbi,
   settlementInboxAbi,
   termbookCoreAbi,
@@ -139,6 +140,17 @@ export class RpcClient {
 
   async creditAccountTokenBalance(account: `0x${string}`, token: `0x${string}`): Promise<bigint> {
     return this.read<bigint>(account, creditAccountAbi, "tokenBalance", [token]);
+  }
+
+  async creditFreeCash(creditId: `0x${string}`, bundleId: `0x${string}`, revision: bigint, debt: bigint): Promise<bigint> {
+    const source = await this.read<`0x${string}`>(this.config.core, termbookCoreAbi, "healthSource");
+    if (!/^0x[a-fA-F0-9]{40}$/.test(source) || /^0x0{40}$/i.test(source)) throw new Error("free-cash-unavailable");
+    const reading = await this.read<{ debt: bigint; cash: bigint }>(source, healthSourceAbi, "snapshot",
+      [creditId, bundleId, revision, debt]);
+    if (reading.debt !== debt || typeof reading.cash !== "bigint" || reading.cash < 0n) {
+      throw new Error("free-cash-unavailable");
+    }
+    return reading.cash;
   }
 
   async riskState(risk: `0x${string}`, creditId: `0x${string}`): Promise<number> {

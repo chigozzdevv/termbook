@@ -1,4 +1,4 @@
-import { keccak256, encodeAbiParameters } from "viem";
+import { keccak256, encodeAbiParameters, toBytes } from "viem";
 import type { Wallet } from "../types/client.types.js";
 
 export class Signer {
@@ -180,6 +180,20 @@ export class Signer {
         [domain, creditId, actionHash, amount, maxBound, nonce, BigInt(deadline), revision],
       ),
     );
+  }
+
+  fundedActionDigest(
+    domain: `0x${string}`, creditId: `0x${string}`, target: `0x${string}`, data: `0x${string}`,
+    draw: bigint, spend: bigint, maxBound: bigint, nonce: bigint, deadline: number, revision: bigint,
+  ): `0x${string}` {
+    const actionHash = keccak256(encodeAbiParameters([{ type: "address" }, { type: "bytes" }], [target, data]));
+    return keccak256(encodeAbiParameters(
+      [{ type: "bytes32" }, { type: "bytes32" }, { type: "bytes32" }, { type: "bytes32" },
+        { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" },
+        { type: "uint256" }, { type: "uint256" }],
+      [domain, keccak256(toBytes("Termbook funded action v1")), creditId, actionHash,
+        draw, spend, maxBound, nonce, BigInt(deadline), revision],
+    ));
   }
 
   signDigest(digest: `0x${string}`): Promise<`0x${string}`> {

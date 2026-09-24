@@ -15,6 +15,7 @@ const erc20Abi = [
 ] as const;
 const previewAbi = parseAbi([
   "function previewAction(bytes32 creditId,address target,bytes data,uint256 amount,uint256 borrowerNonce)",
+  "function previewFundedAction(bytes32 creditId,address target,bytes data,uint256 drawAmount,uint256 spendAmount,uint256 borrowerNonce)",
   "error ActionPreview(uint256 healthBps,uint256 initialBps,uint256 debt,uint256 recoveryValue)",
 ]);
 
@@ -82,11 +83,17 @@ export class RpcClient {
   }
 
   async previewAction(creditId: `0x${string}`, target: `0x${string}`, data: `0x${string}`,
-    amount: bigint, borrowerNonce: bigint): Promise<ActionPreview> {
+    amount: bigint, borrowerNonce: bigint, spendAmount?: bigint): Promise<ActionPreview> {
     try {
-      await this.client.simulateContract({ address: this.config.core, abi: previewAbi,
-        functionName: "previewAction", args: [creditId, target, data, amount, borrowerNonce],
-        account: this.config.wallet.address });
+      if (spendAmount === undefined) {
+        await this.client.simulateContract({ address: this.config.core, abi: previewAbi,
+          functionName: "previewAction", args: [creditId, target, data, amount, borrowerNonce],
+          account: this.config.wallet.address });
+      } else {
+        await this.client.simulateContract({ address: this.config.core, abi: previewAbi,
+          functionName: "previewFundedAction", args: [creditId, target, data, amount, spendAmount, borrowerNonce],
+          account: this.config.wallet.address });
+      }
     } catch (error) {
       const reverted = error instanceof BaseError
         ? error.walk((cause) => cause instanceof ContractFunctionRevertedError) : undefined;

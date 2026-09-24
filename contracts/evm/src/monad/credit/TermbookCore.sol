@@ -2808,13 +2808,59 @@ contract TermbookCore is ITermbookCore {
         _recordPostActionHealth(c, creditId);
     }
 
+    function executeFundedAction(
+        bytes32 creditId,
+        address target,
+        bytes calldata data,
+        uint256 drawAmount,
+        uint256 spendAmount,
+        uint256 maxBound,
+        uint256 borrowerNonce,
+        uint256 deadline,
+        bytes calldata borrowerSig
+    ) external nonReentrant returns (bytes memory result) {
+        Credit storage c = _credits[creditId];
+        if (c.facility != Types.Facility.Ready || paused || drawAmount > spendAmount) revert BadState();
+        _requireAppCall(c, target, data, spendAmount);
+        bytes32 digest = keccak256(abi.encode(
+            domain, keccak256("Termbook funded action v1"), creditId, keccak256(abi.encode(target, data)),
+            drawAmount, spendAmount, maxBound, borrowerNonce, deadline, c.revision
+        ));
+        if (block.timestamp > deadline || nonceUsed[creditId][borrowerNonce]
+            || !AuthLib.verify(digest, borrowerSig, c.borrower)) revert BadSig();
+        if (drawAmount > 0) {
+            _draw(c, creditId, drawAmount, maxBound, borrowerNonce, borrowerNonce, false);
+        } else {
+            nonceUsed[creditId][borrowerNonce] = true;
+            c.nonce = borrowerNonce;
+            c.revision = RevisionLib.next(c.revision);
+        }
+        result = _executeAppCall(c, target, data, spendAmount);
+        _recordPostActionHealth(c, creditId);
+    }
+
     function previewAction(bytes32 creditId, address target, bytes calldata data, uint256 amount, uint256 borrowerNonce)
         external
         nonReentrant
     {
+        _previewAction(creditId, target, data, amount, amount, borrowerNonce);
+    }
+
+    function previewFundedAction(
+        bytes32 creditId, address target, bytes calldata data, uint256 drawAmount, uint256 spendAmount,
+        uint256 borrowerNonce
+    ) external nonReentrant {
+        _previewAction(creditId, target, data, drawAmount, spendAmount, borrowerNonce);
+    }
+
+    function _previewAction(
+        bytes32 creditId, address target, bytes calldata data, uint256 amount, uint256 spendAmount,
+        uint256 borrowerNonce
+    ) internal {
         Credit storage c = _credits[creditId];
-        if (c.facility != Types.Facility.Ready || paused || nonceUsed[creditId][borrowerNonce]) revert BadState();
-        _requireAppCall(c, target, data, amount);
+        if (c.facility != Types.Facility.Ready || paused || nonceUsed[creditId][borrowerNonce]
+            || amount > spendAmount) revert BadState();
+        _requireAppCall(c, target, data, spendAmount);
         if (amount > 0) {
             _draw(c, creditId, amount, amount, borrowerNonce, borrowerNonce, false);
         } else {
@@ -2822,7 +2868,7 @@ contract TermbookCore is ITermbookCore {
             c.nonce = borrowerNonce;
             c.revision = RevisionLib.next(c.revision);
         }
-        _executeAppCall(c, target, data, amount);
+        _executeAppCall(c, target, data, spendAmount);
         if (healthSource == address(0) || riskEngine == address(0)) revert BadHealth();
         Types.HealthSnapshot memory snap =
             IHealthSourceCore(healthSource).snapshot(creditId, c.bundleId, c.revision, c.debt);
@@ -2846,6 +2892,7 @@ contract TermbookCore is ITermbookCore {
     {
         if (amount > 0) {
             address token = IHouseVaultCore(c.vault).asset();
+            if (amount > token.balanceOf(c.account)) revert OverLimit();
             ICreditAccountCore(c.account).approveSpend(token, target, 0);
             ICreditAccountCore(c.account).approveSpend(token, target, amount);
         }

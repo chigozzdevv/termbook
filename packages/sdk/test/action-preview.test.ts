@@ -39,4 +39,18 @@ describe("action preview", () => {
     await expect(rpc.previewAction(creditId, address, "0x12345678", 200n, 1n))
       .rejects.toThrow("action-preview-unavailable");
   });
+
+  it("simulates the full spend separately from the new draw", async () => {
+    const data = encodeErrorResult({ abi: previewAbi, errorName: "ActionPreview",
+      args: [30_000n, 15_000n, 100n, 300n] });
+    const reverted = new ContractFunctionRevertedError({ abi: previewAbi, data, functionName: "previewFundedAction" });
+    const simulateContract = vi.fn(async () => { throw reverted; });
+    vi.mocked(createPublicClient).mockReturnValue({ simulateContract } as never);
+    const rpc = new RpcClient({ core: address, rpcUrl: "http://localhost:8545", chainId: 143,
+      wallet: { address, signTypedData: async () => creditId } } as never);
+    expect((await rpc.previewAction(creditId, address, "0x12345678", 100n, 1n, 200n)).debt).toBe(100n);
+    expect(simulateContract).toHaveBeenCalledWith(expect.objectContaining({
+      functionName: "previewFundedAction", args: [creditId, address, "0x12345678", 100n, 200n, 1n],
+    }));
+  });
 });

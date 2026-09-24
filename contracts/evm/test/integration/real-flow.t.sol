@@ -636,6 +636,36 @@ contract RealFlowTest is Test {
         assertEq(houseVault.creditCommitted(creditId), 500);
     }
 
+    function testFuzzFundedActionUsesCashAndOnlyBorrowsShortfall(uint256 cash) public {
+        cash = bound(cash, 0, 200);
+        bytes32 creditId = keccak256("cash-funded-position");
+        FundedPositionTarget positionTarget = new FundedPositionTarget(token);
+        core.setHealthSource(address(new FundedPositionHealthSource(token, core, positionTarget)));
+        core.setAppRecoveryAdapter(keccak256("bundle"), address(new FundedPositionRecoveryAdapter(positionTarget)));
+        core.setApprovedCall(address(positionTarget), FundedPositionTarget.deposit.selector, true);
+        (, address account) = _prepare(creditId);
+        token.mint(account, cash);
+        uint256 drawAmount = 200 - cash;
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory data = abi.encodeWithSelector(FundedPositionTarget.deposit.selector, 200);
+        bytes32 digest = keccak256(abi.encode(
+            core.domain(), keccak256("Termbook funded action v1"), creditId,
+            keccak256(abi.encode(address(positionTarget), data)), drawAmount, uint256(200), drawAmount,
+            uint256(10), deadline, core.creditRevision(creditId)
+        ));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(borrowerKey, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+        vm.expectRevert(TermbookCore.BadSig.selector);
+        core.executeFundedAction(creditId, address(positionTarget), data, drawAmount, 201,
+            drawAmount, 10, deadline, signature);
+        core.executeFundedAction(creditId, address(positionTarget), data, drawAmount, 200,
+            drawAmount, 10, deadline, signature);
+        assertEq(positionTarget.positions(account), 200);
+        assertEq(core.creditDebt(creditId), drawAmount);
+        assertEq(token.balanceOf(account), 0);
+        assertEq(token.allowance(account, address(positionTarget)), 0);
+    }
+
     function testKeeperClosesAppPositionAndRepaysHouse() public {
         bytes32 creditId = keccak256("app-recovery-position");
         FundedPositionTarget positionTarget = new FundedPositionTarget(token);

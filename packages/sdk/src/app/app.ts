@@ -52,11 +52,11 @@ export class CreditApp {
     const nonce = BigInt(String(field("nonce", 18))) + 1n;
     const registry = await this.client.rpc.read<`0x${string}`>(this.client.config.core, coreRegistryAbi, "integrationRegistry");
     if (!/^0x[a-fA-F0-9]{40}$/.test(registry) || /^0x0{40}$/i.test(registry)
-      || !await this.client.rpc.read<boolean>(registry, registryAbi, "validateCall", [bundleId, target, data, account, amount])) {
+      || !await this.client.rpc.read<boolean>(registry, registryAbi, "validateCall", [bundleId, target, data, account, requiredInput])) {
       throw new Error("capability-denied");
     }
     const health = await new CreditAccount(this.client, this.creditId).health();
-    const preview = await this.client.rpc.previewAction(this.creditId, target, data, amount, nonce);
+    const preview = await this.client.rpc.previewAction(this.creditId, target, data, amount, nonce, requiredInput);
     const canExecute = preview.initialBps > 0n && preview.healthBps >= preview.initialBps;
     const fingerprint = keccak256(encodeAbiParameters(
       [{ type: "bytes32" }, { type: "address" }, { type: "bytes" }, { type: "uint256" }, { type: "uint256" },
@@ -82,19 +82,21 @@ export class CreditApp {
     if (reviewed && review.fingerprint !== reviewed.fingerprint) throw new Error("action-review-stale");
     if (!review.canExecute) throw new Error("action-health-insufficient");
     const deadline = Math.floor(Date.now() / 1000) + 900;
-    const digest = this.client.signer.actionDigest(
+    const digest = this.client.signer.fundedActionDigest(
       await this.client.rpc.domain(),
       this.creditId,
       target,
       data,
       review.draw,
+      review.requiredInput,
       review.draw,
       nonce,
       deadline,
       review.revision,
     );
     const signature = await this.client.signer.signDigest(digest);
-    const tx = await this.client.rpc.coreWrite("executeAction", [this.creditId, target, data, review.draw, review.draw, nonce, BigInt(deadline), signature]);
+    const tx = await this.client.rpc.coreWrite("executeFundedAction", [this.creditId, target, data,
+      review.draw, review.requiredInput, review.draw, nonce, BigInt(deadline), signature]);
     await this.client.rpc.wait(tx);
     return { status: definition.settlement === "atomic" ? "settled" : "pending", draw: review.draw, tx };
   }

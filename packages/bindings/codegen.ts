@@ -24,6 +24,8 @@ const contracts = {
   HousePolicyGovernor: "house-policy-governor",
   VerifierRegistry: "verifier-registry",
   EthereumBeaconLightClient: "ethereum-beacon-light-client",
+  MonadBftLightClient: "monad-bft-light-client",
+  MonadEpochCommitter: "monad-epoch-committer",
   EthereumVerifier: "ethereum-verifier",
   SolanaVerifier: "solana-verifier",
   MonadVerifier: "monad-verifier",
@@ -31,6 +33,7 @@ const contracts = {
   HealthSource: "health-source",
   CollateralHealthReader: "collateral-health-reader",
   AppHealthReader: "app-health-reader",
+  AppExitVerifier: "app-exit-verifier",
   IAppStateReader: "app-state-reader",
   FlowExecutor: "flow-executor",
 } as const;

@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {MonadBftVote} from "../../src/shared/collateral/MonadBftVote.sol";
+import {MonadBftFixtures} from "./monad-bft-fixtures.sol";
 
 contract MonadBftVoteHarness {
     function verify(
@@ -11,11 +12,14 @@ contract MonadBftVoteHarness {
         uint64 epoch,
         bytes32 validatorSetHash,
         bytes calldata bits,
+        bytes calldata compressedKeys,
         bytes calldata keys,
         uint256[] calldata stakes,
         bytes calldata signature
     ) external view returns (bool) {
-        return MonadBftVote.verify(blockId, round, epoch, validatorSetHash, bits, keys, stakes, signature);
+        return MonadBftVote.verify(
+            blockId, round, epoch, validatorSetHash, bits, compressedKeys, keys, stakes, signature
+        );
     }
 
     function message(bytes32 blockId, uint64 round, uint64 epoch) external pure returns (bytes memory) {
@@ -44,19 +48,34 @@ contract MonadBftVoteTest is Test {
 
     function testVerifiesNativeVoteWithStakeWeightedQuorum() public view {
         bytes memory keys = bytes.concat(KEY_1, KEY_2, KEY_3);
+        bytes memory compressedKeys = MonadBftFixtures.COMPRESSED_KEYS;
         uint256[] memory stakes = _stakes();
-        bytes32 validatorSetHash = keccak256(abi.encode(keys, stakes));
+        bytes32 validatorSetHash = keccak256(abi.encode(compressedKeys, stakes));
         assertEq(
             harness.message(BLOCK_ID, 129, 2),
             hex"0d6d6f6e61642f766f74652f310ae4a01111111111111111111111111111111111111111111111111111111111111111818102"
         );
-        assertTrue(harness.verify(BLOCK_ID, 129, 2, validatorSetHash, hex"03", keys, stakes, SIGNATURE));
-        assertFalse(harness.verify(BLOCK_ID, 130, 2, validatorSetHash, hex"03", keys, stakes, SIGNATURE));
-        assertFalse(harness.verify(BLOCK_ID, 129, 3, validatorSetHash, hex"03", keys, stakes, SIGNATURE));
-        assertFalse(harness.verify(BLOCK_ID, 129, 2, validatorSetHash, hex"01", keys, stakes, SIGNATURE));
-        assertFalse(harness.verify(BLOCK_ID, 129, 2, validatorSetHash, hex"83", keys, stakes, SIGNATURE));
+        assertTrue(harness.verify(BLOCK_ID, 129, 2, validatorSetHash, hex"03", compressedKeys, keys, stakes, SIGNATURE));
+        assertFalse(
+            harness.verify(BLOCK_ID, 130, 2, validatorSetHash, hex"03", compressedKeys, keys, stakes, SIGNATURE)
+        );
+        assertFalse(
+            harness.verify(BLOCK_ID, 129, 3, validatorSetHash, hex"03", compressedKeys, keys, stakes, SIGNATURE)
+        );
+        assertFalse(
+            harness.verify(BLOCK_ID, 129, 2, validatorSetHash, hex"01", compressedKeys, keys, stakes, SIGNATURE)
+        );
+        assertFalse(
+            harness.verify(BLOCK_ID, 129, 2, validatorSetHash, hex"83", compressedKeys, keys, stakes, SIGNATURE)
+        );
+        bytes memory wrongKeys = bytes.concat(KEY_1, KEY_3, KEY_2);
+        assertFalse(
+            harness.verify(BLOCK_ID, 129, 2, validatorSetHash, hex"03", compressedKeys, wrongKeys, stakes, SIGNATURE)
+        );
         stakes[0] = 5;
-        assertFalse(harness.verify(BLOCK_ID, 129, 2, validatorSetHash, hex"03", keys, stakes, SIGNATURE));
+        assertFalse(
+            harness.verify(BLOCK_ID, 129, 2, validatorSetHash, hex"03", compressedKeys, keys, stakes, SIGNATURE)
+        );
     }
 
     function _stakes() private pure returns (uint256[] memory stakes) {

@@ -155,6 +155,13 @@ the stored committee root, simulates the update, and warns when the checkpoint
 is over 12 days old. Governance must independently verify any checkpoint used
 to recover from expiry; the relay cannot establish weak subjectivity by itself.
 
+For Monad-to-Ethereum proofs, deploy `MonadEpochCommitter` on Monad and call
+`commitNextEpoch()` during each epoch boundary delay. The Ethereum
+`MonadBftLightClient` learns the next validator set only from a finalized
+receipt of that event. Its bootstrap block and initial validator set require
+independent verification. A Monad consensus node must supply native headers,
+quorum signatures, and execution headers for the proof relay.
+
 ## Collateral markets
 
 Termbook's settlement asset is set per HouseVault. A USDC House can accept a
@@ -164,7 +171,7 @@ USDC price, a recovery route, and the required governance configuration.
 | Asset | Lock location | Current implementation |
 | --- | --- | --- |
 | MON | Native MON enters `NativeCollateralVault` on Monad and is held as WMON. | Local custody, native return, WMON sale for USDC, and oracle-backed collateral-only health reader. Requires reviewed WMON and USDC deployments, feed, risk bands, exit verifier, and market admission. |
-| ETH | WETH stays in `CollateralVault` on Ethereum. | Lock custody, a Fulu Ethereum-to-Monad Beacon verifier, and a single-epoch Monad BFT receipts client are implemented. Validator-set transitions and a live Monad proof pipeline are required before accepting funds. |
+| ETH | WETH stays in `CollateralVault` on Ethereum. | Lock custody, a Fulu Ethereum-to-Monad Beacon verifier, and a Monad BFT receipts client with proof-bound validator-set transitions are implemented. A live Monad consensus witness feed and end-to-end proof tests are required before accepting funds. |
 | SOL | Native SOL stays in a Solana program-derived account. | The SDK encodes the lock and source actions, and the server prepares proof-gated lock and action relays. The program rejects deposits and actions until both finality verifiers are implemented and admitted. |
 
 For SOL, a Solana wallet signs the SDK `SolanaSourceLockWallet` lock instruction.

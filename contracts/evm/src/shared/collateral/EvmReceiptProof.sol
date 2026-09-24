@@ -8,8 +8,8 @@ library EvmReceiptProof {
     uint256 internal constant MAX_LOGS = 512;
     bytes32 internal constant AUTHORIZED_TOPIC = keccak256("RemoteActionAuthorized(bytes32,bytes32,uint8)");
     bytes32 internal constant APPLIED_TOPIC = keccak256("RemoteActionApplied(bytes32,bytes32,address,uint256,uint8)");
-    bytes32 internal constant RECOVERY_OPERATION_TOPIC =
-        keccak256("RecoveryOperationCreated(bytes32,bytes32,address)");
+    bytes32 internal constant RECOVERY_OPERATION_TOPIC = keccak256("RecoveryOperationCreated(bytes32,bytes32,address)");
+    bytes32 internal constant VALIDATOR_SET_TOPIC = keccak256("ValidatorSetCommitted(uint64,bytes32)");
 
     struct Item {
         uint256 start;
@@ -39,13 +39,22 @@ library EvmReceiptProof {
         return _verify(receiptsRoot, proof, emitter, eventDigest, 2);
     }
 
-    function _verify(
+    function verifyValidatorSet(
         bytes32 receiptsRoot,
         bytes calldata proof,
         address emitter,
-        bytes32 eventDigest,
-        uint8 kind
-    ) private pure returns (bool) {
+        uint64 epoch,
+        bytes32 setHash
+    ) internal pure returns (bool) {
+        if (epoch == 0 || setHash == bytes32(0)) return false;
+        return _verify(receiptsRoot, proof, emitter, keccak256(abi.encode(epoch, setHash)), 3);
+    }
+
+    function _verify(bytes32 receiptsRoot, bytes calldata proof, address emitter, bytes32 eventDigest, uint8 kind)
+        private
+        pure
+        returns (bool)
+    {
         if (receiptsRoot == bytes32(0) || emitter == address(0) || eventDigest == bytes32(0)) {
             return false;
         }
@@ -153,7 +162,7 @@ library EvmReceiptProof {
             return false;
         }
         if (address(uint160(uint256(_word(receipt, fields[0].payload)) >> 96)) != emitter) return false;
-        uint256 topicCount = kind == 0 ? 3 : 4;
+        uint256 topicCount = kind == 0 || kind == 3 ? 3 : 4;
         Item[] memory topics = _children(receipt, fields[1], topicCount);
         if (topics.length != topicCount) return false;
         for (uint256 i; i < topics.length; ++i) {
@@ -163,6 +172,10 @@ library EvmReceiptProof {
         bytes32 topic1 = _word(receipt, topics[1].payload);
         bytes32 topic2 = _word(receipt, topics[2].payload);
         if (topic1 == bytes32(0) || topic2 == bytes32(0)) return false;
+        if (kind == 3) {
+            return topic0 == VALIDATOR_SET_TOPIC && fields[2].length == 0 && uint256(topic1) <= type(uint64).max
+                && keccak256(abi.encode(uint64(uint256(topic1)), topic2)) == digest;
+        }
         if (kind == 2) {
             if (topic0 != RECOVERY_OPERATION_TOPIC || fields[2].length != 0) return false;
             bytes32 inboxTopic = _word(receipt, topics[3].payload);

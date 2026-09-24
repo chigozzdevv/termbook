@@ -5,10 +5,8 @@ library EthereumBeaconBls {
     bytes internal constant DST = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_";
     bytes internal constant FIELD_MODULUS =
         hex"1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab";
-    uint256 internal constant HALF_FIELD_HEAD =
-        0x000000000000000000000000000000000d0088f51cbff34d258dd3db21a5d66b;
-    uint256 internal constant HALF_FIELD_TAIL =
-        0xb23ba5c279c2895fb39869507b587b120f55ffff58a9ffffdcff7fffffffd555;
+    uint256 internal constant HALF_FIELD_HEAD = 0x000000000000000000000000000000000d0088f51cbff34d258dd3db21a5d66b;
+    uint256 internal constant HALF_FIELD_TAIL = 0xb23ba5c279c2895fb39869507b587b120f55ffff58a9ffffdcff7fffffffd555;
     bytes internal constant NEG_G1_GENERATOR = hex"00000000000000000000000000000000"
         hex"17f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb"
         hex"00000000000000000000000000000000"
@@ -29,7 +27,7 @@ library EthereumBeaconBls {
         for (uint256 i; i < 512; ++i) {
             if ((uint8(bits[i >> 3]) & (1 << (i & 7))) == 0) continue;
             uint256 pointOffset = participantIndex * 128;
-            if (!_matchesCompressed(compressedPubkeys, i * 48, uncompressedParticipants, pointOffset)) return false;
+            if (!matchesCompressed(compressedPubkeys, i * 48, uncompressedParticipants, pointOffset)) return false;
             uint256 target = participantIndex * 160;
             assembly ("memory-safe") {
                 calldatacopy(add(add(msm, 0x20), target), add(uncompressedParticipants.offset, pointOffset), 128)
@@ -67,10 +65,10 @@ library EthereumBeaconBls {
         for (uint256 i = 1; i < 8; ++i) {
             blocks[i] = sha256(bytes.concat(b0 ^ blocks[i - 1], bytes1(uint8(i + 1)), dst));
         }
-        bytes memory u0 = bytes.concat(_reduce(bytes.concat(blocks[0], blocks[1])),
-            _reduce(bytes.concat(blocks[2], blocks[3])));
-        bytes memory u1 = bytes.concat(_reduce(bytes.concat(blocks[4], blocks[5])),
-            _reduce(bytes.concat(blocks[6], blocks[7])));
+        bytes memory u0 =
+            bytes.concat(_reduce(bytes.concat(blocks[0], blocks[1])), _reduce(bytes.concat(blocks[2], blocks[3])));
+        bytes memory u1 =
+            bytes.concat(_reduce(bytes.concat(blocks[4], blocks[5])), _reduce(bytes.concat(blocks[6], blocks[7])));
         (bool mapped0, bytes memory point0) = address(0x11).staticcall(u0);
         (bool mapped1, bytes memory point1) = address(0x11).staticcall(u1);
         if (!mapped0 || !mapped1 || point0.length != 256 || point1.length != 256) return bytes("");
@@ -85,12 +83,12 @@ library EthereumBeaconBls {
         return bytes.concat(bytes16(0), reduced);
     }
 
-    function _matchesCompressed(
+    function matchesCompressed(
         bytes calldata compressed,
         uint256 compressedOffset,
         bytes calldata point,
         uint256 pointOffset
-    ) private pure returns (bool) {
+    ) internal pure returns (bool) {
         uint256 xHead;
         uint256 xTail;
         uint256 yHead;

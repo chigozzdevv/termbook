@@ -288,17 +288,19 @@ funding. Source refund attribution requires the risk signer
 to match the transfer with Aurora's operation; Aurora's origin transaction hashes
 alone do not prove which refund belongs to an operation.
 
-The Ethereum collateral proof worker needs `SOURCE_RPC_URL` with `eth_getProof`
-support, `COLLATERAL_KEEPER_KEY`, and `SOURCE_PROOF_URL`. The proof service must
-return the admitted client's finalized header proof plus the matching block
-number, block hash, and state root at `/proof/{lockId}`. The worker checks the
-canonical Ethereum block, storage proof, and Monad verifier before relay. The
-source action worker uses `MONAD_PROOF_URL` for finalized Monad authorizations
+The Ethereum collateral proof worker needs `SOURCE_RPC_URL` with historical
+`eth_getProof` support, `COLLATERAL_KEEPER_KEY`, and `ETHEREUM_BEACON_API_URL`.
+It reads the standard Beacon finality update for the current finalized execution
+block and checks the Beacon branches, canonical Ethereum block, storage proof,
+and Monad verifier before relay. The source action worker uses
+`MONAD_PROOF_URL` for finalized Monad authorizations
 and `SOURCE_PROOF_URL` for finalized Ethereum action receipts. For an expired
 seizure or return that was never executed, `POST /collateral/actions/cancel`
-prepares a cancellation using a finalized Ethereum storage proof from
-`/absence/{actionHash}`. Production consensus clients and header proof producers
-are still required. Monad receipt proof generation waits until the source block
+prepares a cancellation using a finalized Ethereum storage proof from the
+current Beacon update. Historical
+Ethereum receipt proofs still require a Beacon block inclusion producer and relay;
+Monad authorizations still require native consensus witnesses and a relay.
+Monad receipt proof generation waits until the source block
 reaches Verified execution, three blocks after Finalized.
 
 Configuration requires `SETTLEMENT_FACTORY`, `AURORA_API_KEY`,

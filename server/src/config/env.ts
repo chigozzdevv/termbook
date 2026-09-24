@@ -5,6 +5,7 @@ export const env = {
   rpcUrl: process.env["RPC_URL"] ?? "http://127.0.0.1:8545",
   sourceRpcUrl: process.env["SOURCE_RPC_URL"] ?? "",
   sourceProofUrl: process.env["SOURCE_PROOF_URL"] ?? "",
+  sourceBeaconApiUrl: process.env["ETHEREUM_BEACON_API_URL"] ?? "",
   collateralKeeperKey: process.env["COLLATERAL_KEEPER_KEY"] ?? "",
   monadProofUrl: process.env["MONAD_PROOF_URL"] ?? "",
   sourceActionKeeperKey: process.env["SOURCE_ACTION_KEEPER_KEY"] ?? "",
@@ -32,7 +33,8 @@ export function assertRuntimeConfig(): void {
     throw new Error("server-chain-config-invalid");
   }
   for (const [name, value] of [
-    ["SOURCE_RPC_URL", env.sourceRpcUrl], ["SOURCE_PROOF_URL", env.sourceProofUrl], ["MONAD_PROOF_URL", env.monadProofUrl],
+    ["SOURCE_RPC_URL", env.sourceRpcUrl], ["SOURCE_PROOF_URL", env.sourceProofUrl],
+    ["ETHEREUM_BEACON_API_URL", env.sourceBeaconApiUrl], ["MONAD_PROOF_URL", env.monadProofUrl],
   ] as const) {
     if (!value) continue;
     let endpoint: URL;
@@ -52,7 +54,7 @@ export function assertRuntimeConfig(): void {
   if (env.monadConfirmKeeperKey && !/^0x[a-fA-F0-9]{64}$/.test(env.monadConfirmKeeperKey)) {
     throw new Error("MONAD_CONFIRM_KEEPER_KEY is invalid");
   }
-  if (env.collateralKeeperKey && ![env.sourceRpcUrl, env.sourceProofUrl].every(Boolean)) {
+  if (env.collateralKeeperKey && (!env.sourceRpcUrl || !env.sourceBeaconApiUrl)) {
     throw new Error("collateral-worker-config-incomplete");
   }
   if ([env.sourceActionKeeperKey, env.monadConfirmKeeperKey].some(Boolean)
@@ -81,7 +83,7 @@ export function assertRuntimeConfig(): void {
   const beaconConfig = ["ETHEREUM_LIGHT_CLIENT_ADDRESS", "ETHEREUM_BEACON_API_URL",
     "ETHEREUM_BEACON_KEEPER_KEY"] as const;
   const beaconValues = beaconConfig.map((name) => process.env[name] ?? "");
-  if (beaconValues.some(Boolean)) {
+  if (beaconValues[0] || beaconValues[2]) {
     if (beaconValues.some((value) => !value) || env.monadChainId !== 143
       || !/^0x[a-fA-F0-9]{40}$/.test(beaconValues[0]!)
       || !/^0x[a-fA-F0-9]{64}$/.test(beaconValues[2]!)) {

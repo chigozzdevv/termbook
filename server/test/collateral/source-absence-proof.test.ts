@@ -1,10 +1,13 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { decodeAbiParameters, keccak256 } from "viem";
+import { env } from "../../src/config/env.js";
+import { fetchFinalizedBeaconExecution } from "../../src/chain/ethereum-beacon-proof.js";
 import { consumedActionSlot, fetchUnconsumedActionProof } from "../../src/chain/source.client.js";
 
 vi.mock("../../src/chain/ethereum-execution-header.js", () => ({
   buildEthereumSourceHeader: vi.fn(async () => "0x1234"),
 }));
+vi.mock("../../src/chain/ethereum-beacon-proof.js", () => ({ fetchFinalizedBeaconExecution: vi.fn() }));
 
 const actionHash = `0x${"11".repeat(32)}` as const;
 const controller = `0x${"22".repeat(20)}` as const;
@@ -22,9 +25,10 @@ function source(overrides: { timestamp?: string; value?: string; storageHash?: s
   vi.stubGlobal("fetch", vi.fn(async (raw: string | URL | Request, options?: RequestInit) => {
     const request = options?.body ? JSON.parse(String(options.body)) as { method: string; params: unknown[] } : undefined;
     requests.push({ method: request?.method, params: request?.params, url: String(raw) });
-    if (!request) return reply({ finalizedBeaconRoot: `0x${"99".repeat(32)}`, blockNumber: "0xa", blockHash, stateRoot });
+    if (!request) throw new Error("unexpected HTTP request");
     let result: unknown;
     if (request.method === "eth_chainId") result = "0x1";
+    else if (request.method === "eth_getBlockByHash") result = { number: "0xa", hash: blockHash, stateRoot };
     else if (request.method === "eth_getBlockByNumber" && request.params[0] === "finalized") result = { number: "0xb" };
     else if (request.method === "eth_getBlockByNumber") result = {
       number: "0xa", hash: blockHash, stateRoot, timestamp: overrides.timestamp ?? "0x65",
@@ -41,17 +45,28 @@ function source(overrides: { timestamp?: string; value?: string; storageHash?: s
 }
 
 const input = {
-  rpcUrl: "https://ethereum.example", finalityUrl: "https://proof.example/api",
+  rpcUrl: "https://ethereum.example",
   actionHash, controller, expectedCodeHash: codeHash, deadline: 100n,
 };
 
-afterEach(() => vi.unstubAllGlobals());
+beforeEach(() => {
+  env.sourceBeaconApiUrl = "https://beacon.example";
+  vi.mocked(fetchFinalizedBeaconExecution).mockResolvedValue({
+    finalizedBeaconRoot: `0x${"99".repeat(32)}`, executionBlockHash: blockHash, slot: 13_000_000n,
+  });
+});
+
+afterEach(() => {
+  env.sourceBeaconApiUrl = "";
+  vi.unstubAllGlobals();
+  vi.resetAllMocks();
+});
 
 describe("expired Ethereum action absence proof", () => {
   it("binds finalized timestamp, controller code, and consumed mapping slot", async () => {
     const requests = source();
     const result = await fetchUnconsumedActionProof(input);
-    expect(requests[1]?.url).toBe(`https://proof.example/api/absence/${actionHash}`);
+    expect(requests.find((item) => item.method === "eth_getBlockByHash")?.params?.[0]).toBe(blockHash);
     expect(requests.find((item) => item.method === "eth_getProof")?.params).toEqual([
       controller, [consumedActionSlot(actionHash)], { blockHash, requireCanonical: true },
     ]);

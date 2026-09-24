@@ -1,11 +1,14 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { decodeAbiParameters } from "viem";
+import { env } from "../../src/config/env.js";
+import { fetchFinalizedBeaconExecution } from "../../src/chain/ethereum-beacon-proof.js";
 import { fetchProof, lockCommitmentSlot } from "../../src/chain/source.client.js";
 import { lockCommitment } from "../../src/collateral/collateral.worker.js";
 
 vi.mock("../../src/chain/ethereum-execution-header.js", () => ({
   buildEthereumSourceHeader: vi.fn(async () => "0x1234"),
 }));
+vi.mock("../../src/chain/ethereum-beacon-proof.js", () => ({ fetchFinalizedBeaconExecution: vi.fn() }));
 
 const lockId = `0x${"11".repeat(32)}` as const;
 const commitment = `0x${"22".repeat(32)}` as const;
@@ -15,7 +18,6 @@ const stateRoot = `0x${"55".repeat(32)}` as const;
 const vault = `0x${"aa".repeat(20)}` as const;
 const input = {
   rpcUrl: "https://ethereum.example/rpc",
-  finalityUrl: "https://finality.example/api",
   lockId, vault, commitment, expectedCodeHash: codeHash,
 };
 
@@ -42,8 +44,12 @@ function mockSource(overrides: {
     const url = String(raw);
     const request = options?.body ? JSON.parse(String(options.body)) as { method: string; params: unknown[] } : undefined;
     requests.push({ method: request?.method, params: request?.params, url });
-    if (!request) return response({ finalizedBeaconRoot: `0x${"99".repeat(32)}`, blockNumber: "0xa", blockHash, stateRoot });
+    if (!request) throw new Error("unexpected HTTP request");
     if (request.method === "eth_chainId") return rpcResponse(overrides.chainId ?? "0x1");
+    if (request.method === "eth_getBlockByHash") return rpcResponse({
+      number: "0xa", hash: overrides.selectedHash ?? blockHash,
+      stateRoot,
+    });
     if (request.method === "eth_getBlockByNumber" && request.params[0] === "finalized") {
       return rpcResponse({ number: overrides.finalized ?? "0xb" });
     }
@@ -65,13 +71,24 @@ function mockSource(overrides: {
   return requests;
 }
 
-afterEach(() => vi.unstubAllGlobals());
+beforeEach(() => {
+  env.sourceBeaconApiUrl = "https://beacon.example";
+  vi.mocked(fetchFinalizedBeaconExecution).mockResolvedValue({
+    finalizedBeaconRoot: `0x${"99".repeat(32)}`, executionBlockHash: blockHash, slot: 13_000_000n,
+  });
+});
+
+afterEach(() => {
+  env.sourceBeaconApiUrl = "";
+  vi.unstubAllGlobals();
+  vi.resetAllMocks();
+});
 
 describe("Ethereum source proof assembly", () => {
   it("requests account and storage nodes at the canonical finalized block hash", async () => {
     const requests = mockSource();
     const result = await fetchProof(input);
-    expect(requests[1]?.url).toBe(`https://finality.example/api/proof/${lockId}`);
+    expect(requests.find((item) => item.method === "eth_getBlockByHash")?.params?.[0]).toBe(blockHash);
     const proofRequest = requests.find((item) => item.method === "eth_getProof");
     expect(proofRequest?.params).toEqual([vault, [lockCommitmentSlot(lockId)], { blockHash, requireCanonical: true }]);
     const [id, accountNodes, storageNodes] = decodeAbiParameters(
@@ -79,6 +96,17 @@ describe("Ethereum source proof assembly", () => {
     );
     expect([id, accountNodes, storageNodes]).toEqual([lockId, ["0xc1"], ["0xc2"]]);
     expect(result.stateRoot).toBe(stateRoot);
+  });
+
+  it("uses a verified Beacon finality update for a current lock state proof", async () => {
+    const requests = mockSource();
+    await fetchProof(input);
+    expect(fetchFinalizedBeaconExecution).toHaveBeenCalledWith(env.sourceBeaconApiUrl);
+    expect(requests.some((item) => item.method === "eth_getBlockByHash"
+      && item.params?.[0] === blockHash)).toBe(true);
+    expect(requests.every((item) => !item.url.includes("/proof/"))).toBe(true);
+    mockSource({ selectedHash: `0x${"66".repeat(32)}` });
+    await expect(fetchProof(input)).rejects.toThrow("proof-block-mismatch");
   });
 
   it.each([

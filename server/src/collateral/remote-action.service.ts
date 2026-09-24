@@ -90,7 +90,9 @@ export const remoteActionService = {
     return { actionHash: input.actionHash, sourceTxHash: input.sourceTxHash, state: "source_finalized" };
   },
   async prepareExpiredActionCancel(input: CancelInput, requester: Address) {
-    if (!env.sourceRpcUrl || !env.sourceProofUrl) throw new Error("source-proof-unavailable");
+    if (!env.sourceRpcUrl || !env.sourceBeaconApiUrl) {
+      throw new Error("source-proof-unavailable");
+    }
     const kind = input.kind === "release" ? 0 : 1;
     const functionName = kind === 0 ? "cancelExpiredRemoteReturn" : "cancelExpiredRemoteSeizure";
     const { action, actionHash } = await readAuthorizedAction(input.creditId as Hex, kind, undefined, true);
@@ -120,7 +122,7 @@ export const remoteActionService = {
     if (vault.toLowerCase() !== action.sourceVault.toLowerCase() || controller === zero
       || BigInt(controllerCodeHash) === 0n) throw new Error("source-controller-mismatch");
     const proof = await fetchUnconsumedActionProof({
-      rpcUrl: env.sourceRpcUrl, finalityUrl: env.sourceProofUrl, actionHash,
+      rpcUrl: env.sourceRpcUrl, actionHash,
       controller, expectedCodeHash: controllerCodeHash, deadline: action.deadline,
     });
     const accepted = await chain.readContract({

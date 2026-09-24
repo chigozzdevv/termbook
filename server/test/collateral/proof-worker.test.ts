@@ -32,6 +32,7 @@ const codeHash = keccak256("0x1234");
 const originalConfig = {
   sourceRpcUrl: env.sourceRpcUrl,
   sourceProofUrl: env.sourceProofUrl,
+  sourceBeaconApiUrl: env.sourceBeaconApiUrl,
   collateralKeeperKey: env.collateralKeeperKey,
   monadChainId: env.monadChainId,
   core: env.core,
@@ -40,6 +41,7 @@ const originalConfig = {
 beforeEach(() => {
   env.sourceRpcUrl = "https://ethereum.example";
   env.sourceProofUrl = "https://finality.example";
+  env.sourceBeaconApiUrl = "https://beacon.example";
   env.collateralKeeperKey = `0x${"aa".repeat(32)}`;
   env.monadChainId = 143;
   env.core = `0x${"bb".repeat(20)}`;

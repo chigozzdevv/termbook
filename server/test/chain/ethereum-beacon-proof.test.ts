@@ -5,7 +5,7 @@ import { type Hex } from "viem";
 import { monadClient } from "../../src/chain/monad.client.js";
 import {
   beaconHeaderRoot, fetchBeaconBootstrap, fetchBeaconFinalityUpdate, fetchBeaconUpdate,
-  fetchFinalizedBeaconBlock,
+  fetchFinalizedBeaconBlock, fetchFinalizedBeaconExecution, finalizedBeaconExecution,
   prepareBeaconBootstrap, prepareBeaconUpdate, prepareFinalizedBeaconBlock,
   syncCommitteeRoot, verifySszBranch, type BeaconHeader,
 } from "../../src/chain/ethereum-beacon-proof.js";
@@ -115,6 +115,23 @@ describe("Ethereum Beacon proof preparation", () => {
 
     fixture.response.data.finality_branch[0] = word("ff");
     expect(() => prepareBeaconUpdate(fixture.response, fixture.witness)).toThrow("beacon-proof-invalid");
+  });
+
+  it("extracts a finalized execution anchor without a witness service", async () => {
+    const fixture = updateFixture();
+    expect(finalizedBeaconExecution(fixture.response)).toEqual({
+      finalizedBeaconRoot: beaconHeaderRoot(fixture.finalized),
+      executionBlockHash: fixture.executionBlockHash,
+      slot: fixture.finalized.slot,
+    });
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(fixture.response)));
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await fetchFinalizedBeaconExecution("https://beacon.example")).toEqual(
+      finalizedBeaconExecution(fixture.response));
+    expect(new URL(fetchMock.mock.calls[0]![0] as URL).pathname)
+      .toBe("/eth/v1/beacon/light_client/finality_update");
+    fixture.response.data.finalized_header.execution_branch[0] = word("ff");
+    expect(() => finalizedBeaconExecution(fixture.response)).toThrow("beacon-proof-invalid");
   });
 
   it("rejects malformed BLS witness lengths and unsupported fork data", () => {

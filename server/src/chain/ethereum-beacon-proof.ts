@@ -245,6 +245,32 @@ export function prepareBeaconUpdate(response: unknown, witnessInput: unknown) {
     signerCommitteeRoot, signatureSlot };
 }
 
+export function finalizedBeaconExecution(response: unknown): {
+  finalizedBeaconRoot: Hex; executionBlockHash: Hex; slot: bigint;
+} {
+  const envelope = record(response);
+  if (String(envelope["version"]).toLowerCase() !== "fulu") throw new Error("beacon-proof-unsupported");
+  const data = record(envelope["data"]);
+  const attested = parseHeader(record(data["attested_header"])["beacon"]);
+  const finalizedHeader = record(data["finalized_header"]);
+  const finalized = parseHeader(finalizedHeader["beacon"]);
+  const executionBlockHash = word(record(finalizedHeader["execution"])["block_hash"]);
+  if (attested.slot < fuluStartSlot || finalized.slot < fuluStartSlot || finalized.slot > attested.slot
+    || executionBlockHash === zeroWord
+    || !verifySszBranch(beaconHeaderRoot(finalized), words(data["finality_branch"], 7), 169n, attested.stateRoot)
+    || !verifySszBranch(executionBlockHash, words(finalizedHeader["execution_branch"], 9), 812n, finalized.bodyRoot)) {
+    throw new Error("beacon-proof-invalid");
+  }
+  return { finalizedBeaconRoot: beaconHeaderRoot(finalized), executionBlockHash, slot: finalized.slot };
+}
+
+export async function fetchFinalizedBeaconExecution(beaconApiUrl: string) {
+  const endpoint = new URL(beaconApiUrl);
+  endpoint.pathname = `${endpoint.pathname.replace(/\/$/, "")}/eth/v1/beacon/light_client/finality_update`;
+  endpoint.search = "";
+  return finalizedBeaconExecution(await fetchJson(endpoint, 100_000));
+}
+
 function wordsOfBytes(value: unknown, count: number, length: number): Hex[] {
   if (!Array.isArray(value) || value.length !== count) throw new Error("beacon-proof-invalid");
   return value.map((entry) => bytes(entry, length));

@@ -1,4 +1,6 @@
 import { encodeAbiParameters, keccak256, type Address, type Hex } from "viem";
+import { env } from "../config/env.js";
+import { fetchFinalizedBeaconExecution } from "./ethereum-beacon-proof.js";
 import { buildEthereumSourceHeader } from "./ethereum-execution-header.js";
 
 const word = /^0x[0-9a-fA-F]{64}$/;
@@ -18,7 +20,6 @@ export type ProofBundle = {
 
 export type ProofRequest = {
   rpcUrl: string;
-  finalityUrl: string;
   lockId: Hex;
   vault: Address;
   commitment: Hex;
@@ -73,6 +74,19 @@ async function rpc(endpoint: URL, method: string, params: unknown[]): Promise<un
   return payload["result"];
 }
 
+async function finalizedAnchor(source: URL) {
+  if (!env.sourceBeaconApiUrl) throw new Error("proof-beacon-unavailable");
+  const beacon = await fetchFinalizedBeaconExecution(env.sourceBeaconApiUrl);
+  const block = object(await rpc(source, "eth_getBlockByHash", [beacon.executionBlockHash, false]));
+  if (hex(block["hash"], word) !== beacon.executionBlockHash) throw new Error("proof-block-mismatch");
+  return {
+    finalizedBeaconRoot: beacon.finalizedBeaconRoot,
+    blockNumber: hex(block["number"], quantity),
+    blockHash: beacon.executionBlockHash,
+    stateRoot: hex(block["stateRoot"], word),
+  };
+}
+
 function proofNodes(value: unknown, allowEmpty = false): Hex[] {
   if (!Array.isArray(value) || (!allowEmpty && value.length === 0) || value.length > 64) throw new Error("proof-invalid");
   return value.map((entry: unknown) => {
@@ -89,14 +103,12 @@ export function consumedActionSlot(actionHash: Hex): Hex {
 
 export async function fetchUnconsumedActionProof(input: {
   rpcUrl: string;
-  finalityUrl: string;
   actionHash: Hex;
   controller: Address;
   expectedCodeHash: Hex;
   deadline: bigint;
 }): Promise<ProofBundle> {
   const source = url(input.rpcUrl);
-  const finality = url(input.finalityUrl);
   const actionHash = hex(input.actionHash, word);
   const controller = hex(input.controller, address);
   const expectedCodeHash = hex(input.expectedCodeHash, word);
@@ -106,15 +118,8 @@ export async function fetchUnconsumedActionProof(input: {
   const slot = consumedActionSlot(actionHash);
   const chainId = hex(await rpc(source, "eth_chainId", []), quantity);
   if (BigInt(chainId) !== 1n) throw new Error("source-chain-mismatch");
-  finality.pathname = `${finality.pathname.replace(/\/$/, "")}/absence/${actionHash}`;
-  finality.search = "";
-  const response = await fetch(finality, { signal: AbortSignal.timeout(10_000), redirect: "error" }).catch(() => null);
-  if (!response) throw new Error("proof-unavailable");
-  const envelope = await jsonResponse(response, 200_000);
-  const finalizedBeaconRoot = hex(envelope["finalizedBeaconRoot"], word);
-  const blockNumber = hex(envelope["blockNumber"], quantity);
-  const blockHash = hex(envelope["blockHash"], word);
-  const stateRoot = hex(envelope["stateRoot"], word);
+  const { finalizedBeaconRoot, blockNumber, blockHash, stateRoot } =
+    await finalizedAnchor(source);
   const finalized = object(await rpc(source, "eth_getBlockByNumber", ["finalized", false]));
   const finalizedNumber = hex(finalized["number"], quantity);
   if (BigInt(blockNumber) > BigInt(finalizedNumber)) throw new Error("proof-not-finalized");
@@ -153,7 +158,6 @@ export function lockCommitmentSlot(lockId: Hex): Hex {
 
 export async function fetchProof(input: ProofRequest): Promise<ProofBundle> {
   const source = url(input.rpcUrl);
-  const finality = url(input.finalityUrl);
   const lockId = hex(input.lockId, word);
   const vault = hex(input.vault, address);
   const commitment = hex(input.commitment, word);
@@ -163,15 +167,8 @@ export async function fetchProof(input: ProofRequest): Promise<ProofBundle> {
   const chainId = hex(await rpc(source, "eth_chainId", []), quantity);
   if (BigInt(chainId) !== 1n) throw new Error("source-chain-mismatch");
 
-  finality.pathname = `${finality.pathname.replace(/\/$/, "")}/proof/${lockId}`;
-  finality.search = "";
-  const response = await fetch(finality, { signal: AbortSignal.timeout(10_000), redirect: "error" }).catch(() => null);
-  if (!response) throw new Error("proof-unavailable");
-  const envelope = await jsonResponse(response, 200_000);
-  const finalizedBeaconRoot = hex(envelope["finalizedBeaconRoot"], word);
-  const blockNumber = hex(envelope["blockNumber"], quantity);
-  const blockHash = hex(envelope["blockHash"], word);
-  const stateRoot = hex(envelope["stateRoot"], word);
+  const { finalizedBeaconRoot, blockNumber, blockHash, stateRoot } =
+    await finalizedAnchor(source);
 
   const finalized = object(await rpc(source, "eth_getBlockByNumber", ["finalized", false]));
   const finalizedNumber = hex(finalized["number"], quantity);

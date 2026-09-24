@@ -47,6 +47,7 @@ function chain(accepted = true) {
 beforeEach(() => {
   env.sourceRpcUrl = "https://ethereum.example";
   env.sourceProofUrl = "https://proof.example";
+  env.sourceBeaconApiUrl = "https://beacon.example";
   env.core = core;
   vi.mocked(readAuthorizedAction).mockResolvedValue({ action, actionHash, collateralAmount: 100n });
   vi.mocked(fetchUnconsumedActionProof).mockResolvedValue({
@@ -65,7 +66,7 @@ describe("expired remote seizure cancellation preparation", () => {
     const result = await remoteActionService.prepareExpiredActionCancel({ creditId, kind: "seize" }, requester);
     expect(readAuthorizedAction).toHaveBeenCalledWith(creditId, 1, undefined, true);
     expect(fetchUnconsumedActionProof).toHaveBeenCalledWith({
-      rpcUrl: env.sourceRpcUrl, finalityUrl: env.sourceProofUrl,
+      rpcUrl: env.sourceRpcUrl,
       actionHash, controller, expectedCodeHash: controllerHash, deadline: 100n,
     });
     expect(monad.simulateContract).toHaveBeenCalledOnce();

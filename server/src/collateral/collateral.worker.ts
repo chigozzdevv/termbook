@@ -43,7 +43,7 @@ export function lockCommitment(input: LockContext): Hex {
 }
 
 function configured(): boolean {
-  return Boolean(env.sourceRpcUrl && env.sourceProofUrl && env.collateralKeeperKey);
+  return Boolean(env.sourceRpcUrl && env.sourceBeaconApiUrl && env.collateralKeeperKey);
 }
 
 export async function handleCollateralJob(job: { kind: string; payload: Record<string, unknown> }): Promise<void> {
@@ -117,7 +117,7 @@ export async function handleCollateralJob(job: { kind: string; payload: Record<s
     monadChain: BigInt(env.monadChainId), core: env.core as Address,
   });
   const proof = await fetchProof({
-    rpcUrl: env.sourceRpcUrl, finalityUrl: env.sourceProofUrl, lockId: lockId as Hex,
+    rpcUrl: env.sourceRpcUrl, lockId: lockId as Hex,
     vault: credit.collateralVault, commitment, expectedCodeHash: sourceCodeHash,
   });
   await collateralRepo.setState(lockId, "proof_fetched", proof);

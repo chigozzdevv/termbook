@@ -23,6 +23,7 @@ const pda = word("5");
 const returnRecipient = word("6");
 const recoveryVault = word("7");
 const programDataHash = word("8");
+const sourceTx = "2".repeat(88);
 const borrower = address("9");
 const core = address("a");
 const verifier = address("b");
@@ -102,17 +103,17 @@ describe("Solana remote action plans", () => {
 
   it("returns a Monad confirmation only after the pinned verifier accepts the finalized source proof", async () => {
     const { actionHash, call } = source(1);
-    const result = await solanaActionService.confirmationPlan({ creditId, kind: "seize", mode: "apply" }, borrower);
+    const result = await solanaActionService.confirmationPlan({ creditId, kind: "seize", mode: "apply", sourceTx }, borrower);
     expect(result).toMatchObject({ to: core, actionHash, sourceSlot: 80, mode: "apply" });
     expect(fetchSolanaProof).toHaveBeenCalledWith(expect.objectContaining({
-      kind: "action", id: actionHash, digest: actionHash, programDataHash, lockPda: pda,
+      kind: "action", sourceTx, digest: actionHash, programDataHash, lockPda: pda,
     }));
     expect(call).toHaveBeenCalledWith(expect.objectContaining({ to: core, data: result.data }));
   });
 
   it("rejects an unverified cancellation before preparing a Monad transaction", async () => {
     const { call } = source(0, false);
-    await expect(solanaActionService.confirmationPlan({ creditId, kind: "release", mode: "expire" }, borrower))
+    await expect(solanaActionService.confirmationPlan({ creditId, kind: "release", mode: "expire", sourceTx }, borrower))
       .rejects.toThrow("solana-action-proof-rejected");
     expect(call).not.toHaveBeenCalled();
   });

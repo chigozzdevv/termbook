@@ -8,5 +8,5 @@ export const solanaTrackSchema = z.object({
   creditId: word,
   lockId: word,
   lockPda: word,
-  sourceTx: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{85,88}$/).optional(),
+  sourceTx: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{85,88}$/),
 }).strict();

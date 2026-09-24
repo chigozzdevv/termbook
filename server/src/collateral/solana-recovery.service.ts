@@ -327,7 +327,7 @@ export const solanaRecoveryService = {
       || !same(codeHash, credit.verifierCodeHash)) throw new Error("solana-verifier-unavailable");
     const runtime = await chain.getCode({ address: verifier, blockNumber: at });
     if (!runtime || !same(keccak256(runtime), codeHash)) throw new Error("solana-verifier-code-mismatch");
-    const proof = await fetchSolanaProof({ rpcUrl, proofUrl, kind: "recovery", id: hash,
+    const proof = await fetchSolanaProof({ rpcUrl, proofUrl, kind: "recovery",
       digest: hash, genesis, programId, programDataHash, lockPda,
       accountPda: recoveryVault, sourceTx: input.sourceTx });
     const verified = input.mode === "confirm"
@@ -403,7 +403,7 @@ export const solanaRecoveryService = {
       || !same(codeHash, credit.verifierCodeHash)) throw new Error("solana-verifier-unavailable");
     const runtime = await chain.getCode({ address: verifier, blockNumber: at });
     if (!runtime || !same(keccak256(runtime), codeHash)) throw new Error("solana-verifier-code-mismatch");
-    const proof = await fetchSolanaProof({ rpcUrl, proofUrl, kind: "recovery", id: input.creditId,
+    const proof = await fetchSolanaProof({ rpcUrl, proofUrl, kind: "recovery",
       digest: input.creditId, genesis, programId, programDataHash, lockPda,
       accountPda: recoveryVault, sourceTx: input.sourceTx });
     const verified = await chain.readContract({ address: verifier, abi: verifierAbi,

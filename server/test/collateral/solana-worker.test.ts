@@ -46,7 +46,8 @@ beforeEach(() => {
   vi.mocked(solanaProofConfig).mockReturnValue({ rpcUrl: "https://solana.example",
     proofUrl: "https://proof.example", keeper: { address: address("b") } } as never);
   vi.mocked(solanaRepo.claim).mockResolvedValue("lease");
-  vi.mocked(solanaRepo.find).mockResolvedValue({ lockId, creditId, lockPda: pda, state: "pending" } as never);
+  vi.mocked(solanaRepo.find).mockResolvedValue({ lockId, creditId, lockPda: pda,
+    sourceTx: "2".repeat(88), state: "pending" } as never);
   vi.mocked(solanaRepo.acquireSigner).mockResolvedValue(true);
   vi.mocked(solanaRepo.setPrepared).mockResolvedValue({ matchedCount: 1 } as never);
   vi.mocked(fetchSolanaProof).mockResolvedValue({ header: "0x12", proof: "0x34", slot: 80,
@@ -97,7 +98,8 @@ describe("Solana lock proof relay", () => {
     } as never);
     await handleSolanaLockJob({ kind: "collateral.solana-lock", payload: { lockId } });
     expect(fetchSolanaProof).toHaveBeenCalledWith(expect.objectContaining({
-      kind: "lock", id: lockId, digest: id("d"), genesis, programId, programDataHash, lockPda: pda,
+      kind: "lock", sourceTx: "2".repeat(88), digest: id("d"), genesis, programId,
+      programDataHash, lockPda: pda,
     }));
     expect(solanaRepo.setPrepared).toHaveBeenCalledWith(lockId, expect.any(Object), keccak256("0xabcd"), "0xabcd");
     expect(source.sendRawTransaction).toHaveBeenCalledOnce();

@@ -13,17 +13,17 @@ export const solanaRecoveryFundingConfirmationSchema = z.object({
   creditId: word,
   operationId: word,
   mode: z.enum(["confirm", "cancel"]),
-  sourceTx: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{85,88}$/).optional(),
+  sourceTx: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{85,88}$/),
 }).strict();
 
 export const solanaRecoveryPayoutConfirmationSchema = z.object({
   creditId: word,
   mode: z.enum(["confirm", "cancel"]),
-  sourceTx: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{85,88}$/).optional(),
+  sourceTx: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{85,88}$/),
 }).strict();
 
 export const solanaRecoveryRefundReconciliationSchema = z.object({
   creditId: word,
   cumulativeRefunded: z.string().regex(/^\d+$/).refine((value) => BigInt(value) > 0n),
-  sourceTx: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{85,88}$/).optional(),
+  sourceTx: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{85,88}$/),
 }).strict();

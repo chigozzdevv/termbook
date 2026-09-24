@@ -14,5 +14,5 @@ export const solanaConfirmationPlanSchema = z.object({
   creditId: word,
   kind: z.enum(["release", "seize"]),
   mode: z.enum(["apply", "expire"]),
-  sourceTx: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{85,88}$/).optional(),
+  sourceTx: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{85,88}$/),
 }).strict();

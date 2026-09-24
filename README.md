@@ -205,7 +205,7 @@ seizure authorization, an actor obtains
 `POST /collateral/solana/actions/plan`, submits that exact instruction on
 Solana, then obtains `POST /collateral/solana/actions/confirmation-plan` to
 confirm the finalized source action or cancellation on Monad. Confirmation
-requests can supply the finalized Solana `sourceTx` signature for direct VAA
+requests must supply the finalized Solana `sourceTx` signature for VAA
 lookup. These endpoints require an admitted Wormhole-backed verifier for the
 pinned Solana program. After a confirmed seizure, a recovery keeper can
 request `POST /collateral/solana/recovery/funding-plan` for an already registered

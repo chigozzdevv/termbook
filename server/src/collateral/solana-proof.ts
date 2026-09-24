@@ -1,7 +1,6 @@
 import { bytesToHex, encodeAbiParameters, keccak256, stringToHex, type Hex } from "viem";
 
 const word = /^0x[0-9a-fA-F]{64}$/;
-const blob = /^0x(?:[0-9a-fA-F]{2})+$/;
 const base58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 const signature = /^[1-9A-HJ-NP-Za-km-z]{85,88}$/;
 
@@ -81,13 +80,20 @@ export type SolanaProof = {
 
 const snapshotDomain = keccak256(stringToHex("Termbook Solana snapshot v1"));
 
-function signedSnapshot(vaa: string, account: Hex): Hex | null {
-  if (vaa.length > 128_000 || vaa.length % 4 !== 0
-    || !/^[A-Za-z0-9+/]+={0,2}$/.test(vaa)) return null;
+function signedSnapshot(vaa: unknown, account: Hex): Hex | null {
   let raw: Uint8Array;
-  try { raw = Uint8Array.from(Buffer.from(vaa, "base64")); } catch { return null; }
-  if (raw.length < 6 || raw.length > 96_000 || raw[0] !== 1
-    || Buffer.from(raw).toString("base64") !== vaa) return null;
+  if (typeof vaa === "string") {
+    if (vaa.length > 128_000 || vaa.length % 4 !== 0
+      || !/^[A-Za-z0-9+/]+={0,2}$/.test(vaa)) return null;
+    raw = Uint8Array.from(Buffer.from(vaa, "base64"));
+    if (Buffer.from(raw).toString("base64") !== vaa) return null;
+  } else if (Array.isArray(vaa) && vaa.length <= 96_000
+    && vaa.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255)) {
+    raw = Uint8Array.from(vaa);
+  } else {
+    return null;
+  }
+  if (raw.length < 6 || raw.length > 96_000 || raw[0] !== 1) return null;
   const count = raw[5]!;
   const start = 6 + count * 66;
   if (!count || raw.length < start + 51 + 76) return null;
@@ -127,7 +133,7 @@ async function proofBySourceTx(
   const matches = entries.flatMap((entry) => {
     if (!entry || typeof entry !== "object") return [];
     const item = entry as Record<string, unknown>;
-    if (item["emitterChain"] !== 1 || typeof item["vaa"] !== "string") return [];
+    if (item["emitterChain"] !== 1) return [];
     const header = signedSnapshot(item["vaa"], account);
     return header ? [header] : [];
   });
@@ -148,25 +154,24 @@ export async function fetchSolanaProof(input: {
   rpcUrl: string;
   proofUrl: string;
   kind: "lock" | "action" | "recovery";
-  id: Hex;
   digest: Hex;
   genesis: Hex;
   programId: Hex;
   programDataHash: Hex;
   lockPda: Hex;
   accountPda?: Hex;
-  sourceTx?: string;
+  sourceTx: string;
 }): Promise<SolanaProof> {
+  if (!signature.test(input.sourceTx)) throw new Error("solana-proof-invalid");
   const source = endpoint(input.rpcUrl);
   const producer = endpoint(input.proofUrl);
-  const id = hex(input.id, word);
   const digest = hex(input.digest, word);
   const genesis = hex(input.genesis, word);
   const programId = hex(input.programId, word);
   const programDataHash = hex(input.programDataHash, word);
   const lockPda = hex(input.lockPda, word);
   const accountPda = input.accountPda ? hex(input.accountPda, word) : lockPda;
-  if ([id, digest, genesis, programId, programDataHash, lockPda, accountPda]
+  if ([digest, genesis, programId, programDataHash, lockPda, accountPda]
     .some((value) => BigInt(value) === 0n)
     || (input.kind === "recovery" && !input.accountPda)
     || (input.kind !== "recovery" && input.accountPda)) throw new Error("solana-proof-invalid");
@@ -175,27 +180,6 @@ export async function fetchSolanaProof(input: {
   const proof = encodeAbiParameters([
     { type: "bytes32" }, { type: "bytes" }, { type: "bytes" },
   ], [accountPda, "0x01", "0x02"]);
-  if (input.sourceTx) {
-    const signed = await proofBySourceTx(source, producer, input.sourceTx, accountPda);
-    return { ...signed, proof };
-  }
-  producer.pathname = `${producer.pathname.replace(/\/$/, "")}/${input.kind}/${id}`;
-  producer.search = "";
-  const response = await fetch(producer, { signal: AbortSignal.timeout(10_000), redirect: "error" }).catch(() => null);
-  if (!response) throw new Error("solana-proof-unavailable");
-  const envelope = await json(response);
-  const header = hex(envelope["vaa"], blob);
-  if (header.length > 192_002
-    || hex(envelope["digest"], word) !== digest
-    || hex(envelope["sourceGenesis"], word) !== genesis
-    || hex(envelope["programId"], word) !== programId
-    || hex(envelope["programDataHash"], word) !== programDataHash
-    || hex(envelope["lockPda"], word) !== lockPda
-    || (input.kind === "recovery" && hex(envelope["accountPda"], word) !== accountPda)
-    || !Number.isSafeInteger(envelope["slot"]) || (envelope["slot"] as number) <= 0
-    || typeof envelope["blockhash"] !== "string") throw new Error("solana-proof-invalid");
-  const slot = envelope["slot"] as number;
-  const blockhash = envelope["blockhash"] as string;
-  solanaBase58Bytes(blockhash);
-  return { header, proof, slot, blockhash };
+  const signed = await proofBySourceTx(source, producer, input.sourceTx, accountPda);
+  return { ...signed, proof };
 }

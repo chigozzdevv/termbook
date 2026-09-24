@@ -179,7 +179,7 @@ export const solanaActionService = {
       || !same(codeHash, credit.verifierCodeHash)) throw new Error("solana-verifier-unavailable");
     const runtime = await chain.getCode({ address: verifier, blockNumber: at });
     if (!runtime || !same(keccak256(runtime), codeHash)) throw new Error("solana-verifier-code-mismatch");
-    const proof = await fetchSolanaProof({ rpcUrl, proofUrl, kind: "action", id: actionHash,
+    const proof = await fetchSolanaProof({ rpcUrl, proofUrl, kind: "action",
       digest: actionHash, genesis: action.sourceGenesis, programId, programDataHash, lockPda: pda,
       sourceTx: input.sourceTx });
     const verified = input.mode === "apply"

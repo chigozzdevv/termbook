@@ -37,6 +37,7 @@ const programId = key(11);
 const programDataHash = key(19);
 const recoveryVault = key(20);
 const lockPda = key(10);
+const sourceTx = "2".repeat(88);
 const depositPubkey = key(15);
 const quoteHash = keccak256(stringToHex("signed-quote"));
 const code = "0x1234" as const;
@@ -197,11 +198,11 @@ describe("Solana recovery funding plan", () => {
   it("prepares confirmation only after the pinned verifier accepts the recovery ledger proof", async () => {
     const { fundingHash } = setup();
     const plan = await solanaRecoveryService.confirmationPlan({ creditId, operationId,
-      mode: "confirm" }, borrower);
+      mode: "confirm", sourceTx }, borrower);
     expect(plan).toMatchObject({ to: core, actionHash: fundingHash, operationId,
       sourceSlot: 80, mode: "confirm", purpose: "funding" });
     expect(fetchSolanaProof).toHaveBeenCalledWith(expect.objectContaining({
-      kind: "recovery", id: fundingHash, accountPda: recoveryVault,
+      kind: "recovery", sourceTx, digest: fundingHash, accountPda: recoveryVault,
       lockPda, programDataHash,
     }));
   });
@@ -209,12 +210,12 @@ describe("Solana recovery funding plan", () => {
   it("rejects a cancellation if the pinned verifier cannot prove funding absence", async () => {
     setup({ verified: false });
     await expect(solanaRecoveryService.confirmationPlan({ creditId, operationId,
-      mode: "cancel" }, borrower)).rejects.toThrow("solana-funding-proof-rejected");
+      mode: "cancel", sourceTx }, borrower)).rejects.toThrow("solana-funding-proof-rejected");
   });
 
   it("prepares a payout confirmation against the separate pending payout and recovery ledger fields", async () => {
     const { fundingHash, readContract } = setup({ payout: true });
-    const plan = await solanaRecoveryService.confirmationPlan({ creditId, mode: "confirm" }, borrower, "payout");
+    const plan = await solanaRecoveryService.confirmationPlan({ creditId, mode: "confirm", sourceTx }, borrower, "payout");
     expect(plan).toMatchObject({ to: core, actionHash: fundingHash,
       sourceSlot: 80, mode: "confirm", purpose: "payout" });
     expect(readContract).toHaveBeenCalledWith(expect.objectContaining({
@@ -225,11 +226,11 @@ describe("Solana recovery funding plan", () => {
   it("prepares refund reconciliation only after the pinned source proof verifies", async () => {
     const { readContract } = setup();
     const plan = await solanaRecoveryService.refundReconciliationPlan({ creditId,
-      cumulativeRefunded: "200000000" }, borrower);
+      cumulativeRefunded: "200000000", sourceTx }, borrower);
     expect(plan).toMatchObject({ to: core, creditId, cumulativeRefunded: "200000000",
       sourceSlot: 80 });
     expect(fetchSolanaProof).toHaveBeenCalledWith(expect.objectContaining({
-      kind: "recovery", id: creditId, accountPda: recoveryVault,
+      kind: "recovery", sourceTx, digest: creditId, accountPda: recoveryVault,
     }));
     expect(readContract).toHaveBeenCalledWith(expect.objectContaining({
       functionName: "verifySolanaRefund", address: address(26),

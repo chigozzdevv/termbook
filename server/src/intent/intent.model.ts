@@ -13,6 +13,7 @@ const intentSchema = new mongoose.Schema(
     collateral: mongoose.Schema.Types.Mixed,
     duration: Number,
     limit: String,
+    actionFunding: String,
     action: mongoose.Schema.Types.Mixed,
     expiresAt: Number,
     status: { type: String, enum: ["open", "used", "expired"], default: "open" },

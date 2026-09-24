@@ -11,6 +11,10 @@ import { HttpClient } from "../transport/http.js";
 import type { CollateralSetupBinding } from "@termbook/schema";
 import { CollateralSetup, restoreCollateralSetup, type CollateralSetupOptions } from "../collateral/setup.js";
 import { resolveClientConfig } from "./config.js";
+import type { CollateralMarket } from "@termbook/schema";
+import type { SourceLockWallet } from "../collateral/setup.js";
+import { connectSourceWallet } from "../modal/source-wallet.js";
+import { TermbookModal, type OpenOptions } from "../modal/modal.js";
 
 export class TermbookClient {
   private resolvedConfig?: ResolvedClientConfig;
@@ -63,8 +67,8 @@ export class TermbookClient {
     return new Intent(this, req);
   }
 
-  open(req?: IntentRequest): Intent {
-    return new Intent(this, req);
+  open(options?: OpenOptions): TermbookModal {
+    return new TermbookModal(this, options);
   }
 
   credit(id: `0x${string}`): Credit {
@@ -86,6 +90,10 @@ export class TermbookClient {
 
   get catalog(): Catalog {
     return new Catalog(this);
+  }
+
+  async sourceWallet(market: CollateralMarket): Promise<SourceLockWallet> {
+    return connectSourceWallet(this, market, this.input.sourceWalletResolver);
   }
 
   async authenticatedPost<T>(path: string, body: unknown): Promise<T> {

@@ -19,6 +19,7 @@ export const env = {
   publicApiBase: process.env["PUBLIC_API_BASE"] ?? "",
   publicRpcUrl: process.env["PUBLIC_RPC_URL"] ?? "",
   accountFactory: process.env["ACCOUNT_FACTORY_ADDRESS"] ?? "",
+  collateralMarkets: process.env["COLLATERAL_MARKETS"] ?? "[]",
   authDomain: process.env["AUTH_DOMAIN"] ?? "api.termbook.local",
   authTtlSeconds: Number(process.env["AUTH_TTL_SECONDS"] ?? 900),
   adminWallets: (process.env["ADMIN_WALLETS"] ?? "").split(",").map((value) => value.trim().toLowerCase()).filter(Boolean),

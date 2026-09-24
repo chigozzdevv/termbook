@@ -5,5 +5,5 @@ export type EvmCollateralSelection = { chainId: number; asset: `0x${string}`; am
 export type IntentRequest = {
   collateral: EvmCollateralSelection | CollateralSelection;
   credit: { limit?: bigint; duration: number };
-  action?: { capability: string; params: Record<string, unknown>; target?: `0x${string}`; data?: `0x${string}` };
+  action?: { capability: string; params: Record<string, unknown> };
 };

@@ -40,6 +40,11 @@ export const quoteService = {
     if (Number(input["expiry"] ?? 0) <= now || Number(input["expiry"] ?? 0) > Number(intent["expiresAt"] ?? 0)) throw new Error("offer-expired");
     if (String(input["borrower"]).toLowerCase() !== String(intent["borrower"]).toLowerCase()) throw new Error("quote-borrower-mismatch");
     if (intent["bundleId"] && String(input["bundleId"]).toLowerCase() !== String(intent["bundleId"]).toLowerCase()) throw new Error("quote-bundle-mismatch");
+    const limit = BigInt(String(input["limit"]));
+    if (intent["limit"] && limit > BigInt(String(intent["limit"]))) throw new Error("quote-limit-exceeds-cap");
+    if (limit < BigInt(String(intent["actionFunding"] ?? "0")) + BigInt(String(input["originationFee"] ?? "0"))) {
+      throw new Error("quote-action-funding-insufficient");
+    }
     let solana: SolanaQuoteIdentity | undefined;
     if (input["kind"] === "solana") {
       const source = input["solana"] as Record<string, unknown> | undefined;

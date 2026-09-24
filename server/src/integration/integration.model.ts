@@ -4,6 +4,7 @@ const integrationSchema = new mongoose.Schema(
   {
     versionId: { type: String, required: true, unique: true },
     codeHash: String,
+    actions: { type: [mongoose.Schema.Types.Mixed], default: [] },
     tokenHash: { type: String, unique: true, sparse: true },
     active: { type: Boolean, default: true },
     frozen: { type: Boolean, default: false },

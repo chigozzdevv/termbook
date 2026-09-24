@@ -1,3 +1,7 @@
+import type { CapabilityDefinition } from "@termbook/schema";
+import type { CollateralMarket } from "@termbook/schema";
+import type { SourceLockWallet } from "../collateral/setup.js";
+
 export type TxHash = `0x${string}`;
 
 export type ContractWriteRequest = {
@@ -37,6 +41,8 @@ export type ClientConfig = {
   integrationRegistry?: `0x${string}`;
   riskEngine?: `0x${string}`;
   confirmations?: number;
+  actions?: CapabilityDefinition[];
+  sourceWalletResolver?: (market: CollateralMarket) => Promise<SourceLockWallet>;
 };
 
 export type ResolvedClientConfig = ClientConfig & {

@@ -1,30 +1,20 @@
 import type { TermbookClient } from "../client/client.js";
-import type { AppAction } from "../types/app.types.js";
+import type { AppAction, ActionReview } from "../types/app.types.js";
 import type { ExecuteResult } from "../types/credit.types.js";
 import { requiredDraw } from "../credit/draw.js";
-import { appGatewayAbi } from "@termbook/bindings";
-import { keccak256, toBytes } from "viem";
+import { encodeAbiParameters, keccak256, parseAbi } from "viem";
 import { HttpClient } from "../transport/http.js";
+import { buildAction } from "./action.js";
+import { CreditAccount } from "../account/account.js";
 
-const allowed: ReadonlySet<string> = new Set([
-  "place_order", "increase_position", "decrease_position", "add_margin", "remove_margin",
-  "cancel_order", "close_position", "stake", "unstake", "claim_rewards", "deposit", "withdraw",
-  "swap", "supply", "borrow", "repay", "flash_loan",
-]);
+const coreRegistryAbi = parseAbi(["function integrationRegistry() view returns (address)"]);
+const registryAbi = parseAbi(["function validateCall(bytes32,address,bytes,address,uint256) view returns (bool)"]);
 
 export function slippageBound(refPrice: bigint, bps: number, isMax: boolean): bigint {
   if (!Number.isInteger(bps) || bps < 0 || bps > 10_000) throw new Error("param-invalid");
   if (refPrice <= 0n) throw new Error("param-invalid");
   const adj = refPrice * BigInt(bps) / 10_000n;
   return isMax ? refPrice + adj : refPrice - adj;
-}
-
-function bigintParam(value: unknown, fallback = 0n): bigint {
-  if (value === undefined || value === null) return fallback;
-  if (typeof value === "bigint") return value;
-  if (typeof value === "string" && /^\d+$/.test(value)) return BigInt(value);
-  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) return BigInt(value);
-  throw new Error("param-invalid");
 }
 
 export class CreditApp {
@@ -36,63 +26,74 @@ export class CreditApp {
     this.creditId = creditId;
   }
 
-  async execute(action: AppAction): Promise<ExecuteResult> {
-    if (!allowed.has(action.capability)) throw new Error("capability-denied");
+  private async prepare(action: AppAction) {
     await this.client.ready();
-    let target = action.target;
-    let data = action.data;
-    if (!target || !data) {
-      const gateway = this.client.config.appGateway;
-      const encodedParams = action.params["encoded_params"] ?? action.params["encodedParams"];
-      if (!gateway || typeof encodedParams !== "string" || !/^0x[0-9a-fA-F]*$/.test(encodedParams)) throw new Error("action-routing-required");
-      const built = await this.client.rpc.read<readonly unknown[]>(gateway, appGatewayAbi, "buildCall", [keccak256(toBytes(action.capability)), encodedParams]);
-      target = built[0] as `0x${string}`;
-      data = built[1] as `0x${string}`;
-    }
-    if (!target || !/^0x[a-fA-F0-9]{40}$/.test(target)) throw new Error("action-target-required");
-    if (!data || !/^0x[a-fA-F0-9]*$/.test(data) || data.length < 10) throw new Error("action-data-required");
-    const params = action.params;
-    const slippage = params["slippage_bps"];
-    if (slippage !== undefined) {
-      if (typeof slippage !== "number" || !Number.isInteger(slippage) || slippage < 0 || slippage > 10_000) throw new Error("param-invalid");
-      if (params["reference_price"] !== undefined) {
-        const isMax = params["is_max"] === true;
-        slippageBound(bigintParam(params["reference_price"]), slippage, isMax);
-      }
-    }
+    const definition = this.client.config.actions?.find((entry) => entry.capability === action.capability);
+    if (!definition) throw new Error("capability-denied");
     const details = await this.client.rpc.creditDetails(this.creditId);
-    const account = (Array.isArray(details) ? details[5] : details["account"]) as `0x${string}`;
-    const vault = (Array.isArray(details) ? details[4] : details["vault"]) as `0x${string}`;
+    const field = (key: string, index: number) => Array.isArray(details) ? details[index] : details[key];
+    const account = field("account", 5) as `0x${string}`;
+    const vault = field("vault", 4) as `0x${string}`;
+    const borrower = field("borrower", 2) as `0x${string}`;
+    const bundleId = field("bundleId", 20) as `0x${string}`;
+    if (Number(field("facility", 0)) !== 4 || !/^0x[a-fA-F0-9]{40}$/.test(account)
+      || !/^0x[a-fA-F0-9]{40}$/.test(vault) || borrower?.toLowerCase() !== this.client.signer.address().toLowerCase()
+      || !this.client.config.versionId || bundleId?.toLowerCase() !== this.client.config.versionId.toLowerCase()) {
+      throw new Error("credit-action-unavailable");
+    }
+    const { target, data, requiredInput } = buildAction(definition, action, { borrower, account, creditId: this.creditId });
     const asset = await this.client.rpc.read<`0x${string}`>(vault, [{ type: "function", name: "asset", inputs: [], outputs: [{ type: "address" }], stateMutability: "view" }] as const, "asset");
     const freeAssets = await this.client.rpc.creditAccountTokenBalance(account, asset);
-    const requiredInput = bigintParam(params["required_input"] ?? params["requiredInput"]);
     const amount = requiredDraw(requiredInput, freeAssets);
-    const maxBound = bigintParam(params["max_draw"] ?? params["maxDraw"], amount);
-    if (maxBound < amount) throw new Error("draw-capped");
-    const creditNonce = bigintParam(Array.isArray(details) ? details[18] : details["nonce"]);
-    const nonce = bigintParam(params["nonce"], creditNonce + 1n);
-    const deadline = Number(params["deadline"] ?? Math.floor(Date.now() / 1000) + 900);
-    if (!Number.isSafeInteger(deadline) || deadline <= Math.floor(Date.now() / 1000)) throw new Error("expired");
-    const revisionValue = await this.client.rpc.revision(this.creditId);
+    const currentDebt = BigInt(String(field("debt", 11)));
+    const originationFee = field("originationCharged", 37) ? 0n : BigInt(String(field("originationFee", 31) ?? 0));
+    const revisionValue = BigInt(String(field("revision", 17)));
+    const nonce = BigInt(String(field("nonce", 18))) + 1n;
+    const registry = await this.client.rpc.read<`0x${string}`>(this.client.config.core, coreRegistryAbi, "integrationRegistry");
+    if (!/^0x[a-fA-F0-9]{40}$/.test(registry) || /^0x0{40}$/i.test(registry)
+      || !await this.client.rpc.read<boolean>(registry, registryAbi, "validateCall", [bundleId, target, data, account, amount])) {
+      throw new Error("capability-denied");
+    }
+    const health = await new CreditAccount(this.client, this.creditId).health();
+    const fingerprint = keccak256(encodeAbiParameters(
+      [{ type: "bytes32" }, { type: "address" }, { type: "bytes" }, { type: "uint256" }, { type: "uint256" },
+        { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }],
+      [this.creditId, target, data, amount, currentDebt, revisionValue, nonce, freeAssets, originationFee, health.value ?? 0n],
+    ));
+    const review: ActionReview = { capability: action.capability, requiredInput, freeAssets, draw: amount,
+      currentDebt, projectedDebt: currentDebt + amount + originationFee, originationFee,
+      healthBps: health.value, healthState: health.state, settlementAsset: asset, revision: revisionValue, fingerprint };
+    return { review, target, data, nonce, definition };
+  }
+
+  async review(action: AppAction): Promise<ActionReview> {
+    return (await this.prepare(action)).review;
+  }
+
+  async execute(action: AppAction, reviewed?: ActionReview): Promise<ExecuteResult> {
+    const { review, target, data, nonce, definition } = await this.prepare(action);
+    if (reviewed && review.fingerprint !== reviewed.fingerprint) throw new Error("action-review-stale");
+    const deadline = Math.floor(Date.now() / 1000) + 900;
     const digest = this.client.signer.actionDigest(
       await this.client.rpc.domain(),
       this.creditId,
       target,
       data,
-      amount,
-      maxBound,
+      review.draw,
+      review.draw,
       nonce,
       deadline,
-      revisionValue,
+      review.revision,
     );
     const signature = await this.client.signer.signDigest(digest);
-    const tx = await this.client.rpc.coreWrite("executeAction", [this.creditId, target, data, amount, maxBound, nonce, BigInt(deadline), signature]);
+    const tx = await this.client.rpc.coreWrite("executeAction", [this.creditId, target, data, review.draw, review.draw, nonce, BigInt(deadline), signature]);
     await this.client.rpc.wait(tx);
-    return { status: "settled", draw: amount, tx };
+    return { status: definition.settlement === "atomic" ? "settled" : "pending", draw: review.draw, tx };
   }
 
   async capabilities(): Promise<string[]> {
-    return [...allowed];
+    await this.client.ready();
+    return this.client.config.actions?.map((entry) => entry.capability) ?? [];
   }
 
   private async collection(name: "positions" | "pending"): Promise<unknown[]> {

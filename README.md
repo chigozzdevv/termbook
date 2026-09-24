@@ -44,6 +44,50 @@ exit verifier are active onchain. The token is shown only at creation; the
 server stores its hash. Borrower intents created through the SDK are bound to
 that IntegrationVersion.
 
+The approval request includes an `actions` array. Each action names a public
+capability, its approved contract target and ABI function, and the source of
+each ABI argument (`input`, `borrower`, `credit_account`, or `credit_id`).
+`fundingPath` identifies the borrower input used to calculate the required
+settlement-token draw. The server checks the target and selector against the
+finalized IntegrationRegistry policy before publishing the app token. The SDK
+builds calldata from this manifest; an app passes only a capability and typed
+parameters to `open({ action })`. For example:
+
+```json
+{
+  "capability": "place_order",
+  "label": "Place order",
+  "target": "0x0000000000000000000000000000000000000001",
+  "signature": "function placeOrder(string market,uint8 direction,uint8 orderType,uint256 margin,uint256 notional,uint16 slippageBps,address account)",
+  "arguments": [
+    { "source": "input", "path": "market_id", "label": "Market ID" },
+    { "source": "input", "path": "direction", "choices": { "long": "1", "short": "2" } },
+    { "source": "input", "path": "order_type", "choices": { "market": "1", "limit": "2" } },
+    { "source": "input", "path": "amount.margin", "label": "Margin in base units", "min": "1" },
+    { "source": "input", "path": "amount.notional", "label": "Notional in base units", "min": "1" },
+    { "source": "input", "path": "slippage_bps", "label": "Slippage in bps", "max": "10000" },
+    { "source": "credit_account" }
+  ],
+  "fundingPath": "amount.margin",
+  "settlement": "asynchronous"
+}
+```
+
+The address and function above illustrate the manifest format; admission
+requires the actual deployed target and matching onchain call policy.
+Application position valuation, forced unwind, and exit verification must be
+reviewed for each integration before it is admitted. The repository's
+`CollateralHealthReader` values collateral and Credit Account cash only.
+
+`COLLATERAL_MARKETS` publishes the admitted source-wallet choices in the modal.
+It is a JSON array of EVM entries (`id`, `label`, `decimals`, `chainId`,
+`rpcUrl`, `asset`, `vault`, `controller`, `nativeVault`) or Solana entries
+(`id`, `label`, `decimals`, `chainId`, `rpcUrl`, `genesis`, `asset`, `program`).
+The catalog checks each entry against finalized Core market bindings. Apps
+that support SOL provide a `sourceWalletResolver` in SDK configuration to
+connect their Solana wallet adapter; the borrower chooses that wallet in the
+modal.
+
 `scripts/deploy.sh` takes one stage and one RPC. `protocol`, `routing`,
 `ethereum-beacon-client`, `ethereum-verifier`, `native-collateral`, and `collateral-health-reader` require
 Foundry 1.8 or newer, the Monad RPC, and `MONAD_CHAIN_ID`. The wrapper selects

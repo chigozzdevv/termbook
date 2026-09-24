@@ -1,4 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
+import { parseAbiItem, toFunctionSelector } from "viem";
+import type { CapabilityDefinition } from "@termbook/schema";
 import { monadClient } from "../chain/monad.client.js";
 import { env } from "../config/env.js";
 import { integrationRepo } from "./integration.repo.js";
@@ -18,6 +20,8 @@ const registryAbi = [
 const healthAbi = [
   { type: "function", name: "isReaderActive", stateMutability: "view", inputs: [{ type: "bytes32" }], outputs: [{ type: "bool" }] },
 ] as const;
+const callAbi = [{ type: "function", name: "isCallAllowed", stateMutability: "view",
+  inputs: [{ type: "bytes32" }, { type: "address" }, { type: "bytes4" }], outputs: [{ type: "bool" }] }] as const;
 
 function publicUrl(value: string): string {
   let url: URL;
@@ -55,12 +59,28 @@ async function admitted(versionId: `0x${string}`, codeHash: string): Promise<boo
     && active && reader && !!exitCode && exitCode !== "0x";
 }
 
+async function admittedActions(versionId: `0x${string}`, actions: CapabilityDefinition[]): Promise<boolean> {
+  if (actions.length === 0) return false;
+  const chain = monadClient();
+  const block = await chain.getBlock({ blockTag: "finalized" });
+  const registry = await chain.readContract({ address: env.core as `0x${string}`, abi: coreAbi,
+    functionName: "integrationRegistry", blockNumber: block.number });
+  const results = await Promise.all(actions.map(async (action) => {
+    const item = parseAbiItem(action.signature);
+    if (item.type !== "function") return false;
+    return chain.readContract({ address: registry, abi: callAbi, functionName: "isCallAllowed",
+      args: [versionId, action.target as `0x${string}`, toFunctionSelector(item)], blockNumber: block.number });
+  }));
+  return results.every(Boolean);
+}
+
 export const integrationService = {
-  async approve(input: { versionId: string; codeHash: string }) {
-    if (!await admitted(input.versionId as `0x${string}`, input.codeHash)) throw new Error("integration-not-admitted");
+  async approve(input: { versionId: string; codeHash: string; actions: CapabilityDefinition[] }) {
+    const versionId = input.versionId as `0x${string}`;
+    if (!await admitted(versionId, input.codeHash) || !await admittedActions(versionId, input.actions)) throw new Error("integration-not-admitted");
     const appToken = `tbk_${randomBytes(32).toString("hex")}`;
     try {
-      await integrationRepo.create({ versionId: input.versionId.toLowerCase(), codeHash: input.codeHash.toLowerCase(),
+      await integrationRepo.create({ versionId: input.versionId.toLowerCase(), codeHash: input.codeHash.toLowerCase(), actions: input.actions,
         tokenHash: tokenHash(appToken), active: true, frozen: false });
     } catch (error) {
       if (error && typeof error === "object" && "code" in error && error.code === 11000) throw new Error("integration-conflict", { cause: error });
@@ -71,8 +91,10 @@ export const integrationService = {
   async resolve(appToken: string) {
     if (!tokenPattern.test(appToken)) throw new Error("integration-not-found");
     const row = await integrationRepo.byTokenHash(tokenHash(appToken));
-    if (!row || row["active"] !== true || row["frozen"] === true
-      || !await admitted(String(row["versionId"]) as `0x${string}`, String(row["codeHash"]))) {
+    const actions = row?.["actions"] as CapabilityDefinition[] | undefined;
+    if (!row || row["active"] !== true || row["frozen"] === true || !Array.isArray(actions)
+      || !await admitted(String(row["versionId"]) as `0x${string}`, String(row["codeHash"]))
+      || !await admittedActions(String(row["versionId"]) as `0x${string}`, actions)) {
       throw new Error("integration-not-found");
     }
     if (!Number.isSafeInteger(env.monadChainId) || env.monadChainId <= 0
@@ -95,7 +117,7 @@ export const integrationService = {
       || !addressPattern.test(riskEngine) || /^0x0{40}$/i.test(riskEngine)) throw new Error("integration-config-unavailable");
     return { appToken, versionId: String(row["versionId"]), core: env.core,
       chainId: env.monadChainId, rpcUrl: publicUrl(env.publicRpcUrl), apiBase: publicUrl(env.publicApiBase),
-      accountFactory: env.accountFactory, riskEngine, settlementFactory };
+      accountFactory: env.accountFactory, riskEngine, settlementFactory, actions };
   },
   async list() {
     return integrationRepo.list();

@@ -1,4 +1,5 @@
-import { createPublicClient, http, parseAbi } from "viem";
+import { createPublicClient, http, parseAbi, parseAbiItem, toFunctionSelector } from "viem";
+import { capabilityDefinitionSchema } from "@termbook/schema";
 import type { ClientConfig, ResolvedClientConfig } from "../types/client.types.js";
 
 const tokenPattern = /^tbk_[a-f0-9]{64}$/;
@@ -10,6 +11,7 @@ const coreAbi = parseAbi([
 ]);
 const registryAbi = parseAbi([
   "function isActive(bytes32) view returns (bool)",
+  "function isCallAllowed(bytes32,address,bytes4) view returns (bool)",
 ]);
 
 function publicUrl(value: unknown): string {
@@ -42,6 +44,9 @@ export async function resolveClientConfig(input: ClientConfig): Promise<Resolved
   const rpcUrl = publicUrl(data["rpcUrl"]);
   const core = data["core"] as `0x${string}`;
   const versionId = data["versionId"] as `0x${string}`;
+  if (!Array.isArray(data["actions"]) || data["actions"].length === 0 || data["actions"].length > 32) throw new Error("sdk-config-invalid");
+  const actions = data["actions"].map((action) => capabilityDefinitionSchema.parse(action));
+  if (new Set(actions.map((action) => action.capability)).size !== actions.length) throw new Error("sdk-config-invalid");
   const accountFactory = data["accountFactory"] as `0x${string}`;
   const riskEngine = data["riskEngine"];
   const settlementFactory = data["settlementFactory"];
@@ -60,8 +65,16 @@ export async function resolveClientConfig(input: ClientConfig): Promise<Resolved
     || configuredRiskEngine.toLowerCase() !== String(riskEngine).toLowerCase()
     || !addressPattern.test(registry)
     || /^0x0{40}$/i.test(registry)) throw new Error("sdk-config-invalid");
-  const active = await chain.readContract({ address: registry, abi: registryAbi, functionName: "isActive", args: [versionId], blockTag: "finalized" });
-  if (!active || input.wallet.getChainId && await input.wallet.getChainId() !== chainId) throw new Error("sdk-config-invalid");
+  const [active, allowed] = await Promise.all([
+    chain.readContract({ address: registry, abi: registryAbi, functionName: "isActive", args: [versionId], blockTag: "finalized" }),
+    Promise.all(actions.map(async (action) => {
+      const item = parseAbiItem(action.signature);
+      if (item.type !== "function" || item.stateMutability !== "nonpayable" || item.inputs.length !== action.arguments.length) return false;
+      return chain.readContract({ address: registry, abi: registryAbi, functionName: "isCallAllowed",
+        args: [versionId, action.target as `0x${string}`, toFunctionSelector(item)], blockTag: "finalized" });
+    })),
+  ]);
+  if (!active || !allowed.every(Boolean) || input.wallet.getChainId && await input.wallet.getChainId() !== chainId) throw new Error("sdk-config-invalid");
   return { appToken, versionId, wallet: input.wallet, core, rpcUrl, chainId, apiBase, accountFactory,
-    riskEngine: riskEngine as `0x${string}`, settlementFactory: settlementFactory as `0x${string}` | undefined };
+    riskEngine: riskEngine as `0x${string}`, settlementFactory: settlementFactory as `0x${string}` | undefined, actions };
 }

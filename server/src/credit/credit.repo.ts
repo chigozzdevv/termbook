@@ -10,6 +10,9 @@ export const creditRepo = {
   async get(creditId: string) {
     return CreditModel.findOne({ creditId }).lean();
   },
+  async list(borrower: string) {
+    return CreditModel.find({ borrower: borrower.toLowerCase() }).select("creditId borrower house bundleId facility").lean();
+  },
   async setFacility(creditId: string, facility: string) {
     return CreditModel.updateOne({ creditId }, { facility });
   },

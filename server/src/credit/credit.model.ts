@@ -4,6 +4,7 @@ const creditSchema = new mongoose.Schema(
   {
     creditId: { type: String, required: true, unique: true },
     borrower: String,
+    bundleId: String,
     house: String,
     facility: { type: String, default: "reserved" },
     debt: { type: String, default: "0" },

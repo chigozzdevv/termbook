@@ -1,4 +1,6 @@
 export { TermbookClient, createTermbook, create_termbook } from "./client/client.js";
+export { TermbookModal } from "./modal/modal.js";
+export type { OpenOptions } from "./modal/modal.js";
 export { Intent } from "./intent/intent.js";
 export { Credit } from "./credit/credit.js";
 export { requiredDraw } from "./credit/draw.js";

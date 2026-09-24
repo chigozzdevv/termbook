@@ -1,5 +1,6 @@
 import type { TermbookClient } from "../client/client.js";
 import type { CatalogFilters } from "../types/catalog.types.js";
+import { collateralMarketSchema, type CollateralMarket } from "@termbook/schema";
 import { HttpClient } from "../transport/http.js";
 
 export class Catalog {
@@ -36,6 +37,11 @@ export class Catalog {
   async assets(f?: CatalogFilters): Promise<unknown[]> {
     const data = await this.overview();
     return this.filter(Array.isArray(data["assets"]) ? data["assets"] : [], f);
+  }
+
+  async collateralMarkets(): Promise<CollateralMarket[]> {
+    const data = await this.overview();
+    return Array.isArray(data["collateralMarkets"]) ? data["collateralMarkets"].map((row) => collateralMarketSchema.parse(row)) : [];
   }
 
   async houses(f?: CatalogFilters): Promise<unknown[]> {

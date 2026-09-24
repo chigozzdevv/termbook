@@ -2,6 +2,8 @@ import type { FastifyRequest } from "fastify";
 import { intentSchema } from "./intent.schema.js";
 import { intentService } from "./intent.service.js";
 import { integrationService } from "../integration/integration.service.js";
+import { actionFunding } from "@termbook/schema";
+import { validateActionCall } from "../integration/validate-action.js";
 
 export const intentController = {
   async create(req: FastifyRequest) {
@@ -11,7 +13,12 @@ export const intentController = {
     const appToken = req.headers["x-termbook-app-token"];
     if (typeof appToken !== "string") throw new Error("integration-not-found");
     const integration = await integrationService.resolve(appToken);
-    return intentService.create(input, integration.versionId);
+    const definition = input.action && integration.actions.find((action) => action.capability === input.action!.capability);
+    if (input.action && !definition) throw new Error("capability-denied");
+    const funding = input.action && definition ? actionFunding(definition, input.action) : 0n;
+    if (input.action && definition) validateActionCall(definition, input.action, input.borrower as `0x${string}`);
+    if (input.limit && BigInt(input.limit) < funding) throw new Error("credit-limit-insufficient");
+    return intentService.create(input, integration.versionId, funding);
   },
   async get(req: FastifyRequest<{ Params: { id: string } }>) {
     return intentService.get(req.params.id);

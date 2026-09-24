@@ -1,6 +1,7 @@
 import type { FastifyRequest } from "fastify";
 import { creditSchema } from "./credit.schema.js";
 import { creditService } from "./credit.service.js";
+import { z } from "zod";
 
 export const creditController = {
   async track(req: FastifyRequest) {
@@ -11,6 +12,9 @@ export const creditController = {
   },
   async get(req: FastifyRequest<{ Params: { id: string } }>) {
     return creditService.get(req.params.id);
+  },
+  async list(req: FastifyRequest<{ Querystring: { borrower: string } }>) {
+    return creditService.list(z.string().regex(/^0x[a-fA-F0-9]{40}$/).parse(req.query.borrower));
   },
   async positions(req: FastifyRequest<{ Params: { id: string } }>) {
     const credit = await creditService.get(req.params.id) as { positions?: unknown[] } | null;

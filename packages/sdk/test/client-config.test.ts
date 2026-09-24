@@ -12,6 +12,10 @@ const token = `tbk_${"a".repeat(64)}`;
 const versionId = `0x${"b".repeat(64)}`;
 const wallet = { address: address("1"), signTypedData: async () => `0x${"c".repeat(64)}` as `0x${string}`,
   getChainId: async () => 143 };
+const actions = [{ capability: "place_order", label: "Place order", target: address("6"),
+  signature: "function placeOrder(uint256 amount,address account)",
+  arguments: [{ source: "input", path: "amount", label: "Amount" }, { source: "credit_account" }],
+  fundingPath: "amount", settlement: "atomic" }];
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -25,7 +29,7 @@ describe("public SDK configuration", () => {
     const fetcher = vi.fn(async () => ({ ok: true, json: async () => ({
       appToken: token, versionId, core: address("2"), chainId: 143,
       rpcUrl: "https://rpc.termbook.example", apiBase: "https://api.termbook.example",
-      accountFactory: address("3"), riskEngine: address("4"),
+      accountFactory: address("3"), riskEngine: address("4"), actions,
     }) }));
     vi.stubGlobal("fetch", fetcher);
     const chain = {
@@ -34,6 +38,7 @@ describe("public SDK configuration", () => {
         if (functionName === "integrationRegistry") return address("5");
         if (functionName === "riskEngine") return address("4");
         if (functionName === "isActive") return active;
+        if (functionName === "isCallAllowed") return true;
         throw new Error("unexpected-read");
       }),
     };

@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 interface IMonadStakingEpoch {
     function getEpoch() external returns (uint64 epoch, bool inEpochDelayPeriod);
 
-    function getConsensusValidatorSet(uint32 startIndex)
+    function getSnapshotValidatorSet(uint32 startIndex)
         external
         returns (bool isDone, uint32 nextIndex, uint64[] memory valIds);
 
@@ -48,7 +48,7 @@ contract MonadEpochCommitter {
         bool done;
         for (uint256 page; page < 3 && !done; ++page) {
             (bool isDone, uint32 nextIndex, uint64[] memory pageIds) =
-                IMonadStakingEpoch(STAKING).getConsensusValidatorSet(cursor);
+                IMonadStakingEpoch(STAKING).getSnapshotValidatorSet(cursor);
             if (pageIds.length == 0 || count + pageIds.length > MAX_VALIDATORS || nextIndex != cursor + pageIds.length) revert Invalid();
             for (uint256 i; i < pageIds.length; ++i) {
                 if (pageIds[i] == 0) revert Invalid();
@@ -63,15 +63,15 @@ contract MonadEpochCommitter {
         uint256[] memory stakes = new uint256[](count);
         bytes32[] memory keyHashes = new bytes32[](count);
         for (uint256 i; i < count; ++i) {
-            (,,,,,, uint256 consensusStake,,,,, bytes memory blsPubkey) =
+            (,,,,,,,, uint256 snapshotStake,,, bytes memory blsPubkey) =
                 IMonadStakingEpoch(STAKING).getValidator(ids[i]);
-            if (consensusStake == 0 || blsPubkey.length != 48) revert Invalid();
+            if (snapshotStake == 0 || blsPubkey.length != 48) revert Invalid();
             bytes32 keyHash = keccak256(blsPubkey);
             for (uint256 j; j < i; ++j) {
                 if (keyHashes[j] == keyHash) revert Invalid();
             }
             keyHashes[i] = keyHash;
-            stakes[i] = consensusStake;
+            stakes[i] = snapshotStake;
             for (uint256 j; j < 48; ++j) {
                 compressedKeys[i * 48 + j] = blsPubkey[j];
             }

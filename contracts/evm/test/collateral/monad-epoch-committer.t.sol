@@ -20,7 +20,11 @@ contract StakingEpochFixture {
         return (2, delay);
     }
 
-    function getConsensusValidatorSet(uint32 cursor) external view returns (bool, uint32, uint64[] memory ids) {
+    function getConsensusValidatorSet(uint32) external pure returns (bool, uint32, uint64[] memory) {
+        revert();
+    }
+
+    function getSnapshotValidatorSet(uint32 cursor) external view returns (bool, uint32, uint64[] memory ids) {
         if (cursor >= size) revert();
         uint32 count = size - cursor > 100 ? 100 : size - cursor;
         ids = new uint64[](count);
@@ -61,14 +65,14 @@ contract StakingEpochFixture {
             key[46] = bytes1(uint8(id >> 8));
             key[47] = bytes1(uint8(id));
         }
-        return (address(1), 0, 0, 0, 0, 0, size == 3 ? id == 1 ? 4 : id == 2 ? 3 : 2 : 1, 0, 0, 0, "", key);
+        return (address(1), 0, 0, 0, 0, 0, 99, 0, size == 3 ? id == 1 ? 4 : id == 2 ? 3 : 2 : 1, 0, "", key);
     }
 }
 
 contract MonadEpochCommitterTest is Test {
     event ValidatorSetCommitted(uint64 indexed epoch, bytes32 indexed validatorSetHash);
 
-    function testCommitsTheBoundaryConsensusSetOnce() public {
+    function testCommitsTheNextEpochSnapshotSetOnce() public {
         StakingEpochFixture staking = new StakingEpochFixture(true, false, 3);
         vm.etch(address(0x1000), address(staking).code);
         MonadEpochCommitter committer = new MonadEpochCommitter();

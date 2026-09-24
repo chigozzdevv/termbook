@@ -47,6 +47,7 @@ export class Credit {
   }
 
   async details(): Promise<Record<string, unknown>> {
+    await this.client.ready();
     return this.client.rpc.creditDetails(this.id);
   }
 
@@ -67,6 +68,7 @@ export class Credit {
   }
 
   async activity(): Promise<CreditActivity[]> {
+    await this.client.ready();
     return this.client.rpc.creditActivity(this.id);
   }
 

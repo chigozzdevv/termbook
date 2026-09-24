@@ -34,6 +34,16 @@ forge test --root contracts/evm
 
 ## Deployment stages
 
+The server publishes an admitted integration's SDK configuration at
+`GET /integrations/config?app_token=...`. Set `PUBLIC_API_BASE` and
+`PUBLIC_RPC_URL` to public HTTPS endpoints and `ACCOUNT_FACTORY_ADDRESS` to
+the deployed Monad factory. Build the SDK with `TERMBOOK_PUBLIC_API_BASE` set
+to the same API origin. An admin can issue a public app token with
+`POST /integrations` after the IntegrationVersion, HealthSource reader, and
+exit verifier are active onchain. The token is shown only at creation; the
+server stores its hash. Borrower intents created through the SDK are bound to
+that IntegrationVersion.
+
 `scripts/deploy.sh` takes one stage and one RPC. `protocol`, `routing`,
 `ethereum-beacon-client`, `ethereum-verifier`, `native-collateral`, and `collateral-health-reader` require
 Foundry 1.8 or newer, the Monad RPC, and `MONAD_CHAIN_ID`. The wrapper selects

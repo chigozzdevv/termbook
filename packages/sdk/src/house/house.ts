@@ -16,6 +16,7 @@ export class House {
   }
 
   async summary(): Promise<HouseSummary> {
+    await this.client.ready();
     const [asset, sharePrice] = await Promise.all([
       this.client.rpc.read<`0x${string}`>(this.id, houseVaultAbi, "asset"),
       this.client.rpc.vaultSharePrice(this.id),
@@ -24,6 +25,7 @@ export class House {
   }
 
   async activity(): Promise<HouseActivity[]> {
+    await this.client.ready();
     return this.client.rpc.houseActivity(this.id);
   }
 
@@ -59,6 +61,7 @@ export class House {
   }
 
   async deposit(args: DepositArgs): Promise<HouseDepositResult> {
+    await this.client.ready();
     if (args.amount <= 0n || args.minShares < 0n || args.deadline <= Math.floor(Date.now() / 1000)) throw new Error("param-invalid");
     const asset = await this.client.rpc.read<`0x${string}`>(this.id, houseVaultAbi, "asset");
     const [price, totalShares] = await Promise.all([
@@ -84,6 +87,7 @@ export class HouseAccount {
   constructor(private readonly house: House, readonly owner: `0x${string}`) {}
 
   async summary(): Promise<HouseAccountSummary> {
+    await this.house.client.ready();
     const [shares, sharePrice] = await Promise.all([
       this.house.client.rpc.vaultShares(this.house.id, this.owner),
       this.house.client.rpc.vaultSharePrice(this.house.id),
@@ -92,6 +96,7 @@ export class HouseAccount {
   }
 
   async deposit(args: DepositArgs): Promise<HouseDepositResult> {
+    await this.house.client.ready();
     if (this.owner.toLowerCase() !== this.house.client.signer.address().toLowerCase()) throw new Error("deposit-owner-wallet-required");
     if (args.source) {
       if (args.source.provider !== "aurora_intents" || args.source.maxAmountIn <= 0n || args.source.chainId <= 0) throw new Error("settlement-route-required");
@@ -121,6 +126,7 @@ export class HouseAccount {
   }
 
   async withdraw(args: { amount: bigint; to?: `0x${string}` }): Promise<{ amount: bigint; tx: TxHash }> {
+    await this.house.client.ready();
     if (args.amount <= 0n) throw new Error("param-invalid");
     const to = args.to ?? this.owner;
     if (!/^0x[a-fA-F0-9]{40}$/.test(to)) throw new Error("recipient-invalid");
@@ -137,6 +143,7 @@ export class HouseAccount {
   }
 
   async withdrawals(): Promise<WithdrawalView[]> {
+    await this.house.client.ready();
     const count = await this.house.client.rpc.read<bigint>(this.house.id, houseVaultAbi, "withdrawalNonce");
     const limit = count > 100n ? 100n : count;
     const records: WithdrawalView[] = [];
@@ -158,6 +165,7 @@ export class HouseAccount {
   }
 
   async claim(withdrawalId: string): Promise<{ amount: bigint; tx: TxHash }> {
+    await this.house.client.ready();
     if (!/^\d+$/.test(withdrawalId)) throw new Error("param-invalid");
     const id = BigInt(withdrawalId);
     const row = await this.house.client.rpc.read<readonly unknown[]>(this.house.id, houseVaultAbi, "withdrawals", [id]);
@@ -171,6 +179,7 @@ export class HouseAccount {
   }
 
   async cancel_withdrawal(withdrawalId: string): Promise<{ tx: TxHash }> {
+    await this.house.client.ready();
     if (!/^\d+$/.test(withdrawalId)) throw new Error("param-invalid");
     const tx = await this.house.client.rpc.write(this.house.id, houseVaultAbi, "cancelWithdrawal", [BigInt(withdrawalId)]);
     await this.house.client.rpc.wait(tx);

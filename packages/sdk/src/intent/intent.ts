@@ -184,6 +184,7 @@ export class Intent {
   }
 
   async submit(): Promise<`0x${string}`> {
+    await this.client.ready();
     if (this.intentId) return this.intentId;
     const request = this.requiredRequest();
     const base = this.client.config.apiBase;
@@ -218,7 +219,8 @@ export class Intent {
     const rows = await new HttpClient(base).get<Record<string, unknown>[]>(`/quotes?intentId=${intentId}`);
     return rows
       .map(parseOffer)
-      .filter((offer) => offer.intentId === intentId && offer.borrower.toLowerCase() === this.client.signer.address().toLowerCase())
+      .filter((offer) => offer.intentId === intentId && offer.borrower.toLowerCase() === this.client.signer.address().toLowerCase()
+        && (!this.client.config.versionId || offer.bundleId.toLowerCase() === this.client.config.versionId.toLowerCase()))
       .slice(0, 5);
   }
 

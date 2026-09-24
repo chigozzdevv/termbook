@@ -15,12 +15,14 @@ export class CreditAccount {
 
   async withdraw(args: WithdrawArgs): Promise<{ tx: TxHash }> {
     if (args.amount <= 0n || !/^0x[a-fA-F0-9]{40}$/.test(args.asset)) throw new Error("param-invalid");
+    await this.client.ready();
     const tx = await this.client.rpc.coreWrite("withdraw", [this.creditId, args.asset, this.client.signer.address(), args.amount]);
     await this.client.rpc.wait(tx);
     return { tx };
   }
 
   async health(): Promise<HealthView> {
+    await this.client.ready();
     const debt = await this.client.rpc.debt(this.creditId);
     const riskAddress = this.client.config.riskEngine;
     if (!riskAddress) return { value: null, debt, state: debt === 0n ? "healthy" : "unknown" };
@@ -30,6 +32,7 @@ export class CreditAccount {
   }
 
   async balances(): Promise<Record<string, bigint>> {
+    await this.client.ready();
     const account = await this.client.rpc.account(this.creditId);
     if (!/^0x[a-fA-F0-9]{40}$/.test(account)) throw new Error("account-unavailable");
     const details = await this.client.rpc.creditDetails(this.creditId);

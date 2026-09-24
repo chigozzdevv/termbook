@@ -33,6 +33,7 @@ function fixture(format: "evm" | "solana", depositAddress: string, sourceRefundR
     },
   }));
   const client = {
+    ready: async () => {},
     config: { chainId: 143, settlementFactory: address("f") },
     signer: { address: () => payer, sign: vi.fn() },
     rpc, authenticatedPost,
@@ -102,8 +103,8 @@ describe("settlement", () => {
     const wallet = { address: native.input.payer, writeContract } as unknown as Wallet;
     await expect(native.settlement.fundErc20(registration, "https://source.example", wallet))
       .rejects.toThrow("source-wallet-required");
-    expect(() => native.settlement.recoveryFunding(registration, native.input.sourceRefund,
-      native.input.creditId, 1n, native.input.deadline - 120)).toThrow("recovery-route-invalid");
+    await expect(native.settlement.recoveryFunding(registration, native.input.sourceRefund,
+      native.input.creditId, 1n, native.input.deadline - 120)).rejects.toThrow("recovery-route-invalid");
     await expect(native.settlement.fundRecovery(registration, native.input.sourceRefund, {
       creditId: native.input.creditId, operationId: registration.operationId, inbox: registration.inbox,
       depositAddress: address("2"), amount: 100n, quoteHash: word("3"), nonce: 1n,

@@ -54,6 +54,7 @@ describe("Solana collateral acceptance", () => {
     let submitted = 0;
     let signedQuote: Record<string, unknown> | undefined;
     const client = {
+      ready: async () => {},
       config: { chainId: 143, core: coreAddress, apiBase: "https://invalid.example", wallet: { getChainId: async () => 143 } },
       signer: { address: () => borrower },
       rpc: {

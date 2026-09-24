@@ -248,6 +248,7 @@ export class CollateralSetup {
   }
 
   async resume(): Promise<CollateralSetupCheckpoint> {
+    await this.client.ready();
     const b = this.binding;
     const sourceChain = this.sourceChainId();
     const solana = b.asset.namespace === "solana";

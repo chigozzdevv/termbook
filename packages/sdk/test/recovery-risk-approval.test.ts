@@ -35,6 +35,7 @@ describe("external recovery risk approval", () => {
     const sign = vi.fn().mockResolvedValue(`0x${"f".repeat(130)}`);
     const post = vi.fn().mockResolvedValue({ operationId, fundingDigest: plan.fundingDigest, state: "approved" });
     const client = {
+      ready: async () => {},
       config: { apiBase: "https://termbook.example" },
       signer: { address: () => riskSigner, sign }, authenticatedPost: post,
     } as unknown as TermbookClient;

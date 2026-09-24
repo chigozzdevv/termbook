@@ -12,4 +12,8 @@ export const integrationController = {
   async list() {
     return integrationService.list();
   },
+  async resolve(req: FastifyRequest) {
+    const query = req.query as { app_token?: string };
+    return integrationService.resolve(String(query.app_token ?? ""));
+  },
 };

@@ -10,6 +10,7 @@ export class Catalog {
   }
 
   private async overview(): Promise<Record<string, unknown>> {
+    await this.client.ready();
     const base = this.client.config.apiBase;
     if (!base) throw new Error("api-required");
     return new HttpClient(base).get<Record<string, unknown>>("/catalog");

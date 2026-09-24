@@ -38,6 +38,7 @@ export class CreditApp {
 
   async execute(action: AppAction): Promise<ExecuteResult> {
     if (!allowed.has(action.capability)) throw new Error("capability-denied");
+    await this.client.ready();
     let target = action.target;
     let data = action.data;
     if (!target || !data) {
@@ -95,6 +96,7 @@ export class CreditApp {
   }
 
   private async collection(name: "positions" | "pending"): Promise<unknown[]> {
+    await this.client.ready();
     if (!this.client.config.apiBase) throw new Error("application-state-unavailable");
     const data = await new HttpClient(this.client.config.apiBase).get<unknown>(`/credits/${this.creditId}/${name}`);
     if (Array.isArray(data)) return data;

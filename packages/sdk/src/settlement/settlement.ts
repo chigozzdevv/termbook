@@ -85,6 +85,7 @@ export class Settlement {
   }
 
   async inboxStatus(inbox: `0x${string}`): Promise<ReceiptView> {
+    await this.client.ready();
     if (!/^0x[a-fA-F0-9]{40}$/.test(inbox)) throw new Error("param-invalid");
     return this.client.rpc.inboxStatus(inbox);
   }
@@ -106,10 +107,11 @@ export class Settlement {
     return tx;
   }
 
-  recoveryFunding(registration: SettlementRegistration, recoveryVault: `0x${string}`, creditId: `0x${string}`, nonce: bigint, deadline: number): {
+  async recoveryFunding(registration: SettlementRegistration, recoveryVault: `0x${string}`, creditId: `0x${string}`, nonce: bigint, deadline: number): Promise<{
     funding: RecoveryFunding;
     typedData: unknown;
-  } {
+  }> {
+    await this.client.ready();
     if (
       registration.sourceAddressFormat !== "evm" || registration.kind !== "recovery"
         || registration.sourceRefund.toLowerCase() !== recoveryVault.toLowerCase()
@@ -143,6 +145,7 @@ export class Settlement {
   }
 
   async approveRecoveryRisk(creditId: `0x${string}`, operationId: `0x${string}`): Promise<{ operationId: string; fundingDigest: string; state: string }> {
+    await this.client.ready();
     if (!this.client.config.apiBase || !/^0x[a-fA-F0-9]{64}$/.test(creditId)
       || !/^0x[a-fA-F0-9]{64}$/.test(operationId)) throw new Error("recovery-risk-plan-required");
     const plan = await new HttpClient(this.client.config.apiBase).get<{
@@ -222,6 +225,7 @@ export class Settlement {
     minShares?: bigint;
     registrationTxHash?: `0x${string}`;
   }): Promise<SettlementRegistration> {
+    await this.client.ready();
     const factory = this.client.config.settlementFactory;
     if (!factory || input.payer.toLowerCase() !== this.client.signer.address().toLowerCase() || !input.routeVersion || input.maxAmountIn <= 0n || input.maxReceived < input.minAmountOut || input.deadline <= Date.now() / 1000) throw new Error("settlement-route-required");
     const sourceAddressFormat = input.sourceAddressFormat ?? "evm";

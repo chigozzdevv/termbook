@@ -16,6 +16,13 @@ import { authService } from "./auth/auth.service.js";
 export function buildApp() {
   const app = Fastify({ logger: false });
   registerErrors(app);
+  app.addHook("onRequest", async (req, reply) => {
+    if (!req.headers.origin) return;
+    reply.header("access-control-allow-origin", "*");
+    reply.header("access-control-allow-methods", "GET, POST, OPTIONS");
+    reply.header("access-control-allow-headers", "content-type, x-termbook-app-token, x-termbook-wallet, x-termbook-signature");
+    if (req.method === "OPTIONS") return reply.status(204).send();
+  });
   app.addHook("preHandler", async (req, reply) => {
     if (req.method === "GET" || req.method === "HEAD" || req.url === "/health" || req.url === "/auth/nonce") return;
     const wallet = req.headers["x-termbook-wallet"];

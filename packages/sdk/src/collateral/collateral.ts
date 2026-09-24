@@ -23,6 +23,7 @@ export class CreditCollateral {
   }
 
   async add(args: CollateralArgs): Promise<{ lockId: `0x${string}`; tx: TxHash }> {
+    await this.client.ready();
     if (args.amount <= 0n) throw new Error("param-invalid");
     const details = await this.client.rpc.creditDetails(this.creditId);
     const detailVault = detail(details, "collateralVault", 6);
@@ -96,6 +97,7 @@ export class CreditCollateral {
   }
 
   async withdraw(args: CollateralArgs): Promise<{ pending: boolean; tx?: TxHash }> {
+    await this.client.ready();
     const details = await this.client.rpc.creditDetails(this.creditId);
     const lock = detail(details, "lockId", 22);
     const amount = detail(details, "collateralAmount", 9);
@@ -108,6 +110,7 @@ export class CreditCollateral {
   }
 
   async balance(): Promise<bigint> {
+    await this.client.ready();
     const details = await this.client.rpc.creditDetails(this.creditId);
     const amount = BigInt(String(detail(details, "collateralAmount", 9) ?? 0));
     const returned = Boolean(detail(details, "collateralReturned", 24));

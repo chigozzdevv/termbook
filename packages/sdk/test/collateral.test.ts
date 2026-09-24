@@ -20,6 +20,7 @@ function fixture(kind: boolean | "unknown") {
   const write = vi.fn(async () => hash("6"));
   const coreWrite = vi.fn(async () => hash("7"));
   const client = {
+    ready: async () => {},
     config: { chainId: 143, collateralVault: vault },
     signer: { address: () => owner },
     rpc: {

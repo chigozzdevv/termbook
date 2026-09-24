@@ -179,6 +179,7 @@ describe("collateral setup", () => {
     const stages: string[] = [];
     let account = address("0");
     const client = {
+      ready: async () => {},
       config: { chainId: 143, core: b.core, accountFactory: address("b"), wallet: { getChainId: async () => 143 } },
       signer: { address: () => b.borrower },
       rpc: {
@@ -273,6 +274,7 @@ describe("collateral setup", () => {
     const key = `0x${"1".repeat(64)}` as `0x${string}`;
     let submitted: unknown;
     const client = {
+      ready: async () => {},
       config: { apiBase: "https://invalid.example" }, signer: { address: () => address("5") },
       authenticatedPost: async (_path: string, payload: unknown) => { submitted = payload; return { intentId: hash("1") }; },
     } as unknown as TermbookClient;
@@ -290,6 +292,7 @@ describe("collateral setup", () => {
     let reservations = 0;
     let locks = 0;
     const client = {
+      ready: async () => {},
       config: { chainId: 143, core: b.core, apiBase: "https://invalid.example", wallet: { getChainId: async () => 143 } },
       signer: { address: () => b.borrower },
       rpc: {

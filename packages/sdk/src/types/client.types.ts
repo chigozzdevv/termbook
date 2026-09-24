@@ -41,6 +41,7 @@ export type ClientConfig = {
 
 export type ResolvedClientConfig = ClientConfig & {
   appToken: string;
+  versionId?: `0x${string}`;
   core: `0x${string}`;
   rpcUrl: string;
   chainId: number;

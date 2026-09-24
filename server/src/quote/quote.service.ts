@@ -39,6 +39,7 @@ export const quoteService = {
     const now = Math.floor(Date.now() / 1000);
     if (Number(input["expiry"] ?? 0) <= now || Number(input["expiry"] ?? 0) > Number(intent["expiresAt"] ?? 0)) throw new Error("offer-expired");
     if (String(input["borrower"]).toLowerCase() !== String(intent["borrower"]).toLowerCase()) throw new Error("quote-borrower-mismatch");
+    if (intent["bundleId"] && String(input["bundleId"]).toLowerCase() !== String(intent["bundleId"]).toLowerCase()) throw new Error("quote-bundle-mismatch");
     let solana: SolanaQuoteIdentity | undefined;
     if (input["kind"] === "solana") {
       const source = input["solana"] as Record<string, unknown> | undefined;

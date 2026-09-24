@@ -3,8 +3,10 @@ import { hexToBytes, bytesToHex } from "viem";
 import type { TxHash } from "../types/client.types.js";
 import { collateralSetupHash, type SourceLockObservation, type SourceLockWallet } from "./setup.js";
 import { solanaPubkeyBase58, solanaPubkeyBytes } from "./solana.js";
+import { prepareSolanaWormhole, type SolanaWormholeContext } from "./solana-wormhole.js";
 
 const systemProgram = "11111111111111111111111111111111";
+const upgradeableLoader = "BPFLoaderUpgradeab1e11111111111111111111111";
 const zeroHash = `0x${"00".repeat(32)}`;
 const lockRecordSize = 490;
 const recoveryRecordSize = 282;
@@ -19,6 +21,11 @@ export type SolanaInstruction = {
 export type SolanaWalletPort = {
   publicKey: string;
   sendInstruction(instruction: SolanaInstruction): Promise<string>;
+  prepareWormholeAuthorization?(input: {
+    programId: string; monadCore: `0x${string}`; actionHash: `0x${string}`;
+    authorizationTxHash?: `0x${string}`;
+  }): Promise<SolanaWormholeContext>;
+  prepareWormholeSnapshot?(programId: string): Promise<SolanaInstruction["keys"]>;
 };
 
 export type SolanaAccountInfo = {
@@ -353,10 +360,26 @@ export class SolanaSourceLockWallet implements SourceLockWallet {
     return { state: "finalized", txId };
   }
 
-  async submitLock(binding: CollateralSetupBinding, lockId: TxHash, revision: bigint): Promise<{ txId: string }> {
+  async submitLock(binding: CollateralSetupBinding, lockId: TxHash, revision: bigint,
+    wormhole?: { actionHash: TxHash; authorizationTxHash?: TxHash }): Promise<{ txId: string }> {
     if (revision <= 0n || binding.setupDeadline <= Math.floor(Date.now() / 1000)) throw new Error("solana-lock-expired");
+    if (!wormhole) throw new Error("solana-wormhole-unavailable");
     const programId = await this.checked(binding);
     const pda = await this.lockPda(binding, lockId);
+    const wormholeKeys = await prepareSolanaWormhole(this.config.wallet, this.rpc, programId,
+      binding.core, wormhole.actionHash, wormhole.authorizationTxHash);
+    const program = await this.rpc.getAccountInfo(programId);
+    if (!program?.executable || program.owner !== upgradeableLoader
+      || program.data.length !== 36
+      || new DataView(program.data.buffer, program.data.byteOffset).getUint32(0, true) !== 2) {
+      throw new Error("solana-program-not-immutable");
+    }
+    const programDataAddress = solanaPubkeyBase58(bytesToHex(program.data.subarray(4, 36)));
+    const programData = await this.rpc.getAccountInfo(programDataAddress);
+    if (!programData || programData.owner !== upgradeableLoader
+      || programData.data.length < 45
+      || new DataView(programData.data.buffer, programData.data.byteOffset).getUint32(0, true) !== 3
+      || programData.data[12] !== 0) throw new Error("solana-program-not-immutable");
     const instruction: SolanaInstruction = {
       programId,
       keys: [
@@ -364,6 +387,10 @@ export class SolanaSourceLockWallet implements SourceLockWallet {
         { pubkey: solanaPubkeyBase58(pda), isSigner: false, isWritable: true },
         { pubkey: solanaPubkeyBase58(binding.recoveryVault!.accountBytes), isSigner: false, isWritable: true },
         { pubkey: systemProgram, isSigner: false, isWritable: false },
+        wormholeKeys[0]!,
+        { pubkey: programId, isSigner: false, isWritable: false },
+        { pubkey: programDataAddress, isSigner: false, isWritable: false },
+        ...wormholeKeys.slice(1),
       ],
       data: encodeSolanaLock(binding, lockId),
     };

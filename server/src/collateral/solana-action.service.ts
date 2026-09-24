@@ -1,6 +1,5 @@
 import { termbookCoreAbi, verifierRegistryAbi } from "@termbook/bindings";
 import { encodeAbiParameters, encodeFunctionData, keccak256, parseAbi, stringToHex, type Address, type Hex } from "viem";
-import { fetchMonadAuthorizationProof } from "../chain/monad-receipt-proof.js";
 import { monadClient } from "../chain/monad.client.js";
 import { env } from "../config/env.js";
 import { solanaAlias } from "../quote/solana.js";
@@ -152,22 +151,13 @@ export async function readSolanaAction(input: Pick<PlanInput, "creditId" | "kind
 export const solanaActionService = {
   async plan(input: PlanInput, requester: string) {
     const rpcUrl = process.env["SOLANA_RPC_URL"];
-    if (!rpcUrl || !env.monadProofUrl) throw new Error("solana-action-proof-unavailable");
+    if (!rpcUrl) throw new Error("solana-action-proof-unavailable");
     const { action, actionHash, programId } = await readSolanaAction(input, requester);
     const timestamp = await solanaFinalizedClock(rpcUrl);
     if (input.mode === "apply" && action.deadline <= BigInt(timestamp + 120)) throw new Error("solana-action-expired");
     if (input.mode === "expire" && action.deadline >= BigInt(timestamp)) throw new Error("solana-action-not-expired");
-    const authorization = await fetchMonadAuthorizationProof({
-      txHash: input.authorizationTxHash, core: action.monadCore,
-      creditId: action.creditId, actionHash, kind: action.kind,
-      finalityUrl: env.monadProofUrl,
-    });
-    if ((authorization.header.length + authorization.proof.length - 4) / 2 + 270 > 1_000) {
-      throw new Error("solana-authorization-proof-too-large");
-    }
     return {
-      programId, actionHash, mode: input.mode, header: authorization.header,
-      proof: authorization.proof,
+      programId, actionHash, mode: input.mode, authorizationTxHash: input.authorizationTxHash,
       action: Object.fromEntries(Object.entries(action).map(([key, value]) =>
         [key, typeof value === "bigint" ? value.toString() : value])),
     };
@@ -190,7 +180,8 @@ export const solanaActionService = {
     const runtime = await chain.getCode({ address: verifier, blockNumber: at });
     if (!runtime || !same(keccak256(runtime), codeHash)) throw new Error("solana-verifier-code-mismatch");
     const proof = await fetchSolanaProof({ rpcUrl, proofUrl, kind: "action", id: actionHash,
-      digest: actionHash, genesis: action.sourceGenesis, programId, programDataHash, lockPda: pda });
+      digest: actionHash, genesis: action.sourceGenesis, programId, programDataHash, lockPda: pda,
+      sourceTx: input.sourceTx });
     const verified = input.mode === "apply"
       ? await chain.readContract({ address: verifier, abi: verifierAbi, functionName: "verifySolanaAction",
         args: [proof.header, proof.proof, action.sourceGenesis, programId, programDataHash, pda, actionHash],

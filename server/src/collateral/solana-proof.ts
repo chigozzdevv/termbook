@@ -1,8 +1,9 @@
-import type { Hex } from "viem";
+import { bytesToHex, encodeAbiParameters, keccak256, stringToHex, type Hex } from "viem";
 
 const word = /^0x[0-9a-fA-F]{64}$/;
 const blob = /^0x(?:[0-9a-fA-F]{2})+$/;
 const base58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+const signature = /^[1-9A-HJ-NP-Za-km-z]{85,88}$/;
 
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("solana-proof-invalid");
@@ -78,6 +79,62 @@ export type SolanaProof = {
   blockhash: string;
 };
 
+const snapshotDomain = keccak256(stringToHex("Termbook Solana snapshot v1"));
+
+function signedSnapshot(vaa: string, account: Hex): Hex | null {
+  if (vaa.length > 128_000 || vaa.length % 4 !== 0
+    || !/^[A-Za-z0-9+/]+={0,2}$/.test(vaa)) return null;
+  let raw: Uint8Array;
+  try { raw = Uint8Array.from(Buffer.from(vaa, "base64")); } catch { return null; }
+  if (raw.length < 6 || raw.length > 96_000 || raw[0] !== 1
+    || Buffer.from(raw).toString("base64") !== vaa) return null;
+  const count = raw[5]!;
+  const start = 6 + count * 66;
+  if (!count || raw.length < start + 51 + 76) return null;
+  const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
+  if (view.getUint16(start + 8, false) !== 1 || raw[start + 50] !== 1) return null;
+  const payload = raw.subarray(start + 51);
+  if (bytesToHex(payload.subarray(0, 32)) !== snapshotDomain
+    || bytesToHex(payload.subarray(32, 64)).toLowerCase() !== account.toLowerCase()
+    || payload.length !== 76 + view.getUint32(start + 51 + 72, true)) return null;
+  return bytesToHex(raw);
+}
+
+async function proofBySourceTx(
+  source: URL, explorer: URL, tx: string, account: Hex,
+): Promise<{ header: Hex; slot: number; blockhash: string }> {
+  if (!signature.test(tx)) throw new Error("solana-proof-invalid");
+  const transaction = object(await rpc(source, "getTransaction", [tx,
+    { commitment: "finalized", encoding: "json", maxSupportedTransactionVersion: 0 }]));
+  const slot = transaction["slot"];
+  const meta = object(transaction["meta"]);
+  if (!Number.isSafeInteger(slot) || (slot as number) <= 0 || meta["err"] !== null) {
+    throw new Error("solana-proof-unavailable");
+  }
+  const block = object(await rpc(source, "getBlock", [slot,
+    { commitment: "finalized", transactionDetails: "none", rewards: false }]));
+  const blockhash = block["blockhash"];
+  if (typeof blockhash !== "string") throw new Error("solana-proof-unavailable");
+  solanaBase58Bytes(blockhash);
+  explorer.pathname = `${explorer.pathname.replace(/\/$/, "")}/api/v1/vaas`;
+  explorer.search = new URLSearchParams({ txHash: tx, pageSize: "100" }).toString();
+  const response = await fetch(explorer, { signal: AbortSignal.timeout(10_000), redirect: "error" })
+    .catch(() => null);
+  if (!response) throw new Error("solana-proof-unavailable");
+  const result = await json(response);
+  const entries = result["data"];
+  if (!Array.isArray(entries) || entries.length > 100) throw new Error("solana-proof-invalid");
+  const matches = entries.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return [];
+    const item = entry as Record<string, unknown>;
+    if (item["emitterChain"] !== 1 || typeof item["vaa"] !== "string") return [];
+    const header = signedSnapshot(item["vaa"], account);
+    return header ? [header] : [];
+  });
+  if (matches.length !== 1) throw new Error("solana-proof-unavailable");
+  return { header: matches[0]!, slot: slot as number, blockhash };
+}
+
 export async function solanaFinalizedClock(rpcUrl: string): Promise<number> {
   const source = endpoint(rpcUrl);
   const slot = await rpc(source, "getSlot", [{ commitment: "finalized" }]);
@@ -98,6 +155,7 @@ export async function fetchSolanaProof(input: {
   programDataHash: Hex;
   lockPda: Hex;
   accountPda?: Hex;
+  sourceTx?: string;
 }): Promise<SolanaProof> {
   const source = endpoint(input.rpcUrl);
   const producer = endpoint(input.proofUrl);
@@ -114,14 +172,20 @@ export async function fetchSolanaProof(input: {
     || (input.kind !== "recovery" && input.accountPda)) throw new Error("solana-proof-invalid");
   const rpcGenesis = await rpc(source, "getGenesisHash", []);
   if (typeof rpcGenesis !== "string" || solanaBase58Bytes(rpcGenesis) !== genesis) throw new Error("solana-genesis-mismatch");
+  const proof = encodeAbiParameters([
+    { type: "bytes32" }, { type: "bytes" }, { type: "bytes" },
+  ], [accountPda, "0x01", "0x02"]);
+  if (input.sourceTx) {
+    const signed = await proofBySourceTx(source, producer, input.sourceTx, accountPda);
+    return { ...signed, proof };
+  }
   producer.pathname = `${producer.pathname.replace(/\/$/, "")}/${input.kind}/${id}`;
   producer.search = "";
   const response = await fetch(producer, { signal: AbortSignal.timeout(10_000), redirect: "error" }).catch(() => null);
   if (!response) throw new Error("solana-proof-unavailable");
   const envelope = await json(response);
-  const header = hex(envelope["header"], blob);
-  const proof = hex(envelope["proof"], blob);
-  if (header.length > 192_002 || proof.length > 192_002
+  const header = hex(envelope["vaa"], blob);
+  if (header.length > 192_002
     || hex(envelope["digest"], word) !== digest
     || hex(envelope["sourceGenesis"], word) !== genesis
     || hex(envelope["programId"], word) !== programId
@@ -133,11 +197,5 @@ export async function fetchSolanaProof(input: {
   const slot = envelope["slot"] as number;
   const blockhash = envelope["blockhash"] as string;
   solanaBase58Bytes(blockhash);
-  const finalized = await rpc(source, "getSlot", [{ commitment: "finalized" }]);
-  if (!Number.isSafeInteger(finalized) || (finalized as number) < slot) throw new Error("solana-proof-not-finalized");
-  const block = object(await rpc(source, "getBlock", [slot, {
-    commitment: "finalized", transactionDetails: "none", rewards: false,
-  }]));
-  if (block["blockhash"] !== blockhash) throw new Error("solana-proof-block-mismatch");
   return { header, proof, slot, blockhash };
 }

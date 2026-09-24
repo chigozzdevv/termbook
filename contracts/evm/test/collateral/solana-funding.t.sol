@@ -61,6 +61,12 @@ contract MockSolanaFundingFactory {
     }
 }
 
+contract MockSolanaFundingWormhole {
+    function chainId() external pure returns (uint16) { return 48; }
+    function messageFee() external pure returns (uint256) { return 0; }
+    function publishMessage(uint32, bytes memory, uint8) external payable returns (uint64) { return 1; }
+}
+
 contract MockSolanaFundingProofVerifier {
     bool public funded;
     bool public absent;
@@ -162,6 +168,7 @@ contract SolanaFundingTest is Test {
         routeSigner = vm.addr(0xBEEF);
         riskSigner = vm.addr(0xCAFE);
         core = new SolanaFundingHarness(address(this));
+        core.configureSolanaWormhole(address(new MockSolanaFundingWormhole()));
         factory = new MockSolanaFundingFactory();
         settlement = new MockERC20();
         vault = new HouseVault(address(settlement), address(core), address(this), address(0), address(0));

@@ -1,7 +1,7 @@
 import { SolanaLockModel, SolanaProofSignerModel } from "./solana.model.js";
 import { randomUUID } from "node:crypto";
 
-export type SolanaLockRecord = { lockId: string; creditId: string; lockPda: string };
+export type SolanaLockRecord = { lockId: string; creditId: string; lockPda: string; sourceTx?: string };
 
 export const solanaRepo = {
   async track(record: SolanaLockRecord) {
@@ -11,6 +11,13 @@ export const solanaRepo = {
     ).lean();
     if (!saved || saved.creditId !== record.creditId || saved.lockPda !== record.lockPda) {
       throw new Error("solana-lock-conflict");
+    }
+    if (record.sourceTx && saved.sourceTx !== record.sourceTx) {
+      if (saved.state !== "pending" || saved.txHash) throw new Error("solana-lock-conflict");
+      const updated = await SolanaLockModel.updateOne({ lockId: record.lockId, state: "pending",
+        txHash: { $exists: false } }, { $set: { sourceTx: record.sourceTx } });
+      if (updated.matchedCount !== 1) throw new Error("solana-lock-conflict");
+      saved.sourceTx = record.sourceTx;
     }
     return saved;
   },

@@ -58,7 +58,10 @@ contract SolanaVerifier is LightClientVerifier {
     ) external view returns (bool) {
         if (!_market(genesis, program, programDataHash) || lockDigest == bytes32(0)) return false;
         try this.verifiedLockRecord(header, proof) returns (bytes32 account, uint64 lamports, bytes memory data) {
-            return _validRecord(account, lamports, data) && _lockDigest(data) == lockDigest;
+            return _validRecord(account, lamports, data)
+                && _u64(data, 378) == _u64(data, 370)
+                && _u64(data, 402) == 0
+                && _lockDigest(data) == lockDigest;
         } catch {
             return false;
         }

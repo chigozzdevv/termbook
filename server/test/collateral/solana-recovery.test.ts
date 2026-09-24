@@ -6,7 +6,6 @@ import { solanaPubkeyBase58 } from "../../../packages/sdk/src/collateral/solana.
 import { solanaAlias } from "../../src/quote/solana.js";
 
 vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: vi.fn() }));
-vi.mock("../../src/chain/monad-receipt-proof.js", () => ({ fetchMonadReceiptProof: vi.fn() }));
 vi.mock("../../src/collateral/solana-proof.js", async (importOriginal) => ({
   ...await importOriginal<typeof import("../../src/collateral/solana-proof.js")>(),
   fetchSolanaProof: vi.fn(),
@@ -19,7 +18,6 @@ vi.mock("@defuse-protocol/one-click-sdk-typescript", async (importOriginal) => (
 }));
 
 import { monadClient } from "../../src/chain/monad.client.js";
-import { fetchMonadReceiptProof } from "../../src/chain/monad-receipt-proof.js";
 import { fetchSolanaProof } from "../../src/collateral/solana-proof.js";
 import { env } from "../../src/config/env.js";
 import { solanaRecoveryService } from "../../src/collateral/solana-recovery.service.js";
@@ -99,10 +97,6 @@ function setup(options: { debt?: bigint; forgedEmitter?: boolean; acceptedHash?:
     ], [inbox, depositPubkey, funding.amountLamports, quoteHash, funding.nonce,
       funding.revision, deadline]),
   };
-  vi.mocked(fetchMonadReceiptProof).mockImplementation(async ({ selectLog }) => {
-    expect(selectLog({ status: "success", logs: [log] } as never)).toBe(0);
-    return { header: "0xaa", proof: "0xbb" } as never;
-  });
   const readContract = vi.fn(async ({ functionName }: { functionName: string }) => ({
     recoveryKeepers: true,
     creditDetails: { lockId: funding.lockId, collateralVault: solanaAlias(genesis, programId),
@@ -135,6 +129,7 @@ function setup(options: { debt?: bigint; forgedEmitter?: boolean; acceptedHash?:
   vi.mocked(monadClient).mockReturnValue({
     getChainId: async () => 143,
     getBlock: async () => ({ number: 100n }),
+    getTransactionReceipt: async () => ({ status: "success", blockNumber: 100n, logs: [log] }),
     readContract, getCode: async () => code, call: vi.fn(),
   } as never);
   return { funding, fundingHash, readContract };

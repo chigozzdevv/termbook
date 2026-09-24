@@ -5,10 +5,8 @@ import { solanaRecoveryPayoutHash, type SolanaRecoveryPayout } from "../../../pa
 import { solanaAlias } from "../../src/quote/solana.js";
 
 vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: vi.fn() }));
-vi.mock("../../src/chain/monad-receipt-proof.js", () => ({ fetchMonadReceiptProof: vi.fn() }));
 
 import { monadClient } from "../../src/chain/monad.client.js";
-import { fetchMonadReceiptProof } from "../../src/chain/monad-receipt-proof.js";
 import { env } from "../../src/config/env.js";
 import { solanaPayoutService } from "../../src/collateral/solana-payout.service.js";
 
@@ -50,10 +48,6 @@ function setup(options: { pendingHash?: string; recipient?: `0x${string}` } = {}
       { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" },
     ], [payout.amountLamports, payout.nonce, payout.revision, payout.deadline]),
   };
-  vi.mocked(fetchMonadReceiptProof).mockImplementation(async ({ selectLog }) => {
-    expect(selectLog({ status: "success", logs: [log] } as never)).toBe(0);
-    return { header: "0xaa", proof: "0xbb" } as never;
-  });
   const readContract = vi.fn(async ({ functionName }: { functionName: string }) => ({
     creditDetails: { borrower, lockId: payout.lockId,
       collateralVault: solanaAlias(genesis, programId),
@@ -71,6 +65,7 @@ function setup(options: { pendingHash?: string; recipient?: `0x${string}` } = {}
   vi.mocked(monadClient).mockReturnValue({
     getChainId: async () => 143,
     getBlock: async () => ({ number: 100n }),
+    getTransactionReceipt: async () => ({ status: "success", blockNumber: 100n, logs: [log] }),
     readContract,
   } as never);
   return { payout, payoutHash };

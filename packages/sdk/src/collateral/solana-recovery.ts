@@ -2,12 +2,12 @@ import { concatHex, hexToBytes, keccak256, stringToHex } from "viem";
 import { solanaPubkeyBase58, solanaPubkeyBytes } from "./solana.js";
 import { decodeSolanaLockRecord, decodeSolanaRecoveryRecord,
   type SolanaInstruction, type SolanaRpcPort, type SolanaWalletPort } from "./solana-source.js";
+import { prepareSolanaSnapshot, prepareSolanaWormhole } from "./solana-wormhole.js";
 
 const domain = keccak256(stringToHex("Termbook Solana recovery fund v1"));
 const payoutDomain = keccak256(stringToHex("Termbook Solana recovery payout v1"));
 const word = /^0x[0-9a-fA-F]{64}$/;
 const address = /^0x[0-9a-fA-F]{40}$/;
-const blob = /^0x(?:[0-9a-fA-F]{2})+$/;
 const maxU64 = (1n << 64n) - 1n;
 const maxI64 = (1n << 63n) - 1n;
 const zeroWord = `0x${"00".repeat(32)}`;
@@ -36,8 +36,7 @@ export type SolanaRecoveryFunding = {
 export type SolanaRecoveryFundingPlan = {
   funding: SolanaRecoveryFunding;
   fundingHash: `0x${string}`;
-  header: `0x${string}`;
-  proof: `0x${string}`;
+  authorizationTxHash: `0x${string}`;
 };
 
 export type SolanaRecoveryPayout = {
@@ -60,8 +59,7 @@ export type SolanaRecoveryPayout = {
 export type SolanaRecoveryPayoutPlan = {
   payout: SolanaRecoveryPayout;
   payoutHash: `0x${string}`;
-  header: `0x${string}`;
-  proof: `0x${string}`;
+  authorizationTxHash: `0x${string}`;
 };
 
 export type SolanaRecoveryRefund = {
@@ -72,6 +70,10 @@ export type SolanaRecoveryRefund = {
   creditId: `0x${string}`;
   lockId: `0x${string}`;
   amountLamports: bigint;
+};
+
+export type SolanaRecoveryCheckpoint = Omit<SolanaRecoveryRefund, "amountLamports"> & {
+  deadline: bigint;
 };
 
 function valid(funding: SolanaRecoveryFunding): void {
@@ -91,12 +93,6 @@ function valid(funding: SolanaRecoveryFunding): void {
 function u64(value: bigint): Uint8Array {
   const data = new Uint8Array(8);
   new DataView(data.buffer).setBigUint64(0, value, true);
-  return data;
-}
-
-function u32(value: number): Uint8Array {
-  const data = new Uint8Array(4);
-  new DataView(data.buffer).setUint32(0, value, true);
   return data;
 }
 
@@ -120,24 +116,25 @@ export function solanaRecoveryFundingHash(funding: SolanaRecoveryFunding): `0x${
   ]));
 }
 
-export function solanaRecoveryFundingInstruction(plan: SolanaRecoveryFundingPlan): SolanaInstruction {
+export function solanaRecoveryFundingInstruction(
+  plan: SolanaRecoveryFundingPlan, wormholeKeys: SolanaInstruction["keys"],
+): SolanaInstruction {
   const { funding } = plan;
   valid(funding);
   if (solanaRecoveryFundingHash(funding).toLowerCase() !== plan.fundingHash.toLowerCase()
-    || !blob.test(plan.header) || !blob.test(plan.proof)) throw new Error("solana-recovery-proof-invalid");
-  const header = hexToBytes(plan.header);
-  const proof = hexToBytes(plan.proof);
-  if (header.length > 65_535 || proof.length > 65_535) throw new Error("solana-recovery-proof-too-large");
+    || !word.test(plan.authorizationTxHash) || wormholeKeys.length !== 12) {
+    throw new Error("solana-recovery-proof-invalid");
+  }
   const data = concat(
     new Uint8Array([4]), hexToBytes(funding.operationId), hexToBytes(funding.operationDigest),
     hexToBytes(funding.inbox), hexToBytes(funding.depositPubkey), u64(funding.amountLamports),
     hexToBytes(funding.quoteHash), u64(funding.nonce), u64(funding.revision), u64(funding.deadline),
-    u32(header.length), header, u32(proof.length), proof,
   );
   return { programId: solanaPubkeyBase58(funding.programId), keys: [
     { pubkey: solanaPubkeyBase58(funding.lockPda), isSigner: false, isWritable: true },
     { pubkey: solanaPubkeyBase58(funding.recoveryVault), isSigner: false, isWritable: true },
     { pubkey: solanaPubkeyBase58(funding.depositPubkey), isSigner: false, isWritable: true },
+    ...wormholeKeys,
   ], data };
 }
 
@@ -169,9 +166,11 @@ export function parseSolanaRecoveryFundingPlan(value: unknown): SolanaRecoveryFu
   };
   const parsed: SolanaRecoveryFundingPlan = {
     funding, fundingHash: hex(plan["fundingHash"], word),
-    header: hex(plan["header"], blob), proof: hex(plan["proof"], blob),
+    authorizationTxHash: hex(plan["authorizationTxHash"], word),
   };
-  solanaRecoveryFundingInstruction(parsed);
+  if (solanaRecoveryFundingHash(funding).toLowerCase() !== parsed.fundingHash) {
+    throw new Error("solana-recovery-plan-invalid");
+  }
   return parsed;
 }
 
@@ -210,7 +209,9 @@ export async function submitSolanaRecoveryFunding(
       + await rpc.getMinimumBalanceForRentExemption(recoveryAccount.data.length)) {
     throw new Error("solana-recovery-source-mismatch");
   }
-  const signature = await wallet.sendInstruction(solanaRecoveryFundingInstruction(plan));
+  const keys = await prepareSolanaWormhole(wallet, rpc, programId, funding.monadCore,
+    plan.fundingHash, plan.authorizationTxHash);
+  const signature = await wallet.sendInstruction(solanaRecoveryFundingInstruction(plan, keys));
   if (typeof signature !== "string" || !/^[1-9A-HJ-NP-Za-km-z]{64,88}$/.test(signature)) {
     throw new Error("solana-transaction-id-invalid");
   }
@@ -242,21 +243,22 @@ export function solanaRecoveryPayoutHash(payout: SolanaRecoveryPayout): `0x${str
   ]));
 }
 
-export function solanaRecoveryPayoutInstruction(plan: SolanaRecoveryPayoutPlan): SolanaInstruction {
+export function solanaRecoveryPayoutInstruction(
+  plan: SolanaRecoveryPayoutPlan, wormholeKeys: SolanaInstruction["keys"],
+): SolanaInstruction {
   const { payout } = plan;
   validPayout(payout);
   if (solanaRecoveryPayoutHash(payout).toLowerCase() !== plan.payoutHash.toLowerCase()
-    || !blob.test(plan.header) || !blob.test(plan.proof)) throw new Error("solana-recovery-proof-invalid");
-  const header = hexToBytes(plan.header);
-  const proof = hexToBytes(plan.proof);
-  if (header.length > 65_535 || proof.length > 65_535) throw new Error("solana-recovery-proof-too-large");
+    || !word.test(plan.authorizationTxHash) || wormholeKeys.length !== 12) {
+    throw new Error("solana-recovery-proof-invalid");
+  }
   return { programId: solanaPubkeyBase58(payout.programId), keys: [
     { pubkey: solanaPubkeyBase58(payout.lockPda), isSigner: false, isWritable: true },
     { pubkey: solanaPubkeyBase58(payout.recoveryVault), isSigner: false, isWritable: true },
     { pubkey: solanaPubkeyBase58(payout.recipient), isSigner: false, isWritable: true },
+    ...wormholeKeys,
   ], data: concat(new Uint8Array([3]), hexToBytes(payout.recipient),
-    u64(payout.amountLamports), u64(payout.nonce), u64(payout.revision), u64(payout.deadline),
-    u32(header.length), header, u32(proof.length), proof) };
+    u64(payout.amountLamports), u64(payout.nonce), u64(payout.revision), u64(payout.deadline)) };
 }
 
 export function parseSolanaRecoveryPayoutPlan(value: unknown): SolanaRecoveryPayoutPlan {
@@ -285,9 +287,11 @@ export function parseSolanaRecoveryPayoutPlan(value: unknown): SolanaRecoveryPay
   };
   const parsed: SolanaRecoveryPayoutPlan = {
     payout, payoutHash: hex(plan["payoutHash"], word),
-    header: hex(plan["header"], blob), proof: hex(plan["proof"], blob),
+    authorizationTxHash: hex(plan["authorizationTxHash"], word),
   };
-  solanaRecoveryPayoutInstruction(parsed);
+  if (solanaRecoveryPayoutHash(payout).toLowerCase() !== parsed.payoutHash) {
+    throw new Error("solana-recovery-plan-invalid");
+  }
   return parsed;
 }
 
@@ -326,32 +330,40 @@ export async function submitSolanaRecoveryPayout(
       + await rpc.getMinimumBalanceForRentExemption(recoveryAccount.data.length)) {
     throw new Error("solana-recovery-source-mismatch");
   }
-  const signature = await wallet.sendInstruction(solanaRecoveryPayoutInstruction(plan));
+  const keys = await prepareSolanaWormhole(wallet, rpc, programId, payout.monadCore,
+    plan.payoutHash, plan.authorizationTxHash);
+  const signature = await wallet.sendInstruction(solanaRecoveryPayoutInstruction(plan, keys));
   if (typeof signature !== "string" || !/^[1-9A-HJ-NP-Za-km-z]{64,88}$/.test(signature)) {
     throw new Error("solana-transaction-id-invalid");
   }
   return signature;
 }
 
-export function solanaRecoveryRefundInstruction(refund: SolanaRecoveryRefund): SolanaInstruction {
+export function solanaRecoveryRefundInstruction(
+  refund: SolanaRecoveryRefund, snapshotKeys: SolanaInstruction["keys"],
+): SolanaInstruction {
   if (![refund.sourceGenesis, refund.programId, refund.lockPda, refund.recoveryVault,
     refund.creditId, refund.lockId].every((value) => word.test(value) && BigInt(value) !== 0n)
     || refund.amountLamports <= 0n || refund.amountLamports > maxU64
-    || refund.lockPda === refund.recoveryVault) throw new Error("solana-recovery-refund-invalid");
+    || refund.lockPda === refund.recoveryVault || snapshotKeys.length !== 11) {
+    throw new Error("solana-recovery-refund-invalid");
+  }
   return { programId: solanaPubkeyBase58(refund.programId), keys: [
     { pubkey: solanaPubkeyBase58(refund.lockPda), isSigner: false, isWritable: false },
     { pubkey: solanaPubkeyBase58(refund.recoveryVault), isSigner: false, isWritable: true },
+    ...snapshotKeys,
   ], data: concat(new Uint8Array([5]), u64(refund.amountLamports)) };
 }
 
 export async function submitSolanaRecoveryRefund(
   refund: SolanaRecoveryRefund, wallet: SolanaWalletPort, rpc: SolanaRpcPort,
 ): Promise<string> {
-  const instruction = solanaRecoveryRefundInstruction(refund);
   if (solanaPubkeyBytes(await rpc.getGenesisHash()) !== refund.sourceGenesis) {
     throw new Error("solana-genesis-mismatch");
   }
   const programId = solanaPubkeyBase58(refund.programId);
+  const snapshotKeys = await prepareSolanaSnapshot(wallet, programId);
+  const instruction = solanaRecoveryRefundInstruction(refund, snapshotKeys);
   const [program, lockAccount, recoveryAccount] = await Promise.all([
     rpc.getAccountInfo(programId), rpc.getAccountInfo(solanaPubkeyBase58(refund.lockPda)),
     rpc.getAccountInfo(solanaPubkeyBase58(refund.recoveryVault)),
@@ -375,6 +387,59 @@ export async function submitSolanaRecoveryRefund(
     throw new Error("solana-recovery-source-mismatch");
   }
   const signature = await wallet.sendInstruction(instruction);
+  if (typeof signature !== "string" || !/^[1-9A-HJ-NP-Za-km-z]{64,88}$/.test(signature)) {
+    throw new Error("solana-transaction-id-invalid");
+  }
+  return signature;
+}
+
+export function solanaRecoveryCheckpointInstruction(
+  checkpoint: SolanaRecoveryCheckpoint, snapshotKeys: SolanaInstruction["keys"],
+): SolanaInstruction {
+  if (![checkpoint.sourceGenesis, checkpoint.programId, checkpoint.lockPda,
+    checkpoint.recoveryVault, checkpoint.creditId, checkpoint.lockId]
+    .every((value) => word.test(value) && BigInt(value) !== 0n)
+    || checkpoint.deadline <= 0n || checkpoint.deadline > maxI64
+    || checkpoint.lockPda === checkpoint.recoveryVault || snapshotKeys.length !== 11) {
+    throw new Error("solana-recovery-checkpoint-invalid");
+  }
+  return { programId: solanaPubkeyBase58(checkpoint.programId), keys: [
+    { pubkey: solanaPubkeyBase58(checkpoint.lockPda), isSigner: false, isWritable: false },
+    { pubkey: solanaPubkeyBase58(checkpoint.recoveryVault), isSigner: false, isWritable: true },
+    ...snapshotKeys,
+  ], data: concat(new Uint8Array([6]), u64(checkpoint.deadline)) };
+}
+
+export async function submitSolanaRecoveryCheckpoint(
+  checkpoint: SolanaRecoveryCheckpoint, wallet: SolanaWalletPort, rpc: SolanaRpcPort,
+): Promise<string> {
+  if (checkpoint.deadline >= BigInt(Math.floor(Date.now() / 1000))) {
+    throw new Error("solana-recovery-checkpoint-not-due");
+  }
+  if (solanaPubkeyBytes(await rpc.getGenesisHash()) !== checkpoint.sourceGenesis) {
+    throw new Error("solana-genesis-mismatch");
+  }
+  const programId = solanaPubkeyBase58(checkpoint.programId);
+  const [program, lockAccount, recoveryAccount] = await Promise.all([
+    rpc.getAccountInfo(programId), rpc.getAccountInfo(solanaPubkeyBase58(checkpoint.lockPda)),
+    rpc.getAccountInfo(solanaPubkeyBase58(checkpoint.recoveryVault)),
+  ]);
+  if (!program?.executable || !lockAccount || !recoveryAccount
+    || lockAccount.owner !== programId || recoveryAccount.owner !== programId
+    || lockAccount.executable || recoveryAccount.executable) {
+    throw new Error("solana-recovery-source-unavailable");
+  }
+  const lock = decodeSolanaLockRecord(lockAccount.data);
+  const recovery = decodeSolanaRecoveryRecord(recoveryAccount.data);
+  if (lock.genesis !== checkpoint.sourceGenesis || lock.program !== checkpoint.programId
+    || lock.vault !== checkpoint.lockPda || lock.recoveryVault !== checkpoint.recoveryVault
+    || lock.creditId !== checkpoint.creditId || lock.lockId !== checkpoint.lockId
+    || recovery.creditId !== checkpoint.creditId || recovery.lockId !== checkpoint.lockId
+    || recovery.sourceVault !== checkpoint.lockPda || recovery.owner !== lock.owner) {
+    throw new Error("solana-recovery-source-mismatch");
+  }
+  const keys = await prepareSolanaSnapshot(wallet, programId);
+  const signature = await wallet.sendInstruction(solanaRecoveryCheckpointInstruction(checkpoint, keys));
   if (typeof signature !== "string" || !/^[1-9A-HJ-NP-Za-km-z]{64,88}$/.test(signature)) {
     throw new Error("solana-transaction-id-invalid");
   }

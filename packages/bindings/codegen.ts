@@ -28,6 +28,7 @@ const contracts = {
   MonadEpochCommitter: "monad-epoch-committer",
   EthereumVerifier: "ethereum-verifier",
   SolanaVerifier: "solana-verifier",
+  WormholeSolanaAccountClient: "wormhole-solana-account-client",
   MonadVerifier: "monad-verifier",
   OracleRegistry: "oracle-registry",
   HealthSource: "health-source",

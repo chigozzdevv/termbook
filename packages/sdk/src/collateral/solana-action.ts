@@ -2,11 +2,11 @@ import { encodeAbiParameters, hexToBytes, keccak256, stringToHex } from "viem";
 import { solanaPubkeyBase58 } from "./solana.js";
 import { solanaPubkeyBytes } from "./solana.js";
 import { decodeSolanaLockRecord, type SolanaInstruction, type SolanaRpcPort, type SolanaWalletPort } from "./solana-source.js";
+import { prepareSolanaWormhole } from "./solana-wormhole.js";
 
 const domain = keccak256(stringToHex("Termbook Solana action v1"));
 const word = /^0x[0-9a-fA-F]{64}$/;
 const address = /^0x[0-9a-fA-F]{40}$/;
-const blob = /^0x(?:[0-9a-fA-F]{2})+$/;
 const maxU64 = (1n << 64n) - 1n;
 
 export type SolanaRemoteAuthorization = {
@@ -30,8 +30,7 @@ export type SolanaActionPlan = {
   programId: `0x${string}`;
   actionHash: `0x${string}`;
   action: SolanaRemoteAuthorization;
-  header: `0x${string}`;
-  proof: `0x${string}`;
+  authorizationTxHash: `0x${string}`;
   mode: "apply" | "expire";
 };
 
@@ -77,30 +76,25 @@ export function solanaActionHash(action: SolanaRemoteAuthorization, programId: `
   ]));
 }
 
-export function solanaActionInstruction(plan: SolanaActionPlan): SolanaInstruction {
+export function solanaActionInstruction(plan: SolanaActionPlan, wormholeKeys: SolanaInstruction["keys"]): SolanaInstruction {
   const { action } = plan;
   valid(action, plan.programId);
   if (plan.mode !== "apply" && plan.mode !== "expire") throw new Error("solana-action-invalid");
   if (solanaActionHash(action, plan.programId).toLowerCase() !== plan.actionHash.toLowerCase()
-    || !blob.test(plan.header) || !blob.test(plan.proof)) throw new Error("solana-action-proof-invalid");
-  const header = hexToBytes(plan.header);
-  const proof = hexToBytes(plan.proof);
-  if (header.length > 65_535 || proof.length > 65_535) throw new Error("solana-action-proof-too-large");
-  const count = (value: number) => {
-    const bytes = new Uint8Array(4);
-    new DataView(bytes.buffer).setUint32(0, value, true);
-    return bytes;
-  };
+    || !word.test(plan.authorizationTxHash) || wormholeKeys.length !== 12) {
+    throw new Error("solana-action-proof-invalid");
+  }
   const data = concat([
     new Uint8Array([plan.mode === "apply" ? 1 : 2]),
     le(action.monadChain), hexToBytes(action.monadCore), hexToBytes(action.sourceGenesis),
     hexToBytes(action.sourceVault), hexToBytes(action.creditId), hexToBytes(action.lockId),
     hexToBytes(action.asset), new Uint8Array([action.kind]), hexToBytes(action.recipient),
     le(action.amountLamports), le(action.nonce), le(action.revision), le(action.deadline),
-    le(action.verifierVersion), count(header.length), header, count(proof.length), proof,
+    le(action.verifierVersion),
   ]);
   const keys = [{ pubkey: solanaPubkeyBase58(action.sourceVault), isSigner: false, isWritable: true }];
   if (plan.mode === "apply") keys.push({ pubkey: solanaPubkeyBase58(action.recipient), isSigner: false, isWritable: true });
+  keys.push(...wormholeKeys);
   return { programId: solanaPubkeyBase58(plan.programId), keys, data };
 }
 
@@ -133,19 +127,19 @@ export function parseSolanaActionPlan(value: unknown): SolanaActionPlan {
   };
   if (typeof plan["programId"] !== "string" || !word.test(plan["programId"])
     || typeof plan["actionHash"] !== "string" || !word.test(plan["actionHash"])
-    || typeof plan["header"] !== "string" || !blob.test(plan["header"])
-    || typeof plan["proof"] !== "string" || !blob.test(plan["proof"])
+    || typeof plan["authorizationTxHash"] !== "string" || !word.test(plan["authorizationTxHash"])
     || (plan["mode"] !== "apply" && plan["mode"] !== "expire")) {
     throw new Error("solana-action-plan-invalid");
   }
   const parsed: SolanaActionPlan = {
     programId: plan["programId"].toLowerCase() as `0x${string}`,
     actionHash: plan["actionHash"].toLowerCase() as `0x${string}`,
-    header: plan["header"].toLowerCase() as `0x${string}`,
-    proof: plan["proof"].toLowerCase() as `0x${string}`,
+    authorizationTxHash: plan["authorizationTxHash"].toLowerCase() as `0x${string}`,
     mode: plan["mode"], action,
   };
-  solanaActionInstruction(parsed);
+  if (solanaActionHash(parsed.action, parsed.programId).toLowerCase() !== parsed.actionHash) {
+    throw new Error("solana-action-plan-invalid");
+  }
   return parsed;
 }
 
@@ -171,7 +165,9 @@ export async function submitSolanaAction(planValue: unknown, wallet: SolanaWalle
     || (action.kind === 0 ? record.returnRecipient : record.recoveryVault) !== action.recipient) {
     throw new Error("solana-action-source-mismatch");
   }
-  const signature = await wallet.sendInstruction(solanaActionInstruction(plan));
+  const keys = await prepareSolanaWormhole(wallet, rpc, programId, action.monadCore,
+    plan.actionHash, plan.authorizationTxHash);
+  const signature = await wallet.sendInstruction(solanaActionInstruction(plan, keys));
   if (typeof signature !== "string" || !/^[1-9A-HJ-NP-Za-km-z]{64,88}$/.test(signature)) {
     throw new Error("solana-transaction-id-invalid");
   }

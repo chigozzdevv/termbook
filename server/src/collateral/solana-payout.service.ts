@@ -2,7 +2,6 @@ import { termbookCoreAbi } from "@termbook/bindings";
 import { NATIVE_SOL_ASSET_BYTES } from "@termbook/schema";
 import { concatHex, decodeAbiParameters, keccak256, parseAbi, stringToHex,
   type Address, type Hex, type TransactionReceipt } from "viem";
-import { fetchMonadReceiptProof } from "../chain/monad-receipt-proof.js";
 import { monadClient } from "../chain/monad.client.js";
 import { env } from "../config/env.js";
 import { solanaAlias } from "../quote/solana.js";
@@ -77,22 +76,13 @@ function hashPayout(input: {
 
 export const solanaPayoutService = {
   async plan(input: z.infer<typeof solanaRecoveryPayoutPlanSchema>, requester: string) {
-    if (!env.monadProofUrl) throw new Error("solana-payout-proof-unavailable");
     const chain = monadClient();
     if (await chain.getChainId() !== env.monadChainId) throw new Error("solana-monad-chain-mismatch");
     const at = (await chain.getBlock({ blockTag: "finalized" })).number;
     const core = env.core as Address;
-    let event: PayoutEvent | undefined;
-    const proof = await fetchMonadReceiptProof({ txHash: input.authorizationTxHash,
-      finalityUrl: env.monadProofUrl,
-      selectLog(receipt) {
-        const selected = exactPayoutLog(receipt, core, input.creditId);
-        event = selected.event;
-        return selected.index;
-      },
-    });
-    if (!event) throw new Error("solana-payout-log-mismatch");
-    const authorized = event;
+    const receipt = await chain.getTransactionReceipt({ hash: input.authorizationTxHash });
+    if (receipt.blockNumber > at) throw new Error("solana-payout-not-finalized");
+    const authorized = exactPayoutLog(receipt, core, input.creditId).event;
     const [credit, debt, isSolana, confirmed, identity, lockPda, sourceChain,
       pendingHash, pendingAmount, pendingNonce, pendingDeadline] = await Promise.all([
       chain.readContract({ address: core, abi: termbookCoreAbi, functionName: "creditDetails",
@@ -165,11 +155,9 @@ export const solanaPayoutService = {
     if (!same(localHash, authorized.hash) || !same(onchainHash, authorized.hash)) {
       throw new Error("solana-payout-hash-mismatch");
     }
-    if ((proof.header.length + proof.proof.length - 4) / 2 + 73 > 1_000) {
-      throw new Error("solana-authorization-proof-too-large");
-    }
-    return { payoutHash: authorized.hash, programDataHash, header: proof.header,
-      proof: proof.proof, payout: Object.fromEntries(Object.entries(payout).map(([key, value]) =>
+    return { payoutHash: authorized.hash, programDataHash,
+      authorizationTxHash: input.authorizationTxHash,
+      payout: Object.fromEntries(Object.entries(payout).map(([key, value]) =>
         [key, typeof value === "bigint" ? value.toString() : value])) };
   },
 };

@@ -5,10 +5,12 @@ import { solanaRecoveryFundingHash, solanaRecoveryFundingInstruction,
   solanaRecoveryPayoutHash, solanaRecoveryPayoutInstruction,
   parseSolanaRecoveryPayoutPlan, submitSolanaRecoveryPayout,
   solanaRecoveryRefundInstruction, submitSolanaRecoveryRefund,
+  solanaRecoveryCheckpointInstruction,
   type SolanaRecoveryFunding, type SolanaRecoveryPayout,
   type SolanaRecoveryRefund } from "../src/collateral/solana-recovery.js";
 import { solanaPubkeyBase58 } from "../src/collateral/solana.js";
 import type { SolanaRpcPort } from "../src/collateral/solana-source.js";
+import { wormholeFixture } from "./solana-wormhole.fixture.js";
 
 const key = (byte: number) => `0x${byte.toString(16).padStart(2, "0").repeat(32)}` as `0x${string}`;
 const address = (byte: number) => `0x${byte.toString(16).padStart(2, "0").repeat(20)}` as `0x${string}`;
@@ -51,32 +53,50 @@ function records(value: SolanaRecoveryFunding, held: bigint) {
 }
 
 describe("Solana recovery funding", () => {
+  it("encodes a recovery checkpoint after the requested deadline", () => {
+    const request = funding();
+    const wormhole = wormholeFixture(solanaPubkeyBase58(key(9)), request.monadCore, key(18));
+    const checkpoint = {
+      sourceGenesis: request.sourceGenesis, programId: request.programId,
+      lockPda: request.lockPda, recoveryVault: request.recoveryVault,
+      creditId: request.creditId, lockId: request.lockId, deadline: 100n,
+    };
+    const instruction = solanaRecoveryCheckpointInstruction(checkpoint, wormhole.snapshotAccounts);
+    expect(instruction.keys).toHaveLength(13);
+    expect(instruction.data[0]).toBe(6);
+    expect(new DataView(instruction.data.buffer).getBigUint64(1, true)).toBe(100n);
+  });
+
   it("matches the Rust funding hash and encodes the exact FundRecovery instruction", () => {
     const request = funding();
     const fundingHash = solanaRecoveryFundingHash(request);
     expect(fundingHash).toBe("0xe6a669e3cc25a4ef0e197c04252480c4e138da599fdf355db917b15c9a1bae08");
-    const json = { fundingHash, header: "0x12", proof: "0x34",
+    const json = { fundingHash, authorizationTxHash: key(18),
       funding: Object.fromEntries(Object.entries(request).map(([name, value]) =>
         [name, typeof value === "bigint" ? value.toString() : value])) };
     const plan = parseSolanaRecoveryFundingPlan(json);
-    const instruction = solanaRecoveryFundingInstruction(plan);
+    const wormhole = wormholeFixture(solanaPubkeyBase58(key(9)), request.monadCore, fundingHash);
+    const keys = [{ pubkey: wormhole.postedVaa, isSigner: false, isWritable: false },
+      ...wormhole.snapshotAccounts];
+    const instruction = solanaRecoveryFundingInstruction(plan, keys);
     expect(instruction.programId).toBe(solanaPubkeyBase58(request.programId));
-    expect(instruction.keys.map((key) => key.pubkey)).toEqual([
+    expect(instruction.keys.slice(0, 3).map((key) => key.pubkey)).toEqual([
       solanaPubkeyBase58(request.lockPda), solanaPubkeyBase58(request.recoveryVault),
       solanaPubkeyBase58(request.depositPubkey),
     ]);
     expect(instruction.data[0]).toBe(4);
-    expect(instruction.data).toHaveLength(191);
+    expect(instruction.data).toHaveLength(181);
     expect(() => parseSolanaRecoveryFundingPlan({ ...json, fundingHash: key(9) }))
-      .toThrow("solana-recovery-proof-invalid");
+      .toThrow("solana-recovery-plan-invalid");
   });
 
   it("checks the finalized held ledger before asking the Solana wallet to fund a route", async () => {
     const request = funding();
-    const json = { fundingHash: solanaRecoveryFundingHash(request), header: "0x12", proof: "0x34",
+    const json = { fundingHash: solanaRecoveryFundingHash(request), authorizationTxHash: key(18),
       funding: Object.fromEntries(Object.entries(request).map(([name, value]) =>
         [name, typeof value === "bigint" ? value.toString() : value])) };
     let held = 500_000_000n;
+    const wormhole = wormholeFixture(solanaPubkeyBase58(key(9)), request.monadCore, json.fundingHash);
     const rpc: SolanaRpcPort = {
       getGenesisHash: async () => solanaPubkeyBase58(request.sourceGenesis),
       getAccountInfo: async (pubkey) => {
@@ -84,6 +104,7 @@ describe("Solana recovery funding", () => {
         const programId = solanaPubkeyBase58(request.programId);
         if (pubkey === programId) return { owner: programId, executable: true, lamports: 1n,
           data: new Uint8Array() };
+        if (pubkey === wormhole.postedVaa) return wormhole.postedAccount;
         if (pubkey === solanaPubkeyBase58(request.lockPda)) return {
           owner: programId, executable: false, lamports: 500_000_100n, data: record.lock,
         };
@@ -94,7 +115,8 @@ describe("Solana recovery funding", () => {
       getSignatureStatus: async () => null,
     };
     const sendInstruction = vi.fn(async () => "2".repeat(88));
-    const wallet = { publicKey: solanaPubkeyBase58(key(9)), sendInstruction };
+    const wallet = { publicKey: solanaPubkeyBase58(key(9)), sendInstruction,
+      prepareWormholeAuthorization: async () => wormhole };
     expect(await submitSolanaRecoveryFunding(json, wallet, rpc)).toBe("2".repeat(88));
     expect(sendInstruction).toHaveBeenCalledOnce();
     held = 0n;
@@ -115,12 +137,15 @@ describe("Solana recovery funding", () => {
     };
     const payoutHash = solanaRecoveryPayoutHash(payout);
     expect(payoutHash).toBe("0x59b78f448854bb2eea58330ec822e6277cfa4a475fefbaa31395bae7c2ceca58");
-    const json = { payoutHash, header: "0x12", proof: "0x34",
+    const json = { payoutHash, authorizationTxHash: key(18),
       payout: Object.fromEntries(Object.entries(payout).map(([name, value]) =>
         [name, typeof value === "bigint" ? value.toString() : value])) };
-    const instruction = solanaRecoveryPayoutInstruction(parseSolanaRecoveryPayoutPlan(json));
+    const wormhole = wormholeFixture(solanaPubkeyBase58(key(9)), payout.monadCore, payoutHash);
+    const keys = [{ pubkey: wormhole.postedVaa, isSigner: false, isWritable: false },
+      ...wormhole.snapshotAccounts];
+    const instruction = solanaRecoveryPayoutInstruction(parseSolanaRecoveryPayoutPlan(json), keys);
     expect(instruction.data[0]).toBe(3);
-    expect(instruction.data).toHaveLength(75);
+    expect(instruction.data).toHaveLength(65);
     expect(instruction.keys[2]?.pubkey).toBe(solanaPubkeyBase58(payout.recipient));
     let returned = key(6);
     const rpc: SolanaRpcPort = {
@@ -129,6 +154,7 @@ describe("Solana recovery funding", () => {
         const programId = solanaPubkeyBase58(payout.programId);
         if (pubkey === programId) return { owner: programId, executable: true, lamports: 1n,
           data: new Uint8Array() };
+        if (pubkey === wormhole.postedVaa) return wormhole.postedAccount;
         const record = records(request, 500_000_000n);
         if (pubkey === solanaPubkeyBase58(payout.lockPda)) {
           record.lock.set(hexToBytes(returned), 274);
@@ -140,7 +166,8 @@ describe("Solana recovery funding", () => {
       getSignatureStatus: async () => null,
     };
     const sendInstruction = vi.fn(async () => "2".repeat(88));
-    const wallet = { publicKey: solanaPubkeyBase58(key(9)), sendInstruction };
+    const wallet = { publicKey: solanaPubkeyBase58(key(9)), sendInstruction,
+      prepareWormholeAuthorization: async () => wormhole };
     expect(await submitSolanaRecoveryPayout(json, wallet, rpc)).toBe("2".repeat(88));
     returned = key(7);
     await expect(submitSolanaRecoveryPayout(json, wallet, rpc))
@@ -155,11 +182,12 @@ describe("Solana recovery funding", () => {
       lockPda: request.lockPda, recoveryVault: request.recoveryVault,
       creditId: request.creditId, lockId: request.lockId, amountLamports: 250n,
     };
-    const instruction = solanaRecoveryRefundInstruction(refund);
+    const wormhole = wormholeFixture(solanaPubkeyBase58(key(9)), address(3), key(18));
+    const instruction = solanaRecoveryRefundInstruction(refund, wormhole.snapshotAccounts);
     expect(instruction.data).toHaveLength(9);
     expect(instruction.data[0]).toBe(5);
     expect(new DataView(instruction.data.buffer).getBigUint64(1, true)).toBe(250n);
-    expect(instruction.keys.map((item) => item.isWritable)).toEqual([false, true]);
+    expect(instruction.keys.slice(0, 2).map((item) => item.isWritable)).toEqual([false, true]);
     let funded = 500n;
     let refunded = 100n;
     let balance = 100n + 100n + 250n;
@@ -182,7 +210,8 @@ describe("Solana recovery funding", () => {
       getSignatureStatus: async () => null,
     };
     const sendInstruction = vi.fn(async () => "2".repeat(88));
-    const wallet = { publicKey: solanaPubkeyBase58(key(9)), sendInstruction };
+    const wallet = { publicKey: solanaPubkeyBase58(key(9)), sendInstruction,
+      prepareWormholeSnapshot: async () => wormhole.snapshotAccounts };
     expect(await submitSolanaRecoveryRefund(refund, wallet, rpc)).toBe("2".repeat(88));
     refunded = 500n;
     await expect(submitSolanaRecoveryRefund(refund, wallet, rpc))

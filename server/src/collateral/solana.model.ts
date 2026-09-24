@@ -4,6 +4,7 @@ const lockSchema = new mongoose.Schema({
   lockId: { type: String, required: true, unique: true },
   creditId: { type: String, required: true },
   lockPda: { type: String, required: true },
+  sourceTx: String,
   state: { type: String, default: "pending" },
   proof: mongoose.Schema.Types.Mixed,
   txHash: String,

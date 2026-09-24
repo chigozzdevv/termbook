@@ -4,13 +4,11 @@ import { NATIVE_SOL_ASSET_BYTES } from "@termbook/schema";
 import { solanaAlias } from "../../src/quote/solana.js";
 
 vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: vi.fn() }));
-vi.mock("../../src/chain/monad-receipt-proof.js", () => ({ fetchMonadAuthorizationProof: vi.fn() }));
 vi.mock("../../src/collateral/solana-proof.js", () => ({
   fetchSolanaProof: vi.fn(), solanaFinalizedClock: vi.fn(),
 }));
 
 import { monadClient } from "../../src/chain/monad.client.js";
-import { fetchMonadAuthorizationProof } from "../../src/chain/monad-receipt-proof.js";
 import { fetchSolanaProof, solanaFinalizedClock } from "../../src/collateral/solana-proof.js";
 import { hashSolanaAction, solanaActionService, type SolanaAction } from "../../src/collateral/solana-action.service.js";
 import { env } from "../../src/config/env.js";
@@ -41,7 +39,6 @@ beforeEach(() => {
   process.env["SOLANA_RPC_URL"] = "https://solana.example";
   process.env["SOLANA_PROOF_URL"] = "https://solana-proof.example";
   vi.mocked(solanaFinalizedClock).mockResolvedValue(100);
-  vi.mocked(fetchMonadAuthorizationProof).mockResolvedValue({ header: "0xaa", proof: "0xbb" } as never);
   vi.mocked(fetchSolanaProof).mockResolvedValue({ header: "0xcc", proof: "0xdd", slot: 80,
     blockhash: "So11111111111111111111111111111111111111112" });
 });
@@ -101,9 +98,7 @@ describe("Solana remote action plans", () => {
       authorizationTxHash: word("e") }, borrower);
     expect(result.action.revision).toBe("3");
     expect(result.actionHash).toBe(actionHash);
-    expect(fetchMonadAuthorizationProof).toHaveBeenCalledWith(expect.objectContaining({
-      creditId, actionHash, kind: 0, core,
-    }));
+    expect(result.authorizationTxHash).toBe(word("e"));
   });
 
   it("returns a Monad confirmation only after the pinned verifier accepts the finalized source proof", async () => {

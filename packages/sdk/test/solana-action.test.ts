@@ -4,6 +4,7 @@ import { parseSolanaActionPlan, solanaActionHash, solanaActionInstruction, submi
   type SolanaRemoteAuthorization } from "../src/collateral/solana-action.js";
 import { solanaPubkeyBase58 } from "../src/collateral/solana.js";
 import type { SolanaRpcPort } from "../src/collateral/solana-source.js";
+import { wormholeFixture } from "./solana-wormhole.fixture.js";
 
 const key = (byte: number) => `0x${byte.toString(16).padStart(2, "0").repeat(32)}` as `0x${string}`;
 const address = (byte: number) => `0x${byte.toString(16).padStart(2, "0").repeat(20)}` as `0x${string}`;
@@ -39,18 +40,20 @@ describe("Solana source action instruction", () => {
     };
     const actionHash = solanaActionHash(action, programId);
     expect(actionHash).toBe("0x1c59eb45703b3dd1375020a5568a87c6f7f687fcdd96a56dfc6d4f66c04616c8");
-    const plan = { programId, actionHash, action, header: "0x12" as const,
-      proof: "0x34" as const, mode: "apply" as const };
-    const apply = solanaActionInstruction(plan);
+    const plan = { programId, actionHash, action, authorizationTxHash: key(18), mode: "apply" as const };
+    const keys = Array.from({ length: 12 }, () => ({
+      pubkey: solanaPubkeyBase58(key(19)), isSigner: false, isWritable: false,
+    }));
+    const apply = solanaActionInstruction(plan, keys);
     expect(apply.programId).toBe(solanaPubkeyBase58(programId));
-    expect(apply.keys).toHaveLength(2);
-    expect(apply.data).toHaveLength(272);
+    expect(apply.keys).toHaveLength(14);
+    expect(apply.data).toHaveLength(262);
     expect(apply.data[0]).toBe(1);
     expect(apply.data[1]).toBe(143);
-    const expire = solanaActionInstruction({ ...plan, mode: "expire" });
-    expect(expire.keys).toHaveLength(1);
+    const expire = solanaActionInstruction({ ...plan, mode: "expire" }, keys);
+    expect(expire.keys).toHaveLength(13);
     expect(expire.data[0]).toBe(2);
-    expect(() => solanaActionInstruction({ ...plan, actionHash: key(15) }))
+    expect(() => solanaActionInstruction({ ...plan, actionHash: key(15) }, keys))
       .toThrow("solana-action-proof-invalid");
   });
 
@@ -63,22 +66,25 @@ describe("Solana source action instruction", () => {
       nonce: 1n, revision: 2n, deadline: 100n, verifierVersion: 1n,
     };
     const json = { programId, actionHash: solanaActionHash(action, programId), mode: "apply",
-      header: "0x12", proof: "0x34",
+      authorizationTxHash: key(18),
       action: Object.fromEntries(Object.entries(action).map(([name, value]) =>
         [name, typeof value === "bigint" ? value.toString() : value])) };
     expect(parseSolanaActionPlan(json).action.amountLamports).toBe(500_000_000n);
+    const wormhole = wormholeFixture(solanaPubkeyBase58(key(9)), action.monadCore, json.actionHash);
     let lastNonce = 0n;
     const rpc: SolanaRpcPort = {
       getGenesisHash: async () => solanaPubkeyBase58(action.sourceGenesis),
       getAccountInfo: async (pubkey) => pubkey === solanaPubkeyBase58(programId)
         ? { owner: solanaPubkeyBase58(programId), executable: true, lamports: 1n, data: new Uint8Array() }
+        : pubkey === wormhole.postedVaa ? wormhole.postedAccount
         : { owner: solanaPubkeyBase58(programId), executable: false, lamports: 500_000_100n,
           data: lockRecord(action, programId, lastNonce) },
       getMinimumBalanceForRentExemption: async () => 100n,
       getSignatureStatus: async () => null,
     };
     const sendInstruction = vi.fn(async () => "2".repeat(88));
-    const wallet = { publicKey: solanaPubkeyBase58(key(9)), sendInstruction };
+    const wallet = { publicKey: solanaPubkeyBase58(key(9)), sendInstruction,
+      prepareWormholeAuthorization: async () => wormhole };
     expect(await submitSolanaAction(json, wallet, rpc)).toBe("2".repeat(88));
     expect(sendInstruction).toHaveBeenCalledOnce();
     lastNonce = 1n;

@@ -51,6 +51,8 @@ describe("Solana collateral acceptance", () => {
       [intentId, borrower, house, offer.nonce],
     ));
     let reserved = false;
+    let bound = false;
+    let boundLockId = key("0");
     let submitted = 0;
     let signedQuote: Record<string, unknown> | undefined;
     const client = {
@@ -62,7 +64,7 @@ describe("Solana collateral acceptance", () => {
           revision: 2n, facility: 1, borrower, house, termsHash,
           collateralVault: alias(programId), collateralAsset: alias(NATIVE_SOL_ASSET_BYTES),
           collateralAmount: offer.collateralAmount, returnRecipient: alias(recipient),
-          collateralBound: false, account: addr("0"), lockId: key("0"),
+          collateralBound: bound, account: addr("0"), lockId: boundLockId,
         } : { revision: 0n },
         read: async (_address: string, _abi: unknown, fn: string) => {
           if (fn === "asset") return settlementAsset;
@@ -72,9 +74,16 @@ describe("Solana collateral acceptance", () => {
           if (fn === "solanaMarkets") return { sourceGenesis: genesis, programId,
             programDataHash: key("f"), sourceAsset: NATIVE_SOL_ASSET_BYTES, active: true };
           if (fn === "collateralProven") return false;
+          if (fn === "solanaLockDigest") return key("f");
           throw new Error(`unexpected-read:${fn}`);
         },
+        solanaWormholeFee: async () => 0n,
         coreWrite: async (fn: string, args: unknown[]) => {
+          if (fn === "bindSolanaCollateral") {
+            bound = true;
+            boundLockId = args[1] as `0x${string}`;
+            return key("f");
+          }
           if (fn !== "acceptSolanaQuote") throw new Error(`unexpected-write:${fn}`);
           signedQuote = args[0] as Record<string, unknown>;
           reserved = true;

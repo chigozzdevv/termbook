@@ -774,7 +774,7 @@ export const termbookCoreAbi = [
       }
     ],
     "outputs": [],
-    "stateMutability": "nonpayable"
+    "stateMutability": "payable"
   },
   {
     "type": "function",
@@ -797,7 +797,7 @@ export const termbookCoreAbi = [
       }
     ],
     "outputs": [],
-    "stateMutability": "nonpayable"
+    "stateMutability": "payable"
   },
   {
     "type": "function",
@@ -960,7 +960,7 @@ export const termbookCoreAbi = [
         "internalType": "bytes32"
       }
     ],
-    "stateMutability": "nonpayable"
+    "stateMutability": "payable"
   },
   {
     "type": "function",
@@ -989,7 +989,7 @@ export const termbookCoreAbi = [
         "internalType": "bytes32"
       }
     ],
-    "stateMutability": "nonpayable"
+    "stateMutability": "payable"
   },
   {
     "type": "function",
@@ -1143,7 +1143,7 @@ export const termbookCoreAbi = [
       }
     ],
     "outputs": [],
-    "stateMutability": "nonpayable"
+    "stateMutability": "payable"
   },
   {
     "type": "function",
@@ -1405,6 +1405,19 @@ export const termbookCoreAbi = [
       },
       {
         "name": "riskSigner",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "configureSolanaWormhole",
+    "inputs": [
+      {
+        "name": "wormhole",
         "type": "address",
         "internalType": "address"
       }
@@ -5364,6 +5377,32 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "solanaWormholeCodeHash",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "solanaWormholeCore",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "sourceCollateralVault",
     "inputs": [
       {
@@ -6389,6 +6428,19 @@ export const termbookCoreAbi = [
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SolanaWormholeConfigured",
+    "inputs": [
+      {
+        "name": "wormhole",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
       }
     ],
     "anonymous": false

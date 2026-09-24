@@ -86,6 +86,18 @@ contract SolanaVerifierTest is Test {
         assertFalse(verifier.verifySolanaLock(header, proof, GENESIS, PROGRAM, HASH, digest));
     }
 
+    function testRejectsLockSnapshotAfterCollateralChanges() public {
+        bytes32 digest = _lockDigest();
+        bytes memory changed = _record();
+        _setU64(changed, 378, 0);
+        client.setRecord(changed);
+        assertFalse(verifier.verifySolanaLock(header, proof, GENESIS, PROGRAM, HASH, digest));
+        changed = _record();
+        _setU64(changed, 402, 1);
+        client.setRecord(changed);
+        assertFalse(verifier.verifySolanaLock(header, proof, GENESIS, PROGRAM, HASH, digest));
+    }
+
     function testVerifiesAppliedAndCanceledActionsFromDistinctFields() public {
         bytes32 applied = keccak256("applied");
         bytes memory record = _record();

@@ -21,7 +21,8 @@ export type SourceLockWallet = {
   remoteRecoveryVault?: (binding: CollateralSetupBinding) => Promise<`0x${string}`>;
   lockPda?: (binding: CollateralSetupBinding, lockId: TxHash) => Promise<`0x${string}`>;
   observeLock: (binding: CollateralSetupBinding, lockId: TxHash, txId?: string) => Promise<SourceLockObservation>;
-  submitLock: (binding: CollateralSetupBinding, lockId: TxHash, revision: bigint) => Promise<{ txId: string }>;
+  submitLock: (binding: CollateralSetupBinding, lockId: TxHash, revision: bigint,
+    wormhole?: { actionHash: TxHash; authorizationTxHash?: TxHash }) => Promise<{ txId: string }>;
 };
 
 export type CollateralProofSource = {
@@ -290,7 +291,25 @@ export class CollateralSetup {
     }
     if (state.facility > 4) throw new Error("setup-state-invalid");
     const wallet = this.options.sourceWallet;
-    if (!state.bound) {
+    if (solana && !state.bound) {
+      await this.checkBorrowerWallet();
+      if (!wallet?.lockPda || !wallet.remoteRecoveryVault) throw new Error("source-wallet-required");
+      if (!equalHex(await wallet.remoteRecoveryVault(b), b.recoveryVault!.accountBytes)) {
+        throw new Error("source-recovery-vault-mismatch");
+      }
+      const lockPda = await wallet.lockPda(b, this.bindingHash);
+      if (!/^0x[a-fA-F0-9]{64}$/.test(lockPda) || /^0x0{64}$/i.test(lockPda)) {
+        throw new Error("source-lock-pda-invalid");
+      }
+      const fee = await this.client.rpc.solanaWormholeFee();
+      const tx = await this.client.rpc.coreWrite("bindSolanaCollateral",
+        [b.creditId, this.bindingHash, lockPda], fee);
+      await this.record("proof_pending", { bindTx: tx });
+      await this.client.rpc.wait(tx);
+      state = await this.coreState();
+      if (!state.bound) throw new Error("collateral-bind-unconfirmed");
+    }
+    if (!state.bound || (solana && !state.proven)) {
       if (!wallet) {
         await this.record("awaiting_source_wallet");
         return this.snapshot();
@@ -307,7 +326,12 @@ export class CollateralSetup {
       let lock = await wallet.observeLock(b, this.bindingHash, this.current.sourceTx);
       if (lock.state === "failed") throw new Error("source-lock-failed");
       if (lock.state === "missing" && !this.current.sourceTx) {
-        const submitted = await wallet.submitLock(b, this.bindingHash, state.revision);
+        const wormhole = solana ? {
+          actionHash: await this.client.rpc.read<TxHash>(b.core, termbookCoreAbi,
+            "solanaLockDigest", [b.creditId]),
+          authorizationTxHash: this.current.bindTx,
+        } : undefined;
+        const submitted = await wallet.submitLock(b, this.bindingHash, state.revision, wormhole);
         await this.record("lock_submitted", { sourceTx: submitted.txId, lockId: this.bindingHash });
         lock = await wallet.observeLock(b, this.bindingHash, submitted.txId);
       }
@@ -316,34 +340,44 @@ export class CollateralSetup {
         return this.snapshot();
       }
       await this.record("proof_pending", { sourceTx: lock.txId ?? this.current.sourceTx, lockId: this.bindingHash });
-      const functionName = solana ? "bindSolanaCollateral" : sourceChain === b.monadChainId ? "bindCollateral" : "bindRemoteCollateral";
-      await this.checkBorrowerWallet();
-      const lockPda = solana ? await wallet.lockPda!(b, this.bindingHash) : undefined;
-      if (solana && (typeof lockPda !== "string" || !/^0x[a-fA-F0-9]{64}$/.test(lockPda) || /^0x0{64}$/i.test(lockPda))) throw new Error("source-lock-pda-invalid");
-      const tx = await this.client.rpc.coreWrite(functionName, solana ? [b.creditId, this.bindingHash, lockPda] : [b.creditId, this.bindingHash]);
-      await this.record("proof_pending", { bindTx: tx });
-      await this.client.rpc.wait(tx);
-      state = await this.coreState();
-      if (!state.bound) throw new Error("collateral-bind-unconfirmed");
+      if (!solana) {
+        const functionName = sourceChain === b.monadChainId ? "bindCollateral" : "bindRemoteCollateral";
+        await this.checkBorrowerWallet();
+        const tx = await this.client.rpc.coreWrite(functionName, [b.creditId, this.bindingHash]);
+        await this.record("proof_pending", { bindTx: tx });
+        await this.client.rpc.wait(tx);
+        state = await this.coreState();
+        if (!state.bound) throw new Error("collateral-bind-unconfirmed");
+      }
     }
     if (!state.proven && sourceChain !== b.monadChainId) {
       if (!this.options.proofSource) {
-        await this.record("proof_pending");
-        return this.snapshot();
+        if (solana && this.current.sourceTx && this.client.config.apiBase && wallet?.lockPda) {
+          await this.client.authenticatedPost("/collateral/solana", {
+            creditId: b.creditId, lockId: this.bindingHash,
+            lockPda: await wallet.lockPda(b, this.bindingHash), sourceTx: this.current.sourceTx,
+          });
+          state = await this.coreState();
+        }
+        if (!state.proven) {
+          await this.record("proof_pending");
+          return this.snapshot();
+        }
+      } else {
+        const proof = await this.options.proofSource.getProof(b, this.bindingHash);
+        if (!proof) {
+          await this.record("proof_pending");
+          return this.snapshot();
+        }
+        await this.checkBorrowerWallet();
+        const tx = solana
+          ? await this.client.rpc.coreWrite("proveSolanaCollateral", [b.creditId, proof.header, proof.proof])
+          : await this.client.rpc.coreWrite("proveCollateral", [b.creditId, BigInt(sourceChain), proof.header, proof.proof]);
+        await this.record("proof_submitted", { proofTx: tx });
+        await this.client.rpc.wait(tx);
+        state = await this.coreState();
+        if (!state.proven) throw new Error("collateral-proof-unconfirmed");
       }
-      const proof = await this.options.proofSource.getProof(b, this.bindingHash);
-      if (!proof) {
-        await this.record("proof_pending");
-        return this.snapshot();
-      }
-      await this.checkBorrowerWallet();
-      const tx = solana
-        ? await this.client.rpc.coreWrite("proveSolanaCollateral", [b.creditId, proof.header, proof.proof])
-        : await this.client.rpc.coreWrite("proveCollateral", [b.creditId, BigInt(sourceChain), proof.header, proof.proof]);
-      await this.record("proof_submitted", { proofTx: tx });
-      await this.client.rpc.wait(tx);
-      state = await this.coreState();
-      if (!state.proven) throw new Error("collateral-proof-unconfirmed");
     }
     if (!state.proven) {
       await this.record("proof_pending");

@@ -55,11 +55,6 @@ const i64 = (value) => {
   bytes.writeBigInt64LE(BigInt(value));
   return bytes;
 };
-const vector = (bytes) => {
-  const length = Buffer.alloc(4);
-  length.writeUInt32LE(bytes.length);
-  return Buffer.concat([length, bytes]);
-};
 const fill = (value, length = 32) => Buffer.alloc(length, value);
 const deadline = 4_102_444_800;
 const request = Buffer.concat([
@@ -71,15 +66,13 @@ const authorization = Buffer.concat([
   fill(1), Buffer.from([0]), fill(6), u64(500_000_000), u64(1),
   u64(1), i64(deadline), u64(1),
 ]);
-const action = Buffer.concat([authorization, vector(fill(1, 1)), vector(fill(1, 1))]);
+const action = authorization;
 const payout = Buffer.concat([
   fill(6), u64(500_000_000), u64(1), u64(2), i64(deadline),
-  vector(fill(1, 1)), vector(fill(1, 1)),
 ]);
 const funding = Buffer.concat([
   fill(12), fill(13), fill(14, 20), fill(15), u64(500_000_000),
   fill(16), u64(1), u64(2), i64(deadline),
-  vector(fill(1, 1)), vector(fill(1, 1)),
 ]);
 const { publicKey, privateKey } = generateKeyPairSync('ed25519');
 const payer = publicKey.export({ type: 'spki', format: 'der' }).subarray(-32);
@@ -88,6 +81,8 @@ assert.equal(program.length, 32);
 const system = Buffer.alloc(32);
 const fakeLock = randomBytes(32);
 const fakeRecovery = randomBytes(32);
+const fakeVaa = randomBytes(32);
+const fakeProgramData = randomBytes(32);
 
 let rpcId = 0;
 async function rpc(method, params) {
@@ -133,13 +128,16 @@ async function simulate(label, keys, readonlyUnsigned, accounts, instruction, ex
   console.log(`${label}: rejected by Solana program with custom error ${actual}`);
 }
 
-await simulate('Lock fail closed', [payer, fakeLock, fakeRecovery, system, program], 2,
-  [0, 1, 2, 3], Buffer.concat([Buffer.from([0]), request]), 3);
-await simulate('Apply invalid lock', [payer, fakeRecovery, program], 1,
-  [0, 1], Buffer.concat([Buffer.from([1]), action]), 1);
-await simulate('Expire invalid lock', [payer, program], 1,
-  [0], Buffer.concat([Buffer.from([2]), action]), 1);
-await simulate('RecoveryPayout invalid lock', [payer, fakeLock, fakeRecovery, program], 1,
-  [0, 1, 2], Buffer.concat([Buffer.from([3]), payout]), 1);
-await simulate('FundRecovery invalid lock', [payer, fakeLock, fakeRecovery, program], 1,
-  [0, 1, 2], Buffer.concat([Buffer.from([4]), funding]), 1);
+await simulate('Lock rejects invalid binding',
+  [payer, fakeLock, fakeRecovery, system, fakeVaa, fakeProgramData, program], 4,
+  [0, 1, 2, 3, 4, 6, 5], Buffer.concat([Buffer.from([0]), request]), 1);
+await simulate('Apply invalid lock', [payer, fakeRecovery, fakeVaa, program], 2,
+  [0, 1, 2], Buffer.concat([Buffer.from([1]), action]), 1);
+await simulate('Expire invalid lock', [payer, fakeVaa, program], 2,
+  [0, 1], Buffer.concat([Buffer.from([2]), action]), 1);
+await simulate('RecoveryPayout invalid lock', [payer, fakeLock, fakeRecovery, fakeVaa, program], 2,
+  [0, 1, 2, 3], Buffer.concat([Buffer.from([3]), payout]), 1);
+await simulate('FundRecovery invalid lock', [payer, fakeLock, fakeRecovery, fakeVaa, program], 2,
+  [0, 1, 2, 3], Buffer.concat([Buffer.from([4]), funding]), 1);
+await simulate('CheckpointLock invalid lock', [payer, fakeLock, program], 1,
+  [1], Buffer.from([7]), 1);

@@ -172,17 +172,24 @@ USDC price, a recovery route, and the required governance configuration.
 | --- | --- | --- |
 | MON | Native MON enters `NativeCollateralVault` on Monad and is held as WMON. | Local custody, native return, WMON sale for USDC, and oracle-backed collateral-only health reader. Requires reviewed WMON and USDC deployments, feed, risk bands, exit verifier, and market admission. |
 | ETH | WETH stays in `CollateralVault` on Ethereum. | Lock custody, a Fulu Ethereum-to-Monad Beacon verifier, and a Monad BFT receipts client with proof-bound validator-set transitions are implemented. A live Monad consensus witness feed and end-to-end proof tests are required before accepting funds. |
-| SOL | Native SOL stays in a Solana program-derived account. | The SDK encodes the lock and source actions, and the server prepares proof-gated lock and action relays. The program rejects deposits and actions until both finality verifiers are implemented and admitted. |
+| SOL | Native SOL stays in a Solana program-derived account. | Monad publishes lock and action authorizations through Wormhole. The Solana program verifies posted VAAs and emits custody snapshots through the Wormhole shim; Monad verifies signed snapshot VAAs. The SDK connects a browser Solana wallet and posts VAAs; immutable program deployment and live recovery tests are still required. |
 
-For SOL, a Solana wallet signs the SDK `SolanaSourceLockWallet` lock instruction.
-The borrower tracks its bound lock with `POST /collateral/solana`; the server
-proves the finalized Solana lock to Monad. After a Core return or seizure
-authorization, an authorized actor obtains
+For SOL, Monad Core binds the lock and publishes its Wormhole authorization
+before a Solana wallet signs the SDK `SolanaSourceLockWallet` lock instruction.
+Each Monad authorization must include the current Wormhole Core `messageFee()`;
+the SDK supplies it for borrower binding and return transactions.
+The wallet adapter posts the authorization VAA to Solana. The SDK tracks the
+finalized lock signature with `POST /collateral/solana`; the server fetches its
+signed snapshot VAA and verifies it on Monad. Set `SOLANA_PROOF_URL` to the
+WormholeScan API origin (`https://api.wormholescan.io` on mainnet) for
+signature-based lookup. After a Core return or
+seizure authorization, an actor obtains
 `POST /collateral/solana/actions/plan`, submits that exact instruction on
 Solana, then obtains `POST /collateral/solana/actions/confirmation-plan` to
-confirm the finalized source action or cancellation on Monad. These endpoints
-require an admitted onchain verifier and a proof producer pinned to the market's
-Solana program data hash. After a confirmed seizure, a recovery keeper can
+confirm the finalized source action or cancellation on Monad. Confirmation
+requests can supply the finalized Solana `sourceTx` signature for direct VAA
+lookup. These endpoints require an admitted Wormhole-backed verifier for the
+pinned Solana program. After a confirmed seizure, a recovery keeper can
 request `POST /collateral/solana/recovery/funding-plan` for an already registered
 operation and finalized `SolanaRecoveryFundAuthorized` event. The SDK encodes
 the matching `FundRecovery` instruction. The
@@ -306,8 +313,9 @@ Governance must admit the corresponding pair and version in `RouteRegistry`, the
 set that registry on the House's `InboxFactory`. The factory address in the SDK
 and server must be the factory configured on the HouseVault.
 
-Remote collateral also requires source and Monad consensus light clients that
-verify finalized contract events and lock state. After deploying the source
+Ethereum remote collateral requires source and Monad consensus light clients
+that verify finalized contract events and lock state. SOL uses the Wormhole
+Guardian attestation path described above. After deploying the source
 controller, `SOURCE_GOVERNANCE` must call
 `SourceRecoveryVault.setController(controller)` and then
 `RemoteCollateralController.setPaused(false)` before accepting locks. The

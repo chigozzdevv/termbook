@@ -7,6 +7,7 @@ import {
   type SolanaAccountInfo, type SolanaInstruction, type SolanaRpcPort,
 } from "../src/collateral/solana-source.js";
 import { solanaPubkeyBase58 } from "../src/collateral/solana.js";
+import { wormholeFixture } from "./solana-wormhole.fixture.js";
 
 const key = (digit: string) => `0x${digit.repeat(64)}` as `0x${string}`;
 const address = (digit: string) => `0x${digit.repeat(40)}` as `0x${string}`;
@@ -93,32 +94,45 @@ describe("Solana source wallet", () => {
     const pda = key("b");
     const programId = solanaPubkeyBase58(b.sourceVault.accountBytes as `0x${string}`);
     const owner = solanaPubkeyBase58(b.owner.accountBytes as `0x${string}`);
+    const wormhole = wormholeFixture(owner, b.core, key("c"));
+    const programDataAddress = solanaPubkeyBase58(key("e"));
+    const loader = "BPFLoaderUpgradeab1e11111111111111111111111";
+    const programBytes = new Uint8Array(36);
+    programBytes.set([2, 0, 0, 0]);
+    programBytes.set(hexToBytes(key("e")), 4);
+    const programDataBytes = new Uint8Array(45);
+    programDataBytes.set([3, 0, 0, 0]);
     let lock: SolanaAccountInfo | null = null;
     let recovery: SolanaAccountInfo | null = null;
     const rpc: SolanaRpcPort = {
       getGenesisHash: async () => solanaPubkeyBase58(b.asset.reference as `0x${string}`),
       getAccountInfo: async (pubkey) => pubkey === programId
-        ? { owner: programId, executable: true, lamports: 1n, data: new Uint8Array() }
+        ? { owner: loader, executable: true, lamports: 1n, data: programBytes }
+        : pubkey === programDataAddress
+          ? { owner: loader, executable: false, lamports: 1n, data: programDataBytes }
+        : pubkey === wormhole.postedVaa ? wormhole.postedAccount
         : pubkey === solanaPubkeyBase58(b.recoveryVault!.accountBytes as `0x${string}`) ? recovery : lock,
       getMinimumBalanceForRentExemption: async () => 10_000n,
       getSignatureStatus: async () => ({ err: null, confirmationStatus: "finalized" }),
     };
     const send = vi.fn(async (_instruction: SolanaInstruction) => "2".repeat(88));
     const wallet = new SolanaSourceLockWallet({ rpcUrl: "https://invalid.example", rpc,
-      wallet: { publicKey: owner, sendInstruction: send },
+      wallet: { publicKey: owner, sendInstruction: send,
+        prepareWormholeAuthorization: async () => wormhole },
       deriveLockPda: async () => solanaPubkeyBase58(pda),
       deriveRecoveryPda: async () => solanaPubkeyBase58(b.recoveryVault!.accountBytes as `0x${string}`) }, b.asset.reference as `0x${string}`);
 
     expect(encodeSolanaLock(b, lockId)).toHaveLength(265);
     expect(await wallet.observeLock(b, lockId)).toEqual({ state: "missing" });
-    await wallet.submitLock(b, lockId, 2n);
+    await wallet.submitLock(b, lockId, 2n, { actionHash: key("c"), authorizationTxHash: key("d") });
     expect(send).toHaveBeenCalledOnce();
-    expect(send.mock.calls[0]![0]).toMatchObject({ programId, keys: [
+    expect(send.mock.calls[0]![0].programId).toBe(programId);
+    expect(send.mock.calls[0]![0].keys.slice(0, 4)).toMatchObject([
       { pubkey: owner, isSigner: true, isWritable: true },
       { pubkey: solanaPubkeyBase58(pda), isSigner: false, isWritable: true },
       { pubkey: solanaPubkeyBase58(b.recoveryVault!.accountBytes as `0x${string}`), isSigner: false, isWritable: true },
       { pubkey: "11111111111111111111111111111111", isSigner: false, isWritable: false },
-    ] });
+    ]);
     lock = { owner: programId, executable: false, lamports: b.amount + 10_000n,
       data: record(b, lockId, pda) };
     recovery = { owner: programId, executable: false, lamports: 10_000n,

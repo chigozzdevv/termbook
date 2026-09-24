@@ -12,6 +12,8 @@ use solana_program::{
 };
 use solana_system_interface::{instruction as system_instruction, program as system_program};
 
+mod wormhole;
+
 #[cfg(not(feature = "no-entrypoint"))]
 solana_program::entrypoint!(process_instruction);
 
@@ -44,6 +46,8 @@ pub enum VaultInstruction {
     RecoveryPayout(RecoveryPayoutRequest),
     FundRecovery(RecoveryFundingRequest),
     ReconcileRecoveryRefund(RecoveryRefundRequest),
+    CheckpointRecovery(RecoveryCheckpointRequest),
+    CheckpointLock,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
@@ -52,10 +56,13 @@ pub struct RecoveryRefundRequest {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+pub struct RecoveryCheckpointRequest {
+    pub deadline: i64,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ApplyRequest {
     pub authorization: RemoteAuthorization,
-    pub finalized_header: Vec<u8>,
-    pub authorization_proof: Vec<u8>,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
@@ -65,8 +72,6 @@ pub struct RecoveryPayoutRequest {
     pub nonce: u64,
     pub revision: u64,
     pub deadline: i64,
-    pub finalized_header: Vec<u8>,
-    pub authorization_proof: Vec<u8>,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
@@ -80,8 +85,6 @@ pub struct RecoveryFundingRequest {
     pub nonce: u64,
     pub revision: u64,
     pub deadline: i64,
-    pub finalized_header: Vec<u8>,
-    pub authorization_proof: Vec<u8>,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
@@ -194,6 +197,10 @@ pub fn process_instruction(
         VaultInstruction::ReconcileRecoveryRefund(request) => {
             process_reconcile_recovery_refund(program_id, accounts, &request)
         }
+        VaultInstruction::CheckpointRecovery(request) => {
+            process_checkpoint_recovery(program_id, accounts, &request)
+        }
+        VaultInstruction::CheckpointLock => process_checkpoint_lock(program_id, accounts),
     }
 }
 
@@ -207,9 +214,11 @@ fn process_lock(
     let lock = next_account_info(&mut accounts)?;
     let recovery = next_account_info(&mut accounts)?;
     let system = next_account_info(&mut accounts)?;
+    let posted_vaa = next_account_info(&mut accounts)?;
+    let program = next_account_info(&mut accounts)?;
+    let program_data = next_account_info(&mut accounts)?;
     let now = Clock::get()?.unix_timestamp;
     validate_lock(request, owner.key, now)?;
-    require_admitted_verifier()?;
     if !owner.is_signer
         || !owner.is_writable
         || !lock.is_writable
@@ -257,6 +266,12 @@ fn process_lock(
         last_canceled_action_hash: [0; 32],
     };
     let serialized = borsh::to_vec(&record).map_err(|_| ProgramError::InvalidAccountData)?;
+    wormhole::verify_monad_authorization(
+        posted_vaa,
+        &record.monad_core,
+        &solana_lock_digest(&record)?,
+    )?;
+    verify_immutable_program(program_id, program, program_data)?;
     let recovery_record = RecoveryRecord {
         version: RECOVERY_VERSION,
         bump: recovery_bump,
@@ -306,6 +321,36 @@ fn process_lock(
         .data
         .borrow_mut()
         .copy_from_slice(&serialized_recovery);
+    wormhole::publish_snapshot(program_id, lock, accounts.as_slice())?;
+    Ok(())
+}
+
+fn verify_immutable_program(
+    program_id: &Pubkey,
+    program: &AccountInfo,
+    program_data: &AccountInfo,
+) -> ProgramResult {
+    let loader = "BPFLoaderUpgradeab1e11111111111111111111111"
+        .parse::<Pubkey>()
+        .map_err(|_| ProgramError::InvalidArgument)?;
+    if program.key != program_id
+        || !program.executable
+        || program.owner != &loader
+        || program_data.owner != &loader
+    {
+        return Err(VaultError::InvalidBinding.into());
+    }
+    let program_bytes = program.try_borrow_data()?;
+    let data_bytes = program_data.try_borrow_data()?;
+    if program_bytes.len() != 36
+        || data_bytes.len() < 45
+        || program_bytes[..4] != 2u32.to_le_bytes()
+        || data_bytes[..4] != 3u32.to_le_bytes()
+        || program_bytes[4..36] != program_data.key.as_ref()[..]
+        || data_bytes[12] != 0
+    {
+        return Err(VaultError::InvalidBinding.into());
+    }
     Ok(())
 }
 
@@ -370,6 +415,7 @@ fn process_action(
     let mut accounts = accounts.iter();
     let lock = next_account_info(&mut accounts)?;
     let destination = next_account_info(&mut accounts)?;
+    let posted_vaa = next_account_info(&mut accounts)?;
     if !lock.is_writable || !destination.is_writable {
         return Err(VaultError::InvalidBinding.into());
     }
@@ -377,7 +423,7 @@ fn process_action(
     let now = Clock::get()?.unix_timestamp;
     validate_action(&record, &request.authorization, destination.key, now)?;
     let action_hash = solana_action_hash(&record, &request.authorization)?;
-    verify_authorization(request, &action_hash)?;
+    wormhole::verify_monad_authorization(posted_vaa, &record.monad_core, &action_hash)?;
     let rent = Rent::get()?;
     apply_verified_action(
         program_id,
@@ -390,7 +436,8 @@ fn process_action(
             lock: rent.minimum_balance(lock.data_len()),
             recovery: rent.minimum_balance(destination.data_len()),
         },
-    )
+    )?;
+    wormhole::publish_snapshot(program_id, lock, accounts.as_slice())
 }
 
 fn load_lock(program_id: &Pubkey, lock: &AccountInfo) -> Result<LockRecord, ProgramError> {
@@ -419,6 +466,7 @@ fn process_expire(
 ) -> ProgramResult {
     let mut accounts = accounts.iter();
     let lock = next_account_info(&mut accounts)?;
+    let posted_vaa = next_account_info(&mut accounts)?;
     if !lock.is_writable {
         return Err(VaultError::InvalidBinding.into());
     }
@@ -426,8 +474,9 @@ fn process_expire(
     let now = Clock::get()?.unix_timestamp;
     validate_expiration(&record, &request.authorization, now)?;
     let action_hash = solana_action_hash(&record, &request.authorization)?;
-    verify_authorization(request, &action_hash)?;
-    expire_verified_action(lock, record, &request.authorization, now)
+    wormhole::verify_monad_authorization(posted_vaa, &record.monad_core, &action_hash)?;
+    expire_verified_action(lock, record, &request.authorization, now)?;
+    wormhole::publish_snapshot(program_id, lock, accounts.as_slice())
 }
 
 fn process_recovery_payout(
@@ -439,6 +488,7 @@ fn process_recovery_payout(
     let lock = next_account_info(&mut accounts)?;
     let recovery = next_account_info(&mut accounts)?;
     let destination = next_account_info(&mut accounts)?;
+    let posted_vaa = next_account_info(&mut accounts)?;
     if !lock.is_writable
         || !recovery.is_writable
         || !destination.is_writable
@@ -459,11 +509,7 @@ fn process_recovery_payout(
         now,
     )?;
     let payout_hash = solana_recovery_payout_hash(&lock_record, request)?;
-    verify_monad_proof(
-        &request.finalized_header,
-        &request.authorization_proof,
-        &payout_hash,
-    )?;
+    wormhole::verify_monad_authorization(posted_vaa, &lock_record.monad_core, &payout_hash)?;
     apply_verified_recovery_payout(
         lock,
         lock_record,
@@ -472,7 +518,8 @@ fn process_recovery_payout(
         recovery_record,
         request,
         payout_hash,
-    )
+    )?;
+    wormhole::publish_snapshot(program_id, recovery, accounts.as_slice())
 }
 
 fn process_recovery_funding(
@@ -484,6 +531,7 @@ fn process_recovery_funding(
     let lock = next_account_info(&mut accounts)?;
     let recovery = next_account_info(&mut accounts)?;
     let destination = next_account_info(&mut accounts)?;
+    let posted_vaa = next_account_info(&mut accounts)?;
     if !lock.is_writable
         || !recovery.is_writable
         || !destination.is_writable
@@ -504,11 +552,7 @@ fn process_recovery_funding(
         now,
     )?;
     let funding_hash = solana_recovery_funding_hash(&lock_record, request)?;
-    verify_monad_proof(
-        &request.finalized_header,
-        &request.authorization_proof,
-        &funding_hash,
-    )?;
+    wormhole::verify_monad_authorization(posted_vaa, &lock_record.monad_core, &funding_hash)?;
     apply_verified_recovery_funding(
         lock,
         lock_record,
@@ -517,7 +561,8 @@ fn process_recovery_funding(
         recovery_record,
         request,
         funding_hash,
-    )
+    )?;
+    wormhole::publish_snapshot(program_id, recovery, accounts.as_slice())
 }
 
 fn process_reconcile_recovery_refund(
@@ -539,7 +584,32 @@ fn process_reconcile_recovery_refund(
         recovery_record,
         request.amount_lamports,
         rent_reserve,
-    )
+    )?;
+    wormhole::publish_snapshot(program_id, recovery, accounts.as_slice())
+}
+
+fn process_checkpoint_recovery(
+    program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    request: &RecoveryCheckpointRequest,
+) -> ProgramResult {
+    let mut accounts = accounts.iter();
+    let lock = next_account_info(&mut accounts)?;
+    let recovery = next_account_info(&mut accounts)?;
+    let lock_record = load_lock(program_id, lock)?;
+    let rent_reserve = Rent::get()?.minimum_balance(recovery.data_len());
+    load_recovery(program_id, recovery, &lock_record, rent_reserve)?;
+    if request.deadline <= 0 || Clock::get()?.unix_timestamp <= request.deadline {
+        return Err(VaultError::Expired.into());
+    }
+    wormhole::publish_snapshot(program_id, recovery, accounts.as_slice())
+}
+
+fn process_checkpoint_lock(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
+    let mut accounts = accounts.iter();
+    let lock = next_account_info(&mut accounts)?;
+    load_lock(program_id, lock)?;
+    wormhole::publish_snapshot(program_id, lock, accounts.as_slice())
 }
 
 fn reconcile_recovery_refund(
@@ -960,25 +1030,6 @@ pub fn validate_action(
     Ok(())
 }
 
-fn require_admitted_verifier() -> ProgramResult {
-    Err(VaultError::VerifierUnavailable.into())
-}
-
-fn verify_authorization(request: &ApplyRequest, action_hash: &[u8; 32]) -> ProgramResult {
-    verify_monad_proof(
-        &request.finalized_header,
-        &request.authorization_proof,
-        action_hash,
-    )
-}
-
-fn verify_monad_proof(header: &[u8], proof: &[u8], action_hash: &[u8; 32]) -> ProgramResult {
-    if header.is_empty() || proof.is_empty() || *action_hash == [0; 32] {
-        return Err(VaultError::InvalidAction.into());
-    }
-    require_admitted_verifier()
-}
-
 fn uint_word(value: u64) -> [u8; 32] {
     let mut word = [0; 32];
     word[24..].copy_from_slice(&value.to_be_bytes());
@@ -1194,8 +1245,6 @@ mod tests {
             nonce: 1,
             revision: 4,
             deadline: 100,
-            finalized_header: vec![1],
-            authorization_proof: vec![2],
         }
     }
 
@@ -1210,8 +1259,6 @@ mod tests {
             nonce: 1,
             revision: 4,
             deadline: 100,
-            finalized_header: vec![1],
-            authorization_proof: vec![2],
         }
     }
 
@@ -1352,26 +1399,9 @@ mod tests {
     }
 
     #[test]
-    fn admission_is_closed() {
-        assert_eq!(
-            require_admitted_verifier(),
-            Err(VaultError::VerifierUnavailable.into())
-        );
+    fn wormhole_instruction_encoding() {
         let authorization = action(RELEASE);
-        let empty = ApplyRequest {
-            authorization: authorization.clone(),
-            finalized_header: Vec::new(),
-            authorization_proof: vec![1],
-        };
-        assert_eq!(
-            verify_authorization(&empty, &[1; 32]),
-            Err(VaultError::InvalidAction.into())
-        );
-        let request = ApplyRequest {
-            authorization,
-            finalized_header: vec![1],
-            authorization_proof: vec![2],
-        };
+        let request = ApplyRequest { authorization };
         let encoded = borsh::to_vec(&VaultInstruction::Apply(request.clone())).unwrap();
         assert_eq!(
             VaultInstruction::try_from_slice(&encoded).unwrap(),
@@ -1382,24 +1412,71 @@ mod tests {
             VaultInstruction::try_from_slice(&expire).unwrap(),
             VaultInstruction::Expire(request.clone())
         );
-        assert_eq!(
-            verify_authorization(&request, &[1; 32]),
-            Err(VaultError::VerifierUnavailable.into())
-        );
         let funding = funding();
         let encoded = borsh::to_vec(&VaultInstruction::FundRecovery(funding.clone())).unwrap();
         assert_eq!(
             VaultInstruction::try_from_slice(&encoded).unwrap(),
             VaultInstruction::FundRecovery(funding.clone())
         );
+        let checkpoint = RecoveryCheckpointRequest { deadline: 100 };
+        let encoded =
+            borsh::to_vec(&VaultInstruction::CheckpointRecovery(checkpoint.clone())).unwrap();
         assert_eq!(
-            verify_monad_proof(
-                &funding.finalized_header,
-                &funding.authorization_proof,
-                &[1; 32]
-            ),
-            Err(VaultError::VerifierUnavailable.into())
+            VaultInstruction::try_from_slice(&encoded).unwrap(),
+            VaultInstruction::CheckpointRecovery(checkpoint)
         );
+        let lock_checkpoint = borsh::to_vec(&VaultInstruction::CheckpointLock).unwrap();
+        assert_eq!(lock_checkpoint, vec![7]);
+    }
+
+    #[test]
+    fn lock_requires_frozen_program_data() {
+        let loader = "BPFLoaderUpgradeab1e11111111111111111111111"
+            .parse::<Pubkey>()
+            .unwrap();
+        let program_id = Pubkey::new_unique();
+        let data_key = Pubkey::new_unique();
+        let mut program_lamports = 1;
+        let mut data_lamports = 1;
+        let mut program_bytes = [0u8; 36];
+        program_bytes[..4].copy_from_slice(&2u32.to_le_bytes());
+        program_bytes[4..36].copy_from_slice(data_key.as_ref());
+        let mut data_bytes = [0u8; 45];
+        data_bytes[..4].copy_from_slice(&3u32.to_le_bytes());
+        let program = AccountInfo::new(
+            &program_id,
+            false,
+            false,
+            &mut program_lamports,
+            &mut program_bytes,
+            &loader,
+            true,
+        );
+        let data = AccountInfo::new(
+            &data_key,
+            false,
+            false,
+            &mut data_lamports,
+            &mut data_bytes,
+            &loader,
+            false,
+        );
+        assert_eq!(
+            verify_immutable_program(&program_id, &program, &data),
+            Ok(())
+        );
+        drop(data);
+        data_bytes[12] = 1;
+        let data = AccountInfo::new(
+            &data_key,
+            false,
+            false,
+            &mut data_lamports,
+            &mut data_bytes,
+            &loader,
+            false,
+        );
+        assert!(verify_immutable_program(&program_id, &program, &data).is_err());
     }
 
     #[test]

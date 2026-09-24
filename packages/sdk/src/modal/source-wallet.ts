@@ -27,7 +27,10 @@ async function switchChain(provider: Provider, chainId: number): Promise<void> {
 export async function connectSourceWallet(client: TermbookClient, market: CollateralMarket,
   resolver?: (market: CollateralMarket) => Promise<SourceLockWallet>): Promise<SourceLockWallet> {
   if (resolver) return resolver(market);
-  if (market.kind === "solana") throw new Error("solana-wallet-connector-required");
+  if (market.kind === "solana") {
+    const { connectSolanaBrowserSourceWallet } = await import("../collateral/solana-browser.js");
+    return connectSolanaBrowserSourceWallet(market);
+  }
   await client.ready();
   if (market.chainId === client.config.chainId) {
     return new EvmSourceLockWallet({ chainId: market.chainId, rpcUrl: market.rpcUrl, wallet: client.config.wallet,
@@ -67,6 +70,7 @@ export async function connectSourceWallet(client: TermbookClient, market: Collat
     preflight: (binding) => onSource(() => source.preflight(binding)),
     remoteRecoveryVault: (binding) => source.remoteRecoveryVault(binding),
     observeLock: (binding, lockId, txId) => source.observeLock(binding, lockId, txId),
-    submitLock: (binding, lockId, revision) => onSource(() => source.submitLock(binding, lockId, revision)),
+    submitLock: (binding, lockId, revision) =>
+      onSource(() => source.submitLock(binding, lockId, revision)),
   };
 }

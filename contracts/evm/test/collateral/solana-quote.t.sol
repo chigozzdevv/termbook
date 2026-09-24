@@ -9,6 +9,19 @@ import {VerifierRegistry} from "../../src/monad/collateral/VerifierRegistry.sol"
 import {Types} from "../../src/shared/Types.sol";
 import {MockRemoteSaleOracle} from "../MockRemoteSaleOracle.sol";
 
+contract MockSolanaWormhole {
+    bytes public lastPayload;
+    uint256 public fee;
+    function chainId() external pure returns (uint16) { return 48; }
+    function messageFee() external view returns (uint256) { return fee; }
+    function setFee(uint256 value) external { fee = value; }
+    function publishMessage(uint32, bytes memory payload, uint8) external payable returns (uint64) {
+        require(msg.value == fee, "fee");
+        lastPayload = payload;
+        return 1;
+    }
+}
+
 contract MockSolanaProofVerifier {
     bytes32 public expectedLockDigest;
     bytes32 public expectedCancellationHash;
@@ -137,6 +150,7 @@ contract SolanaQuoteTest is Test {
     VerifierRegistry private registry;
     MockSolanaProofVerifier private verifier;
     MockRemoteSaleOracle private oracle;
+    MockSolanaWormhole private wormhole;
 
     function setUp() public {
         settlement = new MockERC20();
@@ -148,6 +162,8 @@ contract SolanaQuoteTest is Test {
         core.setVerifierRegistry(address(registry));
         registry.setVerifier(SOURCE_CHAIN, address(verifier), 1, 1 days);
         core.setSolanaMarket(SOURCE_CHAIN, GENESIS, PROGRAM, PROGRAM_DATA_HASH);
+        wormhole = new MockSolanaWormhole();
+        core.configureSolanaWormhole(address(wormhole));
         core.setRemoteSalePolicy(
             SOURCE_CHAIN,
             core.solanaAlias(GENESIS, core.SOLANA_NATIVE_ASSET_ID()),
@@ -223,6 +239,9 @@ contract SolanaQuoteTest is Test {
         core.bindRemoteCollateral(creditId, lockId);
         vm.prank(borrower);
         core.bindSolanaCollateral(creditId, lockId, lockPda);
+        assertEq(wormhole.lastPayload(), abi.encodePacked(
+            keccak256("Termbook Monad authorization v1"), core.solanaLockDigest(creditId)
+        ));
         assertEq(core.solanaLockPdaOf(creditId), lockPda);
 
         verifier.setExpectedLockDigest(core.solanaLockDigest(creditId));
@@ -230,6 +249,24 @@ contract SolanaQuoteTest is Test {
         assertTrue(core.collateralProven(creditId));
         vm.expectRevert(TermbookCore.InvalidCollateral.selector);
         core.proveCollateral(creditId, SOURCE_CHAIN, hex"01", hex"02");
+    }
+
+    function testSolanaBindRequiresExactWormholeFee() public {
+        Types.SolanaQuote memory solana = _signedQuote();
+        vm.prank(borrower);
+        core.acceptSolanaQuote(solana);
+        bytes32 creditId = keccak256(abi.encode(solana.quote.intentId, borrower, house, solana.quote.nonce));
+        wormhole.setFee(0.01 ether);
+        vm.deal(borrower, 1 ether);
+        bytes32 lockId = keccak256("fee-lock");
+        bytes32 lockPda = keccak256("fee-pda");
+        vm.prank(borrower);
+        vm.expectRevert(TermbookCore.InvalidAuthority.selector);
+        core.bindSolanaCollateral(creditId, lockId, lockPda);
+        assertEq(core.solanaLockPdaOf(creditId), bytes32(0));
+        vm.prank(borrower);
+        core.bindSolanaCollateral{value: 0.01 ether}(creditId, lockId, lockPda);
+        assertEq(address(wormhole).balance, 0.01 ether);
     }
 
     function testLegacyQuoteCannotBypassSolanaIdentity() public {

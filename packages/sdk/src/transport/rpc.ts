@@ -19,6 +19,8 @@ const previewAbi = parseAbi([
   "function previewFundedAction(bytes32 creditId,address target,bytes data,uint256 drawAmount,uint256 spendAmount,uint256 borrowerNonce)",
   "error ActionPreview(uint256 healthBps,uint256 initialBps,uint256 debt,uint256 recoveryValue)",
 ]);
+const wormholeAbi = parseAbi(["function messageFee() view returns (uint256)"]);
+const solanaCoreAbi = parseAbi(["function solanaWormholeCore() view returns (address)"]);
 
 export type ActionPreview = { healthBps: bigint; initialBps: bigint; debt: bigint; recoveryValue: bigint };
 
@@ -79,8 +81,14 @@ export class RpcClient {
     return this.read<Record<string, unknown>>(this.config.core, termbookCoreAbi, "creditDetails", [creditId]);
   }
 
-  async coreWrite(functionName: string, args: readonly unknown[] = []): Promise<TxHash> {
-    return this.write(this.config.core, termbookCoreAbi, functionName, args);
+  async coreWrite(functionName: string, args: readonly unknown[] = [], value?: bigint): Promise<TxHash> {
+    return this.write(this.config.core, termbookCoreAbi, functionName, args, value);
+  }
+
+  async solanaWormholeFee(): Promise<bigint> {
+    const wormhole = await this.read<`0x${string}`>(this.config.core, solanaCoreAbi, "solanaWormholeCore");
+    if (/^0x0{40}$/i.test(wormhole)) throw new Error("solana-wormhole-unavailable");
+    return this.read<bigint>(wormhole, wormholeAbi, "messageFee");
   }
 
   async previewAction(creditId: `0x${string}`, target: `0x${string}`, data: `0x${string}`,

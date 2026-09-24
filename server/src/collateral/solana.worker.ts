@@ -147,7 +147,8 @@ async function processSolanaLockJob(job: { kind: string; payload: Record<string,
   const runtime = await chain.getCode({ address: verifier, blockNumber: at });
   if (!runtime || !same(keccak256(runtime), codeHash)) throw new Error("solana-verifier-code-mismatch");
   const proof = await fetchSolanaProof({ rpcUrl: config.rpcUrl, proofUrl: config.proofUrl, kind: "lock",
-    id: lockId as Hex, digest, genesis, programId, programDataHash, lockPda: tracked.lockPda as Hex });
+    id: lockId as Hex, digest, genesis, programId, programDataHash, lockPda: tracked.lockPda as Hex,
+    sourceTx: tracked.sourceTx });
   const verified = await chain.readContract({ address: verifier, abi: verifierAbi, functionName: "verifySolanaLock",
     args: [proof.header, proof.proof, genesis, programId, programDataHash, digest], blockNumber: at });
   if (!verified) throw new Error("solana-proof-rejected");

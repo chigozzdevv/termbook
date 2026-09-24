@@ -190,7 +190,11 @@ export class Credit {
     const collateralReturned = Boolean(field(current, "collateralReturned", 24));
     if (typeof lock === "string" && /^0x[a-fA-F0-9]{64}$/.test(lock) && collateralAmount > 0n) {
       if (remote && pendingRemote > 0n) return { closed: false };
-      const returnTx = await this.client.rpc.coreWrite("authorizeReturn", [this.id, lock, collateralAmount]);
+      const solana = remote && await this.client.rpc.read<boolean>(this.client.config.core,
+        [{ type: "function", name: "solanaCollateral", stateMutability: "view", inputs: [{ type: "bytes32" }], outputs: [{ type: "bool" }] }],
+        "solanaCollateral", [this.id]);
+      const returnTx = await this.client.rpc.coreWrite("authorizeReturn", [this.id, lock, collateralAmount],
+        solana ? await this.client.rpc.solanaWormholeFee() : undefined);
       await this.client.rpc.wait(returnTx);
       if (remote) return { closed: false, tx: returnTx };
     } else if (!collateralReturned && typeof lock === "string" && /^0x[a-fA-F0-9]{64}$/.test(lock)) {

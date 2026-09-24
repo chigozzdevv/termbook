@@ -14,8 +14,12 @@
   },
   "dependencies": {
     "@defuse-protocol/one-click-sdk-typescript": "0.1.26",
+    "@solana/web3.js": "1.99.0",
     "@termbook/bindings": "workspace:^",
     "@termbook/schema": "workspace:^",
+    "@wormhole-foundation/sdk-connect": "6.1.5",
+    "@wormhole-foundation/sdk-solana-core": "6.1.5",
+    "buffer": "6.0.3",
     "viem": "^2.56.3"
   }
 }

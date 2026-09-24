@@ -12,7 +12,14 @@ export { CollateralSetup, collateralSetupHash, restoreCollateralSetup, Collatera
 export type { CollateralSetupOptions, SourceLockWallet, SourceLockObservation, CollateralProofSource } from "./collateral/setup.js";
 export { solanaAlias, solanaPubkeyBytes, solanaPubkeyBase58 } from "./collateral/solana.js";
 export { SolanaJsonRpc, SolanaSourceLockWallet, encodeSolanaLock, decodeSolanaLockRecord, decodeSolanaRecoveryRecord } from "./collateral/solana-source.js";
+export async function connectSolanaBrowserWallet(rpcUrl: string) {
+  const { SolanaBrowserWallet } = await import("./collateral/solana-browser.js");
+  return SolanaBrowserWallet.connect(rpcUrl);
+}
 export type { SolanaInstruction, SolanaWalletPort, SolanaRpcPort, SolanaSourceWalletConfig } from "./collateral/solana-source.js";
+export { SOLANA_WORMHOLE_CORE, fetchMonadAuthorizationVaa, prepareSolanaSnapshot, prepareSolanaWormhole,
+  submitSolanaLockCheckpoint } from "./collateral/solana-wormhole.js";
+export type { SolanaWormholeContext } from "./collateral/solana-wormhole.js";
 export { solanaActionHash, solanaActionInstruction, parseSolanaActionPlan, submitSolanaAction } from "./collateral/solana-action.js";
 export type { SolanaRemoteAuthorization, SolanaActionPlan } from "./collateral/solana-action.js";
 export { solanaRecoveryFundingHash, solanaRecoveryFundingInstruction, parseSolanaRecoveryFundingPlan,
@@ -23,6 +30,8 @@ export { solanaRecoveryPayoutHash, solanaRecoveryPayoutInstruction,
 export type { SolanaRecoveryPayout, SolanaRecoveryPayoutPlan } from "./collateral/solana-recovery.js";
 export { solanaRecoveryRefundInstruction, submitSolanaRecoveryRefund } from "./collateral/solana-recovery.js";
 export type { SolanaRecoveryRefund } from "./collateral/solana-recovery.js";
+export { solanaRecoveryCheckpointInstruction, submitSolanaRecoveryCheckpoint } from "./collateral/solana-recovery.js";
+export type { SolanaRecoveryCheckpoint } from "./collateral/solana-recovery.js";
 export { EvmSourceLockWallet, evmSourceLockCall, evmRemoteLockCommitment } from "./collateral/evm-source.js";
 export type { EvmSourceWalletConfig } from "./collateral/evm-source.js";
 export { Settlement } from "./settlement/settlement.js";

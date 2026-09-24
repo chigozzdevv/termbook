@@ -3,7 +3,6 @@ import { quoteHash, verifyQuoteSignature, type OneClickQuoteResponse } from "@de
 import { NATIVE_SOL_ASSET_BYTES } from "@termbook/schema";
 import { concatHex, decodeAbiParameters, encodeFunctionData, keccak256, parseAbi, stringToHex,
   type Address, type Hex, type TransactionReceipt } from "viem";
-import { fetchMonadReceiptProof } from "../chain/monad-receipt-proof.js";
 import { monadClient } from "../chain/monad.client.js";
 import { env } from "../config/env.js";
 import { solanaAlias } from "../quote/solana.js";
@@ -114,24 +113,15 @@ function hashFunding(input: {
 
 export const solanaRecoveryService = {
   async fundingPlan(input: z.infer<typeof solanaRecoveryFundingPlanSchema>, requester: string) {
-    if (!env.monadProofUrl) throw new Error("solana-funding-proof-unavailable");
     const chain = monadClient();
     if (await chain.getChainId() !== env.monadChainId) throw new Error("solana-monad-chain-mismatch");
     const at = (await chain.getBlock({ blockTag: "finalized" })).number;
     const core = env.core as Address;
     if (!await chain.readContract({ address: core, abi: coreAbi, functionName: "recoveryKeepers",
       args: [requester as Address], blockNumber: at })) throw new Error("permission-denied");
-    let event: FundingEvent | undefined;
-    const proof = await fetchMonadReceiptProof({ txHash: input.authorizationTxHash,
-      finalityUrl: env.monadProofUrl,
-      selectLog(receipt) {
-        const selected = exactFundingLog(receipt, core, input.creditId, input.operationId);
-        event = selected.event;
-        return selected.index;
-      },
-    });
-    if (!event) throw new Error("solana-funding-log-mismatch");
-    const authorized = event;
+    const receipt = await chain.getTransactionReceipt({ hash: input.authorizationTxHash });
+    if (receipt.blockNumber > at) throw new Error("solana-funding-not-finalized");
+    const authorized = exactFundingLog(receipt, core, input.creditId, input.operationId).event;
     const [credit, debt, isSolana, identity, lockPda, sourceChain, funded, confirmed, factory, factoryHash,
       pendingHash, pendingOperation, pendingAmount, pendingNonce, pendingDeadline] =
       await Promise.all([
@@ -262,11 +252,9 @@ export const solanaRecoveryService = {
       || quoteDeadline < Number(authorized.deadline) * 1000) {
       throw new Error("solana-funding-quote-mismatch");
     }
-    if ((proof.header.length + proof.proof.length - 4) / 2 + 189 > 1_000) {
-      throw new Error("solana-authorization-proof-too-large");
-    }
     return {
-      fundingHash: authorized.actionHash, programDataHash, header: proof.header, proof: proof.proof,
+      fundingHash: authorized.actionHash, programDataHash,
+      authorizationTxHash: input.authorizationTxHash,
       funding: Object.fromEntries(Object.entries(funding).map(([key, value]) =>
         [key, typeof value === "bigint" ? value.toString() : value])),
     };
@@ -341,7 +329,7 @@ export const solanaRecoveryService = {
     if (!runtime || !same(keccak256(runtime), codeHash)) throw new Error("solana-verifier-code-mismatch");
     const proof = await fetchSolanaProof({ rpcUrl, proofUrl, kind: "recovery", id: hash,
       digest: hash, genesis, programId, programDataHash, lockPda,
-      accountPda: recoveryVault });
+      accountPda: recoveryVault, sourceTx: input.sourceTx });
     const verified = input.mode === "confirm"
       ? await chain.readContract({ address: verifier, abi: verifierAbi,
         functionName: purpose === "funding" ? "verifySolanaFunding" : "verifySolanaPayout",
@@ -417,7 +405,7 @@ export const solanaRecoveryService = {
     if (!runtime || !same(keccak256(runtime), codeHash)) throw new Error("solana-verifier-code-mismatch");
     const proof = await fetchSolanaProof({ rpcUrl, proofUrl, kind: "recovery", id: input.creditId,
       digest: input.creditId, genesis, programId, programDataHash, lockPda,
-      accountPda: recoveryVault });
+      accountPda: recoveryVault, sourceTx: input.sourceTx });
     const verified = await chain.readContract({ address: verifier, abi: verifierAbi,
       functionName: "verifySolanaRefund", args: [proof.header, proof.proof, genesis,
         programId, programDataHash, lockPda, recoveryVault, input.creditId, cumulative], blockNumber: at });

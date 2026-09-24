@@ -21,6 +21,7 @@ export * from "./abi/monad-bft-light-client.js";
 export * from "./abi/monad-epoch-committer.js";
 export * from "./abi/ethereum-verifier.js";
 export * from "./abi/solana-verifier.js";
+export * from "./abi/wormhole-solana-account-client.js";
 export * from "./abi/monad-verifier.js";
 export * from "./abi/oracle-registry.js";
 export * from "./abi/health-source.js";

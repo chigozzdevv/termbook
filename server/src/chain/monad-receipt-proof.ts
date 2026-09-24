@@ -118,13 +118,17 @@ export function encodeReceipt(receipt: TransactionReceipt): Hex {
   return type === 0 ? payload : concatHex([numberToHex(type, { size: 1 }), payload]);
 }
 
-export function buildReceiptProof(receipts: TransactionReceipt[], txIndex: number, logIndex: number) {
+function buildEncodedReceiptProof(receipts: Hex[], txIndex: number, logIndex: number) {
   if (!Number.isSafeInteger(txIndex) || txIndex < 0 || txIndex >= receipts.length
-    || !Number.isSafeInteger(logIndex) || logIndex < 0 || logIndex >= 512
-    || logIndex >= receipts[txIndex]!.logs.length) throw new Error("receipt-index-invalid");
-  const entries = receipts.map((receipt, index) => ({
-    key: nibbles(toRlp(quantity(BigInt(index)))), value: encodeReceipt(receipt),
+    || !Number.isSafeInteger(logIndex) || logIndex < 0 || logIndex >= 512) {
+    throw new Error("receipt-index-invalid");
+  }
+  const entries = receipts.map((value, index) => ({
+    key: nibbles(toRlp(quantity(BigInt(index)))), value,
   }));
+  if (entries.some((entry) => !/^0x(?:[0-9a-fA-F]{2})+$/.test(entry.value))) {
+    throw new Error("receipt-invalid");
+  }
   if (entries.some((entry) => (entry.value.length - 2) / 2 > 64_000)
     || entries.reduce((size, entry) => size + (entry.value.length - 2) / 2, 0) > 32_000_000) {
     throw new Error("receipt-proof-too-large");
@@ -139,6 +143,14 @@ export function buildReceiptProof(receipts: TransactionReceipt[], txIndex: numbe
   );
   if ((proof.length - 2) / 2 > 160_000) throw new Error("receipt-proof-too-large");
   return { receiptsRoot, proof, nodes };
+}
+
+export function buildReceiptProof(receipts: TransactionReceipt[], txIndex: number, logIndex: number) {
+  if (!Number.isSafeInteger(txIndex) || txIndex < 0 || txIndex >= receipts.length
+    || !Number.isSafeInteger(logIndex) || logIndex < 0 || logIndex >= receipts[txIndex]!.logs.length) {
+    throw new Error("receipt-index-invalid");
+  }
+  return buildEncodedReceiptProof(receipts.map(encodeReceipt), txIndex, logIndex);
 }
 
 export async function fetchMonadReceiptProof(input: {
@@ -162,26 +174,45 @@ export async function fetchMonadReceiptProof(input: {
   if (block.transactions.length === 0 || block.transactions.length > 4096) {
     throw new Error("authorization-receipts-incomplete");
   }
-  let receipts: TransactionReceipt[];
-  try {
-    receipts = [...await chain.getBlockReceipts({ blockHash: block.hash })];
-  } catch {
-    receipts = [];
-    for (let offset = 0; offset < block.transactions.length; offset += 16) {
-      receipts.push(...await Promise.all(block.transactions.slice(offset, offset + 16)
-        .map((hash) => chain.getTransactionReceipt({ hash }))));
-    }
-  }
-  if (receipts.length !== block.transactions.length || receipts.length > 4096) throw new Error("authorization-receipts-incomplete");
-  for (let index = 0; index < receipts.length; index += 1) {
-    const item = receipts[index]!;
-    if (item.transactionIndex !== index || item.blockHash.toLowerCase() !== block.hash.toLowerCase()
-      || item.transactionHash.toLowerCase() !== block.transactions[index]!.toLowerCase()) {
+  const raw: unknown = await chain.request({ method: "debug_getRawReceipts",
+    params: [numberToHex(block.number)] } as never).catch(() => null);
+  let eventIndex: number;
+  let assembled: ReturnType<typeof buildReceiptProof>;
+  if (raw !== null) {
+    if (!Array.isArray(raw) || raw.length !== block.transactions.length
+      || raw.some((item) => typeof item !== "string")) {
       throw new Error("authorization-receipts-incomplete");
     }
+    const receipts = raw as Hex[];
+    if (receipts[receipt.transactionIndex]!.toLowerCase() !== encodeReceipt(receipt).toLowerCase()) {
+      throw new Error("authorization-receipt-mismatch");
+    }
+    eventIndex = input.selectLog(receipt);
+    assembled = buildEncodedReceiptProof(receipts, receipt.transactionIndex, eventIndex);
+  } else {
+    let receipts: TransactionReceipt[];
+    try {
+      receipts = [...await chain.getBlockReceipts({ blockHash: block.hash })];
+    } catch {
+      receipts = [];
+      for (let offset = 0; offset < block.transactions.length; offset += 16) {
+        receipts.push(...await Promise.all(block.transactions.slice(offset, offset + 16)
+          .map((hash) => chain.getTransactionReceipt({ hash }))));
+      }
+    }
+    if (receipts.length !== block.transactions.length || receipts.length > 4096) {
+      throw new Error("authorization-receipts-incomplete");
+    }
+    for (let index = 0; index < receipts.length; index += 1) {
+      const item = receipts[index]!;
+      if (item.transactionIndex !== index || item.blockHash.toLowerCase() !== block.hash.toLowerCase()
+        || item.transactionHash.toLowerCase() !== block.transactions[index]!.toLowerCase()) {
+        throw new Error("authorization-receipts-incomplete");
+      }
+    }
+    eventIndex = input.selectLog(receipts[receipt.transactionIndex]!);
+    assembled = buildReceiptProof(receipts, receipt.transactionIndex, eventIndex);
   }
-  const eventIndex = input.selectLog(receipts[receipt.transactionIndex]!);
-  const assembled = buildReceiptProof(receipts, receipt.transactionIndex, eventIndex);
   if (assembled.receiptsRoot.toLowerCase() !== block.receiptsRoot.toLowerCase()) {
     throw new Error("authorization-receipts-root-mismatch");
   }

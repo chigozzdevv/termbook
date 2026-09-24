@@ -108,7 +108,8 @@ describe("Monad receipt trie proof", () => {
     const hash = keccak256(header);
     const item = { ...receipt(0, true), blockHash: hash,
       logs: receipt(0, true).logs.map((log) => ({ ...log, blockHash: hash })) };
-    const request = vi.fn(async () => header);
+    const request = vi.fn(async ({ method }: { method: string }) => method === "debug_getRawReceipts"
+      ? [encodeReceipt(item)] : header);
     vi.mocked(monadClient).mockReturnValue({
       getTransactionReceipt: async () => item,
       getChainId: async () => 143,
@@ -122,6 +123,7 @@ describe("Monad receipt trie proof", () => {
     expect(proof.header).toBe(header);
     expect(proof.blockHash).toBe(hash);
     expect(request).toHaveBeenCalledWith({ method: "debug_getRawHeader", params: ["0x64"] });
+    expect(request).toHaveBeenCalledWith({ method: "debug_getRawReceipts", params: ["0x64"] });
   });
 
   it("rejects a raw header that does not match the finalized execution block", async () => {
@@ -135,10 +137,27 @@ describe("Monad receipt trie proof", () => {
         : { number: 100n, hash: blockHash, receiptsRoot: buildReceiptProof([item], 0, 0).receiptsRoot,
           timestamp: 1000n, transactions: [txHash] },
       getBlockReceipts: async () => [item],
-      request: async () => toRlp(Array.from({ length: 20 }, () => "0x")),
+      request: async ({ method }: { method: string }) => method === "debug_getRawReceipts"
+        ? [encodeReceipt(item)] : toRlp(Array.from({ length: 20 }, () => "0x")),
     } as never);
     await expect(fetchMonadAuthorizationProof({ txHash, core, creditId, actionHash, kind: 1 }))
       .rejects.toThrow("authorization-header-mismatch");
+  });
+
+  it("rejects raw receipts that disagree with the selected transaction", async () => {
+    env.monadChainId = 143;
+    const item = receipt(0, true);
+    vi.mocked(monadClient).mockReturnValue({
+      getTransactionReceipt: async () => item,
+      getChainId: async () => 143,
+      getBlock: async ({ blockTag }: { blockTag?: string }) => blockTag === "finalized"
+        ? { number: 103n }
+        : { number: 100n, hash: blockHash, receiptsRoot: buildReceiptProof([item], 0, 0).receiptsRoot,
+          timestamp: 1000n, transactions: [txHash] },
+      request: async () => [encodeReceipt(receipt(0, false))],
+    } as never);
+    await expect(fetchMonadAuthorizationProof({ txHash, core, creditId, actionHash, kind: 1 }))
+      .rejects.toThrow("authorization-receipt-mismatch");
   });
 
   it("rejects a block whose reconstructed receipt root differs", async () => {
@@ -151,6 +170,7 @@ describe("Monad receipt trie proof", () => {
         ? { number: 103n }
         : { number: 100n, hash: blockHash, receiptsRoot: `0x${"66".repeat(32)}`, transactions: [txHash] },
       getBlockReceipts: async () => [item],
+      request: async () => { throw new Error("method unavailable"); },
     } as never);
     await expect(fetchMonadAuthorizationProof({
       txHash, core, creditId, actionHash, kind: 1,

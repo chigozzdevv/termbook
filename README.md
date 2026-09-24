@@ -311,7 +311,9 @@ The Ethereum collateral proof worker needs `SOURCE_RPC_URL` with historical
 It reads the standard Beacon finality update for the current finalized execution
 block and checks the Beacon branches, canonical Ethereum block, storage proof,
 and Monad verifier before relay. The source action worker uses
-Monad `debug_getRawHeader` for finalized authorizations and the Beacon API for
+Monad `debug_getRawHeader` and `debug_getRawReceipts` for finalized
+authorizations, with checked JSON receipt reconstruction as an RPC fallback,
+and the Beacon API for
 finalized Ethereum controller storage proofs. For an expired
 seizure or return that was never executed, `POST /collateral/actions/cancel`
 prepares a cancellation using a finalized Ethereum storage proof from the

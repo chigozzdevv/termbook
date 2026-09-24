@@ -164,7 +164,7 @@ USDC price, a recovery route, and the required governance configuration.
 | Asset | Lock location | Current implementation |
 | --- | --- | --- |
 | MON | Native MON enters `NativeCollateralVault` on Monad and is held as WMON. | Local custody, native return, WMON sale for USDC, and oracle-backed collateral-only health reader. Requires reviewed WMON and USDC deployments, feed, risk bands, exit verifier, and market admission. |
-| ETH | WETH stays in `CollateralVault` on Ethereum. | Lock custody and a Fulu Ethereum-to-Monad Beacon verifier are implemented. The Monad-to-Ethereum consensus verifier and live proof pipeline are required before accepting funds. |
+| ETH | WETH stays in `CollateralVault` on Ethereum. | Lock custody, a Fulu Ethereum-to-Monad Beacon verifier, and a single-epoch Monad BFT receipts client are implemented. Validator-set transitions and a live Monad proof pipeline are required before accepting funds. |
 | SOL | Native SOL stays in a Solana program-derived account. | The SDK encodes the lock and source actions, and the server prepares proof-gated lock and action relays. The program rejects deposits and actions until both finality verifiers are implemented and admitted. |
 
 For SOL, a Solana wallet signs the SDK `SolanaSourceLockWallet` lock instruction.

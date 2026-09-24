@@ -39,7 +39,16 @@ library EthereumBeaconBls {
         }
         (bool aggregated, bytes memory aggregateKey) = address(0x0c).staticcall(msm);
         if (!aggregated || aggregateKey.length != 128 || _allZero(aggregateKey)) return false;
-        bytes memory hashPoint = hashToG2(signingRoot);
+        return verifyAggregate(abi.encodePacked(signingRoot), aggregateKey, signature);
+    }
+
+    function verifyAggregate(bytes memory message, bytes memory aggregateKey, bytes calldata signature)
+        internal
+        view
+        returns (bool)
+    {
+        if (aggregateKey.length != 128 || _allZero(aggregateKey) || signature.length != 256) return false;
+        bytes memory hashPoint = hashToG2(message);
         if (hashPoint.length != 256) return false;
         bytes memory input = bytes.concat(aggregateKey, hashPoint, NEG_G1_GENERATOR, signature);
         (bool paired, bytes memory output) = address(0x0f).staticcall(input);
@@ -47,6 +56,10 @@ library EthereumBeaconBls {
     }
 
     function hashToG2(bytes32 message) internal view returns (bytes memory) {
+        return hashToG2(abi.encodePacked(message));
+    }
+
+    function hashToG2(bytes memory message) internal view returns (bytes memory) {
         bytes32[8] memory blocks;
         bytes memory dst = bytes.concat(DST, bytes1(uint8(DST.length)));
         bytes32 b0 = sha256(bytes.concat(new bytes(64), message, hex"0100", hex"00", dst));

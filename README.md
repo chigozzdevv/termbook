@@ -32,6 +32,9 @@ forge test --root contracts/evm
 (cd contracts/solana && cargo test --offline)
 ```
 
+Foundry pins Solidity 0.8.24 and Cancun bytecode while running tests on Prague,
+so the Ethereum BLS precompile tests execute locally instead of being skipped.
+
 ## Deployment stages
 
 The server publishes an admitted integration's SDK configuration at

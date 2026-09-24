@@ -46,6 +46,10 @@ contract MockSaleUsdc {
         balanceOf[to] += amount;
     }
 
+    function burn(address from, uint256 amount) external {
+        balanceOf[from] -= amount;
+    }
+
     function approve(address spender, uint256 amount) external returns (bool) {
         allowance[msg.sender][spender] = amount;
         return true;
@@ -191,7 +195,8 @@ contract LocalCollateralSaleTest is Test {
         core.bindAccount(creditId, account);
         vm.stopPrank();
         core.configureRisk(creditId, 15_000, 13_000, 12_000, 11_500, 11_000);
-        _recordHealth(creditId, Types.HealthSnapshot(0, 0, 500e6, 500e6, 10_000, 10_000, 0, 1_000e6, 0));
+        usdc.mint(account, 500e6);
+        _recordHealth(creditId, Types.HealthSnapshot(0, 500e6, 500e6, 0, 10_000, 0, 0, 1_000e6, 0));
     }
 
     function _drawAndLiquidate(bytes32 creditId) internal {
@@ -202,7 +207,9 @@ contract LocalCollateralSaleTest is Test {
         );
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(borrowerKey, digest);
         core.draw(creditId, 500e6, 500e6, 1, deadline, abi.encodePacked(r, s, v));
-        _recordHealth(creditId, Types.HealthSnapshot(500e6, 0, 0, 0, 10_000, 0, 0, 0, 0));
+        address account = core.creditAccount(creditId);
+        usdc.burn(account, usdc.balanceOf(account));
+        _recordHealth(creditId, Types.HealthSnapshot(500e6, 0, 500e6, 0, 10_000, 0, 0, 500e6, 10_000));
         core.startLiquidation(creditId);
     }
 
@@ -313,7 +320,7 @@ contract LocalCollateralSaleTest is Test {
 
         HealthReading memory reading = reader.readHealth(creditId, core.creditRevision(creditId), 0, address(oracle));
         assertEq(reading.sourceValue, 500e6);
-        assertEq(reading.cash, 0);
+        assertEq(reading.cash, 500e6);
         assertEq(reading.retainedSource, 9_000);
         assertEq(reading.recoveryCosts, 5e6);
 
@@ -416,7 +423,8 @@ contract LocalCollateralSaleTest is Test {
         core.bindAccount(creditId, account);
         vm.stopPrank();
         core.configureRisk(creditId, 15_000, 13_000, 12_000, 11_500, 11_000);
-        _recordHealth(creditId, Types.HealthSnapshot(0, 0, 500e6, 500e6, 10_000, 10_000, 0, 1_000e6, 0));
+        usdc.mint(account, 500e6);
+        _recordHealth(creditId, Types.HealthSnapshot(0, 500e6, 500e6, 0, 10_000, 0, 0, 1_000e6, 0));
         _drawAndLiquidate(creditId);
 
         vm.prank(buyer);

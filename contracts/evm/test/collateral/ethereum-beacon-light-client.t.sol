@@ -494,7 +494,8 @@ contract EthereumBeaconLightClientTest is Test {
 
     function testBlsPrecompilesVerifySupermajoritySignature() public {
         (bool available, bytes memory mapped) = address(0x11).staticcall(new bytes(128));
-        if (!available || mapped.length != 256) vm.skip(true, "BLS precompiles unavailable in local EVM");
+        assertTrue(available);
+        assertEq(mapped.length, 256);
         bytes memory compressed = new bytes(512 * 48);
         bytes memory bitmap = new bytes(64);
         bytes memory participants = new bytes(342 * 128);
@@ -513,12 +514,15 @@ contract EthereumBeaconLightClientTest is Test {
         }
         bytes32 message = keccak256("beacon-signing-root");
         bytes memory point = harness.hashToG2(message);
-        assertEq(point.length, 256);
-        (bool multiplied, bytes memory signature) = address(0x0e).staticcall(
-            bytes.concat(point, bytes32(uint256(342)))
-        );
-        assertTrue(multiplied);
-        assertEq(signature.length, 256);
+        // Noble BLS12-381 vectors use the Ethereum POP DST and aggregate secret 342.
+        assertEq(point, hex"000000000000000000000000000000000913df2675883e02d34c9738c7960a4a34bb6276d9ae9e0b38bfc4a8a8aa032497ee310e25af39b634dea49b5dff71bf"
+            hex"00000000000000000000000000000000045df28930c3a612e0108dbce0cee0ec1a9d0dd133b9f7ff9e4eb7b2ebb95589fb7d624f1943fb90c785cc0016c9cf01"
+            hex"000000000000000000000000000000001214027c6ab83ec55f7261971235f55c2c7de0dca997c0860ac2ffa43f665759e9fce001a00f2be856f74488c3cb0f7b"
+            hex"000000000000000000000000000000000f9341d69211430158309ec58b47e1b6413335539507812c4db2a20a84e81a6b88ca747544fbeed58f2d2cb07900cb84");
+        bytes memory signature = hex"0000000000000000000000000000000004344aca96981da2a6b6edf1fdb83d5f9bdef74a4553baed4dcbb334ebe27ec23f5a218a62106483d2f3adc9d3b7ad63"
+            hex"0000000000000000000000000000000009a3b2a97dbf3a4c01c4210c863085a28e18bfea37449c98d35be78d26c753e02a3304b3ea70191b82da0f41cc7acdbe"
+            hex"000000000000000000000000000000000398fb4f52810a01da2ddcf59830fbbe2c9356ae3e6c95b9a2f2bbb274ad3c6800d593062a74caef210ce23ac891a49f"
+            hex"0000000000000000000000000000000010ca3e4ea91ff5db3764ac941a20414ce2672f7bf26e68ff2e4efbee2341a944286d43b624bc05b2de82f3f6adb4f83e";
         assertTrue(harness.fastAggregateVerify(message, bitmap, compressed, participants, signature));
         assertFalse(harness.fastAggregateVerify(keccak256("other"), bitmap, compressed, participants, signature));
         bitmap[0] = bytes1(0xfe);

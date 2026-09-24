@@ -97,6 +97,11 @@ liquidation, an approved keeper calls `recoverApp` through the bundle's pinned
 adapter and registered recovery call, then repays recovered account cash to
 HouseVault. Freezing new app actions does not disable a reviewed recovery call.
 Each integration still needs a concrete reader and adapter for its deployed app.
+An application reader must implement `IAppStateReader` to enumerate at most
+32 current positions and 32 pending actions for a Credit Account. The server
+reads that state at one finalized Monad block through the bundle's pinned
+`AppHealthReader`; an unavailable, stale, changed, or incomplete reader returns
+`application-state-unavailable` instead of an empty list.
 
 `COLLATERAL_MARKETS` publishes the admitted source-wallet choices in the modal.
 It is a JSON array of EVM entries (`id`, `label`, `decimals`, `chainId`,

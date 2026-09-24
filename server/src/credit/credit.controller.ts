@@ -2,6 +2,9 @@ import type { FastifyRequest } from "fastify";
 import { creditSchema } from "./credit.schema.js";
 import { creditService } from "./credit.service.js";
 import { z } from "zod";
+import { readAppState } from "./app-state.js";
+
+const creditIdSchema = z.string().regex(/^0x[a-fA-F0-9]{64}$/);
 
 export const creditController = {
   async track(req: FastifyRequest) {
@@ -17,13 +20,9 @@ export const creditController = {
     return creditService.list(z.string().regex(/^0x[a-fA-F0-9]{40}$/).parse(req.query.borrower));
   },
   async positions(req: FastifyRequest<{ Params: { id: string } }>) {
-    const credit = await creditService.get(req.params.id) as { positions?: unknown[] } | null;
-    if (!credit) throw new Error("credit-not-found");
-    return Array.isArray(credit.positions) ? credit.positions : [];
+    return readAppState(creditIdSchema.parse(req.params.id) as `0x${string}`, "positions");
   },
   async pending(req: FastifyRequest<{ Params: { id: string } }>) {
-    const credit = await creditService.get(req.params.id) as { pending?: unknown[] } | null;
-    if (!credit) throw new Error("credit-not-found");
-    return Array.isArray(credit.pending) ? credit.pending : [];
+    return readAppState(creditIdSchema.parse(req.params.id) as `0x${string}`, "pending");
   },
 };

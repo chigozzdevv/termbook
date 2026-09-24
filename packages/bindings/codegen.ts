@@ -31,6 +31,7 @@ const contracts = {
   HealthSource: "health-source",
   CollateralHealthReader: "collateral-health-reader",
   AppHealthReader: "app-health-reader",
+  IAppStateReader: "app-state-reader",
   FlowExecutor: "flow-executor",
 } as const;
 

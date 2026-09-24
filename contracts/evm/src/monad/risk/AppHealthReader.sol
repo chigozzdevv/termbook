@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {TermbookCore} from "../credit/TermbookCore.sol";
 import {IAppValueReader} from "../integration/IAppValueReader.sol";
+import {IAppStateReader} from "../integration/IAppStateReader.sol";
 import {IHealthReader, HealthReading} from "./IHealthSource.sol";
 
 interface IAppHealthVault {
@@ -10,6 +11,8 @@ interface IAppHealthVault {
 }
 
 contract AppHealthReader is IHealthReader {
+    uint256 public constant MAX_POSITIONS = 32;
+    uint256 public constant MAX_PENDING = 32;
     TermbookCore public immutable core;
     bytes32 public immutable bundleId;
     IHealthReader public immutable collateralReader;
@@ -25,6 +28,11 @@ contract AppHealthReader is IHealthReader {
         if (core_.code.length == 0 || bundleId_ == bytes32(0) || collateralReader_.code.length == 0
             || appReader_.code.length == 0 || recoveryAdapter_.code.length == 0
             || TermbookCore(core_).appRecoveryAdapterOfBundle(bundleId_) != recoveryAdapter_) revert Invalid();
+        try IAppStateReader(appReader_).supportsInterface(type(IAppStateReader).interfaceId) returns (bool supported) {
+            if (!supported) revert Invalid();
+        } catch {
+            revert Invalid();
+        }
         core = TermbookCore(core_);
         bundleId = bundleId_;
         collateralReader = IHealthReader(collateralReader_);
@@ -46,6 +54,8 @@ contract AppHealthReader is IHealthReader {
             || core.appRecoveryAdapterOfBundle(bundleId) != recoveryAdapter) revert Invalid();
         TermbookCore.Credit memory credit = core.creditDetails(creditId);
         if (credit.bundleId != bundleId || credit.account == address(0) || credit.vault == address(0)) revert Invalid();
+        if (IAppStateReader(address(appReader)).positionCount(creditId, credit.account) > MAX_POSITIONS
+            || IAppStateReader(address(appReader)).pendingCount(creditId, credit.account) > MAX_PENDING) revert Invalid();
         reading = collateralReader.readHealth(creditId, revision, debt, oracleRegistry);
         if (reading.appValue != 0 || reading.retainedApp != 0) revert Invalid();
         (int256 value, uint16 retained, uint128 costs, uint256 observedAt) =

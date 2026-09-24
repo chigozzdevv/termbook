@@ -3,6 +3,10 @@ export type AppAction = {
   params: Record<string, unknown>;
 };
 
+export type AppPosition = { positionId: `0x${string}`; marketId: `0x${string}` };
+export type AppPendingAction = { actionId: `0x${string}`; positionId: `0x${string}`;
+  remainingLiability: bigint; deadline: bigint };
+
 export type ActionReview = {
   capability: string;
   requiredInput: bigint;

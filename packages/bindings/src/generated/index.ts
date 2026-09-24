@@ -24,6 +24,7 @@ export * from "./abi/oracle-registry.js";
 export * from "./abi/health-source.js";
 export * from "./abi/collateral-health-reader.js";
 export * from "./abi/app-health-reader.js";
+export * from "./abi/app-state-reader.js";
 export * from "./abi/flow-executor.js";
 export * from "./contracts.js";
 export * from "./deployments.js";

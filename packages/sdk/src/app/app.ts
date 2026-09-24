@@ -1,5 +1,5 @@
 import type { TermbookClient } from "../client/client.js";
-import type { AppAction, ActionReview } from "../types/app.types.js";
+import type { AppAction, ActionReview, AppPendingAction, AppPosition } from "../types/app.types.js";
 import type { ExecuteResult } from "../types/credit.types.js";
 import { requiredDraw } from "../credit/draw.js";
 import { encodeAbiParameters, keccak256, parseAbi } from "viem";
@@ -9,6 +9,7 @@ import { CreditAccount } from "../account/account.js";
 
 const coreRegistryAbi = parseAbi(["function integrationRegistry() view returns (address)"]);
 const registryAbi = parseAbi(["function validateCall(bytes32,address,bytes,address,uint256) view returns (bool)"]);
+const stateId = /^0x[a-fA-F0-9]{64}$/;
 
 export function slippageBound(refPrice: bigint, bps: number, isMax: boolean): bigint {
   if (!Number.isInteger(bps) || bps < 0 || bps > 10_000) throw new Error("param-invalid");
@@ -106,17 +107,43 @@ export class CreditApp {
   private async collection(name: "positions" | "pending"): Promise<unknown[]> {
     await this.client.ready();
     if (!this.client.config.apiBase) throw new Error("application-state-unavailable");
-    const data = await new HttpClient(this.client.config.apiBase).get<unknown>(`/credits/${this.creditId}/${name}`);
-    if (Array.isArray(data)) return data;
+    let data: unknown;
+    try {
+      data = await new HttpClient(this.client.config.apiBase).get<unknown>(`/credits/${this.creditId}/${name}`);
+    } catch (error) {
+      if (error instanceof Error && error.message === "http-503") throw new Error("application-state-unavailable", { cause: error });
+      throw error;
+    }
     if (data && typeof data === "object" && Array.isArray((data as Record<string, unknown>)[name])) return (data as Record<string, unknown>)[name] as unknown[];
     throw new Error("application-state-unavailable");
   }
 
-  async positions(): Promise<unknown[]> {
-    return this.collection("positions");
+  async positions(): Promise<AppPosition[]> {
+    const rows = await this.collection("positions");
+    return rows.map((row) => {
+      if (!row || typeof row !== "object") throw new Error("application-state-unavailable");
+      const entry = row as Record<string, unknown>;
+      if (typeof entry["positionId"] !== "string" || !stateId.test(entry["positionId"])
+        || typeof entry["marketId"] !== "string" || !stateId.test(entry["marketId"])) {
+        throw new Error("application-state-unavailable");
+      }
+      return { positionId: entry["positionId"] as `0x${string}`, marketId: entry["marketId"] as `0x${string}` };
+    });
   }
 
-  async pending(): Promise<unknown[]> {
-    return this.collection("pending");
+  async pending(): Promise<AppPendingAction[]> {
+    const rows = await this.collection("pending");
+    return rows.map((row) => {
+      if (!row || typeof row !== "object") throw new Error("application-state-unavailable");
+      const entry = row as Record<string, unknown>;
+      if (typeof entry["actionId"] !== "string" || !stateId.test(entry["actionId"])
+        || typeof entry["positionId"] !== "string" || !stateId.test(entry["positionId"])
+        || typeof entry["remainingLiability"] !== "string" || !/^\d+$/.test(entry["remainingLiability"])
+        || typeof entry["deadline"] !== "string" || !/^[1-9]\d*$/.test(entry["deadline"])) {
+        throw new Error("application-state-unavailable");
+      }
+      return { actionId: entry["actionId"] as `0x${string}`, positionId: entry["positionId"] as `0x${string}`,
+        remainingLiability: BigInt(entry["remainingLiability"]), deadline: BigInt(entry["deadline"]) };
+    });
   }
 }

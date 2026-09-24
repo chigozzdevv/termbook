@@ -19,6 +19,7 @@ import {IExitVerifier} from "../../src/monad/integration/IExitVerifier.sol";
 import {IntegrationRegistry} from "../../src/monad/integration/IntegrationRegistry.sol";
 import {IAppRecoveryAdapter} from "../../src/monad/integration/IAppRecoveryAdapter.sol";
 import {IAppValueReader} from "../../src/monad/integration/IAppValueReader.sol";
+import {IAppStateReader} from "../../src/monad/integration/IAppStateReader.sol";
 import {AppHealthReader} from "../../src/monad/risk/AppHealthReader.sol";
 
 contract MockExitVerifier is IExitVerifier {
@@ -125,7 +126,35 @@ contract BasePositionHealthReader is IHealthReader {
     }
 }
 
-contract TestAppValueReader is IAppValueReader {
+contract TestAppValueReader is IAppValueReader, IAppStateReader {
+    uint256 public positionsCount;
+    uint256 public pendingActionsCount;
+
+    function setCounts(uint256 positions_, uint256 pending_) external {
+        positionsCount = positions_;
+        pendingActionsCount = pending_;
+    }
+
+    function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
+        return interfaceId == type(IAppStateReader).interfaceId;
+    }
+
+    function positionCount(bytes32, address) external view returns (uint256) {
+        return positionsCount;
+    }
+
+    function positionAt(bytes32, address, uint256) external pure returns (bytes32, bytes32) {
+        revert("no-position");
+    }
+
+    function pendingCount(bytes32, address) external view returns (uint256) {
+        return pendingActionsCount;
+    }
+
+    function pendingAt(bytes32, address, uint256) external pure returns (bytes32, bytes32, uint256, uint256) {
+        revert("no-pending");
+    }
+
     function readAppValue(bytes32, address, address)
         external
         view
@@ -647,6 +676,8 @@ contract RealFlowTest is Test {
         _prepare(creditId);
         BasePositionHealthReader base = new BasePositionHealthReader();
         TestAppValueReader appValue = new TestAppValueReader();
+        vm.expectRevert(AppHealthReader.Invalid.selector);
+        new AppHealthReader(address(core), keccak256("bundle"), address(base), address(base), adapter);
         AppHealthReader reader = new AppHealthReader(address(core), keccak256("bundle"),
             address(base), address(appValue), adapter);
         HealthReading memory reading = reader.readHealth(creditId, core.creditRevision(creditId), 200, address(1));
@@ -656,8 +687,12 @@ contract RealFlowTest is Test {
         assertEq(reading.retainedSource, 8_000);
         assertEq(reading.retainedApp, 9_000);
         assertEq(reading.recoveryCosts, 15);
-        vm.etch(address(appValue), hex"6000");
         uint256 revision = core.creditRevision(creditId);
+        appValue.setCounts(33, 0);
+        vm.expectRevert(AppHealthReader.Invalid.selector);
+        reader.readHealth(creditId, revision, 200, address(1));
+        appValue.setCounts(0, 0);
+        vm.etch(address(appValue), hex"6000");
         vm.expectRevert(AppHealthReader.Invalid.selector);
         reader.readHealth(creditId, revision, 200, address(1));
     }

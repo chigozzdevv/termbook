@@ -23,9 +23,11 @@ const actions = [{ capability: "place_order", label: "Place order", target: addr
   signature: "function placeOrder(uint256 amount,address account)",
   arguments: [{ source: "input" as const, path: "amount", label: "Amount" }, { source: "credit_account" as const }],
   fundingPath: "amount", settlement: "atomic" as const }];
+let readerAdapter = address("9");
 
 beforeEach(() => {
   vi.clearAllMocks();
+  readerAdapter = address("9");
   const chain = {
     getBlock: vi.fn(async () => ({ number: 100n })),
     getChainId: vi.fn(async () => 143),
@@ -38,6 +40,12 @@ beforeEach(() => {
       if (functionName === "exitVerifierCodeHash" || functionName === "appRecoveryAdapterCodeHash") return keccak256("0x1234");
       if (functionName === "riskEngine") return address("6");
       if (functionName === "versions") return [codeHash, true, false];
+      if (functionName === "readers") return [address("a"), 1n, true, 100n, keccak256("0x1234")];
+      if (functionName === "core") return address("1");
+      if (functionName === "bundleId") return versionId;
+      if (functionName === "recoveryAdapter") return readerAdapter;
+      if (functionName === "appReader") return address("b");
+      if (functionName === "appReaderCodeHash") return keccak256("0x1234");
       if (functionName === "isActive" || functionName === "isReaderActive" || functionName === "isCallAllowed") return true;
       if (functionName === "recoveryCallCount") return 1n;
       throw new Error("unexpected-read");
@@ -69,5 +77,11 @@ describe("integration app token", () => {
     const result = await integrationService.approve({ versionId, codeHash, settlementAsset, actions });
     vi.mocked(integrationRepo.byTokenHash).mockResolvedValue({ versionId, codeHash, settlementAsset, actions, active: true, frozen: true } as never);
     await expect(integrationService.resolve(result.appToken)).rejects.toThrow("integration-not-found");
+  });
+
+  it("rejects a health reader bound to another recovery adapter", async () => {
+    readerAdapter = address("e");
+    await expect(integrationService.approve({ versionId, codeHash, settlementAsset, actions }))
+      .rejects.toThrow("integration-not-admitted");
   });
 });

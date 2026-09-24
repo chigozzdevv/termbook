@@ -23,6 +23,15 @@ const registryAbi = [
 ] as const;
 const healthAbi = [
   { type: "function", name: "isReaderActive", stateMutability: "view", inputs: [{ type: "bytes32" }], outputs: [{ type: "bool" }] },
+  { type: "function", name: "readers", stateMutability: "view", inputs: [{ type: "bytes32" }],
+    outputs: [{ type: "address" }, { type: "uint256" }, { type: "bool" }, { type: "uint256" }, { type: "bytes32" }] },
+] as const;
+const appHealthAbi = [
+  { type: "function", name: "core", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
+  { type: "function", name: "bundleId", stateMutability: "view", inputs: [], outputs: [{ type: "bytes32" }] },
+  { type: "function", name: "recoveryAdapter", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
+  { type: "function", name: "appReader", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
+  { type: "function", name: "appReaderCodeHash", stateMutability: "view", inputs: [], outputs: [{ type: "bytes32" }] },
 ] as const;
 const callAbi = [{ type: "function", name: "isCallAllowed", stateMutability: "view",
   inputs: [{ type: "bytes32" }, { type: "address" }, { type: "bytes4" }], outputs: [{ type: "bool" }] }] as const;
@@ -56,20 +65,38 @@ async function admitted(versionId: `0x${string}`, codeHash: string): Promise<boo
     || !addressPattern.test(exit) || !addressPattern.test(recoveryAdapter)
     || /^0x0{40}$/i.test(registry) || /^0x0{40}$/i.test(health)
     || /^0x0{40}$/i.test(exit) || /^0x0{40}$/i.test(recoveryAdapter)) return false;
-  const [version, active, reader, recoveryCalls, exitHash, adapterHash, exitCode, adapterCode] = await Promise.all([
+  const [version, active, reader, readerConfig, recoveryCalls, exitHash, adapterHash, exitCode, adapterCode] = await Promise.all([
     chain.readContract({ address: registry, abi: registryAbi, functionName: "versions", args: [versionId], blockNumber: block.number }),
     chain.readContract({ address: registry, abi: registryAbi, functionName: "isActive", args: [versionId], blockNumber: block.number }),
     chain.readContract({ address: health, abi: healthAbi, functionName: "isReaderActive", args: [versionId], blockNumber: block.number }),
+    chain.readContract({ address: health, abi: healthAbi, functionName: "readers", args: [versionId], blockNumber: block.number }),
     chain.readContract({ address: registry, abi: registryAbi, functionName: "recoveryCallCount", args: [versionId], blockNumber: block.number }),
     chain.readContract({ address: core, abi: coreAbi, functionName: "exitVerifierCodeHash", args: [versionId], blockNumber: block.number }),
     chain.readContract({ address: core, abi: coreAbi, functionName: "appRecoveryAdapterCodeHash", args: [versionId], blockNumber: block.number }),
     chain.getBytecode({ address: exit, blockNumber: block.number }),
     chain.getBytecode({ address: recoveryAdapter, blockNumber: block.number }),
   ]);
-  return version[0].toLowerCase() === codeHash.toLowerCase() && version[1] && !version[2]
+  const baseAdmitted = version[0].toLowerCase() === codeHash.toLowerCase() && version[1] && !version[2]
     && active && reader && recoveryCalls > 0n && !!exitCode && exitCode !== "0x"
     && !!adapterCode && adapterCode !== "0x" && keccak256(exitCode) === exitHash
     && keccak256(adapterCode) === adapterHash;
+  if (!baseAdmitted || !readerConfig[2] || readerConfig[3] === 0n
+    || !addressPattern.test(readerConfig[0]) || /^0x0{40}$/i.test(readerConfig[0])) return false;
+  const appHealth = readerConfig[0];
+  const [readerCode, readerCore, readerBundle, readerAdapter, appReader, appReaderHash] = await Promise.all([
+    chain.getBytecode({ address: appHealth, blockNumber: block.number }),
+    chain.readContract({ address: appHealth, abi: appHealthAbi, functionName: "core", blockNumber: block.number }),
+    chain.readContract({ address: appHealth, abi: appHealthAbi, functionName: "bundleId", blockNumber: block.number }),
+    chain.readContract({ address: appHealth, abi: appHealthAbi, functionName: "recoveryAdapter", blockNumber: block.number }),
+    chain.readContract({ address: appHealth, abi: appHealthAbi, functionName: "appReader", blockNumber: block.number }),
+    chain.readContract({ address: appHealth, abi: appHealthAbi, functionName: "appReaderCodeHash", blockNumber: block.number }),
+  ]);
+  if (!readerCode || readerCode === "0x" || keccak256(readerCode) !== readerConfig[4]
+    || readerCore.toLowerCase() !== core.toLowerCase() || readerBundle.toLowerCase() !== versionId.toLowerCase()
+    || readerAdapter.toLowerCase() !== recoveryAdapter.toLowerCase()
+    || !addressPattern.test(appReader) || /^0x0{40}$/i.test(appReader)) return false;
+  const appReaderCode = await chain.getBytecode({ address: appReader, blockNumber: block.number });
+  return !!appReaderCode && appReaderCode !== "0x" && keccak256(appReaderCode) === appReaderHash;
 }
 
 async function admittedActions(versionId: `0x${string}`, actions: CapabilityDefinition[]): Promise<boolean> {

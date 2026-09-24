@@ -1,5 +1,6 @@
 import { drainQueue, registerHandler } from "../queue/queue.worker.js";
 import { creditRepo } from "./credit.repo.js";
+import { creditService } from "./credit.service.js";
 
 async function handle(job: { kind: string; payload: Record<string, unknown> }): Promise<void> {
   if (job.kind !== "credit.tracked") return;
@@ -7,6 +8,7 @@ async function handle(job: { kind: string; payload: Record<string, unknown> }): 
   if (typeof id !== "string" || !/^0x[a-fA-F0-9]{64}$/.test(id)) throw new Error("param-invalid");
   const doc = await creditRepo.get(id);
   if (!doc) throw new Error("recovery-blocked");
+  await creditService.refresh(id);
 }
 
 registerHandler(["credit.tracked"], handle);

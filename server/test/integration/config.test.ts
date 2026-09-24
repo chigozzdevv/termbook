@@ -28,7 +28,7 @@ const actions = [{ capability: "place_order", label: "Place order", target: addr
 const acceptance = { evidenceHash: `0x${"e".repeat(64)}`,
   activeCreditId: `0x${"c".repeat(64)}`, recoveredCreditId: `0x${"d".repeat(64)}`,
   actionTransactions: { place_order: { creditId: `0x${"d".repeat(64)}`, txHash: `0x${"1".repeat(64)}` } },
-  recoveryTxHashes: [`0x${"2".repeat(64)}`] };
+  recoveryTxHashes: [`0x${"2".repeat(64)}`], repaymentTxHash: `0x${"3".repeat(64)}` };
 let readerAdapter = address("9");
 
 beforeEach(() => {

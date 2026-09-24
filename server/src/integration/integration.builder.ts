@@ -1,5 +1,5 @@
 import {
-  decodeFunctionData, keccak256, parseAbi, parseAbiItem, padHex, stringToHex, toFunctionSelector,
+  decodeAbiParameters, decodeFunctionData, keccak256, parseAbi, parseAbiItem, padHex, stringToHex, toFunctionSelector,
   type Address, type Hex,
 } from "viem";
 import type { CapabilityDefinition } from "@termbook/schema";
@@ -27,6 +27,8 @@ const appReaderAbi = parseAbi([
 ]);
 const vaultAbi = parseAbi(["function asset() view returns (address)"]);
 const recoveryTopic = keccak256(stringToHex("AppRecoveryStep(bytes32,address,address,bytes32)"));
+const repaidTopic = keccak256(stringToHex("Repaid(bytes32,uint256,uint256)"));
+const recoverCashAbi = parseAbi(["function recoverAccountCash(bytes32 creditId,uint256 amount)"]);
 const zero = "0x0000000000000000000000000000000000000000";
 
 function equal(left: string, right: string): boolean {
@@ -45,8 +47,11 @@ export async function validateIntegrationAcceptance(
     throw new Error("integration-action-evidence-incomplete");
   }
   const actionHashes = Object.values(acceptance.actionTransactions).map((item) => item.txHash.toLowerCase());
+  const recoveryHashes = acceptance.recoveryTxHashes.map((hash) => hash.toLowerCase());
   if (new Set(actionHashes).size !== actionHashes.length
-    || new Set(acceptance.recoveryTxHashes.map((hash) => hash.toLowerCase())).size !== acceptance.recoveryTxHashes.length
+    || new Set(recoveryHashes).size !== recoveryHashes.length
+    || actionHashes.includes(acceptance.repaymentTxHash.toLowerCase())
+    || recoveryHashes.includes(acceptance.repaymentTxHash.toLowerCase())
     || !Object.values(acceptance.actionTransactions).some((item) =>
       equal(item.creditId, acceptance.recoveredCreditId))) {
     throw new Error("integration-action-evidence-incomplete");
@@ -146,6 +151,8 @@ export async function validateIntegrationAcceptance(
   }
   const recoveryCreditTopic = acceptance.recoveredCreditId.toLowerCase();
   const adapterTopic = padHex(adapter, { size: 32 }).toLowerCase();
+  let latestRecoveryBlock = 0n;
+  let latestRecoveryIndex = 0;
   for (const hash of acceptance.recoveryTxHashes) {
     const receipt = await canonicalReceipt(hash as Hex);
     if (!equal(receipt.to ?? zero, core) || receipt.blockNumber <= recoverySetupBlock
@@ -156,5 +163,41 @@ export async function validateIntegrationAcceptance(
         && equal(log.topics[2] ?? "", adapterTopic))) {
       throw new Error("integration-recovery-evidence-invalid");
     }
+    if (receipt.blockNumber > latestRecoveryBlock
+      || receipt.blockNumber === latestRecoveryBlock && receipt.transactionIndex > latestRecoveryIndex) {
+      latestRecoveryBlock = receipt.blockNumber;
+      latestRecoveryIndex = receipt.transactionIndex;
+    }
   }
+  const repaymentHash = acceptance.repaymentTxHash as Hex;
+  const [repayment, repaymentTx] = await Promise.all([
+    canonicalReceipt(repaymentHash), chain.getTransaction({ hash: repaymentHash }),
+  ]);
+  if (!equal(repayment.to ?? zero, core) || !equal(repaymentTx.to ?? zero, core)
+    || !equal(repaymentTx.hash, repaymentHash)
+    || !equal(repaymentTx.blockHash ?? "", repayment.blockHash)
+    || repayment.blockNumber < latestRecoveryBlock
+    || repayment.blockNumber === latestRecoveryBlock && repayment.transactionIndex <= latestRecoveryIndex) {
+    throw new Error("integration-repayment-evidence-invalid");
+  }
+  let repaymentAmount: bigint;
+  try {
+    const decoded = decodeFunctionData({ abi: recoverCashAbi, data: repaymentTx.input });
+    if (!equal(decoded.args[0], acceptance.recoveredCreditId) || decoded.args[1] === 0n) throw new Error();
+    repaymentAmount = decoded.args[1];
+  } catch {
+    throw new Error("integration-repayment-evidence-invalid");
+  }
+  const matches = repayment.logs.filter((log) => {
+    if (!equal(log.address, core) || log.topics.length !== 2
+      || !equal(log.topics[0] ?? "", repaidTopic)
+      || !equal(log.topics[1] ?? "", recoveryCreditTopic)) return false;
+    try {
+      const [amount] = decodeAbiParameters([{ type: "uint256" }, { type: "uint256" }], log.data);
+      return amount === repaymentAmount;
+    } catch {
+      return false;
+    }
+  });
+  if (matches.length !== 1) throw new Error("integration-repayment-evidence-invalid");
 }

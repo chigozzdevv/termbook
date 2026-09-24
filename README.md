@@ -46,11 +46,12 @@ to the same API origin. An admin can issue a public app token with
 verifier, pinned app recovery adapter, and reviewed recovery calls are active
 onchain. Approval also checks a finalized active Credit with positive app value,
 a separate recovered Credit with no tracked positions or pending actions,
-one successful Core action transaction per capability, and finalized Core
-recovery transactions after the sampled app action. The request's `acceptance`
+one successful Core action transaction per capability, finalized Core
+recovery transactions after the sampled app action, and an account-funded
+House repayment after recovery. The request's `acceptance`
 object supplies `evidenceHash`, `activeCreditId`, `recoveredCreditId`,
 `actionTransactions` keyed by capability with `creditId` and `txHash`, and
-`recoveryTxHashes`. The evidence hash identifies the reviewed source and test
+`recoveryTxHashes`, and `repaymentTxHash`. The evidence hash identifies the reviewed source and test
 record; a reviewer must verify that record against the deployed code and
 recovery semantics. The token is shown only at creation; the
 server stores its hash. Borrower intents created through the SDK are bound to

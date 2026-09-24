@@ -9,6 +9,7 @@ export const integrationAcceptanceSchema = z.strictObject({
   recoveredCreditId: word,
   actionTransactions: z.record(z.string().min(1), z.strictObject({ creditId: word, txHash: word })),
   recoveryTxHashes: z.array(word).min(1).max(32),
+  repaymentTxHash: word,
 }).refine((value) => value.activeCreditId.toLowerCase() !== value.recoveredCreditId.toLowerCase(), {
   message: "integration-sample-duplicate",
 });

@@ -5,7 +5,7 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 import { termbookCoreAbi, verifierRegistryAbi } from "@termbook/bindings";
 import { fetchMonadAuthorizationProof } from "../chain/monad-receipt-proof.js";
-import { fetchSourceAppliedProof } from "../chain/source-receipt-proof.js";
+import { fetchConsumedActionProof } from "../chain/source.client.js";
 import { monadClient } from "../chain/monad.client.js";
 import { env } from "../config/env.js";
 import { logger } from "../logging/logger.js";
@@ -31,6 +31,10 @@ const controllerAbi = parseAbi([
 const verifierAbi = parseAbi([
   "function admission() view returns (uint256 chainId,uint256 version,bytes32 bootstrap)",
   "function verifyEvent(bytes header,bytes proof,address emitter,bytes32 eventDigest) view returns (bool)",
+  "function sourceVault() view returns (address)",
+  "function sourceController() view returns (address)",
+  "function sourceControllerCodeHash() view returns (bytes32)",
+  "function verifyAppliedAction(bytes header,bytes proof,address vault,bytes32 actionHash) view returns (bool)",
 ]);
 const recoveryVaultAbi = parseAbi([
   "function asset() view returns (address)",
@@ -50,7 +54,7 @@ const zero = "0x0000000000000000000000000000000000000000";
 const zeroHash = `0x${"0".repeat(64)}`;
 
 function configured(): boolean {
-  return Boolean(env.sourceRpcUrl && env.sourceProofUrl && env.monadProofUrl
+  return Boolean(env.sourceRpcUrl && env.sourceBeaconApiUrl && env.monadProofUrl
     && env.sourceActionKeeperKey && env.monadConfirmKeeperKey);
 }
 
@@ -190,7 +194,7 @@ async function deliverConfirmation(actionHash: string, hash: Hex, rawTx: Hex) {
   return "confirmed" as const;
 }
 
-async function confirmSourceAction(action: RemoteAction, actionHash: Hex, sourceTxHash: Hex): Promise<void> {
+async function confirmSourceAction(action: RemoteAction, actionHash: Hex): Promise<void> {
   const account = privateKeyToAccount(env.monadConfirmKeeperKey as Hex);
   const chain = monadClient();
   const record = await remoteActionRepo.find(actionHash);
@@ -216,11 +220,6 @@ async function confirmSourceAction(action: RemoteAction, actionHash: Hex, source
       await remoteActionRepo.finalizeWithoutConfirmation(actionHash);
       return;
     }
-    const proof = await fetchSourceAppliedProof({
-      txHash: sourceTxHash, vault: action.sourceVault, actionHash,
-      lockId: action.lockId, recipient: action.recipient, amount: action.amount,
-      kind: action.kind, finalityUrl: env.sourceProofUrl,
-    });
     const credit = await chain.readContract({
       address: env.core as Address, abi: termbookCoreAbi, functionName: "creditDetails",
       args: [action.creditId], blockNumber: current.finalized.number,
@@ -240,12 +239,20 @@ async function confirmSourceAction(action: RemoteAction, actionHash: Hex, source
       || !equal(codeHash, credit.verifierCodeHash)) throw new Error("remote-action-confirm-verifier-mismatch");
     const code = await chain.getCode({ address: verifier, blockNumber: current.finalized.number });
     if (!code || !equal(keccak256(code), codeHash)) throw new Error("remote-action-confirm-verifier-mismatch");
-    const digest = keccak256(encodeAbiParameters([
-      { type: "bytes32" }, { type: "bytes32" }, { type: "address" }, { type: "uint256" }, { type: "uint8" },
-    ], [actionHash, action.lockId, action.recipient, action.amount, action.kind]));
+    const [vault, controller, controllerCodeHash] = await Promise.all([
+      chain.readContract({ address: verifier, abi: verifierAbi, functionName: "sourceVault", blockNumber: current.finalized.number }),
+      chain.readContract({ address: verifier, abi: verifierAbi, functionName: "sourceController", blockNumber: current.finalized.number }),
+      chain.readContract({ address: verifier, abi: verifierAbi, functionName: "sourceControllerCodeHash", blockNumber: current.finalized.number }),
+    ]);
+    if (!equal(vault, action.sourceVault) || controller === zero || BigInt(controllerCodeHash) === 0n) {
+      throw new Error("remote-action-confirm-controller-mismatch");
+    }
+    const proof = await fetchConsumedActionProof({
+      rpcUrl: env.sourceRpcUrl, actionHash, controller, expectedCodeHash: controllerCodeHash,
+    });
     const accepted = await chain.readContract({
-      address: verifier, abi: verifierAbi, functionName: "verifyEvent",
-      args: [proof.header, proof.proof, action.sourceVault, digest],
+      address: verifier, abi: verifierAbi, functionName: "verifyAppliedAction",
+      args: [proof.header, proof.proof, action.sourceVault, actionHash],
     });
     if (!accepted) throw new Error("remote-action-confirm-proof-rejected");
     const functionName = action.kind === 0 ? "confirmRemoteReturn" : "confirmRemoteSeizure";
@@ -320,7 +327,7 @@ export async function handleRemoteActionJob(job: { kind: string; payload: Record
   }
   if (["source_finalized", "confirm_prepared", "confirm_submitted", "confirm_mined"].includes(record.state)) {
     if (!record.txHash || !word.test(record.txHash)) throw new Error("remote-action-source-tx-missing");
-    await confirmSourceAction(action, actionHash as Hex, record.txHash as Hex);
+    await confirmSourceAction(action, actionHash as Hex);
     return;
   }
   const account = privateKeyToAccount(env.sourceActionKeeperKey as Hex);
@@ -410,7 +417,7 @@ export async function handleRemoteActionJob(job: { kind: string; payload: Record
   if (!binding.consumed) throw new Error("remote-action-not-applied");
   await remoteActionRepo.state(actionHash, "source_finalized", updated.txHash);
   await remoteActionRepo.releaseSigner(account.address, actionHash);
-  await confirmSourceAction(action, actionHash as Hex, updated.txHash as Hex);
+  await confirmSourceAction(action, actionHash as Hex);
 }
 
 if (configured()) registerHandler(["collateral.remote-action"], handleRemoteActionJob);

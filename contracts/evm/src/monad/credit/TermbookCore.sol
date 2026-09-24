@@ -152,6 +152,8 @@ interface IVerifierCore {
         external view returns (bool);
     function verifyLock(bytes calldata header, bytes calldata proof, address vault, bytes32 lockDigest)
         external view returns (bool);
+    function verifyAppliedAction(bytes calldata header, bytes calldata proof, address vault, bytes32 actionHash)
+        external view returns (bool);
 }
 
 interface ISolanaVerifierCore {
@@ -2157,12 +2159,7 @@ contract TermbookCore is ITermbookCore {
                 || !remoteCollateral[creditId] || pendingRemoteReturn[creditId] == 0 || verifierRegistry == address(0)
         ) revert Pending();
         uint256 amount = pendingRemoteReturn[creditId];
-        bytes32 eventDigest = solanaCollateral[creditId]
-            ? remoteReturnActionHash[creditId]
-            : keccak256(abi.encode(
-                remoteReturnActionHash[creditId], c.lockId, c.returnRecipient, amount, RemoteAction.RELEASE
-            ));
-        _verifyRemoteEvent(c, creditId, header, proof, eventDigest);
+        _verifyRemoteEvent(c, creditId, header, proof, remoteReturnActionHash[creditId]);
         pendingRemoteReturn[creditId] = 0;
         remoteReturnActionHash[creditId] = bytes32(0);
         remoteReturnRevision[creditId] = 0;
@@ -2190,13 +2187,7 @@ contract TermbookCore is ITermbookCore {
                 || (c.facility != Types.Facility.Liquidating && c.facility != Types.Facility.RecoveryPending)
         ) revert Pending();
         uint256 amount = pendingRemoteSeizure[creditId];
-        address recipient = remoteSeizureRecipient[creditId];
-        bytes32 eventDigest = solanaCollateral[creditId]
-            ? remoteSeizureActionHash[creditId]
-            : keccak256(abi.encode(
-                remoteSeizureActionHash[creditId], c.lockId, recipient, amount, RemoteAction.SEIZE
-            ));
-        _verifyRemoteEvent(c, creditId, header, proof, eventDigest);
+        _verifyRemoteEvent(c, creditId, header, proof, remoteSeizureActionHash[creditId]);
         bytes32 actionHash = remoteSeizureActionHash[creditId];
         pendingRemoteSeizure[creditId] = 0;
         remoteSeizureActionHash[creditId] = bytes32(0);
@@ -2671,7 +2662,7 @@ contract TermbookCore is ITermbookCore {
         bytes32 creditId,
         bytes calldata header,
         bytes calldata proof,
-        bytes32 eventDigest
+        bytes32 actionHash
     ) internal view {
         if (solanaCollateral[creditId]) {
             address solanaVerifier = _pinnedSolanaVerifier(c, creditId);
@@ -2683,7 +2674,7 @@ contract TermbookCore is ITermbookCore {
                 identity.programId,
                 solanaMarkets[collateralSourceChainOf[creditId]].programDataHash,
                 solanaLockPdaOf[creditId],
-                eventDigest
+                actionHash
             ) returns (bool verified) {
                 if (!verified) revert InvalidCollateral();
             } catch {
@@ -2699,7 +2690,7 @@ contract TermbookCore is ITermbookCore {
                 || version != c.verifierVersion || codeHash != c.verifierCodeHash
                 || impl.codehash != c.verifierCodeHash
         ) revert InvalidCollateral();
-        try IVerifierCore(impl).verifyEvent(header, proof, c.collateralVault, eventDigest) returns (bool verified) {
+        try IVerifierCore(impl).verifyAppliedAction(header, proof, c.collateralVault, actionHash) returns (bool verified) {
             if (!verified) revert InvalidCollateral();
         } catch {
             revert InvalidCollateral();

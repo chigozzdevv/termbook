@@ -41,10 +41,10 @@ contract MockRemotePolicyVerifier {
         return true;
     }
 
-    function verifyEvent(bytes calldata, bytes calldata proof, address emitter, bytes32 digest)
+    function verifyAppliedAction(bytes calldata, bytes calldata proof, address vault, bytes32 actionHash)
         external pure returns (bool)
     {
-        return emitter == address(0x4567) && abi.decode(proof, (bytes32)) == digest;
+        return vault == address(0x4567) && abi.decode(proof, (bytes32)) == actionHash;
     }
 }
 
@@ -214,10 +214,7 @@ contract RemoteSalePolicyTest is Test {
         core.authorizeSourceRecoveryReturn(creditId, 40e18, block.timestamp + 1 days);
         vm.stopPrank();
 
-        bytes32 seizureDigest = keccak256(abi.encode(
-            core.remoteSeizureActionHash(creditId), lockId, address(0x789A), uint256(40e18), uint8(1)
-        ));
-        core.confirmRemoteSeizure(creditId, hex"01", abi.encode(seizureDigest));
+        core.confirmRemoteSeizure(creditId, hex"01", abi.encode(core.remoteSeizureActionHash(creditId)));
         assertEq(core.creditDebt(creditId), 0);
         assertEq(uint256(core.creditFacility(creditId)), uint256(Types.Facility.RecoveryPending));
         uint256 returnDeadline = block.timestamp + 1 days;
@@ -274,10 +271,7 @@ contract RemoteSalePolicyTest is Test {
         vm.expectRevert(TermbookCore.BadState.selector);
         core.cure(creditId);
         vm.stopPrank();
-        bytes32 returnDigest = keccak256(abi.encode(
-            core.remoteReturnActionHash(creditId), lockId, borrower, uint256(20e18), uint8(0)
-        ));
-        core.confirmRemoteReturn(creditId, hex"01", abi.encode(returnDigest));
+        core.confirmRemoteReturn(creditId, hex"01", abi.encode(core.remoteReturnActionHash(creditId)));
         vm.prank(borrower);
         core.cure(creditId);
         assertEq(uint256(core.creditFacility(creditId)), uint256(Types.Facility.Ready));

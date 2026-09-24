@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { decodeAbiParameters, keccak256 } from "viem";
 import { env } from "../../src/config/env.js";
 import { fetchFinalizedBeaconExecution } from "../../src/chain/ethereum-beacon-proof.js";
-import { consumedActionSlot, fetchUnconsumedActionProof } from "../../src/chain/source.client.js";
+import { consumedActionSlot, fetchConsumedActionProof, fetchUnconsumedActionProof } from "../../src/chain/source.client.js";
 
 vi.mock("../../src/chain/ethereum-execution-header.js", () => ({
   buildEthereumSourceHeader: vi.fn(async () => "0x1234"),
@@ -36,7 +36,8 @@ function source(overrides: { timestamp?: string; value?: string; storageHash?: s
     else if (request.method === "eth_getProof") result = {
       address: controller, codeHash: overrides.codeHash ?? codeHash,
       accountProof: ["0xc1"], storageHash: overrides.storageHash ?? emptyRoot,
-      storageProof: [{ key: consumedActionSlot(actionHash), value: overrides.value ?? "0x0", proof: [] }],
+      storageProof: [{ key: consumedActionSlot(actionHash), value: overrides.value ?? "0x0",
+        proof: overrides.value === "0x1" ? ["0xc1"] : [] }],
     };
     else throw new Error(`unexpected ${request.method}`);
     return reply({ jsonrpc: "2.0", id: 1, result });
@@ -84,5 +85,27 @@ describe("expired Ethereum action absence proof", () => {
   ] as const)("rejects an unsafe cancellation proof %#", async (overrides, reason) => {
     source(overrides);
     await expect(fetchUnconsumedActionProof(input)).rejects.toThrow(reason);
+  });
+});
+
+describe("applied Ethereum action proof", () => {
+  it("proves the consumed flag at a finalized controller state", async () => {
+    const requests = source({ value: "0x1", storageHash: `0x${"77".repeat(32)}` });
+    const result = await fetchConsumedActionProof({
+      rpcUrl: input.rpcUrl, actionHash, controller, expectedCodeHash: codeHash,
+    });
+    expect(requests.find((item) => item.method === "eth_getProof")?.params?.[1]).toEqual([consumedActionSlot(actionHash)]);
+    const [id, , storageNodes] = decodeAbiParameters(
+      [{ type: "bytes32" }, { type: "bytes[]" }, { type: "bytes[]" }], result.proof,
+    );
+    expect(id).toBe(actionHash);
+    expect(storageNodes).toEqual(["0xc1"]);
+  });
+
+  it("rejects an action whose consumed flag is absent", async () => {
+    source();
+    await expect(fetchConsumedActionProof({
+      rpcUrl: input.rpcUrl, actionHash, controller, expectedCodeHash: codeHash,
+    })).rejects.toThrow("proof-not-consumed");
   });
 });

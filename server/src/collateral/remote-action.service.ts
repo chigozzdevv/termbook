@@ -1,8 +1,8 @@
-import { encodeFunctionData, keccak256, parseAbi, type Address, type Hex } from "viem";
+import { createPublicClient, encodeFunctionData, http, keccak256, parseAbi, type Address, type Hex } from "viem";
 import { termbookCoreAbi, verifierRegistryAbi } from "@termbook/bindings";
 import { monadClient } from "../chain/monad.client.js";
-import { fetchUnconsumedActionProof } from "../chain/source.client.js";
-import { fetchSourceAppliedProof } from "../chain/source-receipt-proof.js";
+import { fetchConsumedActionProof, fetchUnconsumedActionProof } from "../chain/source.client.js";
+import { appliedLogIndex } from "../chain/source-action-receipt.js";
 import { env } from "../config/env.js";
 import { queue } from "../queue/queue.client.js";
 import { remoteActionRepo } from "./remote-action.repo.js";
@@ -26,12 +26,13 @@ const sourceVerifierAbi = parseAbi([
   "function sourceController() view returns (address)",
   "function sourceControllerCodeHash() view returns (bytes32)",
   "function verifyUnconsumedAction(bytes header,bytes proof,address controller,bytes32 actionHash,uint256 deadline) view returns (bool)",
+  "function verifyAppliedAction(bytes header,bytes proof,address vault,bytes32 actionHash) view returns (bool)",
 ]);
 const zero = "0x0000000000000000000000000000000000000000";
 
 export const remoteActionService = {
   async schedule(input: Input, requester: Address) {
-    if (!env.sourceRpcUrl || !env.sourceProofUrl || !env.monadProofUrl
+    if (!env.sourceRpcUrl || !env.sourceBeaconApiUrl || !env.monadProofUrl
       || !env.sourceActionKeeperKey || !env.monadConfirmKeeperKey) {
       throw new Error("remote-action-worker-unavailable");
     }
@@ -56,7 +57,7 @@ export const remoteActionService = {
     return remoteActionRepo.listByCredit(creditId.toLowerCase());
   },
   async attachSourceTx(input: SourceTxInput, requester: Address) {
-    if (!env.sourceRpcUrl || !env.sourceProofUrl || !env.monadConfirmKeeperKey) {
+    if (!env.sourceRpcUrl || !env.sourceBeaconApiUrl || !env.monadConfirmKeeperKey) {
       throw new Error("remote-action-worker-unavailable");
     }
     const saved = await remoteActionRepo.find(input.actionHash);
@@ -69,12 +70,49 @@ export const remoteActionService = {
     if (hashRemoteAction(action).toLowerCase() !== input.actionHash) throw new Error("remote-action-record-mismatch");
     const current = await readAuthorizedAction(action.creditId, action.kind, requester);
     if (current.actionHash.toLowerCase() !== input.actionHash) throw new Error("remote-action-stale");
-    const proof = await fetchSourceAppliedProof({
-      txHash: input.sourceTxHash as Hex, vault: action.sourceVault, actionHash: input.actionHash as Hex,
+    const source = createPublicClient({ transport: http(env.sourceRpcUrl) });
+    if (await source.getChainId() !== 1) throw new Error("source-action-chain-mismatch");
+    const receipt = await source.getTransactionReceipt({ hash: input.sourceTxHash as Hex });
+    const sourceFinalized = await source.getBlock({ blockTag: "finalized" });
+    if (receipt.blockNumber > sourceFinalized.number) throw new Error("source-action-not-finalized");
+    const sourceBlock = await source.getBlock({ blockNumber: receipt.blockNumber });
+    if (sourceBlock.hash.toLowerCase() !== receipt.blockHash.toLowerCase()) {
+      throw new Error("source-action-block-mismatch");
+    }
+    appliedLogIndex(receipt, {
+      vault: action.sourceVault, actionHash: input.actionHash as Hex,
       lockId: action.lockId, recipient: action.recipient, amount: action.amount, kind: action.kind,
-      finalityUrl: env.sourceProofUrl,
     });
-    await monadClient().simulateContract({
+    const chain = monadClient();
+    const finalized = await chain.getBlock({ blockTag: "finalized" });
+    const credit = await chain.readContract({ address: env.core as Address, abi: termbookCoreAbi,
+      functionName: "creditDetails", args: [action.creditId], blockNumber: finalized.number });
+    const registry = await chain.readContract({ address: env.core as Address, abi: termbookCoreAbi,
+      functionName: "verifierRegistry", blockNumber: finalized.number });
+    if (registry === zero) throw new Error("source-verifier-unavailable");
+    const [verifier, version, active, , codeHash] = await chain.readContract({
+      address: registry, abi: verifierRegistryAbi, functionName: "verifiers", args: [1n], blockNumber: finalized.number,
+    });
+    if (!active || verifier === zero || version !== credit.verifierVersion
+      || codeHash.toLowerCase() !== credit.verifierCodeHash.toLowerCase()) throw new Error("source-verifier-mismatch");
+    const runtime = await chain.getCode({ address: verifier, blockNumber: finalized.number });
+    if (!runtime || keccak256(runtime).toLowerCase() !== codeHash.toLowerCase()) throw new Error("source-verifier-mismatch");
+    const [vault, controller, controllerCodeHash] = await Promise.all([
+      chain.readContract({ address: verifier, abi: sourceVerifierAbi, functionName: "sourceVault", blockNumber: finalized.number }),
+      chain.readContract({ address: verifier, abi: sourceVerifierAbi, functionName: "sourceController", blockNumber: finalized.number }),
+      chain.readContract({ address: verifier, abi: sourceVerifierAbi, functionName: "sourceControllerCodeHash", blockNumber: finalized.number }),
+    ]);
+    if (vault.toLowerCase() !== action.sourceVault.toLowerCase() || controller === zero
+      || BigInt(controllerCodeHash) === 0n) throw new Error("source-controller-mismatch");
+    const proof = await fetchConsumedActionProof({
+      rpcUrl: env.sourceRpcUrl, actionHash: input.actionHash as Hex,
+      controller, expectedCodeHash: controllerCodeHash,
+    });
+    const accepted = await chain.readContract({ address: verifier, abi: sourceVerifierAbi,
+      functionName: "verifyAppliedAction",
+      args: [proof.header, proof.proof, action.sourceVault, input.actionHash as Hex] });
+    if (!accepted) throw new Error("source-applied-proof-rejected");
+    await chain.simulateContract({
       address: env.core as Address, abi: confirmAbi,
       functionName: action.kind === 0 ? "confirmRemoteReturn" : "confirmRemoteSeizure",
       args: [action.creditId, proof.header, proof.proof], account: requester,

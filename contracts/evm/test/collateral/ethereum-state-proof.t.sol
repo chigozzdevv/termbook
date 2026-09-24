@@ -163,6 +163,21 @@ contract EthereumStateProofTest is Test {
         ));
     }
 
+    function testConfirmsAppliedActionOnlyFromFinalizedControllerState() public view {
+        bytes32 actionHash = keccak256("seizure-action");
+        (bytes memory header, bytes memory proof) = _absenceProof(actionHash, true, true, address(this).codehash);
+        assertTrue(verifier.verifyAppliedAction(header, proof, address(vault), actionHash));
+        assertFalse(verifier.verifyAppliedAction(header, proof, address(0xBAD), actionHash));
+        assertFalse(verifier.verifyAppliedAction(header, proof, address(vault), keccak256("other")));
+        assertFalse(verifier.verifyUnconsumedAction(header, proof, address(this), actionHash, block.timestamp - 1));
+        (bytes memory missingHeader, bytes memory missingProof) =
+            _absenceProof(actionHash, false, false, address(this).codehash);
+        assertFalse(verifier.verifyAppliedAction(missingHeader, missingProof, address(vault), actionHash));
+        (bytes memory wrongCodeHeader, bytes memory wrongCodeProof) =
+            _absenceProof(actionHash, true, true, keccak256("wrong-controller"));
+        assertFalse(verifier.verifyAppliedAction(wrongCodeHeader, wrongCodeProof, address(vault), actionHash));
+    }
+
     function _absenceProof(bytes32 actionHash, bool occupied, bool nonempty, bytes32 controllerCodeHash)
         internal
         view

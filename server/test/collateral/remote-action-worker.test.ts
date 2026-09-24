@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { keccak256, type Hex } from "viem";
 
 vi.mock("../../src/chain/monad-receipt-proof.js", () => ({ fetchMonadAuthorizationProof: vi.fn() }));
-vi.mock("../../src/chain/source-receipt-proof.js", () => ({ fetchSourceAppliedProof: vi.fn() }));
+vi.mock("../../src/chain/source.client.js", () => ({ fetchConsumedActionProof: vi.fn() }));
 vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: vi.fn() }));
 vi.mock("../../src/collateral/remote-action.repo.js", () => ({
   remoteActionRepo: {
@@ -21,7 +21,7 @@ vi.mock("viem", async (importOriginal) => ({
 
 import { createPublicClient, createWalletClient } from "viem";
 import { fetchMonadAuthorizationProof } from "../../src/chain/monad-receipt-proof.js";
-import { fetchSourceAppliedProof } from "../../src/chain/source-receipt-proof.js";
+import { fetchConsumedActionProof } from "../../src/chain/source.client.js";
 import { monadClient } from "../../src/chain/monad.client.js";
 import { env } from "../../src/config/env.js";
 import { remoteActionRepo } from "../../src/collateral/remote-action.repo.js";
@@ -51,6 +51,8 @@ function fakeMonad() {
       creditDetails: { collateralVault: action.sourceVault, lockId: action.lockId, collateralAsset: action.asset,
         verifierVersion: 1n, verifierCodeHash: codeHash },
       verifierRegistry: `0x${"ab".repeat(20)}`, verifiers: [verifier, 1n, true, 0n, codeHash], verifyEvent: true,
+      sourceVault: action.sourceVault, sourceController: controller,
+      sourceControllerCodeHash: `0x${"aa".repeat(32)}`, verifyAppliedAction: true,
     })[functionName]),
     getCode: vi.fn().mockResolvedValue(code), simulateContract: vi.fn().mockResolvedValue({}),
     getTransactionCount: vi.fn().mockResolvedValue(4), sendRawTransaction: vi.fn(),
@@ -76,7 +78,7 @@ function fakeSource() {
 beforeEach(() => {
   vi.clearAllMocks();
   env.sourceRpcUrl = "https://source.example";
-  env.sourceProofUrl = "https://source-proof.example";
+  env.sourceBeaconApiUrl = "https://beacon.example";
   env.monadProofUrl = "https://proof.example";
   env.sourceActionKeeperKey = `0x${"01".repeat(32)}`;
   env.monadConfirmKeeperKey = `0x${"02".repeat(32)}`;
@@ -87,9 +89,10 @@ beforeEach(() => {
     header: "0x12", proof: "0x34", receiptsRoot: `0x${"aa".repeat(32)}`,
     blockHash: `0x${"bb".repeat(32)}`, blockNumber: 80n, txIndex: 0, logIndex: 0,
   });
-  vi.mocked(fetchSourceAppliedProof).mockResolvedValue({
-    header: "0x12", proof: "0x34", receiptsRoot: `0x${"aa".repeat(32)}`,
-    blockHash: `0x${"bb".repeat(32)}`, blockNumber: 80n, txIndex: 0, logIndex: 0,
+  vi.mocked(fetchConsumedActionProof).mockResolvedValue({
+    header: "0x12", proof: "0x34", stateRoot: `0x${"aa".repeat(32)}`,
+    blockHash: `0x${"bb".repeat(32)}`, blockNumber: "0x50",
+    slot: `0x${"cc".repeat(32)}`, codeHash: `0x${"aa".repeat(32)}`,
   });
   vi.mocked(remoteActionRepo.acquireSigner).mockResolvedValue(true);
   vi.mocked(remoteActionRepo.state).mockResolvedValue({ matchedCount: 1 } as never);
@@ -175,6 +178,8 @@ describe("remote action relay", () => {
         verifierVersion: 1n, verifierCodeHash: keccak256("0x1234") },
       verifierRegistry: `0x${"ab".repeat(20)}`,
       verifiers: [verifier, 1n, true, 0n, keccak256("0x1234")], verifyEvent: false,
+      sourceVault: action.sourceVault, sourceController: controller,
+      sourceControllerCodeHash: `0x${"aa".repeat(32)}`, verifyAppliedAction: false,
     })[functionName]);
     vi.mocked(monadClient).mockReturnValue(monad as never);
     vi.mocked(remoteActionRepo.find).mockResolvedValue({

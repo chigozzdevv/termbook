@@ -155,6 +155,40 @@ contract EthereumVerifier is LightClientVerifier {
         }
     }
 
+    function verifyAppliedAction(
+        bytes calldata header, bytes calldata proof, address vault, bytes32 actionHash
+    ) external view returns (bool) {
+        if (vault != sourceVault || actionHash == bytes32(0) || proof.length == 0 || proof.length > MAX_PROOF_BYTES) {
+            return false;
+        }
+        bytes32 stateRoot;
+        try this.verifiedExecutionRoots(header) returns (bytes32 root, bytes32, uint256) {
+            stateRoot = root;
+        } catch {
+            return false;
+        }
+        if (stateRoot == bytes32(0)) return false;
+        try this.verifyAppliedInStateRoot(stateRoot, proof, actionHash) returns (bool valid) {
+            return valid;
+        } catch {
+            return false;
+        }
+    }
+
+    function verifyAppliedInStateRoot(bytes32 stateRoot, bytes calldata proof, bytes32 actionHash)
+        external view returns (bool)
+    {
+        if (msg.sender != address(this) || proof.length == 0 || proof.length > MAX_PROOF_BYTES) return false;
+        (bytes32 provenActionHash, bytes[] memory accountNodes, bytes[] memory storageNodes) =
+            abi.decode(proof, (bytes32, bytes[], bytes[]));
+        if (provenActionHash != actionHash) return false;
+        bytes32 slot = keccak256(abi.encode(actionHash, uint256(0)));
+        return EthereumStateProof.verifyCommitment(
+            stateRoot, sourceController, sourceControllerCodeHash, slot, bytes32(uint256(1)),
+            accountNodes, storageNodes
+        );
+    }
+
     function verifyUnconsumedInStateRoot(
         bytes32 stateRoot,
         bytes calldata proof,

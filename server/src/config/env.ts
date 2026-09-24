@@ -4,7 +4,6 @@ export const env = {
   redisUrl: process.env["REDIS_URL"] ?? "",
   rpcUrl: process.env["RPC_URL"] ?? "http://127.0.0.1:8545",
   sourceRpcUrl: process.env["SOURCE_RPC_URL"] ?? "",
-  sourceProofUrl: process.env["SOURCE_PROOF_URL"] ?? "",
   sourceBeaconApiUrl: process.env["ETHEREUM_BEACON_API_URL"] ?? "",
   collateralKeeperKey: process.env["COLLATERAL_KEEPER_KEY"] ?? "",
   monadProofUrl: process.env["MONAD_PROOF_URL"] ?? "",
@@ -33,7 +32,7 @@ export function assertRuntimeConfig(): void {
     throw new Error("server-chain-config-invalid");
   }
   for (const [name, value] of [
-    ["SOURCE_RPC_URL", env.sourceRpcUrl], ["SOURCE_PROOF_URL", env.sourceProofUrl],
+    ["SOURCE_RPC_URL", env.sourceRpcUrl],
     ["ETHEREUM_BEACON_API_URL", env.sourceBeaconApiUrl], ["MONAD_PROOF_URL", env.monadProofUrl],
   ] as const) {
     if (!value) continue;
@@ -58,7 +57,7 @@ export function assertRuntimeConfig(): void {
     throw new Error("collateral-worker-config-incomplete");
   }
   if ([env.sourceActionKeeperKey, env.monadConfirmKeeperKey].some(Boolean)
-    && ![env.sourceRpcUrl, env.sourceProofUrl, env.monadProofUrl, env.sourceActionKeeperKey, env.monadConfirmKeeperKey].every(Boolean)) {
+    && ![env.sourceRpcUrl, env.sourceBeaconApiUrl, env.monadProofUrl, env.sourceActionKeeperKey, env.monadConfirmKeeperKey].every(Boolean)) {
     throw new Error("remote-action-worker-config-incomplete");
   }
   if (env.monadConfirmKeeperKey && [env.collateralKeeperKey, env.settlementKeeperKey]

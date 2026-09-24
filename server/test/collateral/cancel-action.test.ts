@@ -46,7 +46,6 @@ function chain(accepted = true) {
 
 beforeEach(() => {
   env.sourceRpcUrl = "https://ethereum.example";
-  env.sourceProofUrl = "https://proof.example";
   env.sourceBeaconApiUrl = "https://beacon.example";
   env.core = core;
   vi.mocked(readAuthorizedAction).mockResolvedValue({ action, actionHash, collateralAmount: 100n });

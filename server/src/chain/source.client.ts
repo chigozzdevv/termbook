@@ -108,11 +108,31 @@ export async function fetchUnconsumedActionProof(input: {
   expectedCodeHash: Hex;
   deadline: bigint;
 }): Promise<ProofBundle> {
+  if (input.deadline <= 0n) throw new Error("proof-invalid");
+  return fetchActionStateProof(input, 0n);
+}
+
+export async function fetchConsumedActionProof(input: {
+  rpcUrl: string;
+  actionHash: Hex;
+  controller: Address;
+  expectedCodeHash: Hex;
+}): Promise<ProofBundle> {
+  return fetchActionStateProof(input, 1n);
+}
+
+async function fetchActionStateProof(input: {
+  rpcUrl: string;
+  actionHash: Hex;
+  controller: Address;
+  expectedCodeHash: Hex;
+  deadline?: bigint;
+}, expectedValue: bigint): Promise<ProofBundle> {
   const source = url(input.rpcUrl);
   const actionHash = hex(input.actionHash, word);
   const controller = hex(input.controller, address);
   const expectedCodeHash = hex(input.expectedCodeHash, word);
-  if (BigInt(actionHash) === 0n || BigInt(expectedCodeHash) === 0n || input.deadline <= 0n) {
+  if (BigInt(actionHash) === 0n || BigInt(expectedCodeHash) === 0n) {
     throw new Error("proof-invalid");
   }
   const slot = consumedActionSlot(actionHash);
@@ -127,7 +147,7 @@ export async function fetchUnconsumedActionProof(input: {
   if (hex(selected["number"], quantity) !== blockNumber || hex(selected["hash"], word) !== blockHash
     || hex(selected["stateRoot"], word) !== stateRoot) throw new Error("proof-block-mismatch");
   const timestamp = hex(selected["timestamp"], quantity);
-  if (BigInt(timestamp) <= input.deadline) throw new Error("proof-before-deadline");
+  if (input.deadline !== undefined && BigInt(timestamp) <= input.deadline) throw new Error("proof-before-deadline");
   const header = await buildEthereumSourceHeader(selected, finalizedBeaconRoot);
   const result = object(await rpc(source, "eth_getProof", [controller, [slot], { blockHash, requireCanonical: true }]));
   if (hex(result["address"], address) !== controller) throw new Error("proof-account-mismatch");
@@ -140,9 +160,13 @@ export async function fetchUnconsumedActionProof(input: {
   const storage = object(storageProofs[0]);
   const key = hex(storage["key"], /^0x[0-9a-fA-F]{1,64}$/);
   const value = hex(storage["value"], quantity);
-  if (BigInt(key) !== BigInt(slot) || BigInt(value) !== 0n) throw new Error("proof-consumed");
+  if (BigInt(key) !== BigInt(slot) || BigInt(value) !== expectedValue) {
+    throw new Error(expectedValue === 0n ? "proof-consumed" : "proof-not-consumed");
+  }
   const storageNodes = proofNodes(storage["proof"], storageHash === keccak256("0x80"));
-  if (storageNodes.length === 0 && storageHash !== keccak256("0x80")) throw new Error("proof-invalid");
+  if (storageNodes.length === 0 && (expectedValue !== 0n || storageHash !== keccak256("0x80"))) {
+    throw new Error("proof-invalid");
+  }
   const proof = encodeAbiParameters(
     [{ type: "bytes32" }, { type: "bytes[]" }, { type: "bytes[]" }],
     [actionHash, accountNodes, storageNodes],

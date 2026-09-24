@@ -293,12 +293,12 @@ The Ethereum collateral proof worker needs `SOURCE_RPC_URL` with historical
 It reads the standard Beacon finality update for the current finalized execution
 block and checks the Beacon branches, canonical Ethereum block, storage proof,
 and Monad verifier before relay. The source action worker uses
-`MONAD_PROOF_URL` for finalized Monad authorizations
-and `SOURCE_PROOF_URL` for finalized Ethereum action receipts. For an expired
+`MONAD_PROOF_URL` for finalized Monad authorizations and the Beacon API for
+finalized Ethereum controller storage proofs. For an expired
 seizure or return that was never executed, `POST /collateral/actions/cancel`
 prepares a cancellation using a finalized Ethereum storage proof from the
-current Beacon update. Historical
-Ethereum receipt proofs still require a Beacon block inclusion producer and relay;
+current Beacon update. Applied actions are confirmed from the controller's
+permanent consumed flag, which is set atomically with the source vault transfer.
 Monad authorizations still require native consensus witnesses and a relay.
 Monad receipt proof generation waits until the source block
 reaches Verified execution, three blocks after Finalized.

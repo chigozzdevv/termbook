@@ -54,7 +54,7 @@ const zero = "0x0000000000000000000000000000000000000000";
 const zeroHash = `0x${"0".repeat(64)}`;
 
 function configured(): boolean {
-  return Boolean(env.sourceRpcUrl && env.sourceBeaconApiUrl && env.monadProofUrl
+  return Boolean(env.sourceRpcUrl && env.sourceBeaconApiUrl
     && env.sourceActionKeeperKey && env.monadConfirmKeeperKey);
 }
 
@@ -356,7 +356,7 @@ export async function handleRemoteActionJob(job: { kind: string; payload: Record
     }
     const authorization = await fetchMonadAuthorizationProof({
       txHash: record.authorizationTxHash as Hex, core: action.monadCore, creditId: action.creditId,
-      actionHash: actionHash as Hex, kind: action.kind, finalityUrl: env.monadProofUrl,
+      actionHash: actionHash as Hex, kind: action.kind,
     });
     const [chainId, version, bootstrap] = await source.readContract({
       address: binding.verifier, abi: verifierAbi, functionName: "admission", blockNumber: binding.finalized.number,

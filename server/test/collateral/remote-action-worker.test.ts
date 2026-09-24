@@ -79,7 +79,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   env.sourceRpcUrl = "https://source.example";
   env.sourceBeaconApiUrl = "https://beacon.example";
-  env.monadProofUrl = "https://proof.example";
   env.sourceActionKeeperKey = `0x${"01".repeat(32)}`;
   env.monadConfirmKeeperKey = `0x${"02".repeat(32)}`;
   env.monadChainId = Number(action.monadChain);

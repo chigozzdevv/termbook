@@ -16,7 +16,7 @@ vi.mock("../../src/chain/monad-receipt-proof.js", async (load) => ({
   fetchMonadReceiptProof: mocks.proof,
 }));
 vi.mock("../../src/config/env.js", () => ({ env: {
-  sourceRpcUrl: "http://source.test", monadProofUrl: "http://proof.test",
+  sourceRpcUrl: "http://source.test",
   monadChainId: 101, core: `0x${"1".repeat(40)}`,
 } }));
 

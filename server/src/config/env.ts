@@ -6,7 +6,6 @@ export const env = {
   sourceRpcUrl: process.env["SOURCE_RPC_URL"] ?? "",
   sourceBeaconApiUrl: process.env["ETHEREUM_BEACON_API_URL"] ?? "",
   collateralKeeperKey: process.env["COLLATERAL_KEEPER_KEY"] ?? "",
-  monadProofUrl: process.env["MONAD_PROOF_URL"] ?? "",
   sourceActionKeeperKey: process.env["SOURCE_ACTION_KEEPER_KEY"] ?? "",
   monadConfirmKeeperKey: process.env["MONAD_CONFIRM_KEEPER_KEY"] ?? "",
   settlementFactory: process.env["SETTLEMENT_FACTORY"] ?? "",
@@ -33,7 +32,7 @@ export function assertRuntimeConfig(): void {
   }
   for (const [name, value] of [
     ["SOURCE_RPC_URL", env.sourceRpcUrl],
-    ["ETHEREUM_BEACON_API_URL", env.sourceBeaconApiUrl], ["MONAD_PROOF_URL", env.monadProofUrl],
+    ["ETHEREUM_BEACON_API_URL", env.sourceBeaconApiUrl],
   ] as const) {
     if (!value) continue;
     let endpoint: URL;
@@ -57,7 +56,7 @@ export function assertRuntimeConfig(): void {
     throw new Error("collateral-worker-config-incomplete");
   }
   if ([env.sourceActionKeeperKey, env.monadConfirmKeeperKey].some(Boolean)
-    && ![env.sourceRpcUrl, env.sourceBeaconApiUrl, env.monadProofUrl, env.sourceActionKeeperKey, env.monadConfirmKeeperKey].every(Boolean)) {
+    && ![env.sourceRpcUrl, env.sourceBeaconApiUrl, env.sourceActionKeeperKey, env.monadConfirmKeeperKey].every(Boolean)) {
     throw new Error("remote-action-worker-config-incomplete");
   }
   if (env.monadConfirmKeeperKey && [env.collateralKeeperKey, env.settlementKeeperKey]

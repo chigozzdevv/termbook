@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { decodeAbiParameters, encodeAbiParameters, keccak256, padHex, stringToHex, toRlp, type TransactionReceipt } from "viem";
+import { decodeAbiParameters, encodeAbiParameters, keccak256, padHex, stringToHex, toRlp, type Hex, type TransactionReceipt } from "viem";
 
 vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: vi.fn() }));
 
@@ -97,6 +97,50 @@ describe("Monad receipt trie proof", () => {
     expect(() => authorizationLogIndex(item, core, creditId, actionHash, 0)).toThrow();
   });
 
+  it("obtains the canonical execution header from Monad RPC", async () => {
+    env.monadChainId = 143;
+    const root = buildReceiptProof([receipt(0, true)], 0, 0).receiptsRoot;
+    const fields: Hex[] = Array.from({ length: 20 }, () => "0x");
+    fields[5] = root;
+    fields[8] = "0x64";
+    fields[11] = "0x03e8";
+    const header = toRlp(fields);
+    const hash = keccak256(header);
+    const item = { ...receipt(0, true), blockHash: hash,
+      logs: receipt(0, true).logs.map((log) => ({ ...log, blockHash: hash })) };
+    const request = vi.fn(async () => header);
+    vi.mocked(monadClient).mockReturnValue({
+      getTransactionReceipt: async () => item,
+      getChainId: async () => 143,
+      getBlock: async ({ blockTag }: { blockTag?: string }) => blockTag === "finalized"
+        ? { number: 103n }
+        : { number: 100n, hash, receiptsRoot: root, timestamp: 1000n, transactions: [txHash] },
+      getBlockReceipts: async () => [item],
+      request,
+    } as never);
+    const proof = await fetchMonadAuthorizationProof({ txHash, core, creditId, actionHash, kind: 1 });
+    expect(proof.header).toBe(header);
+    expect(proof.blockHash).toBe(hash);
+    expect(request).toHaveBeenCalledWith({ method: "debug_getRawHeader", params: ["0x64"] });
+  });
+
+  it("rejects a raw header that does not match the finalized execution block", async () => {
+    env.monadChainId = 143;
+    const item = receipt(0, true);
+    vi.mocked(monadClient).mockReturnValue({
+      getTransactionReceipt: async () => item,
+      getChainId: async () => 143,
+      getBlock: async ({ blockTag }: { blockTag?: string }) => blockTag === "finalized"
+        ? { number: 103n }
+        : { number: 100n, hash: blockHash, receiptsRoot: buildReceiptProof([item], 0, 0).receiptsRoot,
+          timestamp: 1000n, transactions: [txHash] },
+      getBlockReceipts: async () => [item],
+      request: async () => toRlp(Array.from({ length: 20 }, () => "0x")),
+    } as never);
+    await expect(fetchMonadAuthorizationProof({ txHash, core, creditId, actionHash, kind: 1 }))
+      .rejects.toThrow("authorization-header-mismatch");
+  });
+
   it("rejects a block whose reconstructed receipt root differs", async () => {
     env.monadChainId = 143;
     const item = receipt(0, true);
@@ -109,7 +153,7 @@ describe("Monad receipt trie proof", () => {
       getBlockReceipts: async () => [item],
     } as never);
     await expect(fetchMonadAuthorizationProof({
-      txHash, core, creditId, actionHash, kind: 1, finalityUrl: "https://proof.example",
+      txHash, core, creditId, actionHash, kind: 1,
     })).rejects.toThrow("authorization-receipts-root-mismatch");
   });
 
@@ -126,7 +170,7 @@ describe("Monad receipt trie proof", () => {
       getBlockReceipts,
     } as never);
     await expect(fetchMonadAuthorizationProof({
-      txHash, core, creditId, actionHash, kind: 1, finalityUrl: "https://proof.example",
+      txHash, core, creditId, actionHash, kind: 1,
     })).rejects.toThrow("authorization-not-verified");
     expect(getBlockReceipts).not.toHaveBeenCalled();
   });
@@ -138,7 +182,7 @@ describe("Monad receipt trie proof", () => {
       getChainId: async () => 999,
     } as never);
     await expect(fetchMonadAuthorizationProof({
-      txHash, core, creditId, actionHash, kind: 1, finalityUrl: "https://proof.example",
+      txHash, core, creditId, actionHash, kind: 1,
     })).rejects.toThrow("authorization-monad-chain-unsupported");
   });
 
@@ -149,7 +193,7 @@ describe("Monad receipt trie proof", () => {
       getChainId: async () => 10143,
     } as never);
     await expect(fetchMonadAuthorizationProof({
-      txHash, core, creditId, actionHash, kind: 1, finalityUrl: "https://proof.example",
+      txHash, core, creditId, actionHash, kind: 1,
     })).rejects.toThrow("authorization-monad-chain-unsupported");
   });
 });

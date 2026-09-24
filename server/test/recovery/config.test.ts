@@ -11,7 +11,6 @@ const saved = {
   routes: env.auroraRoutes,
   apiKey: env.auroraApiKey,
   factory: env.settlementFactory,
-  proofUrl: env.monadProofUrl,
 };
 
 afterEach(() => {
@@ -27,7 +26,6 @@ afterEach(() => {
   env.auroraRoutes = saved.routes;
   env.auroraApiKey = saved.apiKey;
   env.settlementFactory = saved.factory;
-  env.monadProofUrl = saved.proofUrl;
 });
 
 describe("recovery worker configuration", () => {

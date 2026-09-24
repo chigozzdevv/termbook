@@ -55,7 +55,7 @@ export function sourceRecoveryReturnEvent(receipt: TransactionReceipt, core: Add
 }
 
 export async function prepareHeldReturn(input: { creditId: Hex; authorizationTxHash: Hex }, wallet: Address) {
-  if (!env.sourceRpcUrl || !env.monadProofUrl || env.core === zeroAddress) {
+  if (!env.sourceRpcUrl || env.core === zeroAddress) {
     throw new HttpError(503, "return-held-unavailable");
   }
   const monad = monadClient();
@@ -65,7 +65,6 @@ export async function prepareHeldReturn(input: { creditId: Hex; authorizationTxH
   const authorized = sourceRecoveryReturnEvent(receipt, core, input.creditId);
   const proof = await fetchMonadReceiptProof({
     txHash: input.authorizationTxHash,
-    finalityUrl: env.monadProofUrl,
     selectLog: (provedReceipt) => {
       const proved = sourceRecoveryReturnEvent(provedReceipt, core, input.creditId);
       if (proved.actionHash !== authorized.actionHash || !equal(proved.owner, authorized.owner)

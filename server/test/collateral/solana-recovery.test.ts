@@ -40,7 +40,7 @@ const lockPda = key(10);
 const depositPubkey = key(15);
 const quoteHash = keccak256(stringToHex("signed-quote"));
 const code = "0x1234" as const;
-const originalEnv = { core: env.core, monadChainId: env.monadChainId, monadProofUrl: env.monadProofUrl };
+const originalEnv = { core: env.core, monadChainId: env.monadChainId };
 const originalSolanaRpc = process.env["SOLANA_RPC_URL"];
 const originalSolanaProof = process.env["SOLANA_PROOF_URL"];
 const eventTopic = keccak256(stringToHex(
@@ -50,7 +50,6 @@ const eventTopic = keccak256(stringToHex(
 beforeEach(() => {
   env.core = core;
   env.monadChainId = 143;
-  env.monadProofUrl = "https://proof.example";
   process.env["SOLANA_RPC_URL"] = "https://solana.example";
   process.env["SOLANA_PROOF_URL"] = "https://solana-proof.example";
   vi.mocked(fetchSolanaProof).mockResolvedValue({ header: "0xcc", proof: "0xdd", slot: 80,

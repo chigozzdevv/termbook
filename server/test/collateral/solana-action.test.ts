@@ -28,14 +28,13 @@ const core = address("a");
 const verifier = address("b");
 const code = "0x1234" as const;
 const codeHash = keccak256(code);
-const originalEnv = { core: env.core, monadChainId: env.monadChainId, monadProofUrl: env.monadProofUrl };
+const originalEnv = { core: env.core, monadChainId: env.monadChainId };
 const originalSolanaRpc = process.env["SOLANA_RPC_URL"];
 const originalSolanaProof = process.env["SOLANA_PROOF_URL"];
 
 beforeEach(() => {
   env.core = core;
   env.monadChainId = 143;
-  env.monadProofUrl = "https://monad-proof.example";
   process.env["SOLANA_RPC_URL"] = "https://solana.example";
   process.env["SOLANA_PROOF_URL"] = "https://solana-proof.example";
   vi.mocked(solanaFinalizedClock).mockResolvedValue(100);

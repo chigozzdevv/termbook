@@ -295,8 +295,8 @@ transaction for a wallet to sign and submit.
 
 The recovery worker can fund a registered recovery quote when
 `RECOVERY_SOURCE_RPCS` maps the EVM source chain ID to its RPC URL and
-`RECOVERY_ROUTE_SIGNER_KEY`, `RECOVERY_RISK_SIGNER`, `RECOVERY_FUNDING_KEY`,
-and `MONAD_PROOF_URL` are configured. The two signers must use different accounts.
+`RECOVERY_ROUTE_SIGNER_KEY`, `RECOVERY_RISK_SIGNER`, and `RECOVERY_FUNDING_KEY`
+are configured. The two signers must use different accounts.
 The risk signer reads `/recovery/risk-approval-plan`, checks the quote and typed
 data, then submits the signature through `/recovery/risk-approval`; its private
 key stays outside the server. The worker checks the finalized factory operation
@@ -310,7 +310,7 @@ The Ethereum collateral proof worker needs `SOURCE_RPC_URL` with historical
 It reads the standard Beacon finality update for the current finalized execution
 block and checks the Beacon branches, canonical Ethereum block, storage proof,
 and Monad verifier before relay. The source action worker uses
-`MONAD_PROOF_URL` for finalized Monad authorizations and the Beacon API for
+Monad `debug_getRawHeader` for finalized authorizations and the Beacon API for
 finalized Ethereum controller storage proofs. For an expired
 seizure or return that was never executed, `POST /collateral/actions/cancel`
 prepares a cancellation using a finalized Ethereum storage proof from the

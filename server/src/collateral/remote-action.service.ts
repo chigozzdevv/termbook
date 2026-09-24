@@ -32,7 +32,7 @@ const zero = "0x0000000000000000000000000000000000000000";
 
 export const remoteActionService = {
   async schedule(input: Input, requester: Address) {
-    if (!env.sourceRpcUrl || !env.sourceBeaconApiUrl || !env.monadProofUrl
+    if (!env.sourceRpcUrl || !env.sourceBeaconApiUrl
       || !env.sourceActionKeeperKey || !env.monadConfirmKeeperKey) {
       throw new Error("remote-action-worker-unavailable");
     }

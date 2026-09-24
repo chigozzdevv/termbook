@@ -20,10 +20,8 @@ export function recoveryOperationLogIndex(receipt: TransactionReceipt, operation
 }
 
 export async function fetchRecoveryOperationProof(operation: Operation, digest: Hex) {
-  if (!env.monadProofUrl) throw new Error("recovery-monad-proof-unavailable");
   return fetchMonadReceiptProof({
     txHash: operation.registrationTxHash as Hex,
-    finalityUrl: env.monadProofUrl,
     selectLog: (receipt) => recoveryOperationLogIndex(
       receipt, operation.operationId as Hex, digest, operation.inbox as Hex,
     ),

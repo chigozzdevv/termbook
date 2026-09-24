@@ -1,5 +1,5 @@
 import {
-  concatHex, encodeAbiParameters, keccak256, numberToHex, stringToHex, toRlp,
+  concatHex, encodeAbiParameters, fromRlp, keccak256, numberToHex, stringToHex, toRlp,
   type Address, type Hex, type TransactionReceipt,
 } from "viem";
 import { monadClient } from "./monad.client.js";
@@ -143,7 +143,6 @@ export function buildReceiptProof(receipts: TransactionReceipt[], txIndex: numbe
 
 export async function fetchMonadReceiptProof(input: {
   txHash: Hex;
-  finalityUrl: string;
   selectLog: (receipt: TransactionReceipt) => number;
 }) {
   if (!word.test(input.txHash)) throw new Error("authorization-tx-invalid");
@@ -186,37 +185,27 @@ export async function fetchMonadReceiptProof(input: {
   if (assembled.receiptsRoot.toLowerCase() !== block.receiptsRoot.toLowerCase()) {
     throw new Error("authorization-receipts-root-mismatch");
   }
-  let endpoint: URL;
+  const header: unknown = await chain.request({ method: "debug_getRawHeader",
+    params: [numberToHex(block.number)] } as never).catch(() => null);
+  if (typeof header !== "string" || !/^0x(?:[0-9a-fA-F]{2})+$/.test(header)
+    || header.length > 192_002) throw new Error("authorization-header-unavailable");
+  let fields: unknown;
   try {
-    endpoint = new URL(input.finalityUrl);
-  } catch {
-    throw new Error("authorization-proof-url-invalid");
-  }
-  if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") throw new Error("authorization-proof-url-invalid");
-  endpoint.pathname = `${endpoint.pathname.replace(/\/$/, "")}/receipt/${input.txHash}`;
-  endpoint.search = "";
-  const response = await fetch(endpoint, { signal: AbortSignal.timeout(10_000), redirect: "error" }).catch(() => null);
-  if (!response?.ok) throw new Error("authorization-header-unavailable");
-  const body = await response.text();
-  if (body.length > 200_000) throw new Error("authorization-header-invalid");
-  let parsed: Record<string, unknown>;
-  try {
-    const value: unknown = JSON.parse(body);
-    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error();
-    parsed = value as Record<string, unknown>;
+    fields = fromRlp(header as Hex);
   } catch {
     throw new Error("authorization-header-invalid");
   }
-  if (typeof parsed["header"] !== "string" || !/^0x(?:[0-9a-fA-F]{2})+$/.test(parsed["header"])
-    || parsed["header"].length > 192_002
-    || typeof parsed["blockNumber"] !== "string" || !/^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/.test(parsed["blockNumber"])
-    || BigInt(parsed["blockNumber"]) !== block.number
-    || typeof parsed["blockHash"] !== "string" || parsed["blockHash"].toLowerCase() !== block.hash.toLowerCase()
-    || typeof parsed["receiptsRoot"] !== "string" || parsed["receiptsRoot"].toLowerCase() !== block.receiptsRoot.toLowerCase()) {
+  if (!Array.isArray(fields) || (fields.length !== 20 && fields.length !== 21)
+    || typeof fields[5] !== "string" || typeof fields[8] !== "string"
+    || typeof fields[11] !== "string" || keccak256(header as Hex).toLowerCase() !== block.hash.toLowerCase()
+    || fields[5].toLowerCase() !== block.receiptsRoot.toLowerCase()
+    || !/^0x(?:[0-9a-fA-F]{2})+$/.test(fields[8])
+    || !/^0x(?:[0-9a-fA-F]{2})+$/.test(fields[11])
+    || BigInt(fields[8]) !== block.number || BigInt(fields[11]) !== block.timestamp) {
     throw new Error("authorization-header-mismatch");
   }
   return {
-    header: parsed["header"] as Hex, proof: assembled.proof,
+    header: header as Hex, proof: assembled.proof,
     receiptsRoot: assembled.receiptsRoot, blockHash: block.hash,
     blockNumber: block.number, txIndex: receipt.transactionIndex, logIndex: eventIndex,
   };
@@ -228,10 +217,9 @@ export async function fetchMonadAuthorizationProof(input: {
   creditId: Hex;
   actionHash: Hex;
   kind: 0 | 1;
-  finalityUrl: string;
 }) {
   return fetchMonadReceiptProof({
-    txHash: input.txHash, finalityUrl: input.finalityUrl,
+    txHash: input.txHash,
     selectLog: (receipt) => authorizationLogIndex(receipt, input.core, input.creditId, input.actionHash, input.kind),
   });
 }

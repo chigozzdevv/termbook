@@ -24,12 +24,11 @@ const programDataHash = key(8);
 const eventTopic = keccak256(stringToHex(
   "SolanaRecoveryReturnAuthorized(bytes32,bytes32,bytes32,uint256,uint256,uint256,uint256)",
 ));
-const originalEnv = { core: env.core, monadChainId: env.monadChainId, monadProofUrl: env.monadProofUrl };
+const originalEnv = { core: env.core, monadChainId: env.monadChainId };
 
 beforeEach(() => {
   env.core = core;
   env.monadChainId = 143;
-  env.monadProofUrl = "https://proof.example";
 });
 
 afterEach(() => { Object.assign(env, originalEnv); vi.clearAllMocks(); });

@@ -45,7 +45,7 @@ export function recoveryConfig(): RecoveryConfig | null {
 
 export function assertRecoveryWorkerConfig(): void {
   if (!recoveryConfig()) return;
-  if (!env.auroraRoutes || !env.auroraApiKey || !env.monadProofUrl
+  if (!env.auroraRoutes || !env.auroraApiKey
     || !/^0x[a-fA-F0-9]{40}$/.test(env.settlementFactory)) {
     throw new Error("recovery-config-invalid");
   }

@@ -3,6 +3,7 @@ import { integrationController } from "./integration.controller.js";
 
 export function integrationRoute(app: FastifyInstance): void {
   app.post("/integrations", integrationController.approve);
+  app.post("/integrations/draft", integrationController.draft);
   app.get("/integrations", integrationController.list);
   app.get("/integrations/config", integrationController.resolve);
 }

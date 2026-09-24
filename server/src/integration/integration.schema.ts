@@ -13,6 +13,16 @@ export const integrationAcceptanceSchema = z.strictObject({
   message: "integration-sample-duplicate",
 });
 
+export const integrationDraftSchema = z.strictObject({
+  entries: z.array(z.strictObject({
+    target: z.string().regex(/^0x[a-fA-F0-9]{40}$/).refine((value) => !/^0x0{40}$/i.test(value)),
+    codeHash: word,
+    implementationCodeHash: word.optional(),
+    signature: z.string().min(1).max(512),
+    txHash: word,
+  })).min(1).max(32),
+});
+
 export const integrationSchema = z.strictObject({
   versionId: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
   codeHash: z.string().regex(/^0x[a-fA-F0-9]{64}$/),

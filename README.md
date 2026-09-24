@@ -60,6 +60,15 @@ The approval request includes the House settlement asset and an `actions`
 array. Each action names a public
 capability, its approved contract target and ABI function, and the source of
 each ABI argument (`input`, `borrower`, `credit_account`, or `credit_id`).
+An admin can call `POST /integrations/draft` with up to 32 target addresses,
+expected runtime code hashes, function signatures, and reference Core action
+transaction hashes. It checks the finalized deployment, EIP-1967 implementation
+when present, and the actual nested app call. The response gives the observed
+ABI parameters and logs for review; it does not assign economic meaning or
+borrower input sources automatically.
+For EIP-1967 proxies it requires the reviewed implementation code hash and
+rejects beacon proxies. Proxy upgrades remain an integration trust risk and
+must trigger a freeze and renewed review before use.
 `fundingPath` identifies the borrower input used to calculate the required
 settlement-token draw. The server checks the target and selector against the
 finalized IntegrationRegistry policy before publishing the app token. The SDK

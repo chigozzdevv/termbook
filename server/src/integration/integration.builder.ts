@@ -7,14 +7,11 @@ import { termbookCoreAbi } from "@termbook/bindings";
 import { monadClient } from "../chain/monad.client.js";
 import { env } from "../config/env.js";
 import type { integrationAcceptanceSchema } from "./integration.schema.js";
+import { coreActionAbi } from "./integration.abi.js";
 import type { z } from "zod";
 
 type Acceptance = z.infer<typeof integrationAcceptanceSchema>;
 
-const coreActionAbi = parseAbi([
-  "function executeAction(bytes32 creditId,address target,bytes data,uint256 amount,uint256 maxBound,uint256 borrowerNonce,uint256 deadline,bytes borrowerSig)",
-  "function executeFundedAction(bytes32 creditId,address target,bytes data,uint256 drawAmount,uint256 spendAmount,uint256 maxBound,uint256 borrowerNonce,uint256 deadline,bytes borrowerSig)",
-]);
 const healthAbi = parseAbi([
   "function readers(bytes32) view returns (address,uint256,bool,uint256,bytes32)",
 ]);

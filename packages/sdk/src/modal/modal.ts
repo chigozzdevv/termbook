@@ -385,6 +385,8 @@ export class TermbookModal {
       const card = element("div", undefined, "card offer");
       const detail = element("div");
       detail.append(element("p", `Limit ${offer.limit} base units · APR ${offer.aprBps / 100}%`));
+      if (offer.estimatedTotalCost !== undefined) detail.append(element("p", `Estimated total cost ${offer.estimatedTotalCost} base units for a ${offer.costAssumptions?.draw ?? 0n} base-unit draw over ${offer.costAssumptions?.durationSeconds ?? 0} seconds.`));
+      if (offer.riskTerms) detail.append(element("p", `Required initial health ${offer.riskTerms.initialBps} bps · Recovery threshold ${offer.riskTerms.liquidationBps} bps`));
       detail.append(element("small", `Fee ${offer.originationFee} · Bond ${offer.reservationBond} · Maturity ${new Date(offer.maturity * 1000).toLocaleString()}`));
       card.append(detail, this.button("Review terms", () => { this.offer = offer; this.render(); }));
       section.append(card);
@@ -395,6 +397,8 @@ export class TermbookModal {
       terms.append(element("p", `House ${this.offer.house}`, "mono"));
       terms.append(element("p", `Collateral ${this.offer.collateralAmount} · Credit ${this.offer.limit} · APR ${this.offer.aprBps / 100}%`));
       terms.append(element("p", `Origination fee ${this.offer.originationFee} · Reservation bond ${this.offer.reservationBond}`));
+      if (this.offer.estimatedTotalCost !== undefined) terms.append(element("p", `Estimated total cost ${this.offer.estimatedTotalCost} base units for a ${this.offer.costAssumptions?.draw ?? 0n} base-unit draw over ${this.offer.costAssumptions?.durationSeconds ?? 0} seconds.`));
+      if (this.offer.riskTerms) terms.append(element("p", `Initial ${this.offer.riskTerms.initialBps} · Maintenance ${this.offer.riskTerms.maintenanceBps} · Watch ${this.offer.riskTerms.watchBps} · Freeze ${this.offer.riskTerms.freezeBps} · Recovery ${this.offer.riskTerms.liquidationBps} bps`));
       terms.append(element("p", `Expires ${new Date(this.offer.expiry * 1000).toLocaleString()}`));
       terms.append(this.button("Accept offer", () => this.acceptOffer(), true));
       section.append(terms);
@@ -406,13 +410,20 @@ export class TermbookModal {
     if (!this.intent || !this.offer || !this.sourceWallet) throw new Error("offer-required");
     this.showStatus("Waiting for wallet approvals and collateral confirmation…");
     try {
-      this.credit = await this.intent.accept({ offer_id: this.offer.id, source_wallet: this.sourceWallet,
+      this.credit = await this.intent.accept({ offer_id: this.offer.id, reviewedOffer: this.offer, source_wallet: this.sourceWallet,
         on_progress: (checkpoint, binding) => {
           this.saveId(binding.creditId);
           this.showStatus(`Collateral setup: ${checkpoint.stage.replaceAll("_", " ")}.`);
           try { localStorage.setItem(`${this.storageKey()}:setup:${binding.creditId}`, stringify({ binding, checkpoint })); } catch { /* storage is optional */ }
         } });
     } catch (error) {
+      if (error instanceof Error && ["offer-review-stale", "offer-not-found"].includes(error.message)) {
+        this.offers = await this.intent.offers();
+        this.offer = undefined;
+        this.showStatus("House terms changed. Review the current offers.");
+        this.render();
+        return;
+      }
       if (!(error instanceof CollateralSetupInterruptedError)) throw error;
       this.credit = error.setup.credit;
       this.credit.setup = error.setup;
@@ -515,8 +526,11 @@ export class TermbookModal {
       review.append(element("p", `Required input ${this.review.requiredInput} · Free account assets ${this.review.freeAssets}`));
       review.append(element("p", `New draw ${this.review.draw} · Debt ${this.review.currentDebt} → ${this.review.projectedDebt}`));
       review.append(element("p", `Origination fee ${this.review.originationFee} · Current recovery health ${this.review.healthBps === null ? "unavailable" : `${this.review.healthBps} bps (${this.review.healthState})`}`));
+      review.append(element("p", `Projected recovery health ${this.review.projectedHealthBps} bps · Required ${this.review.initialHealthBps} bps`));
+      review.append(element("p", `Projected recoverable value ${this.review.projectedRecoveryValue}`));
+      if (!this.review.canExecute) review.append(element("p", "This action is below the required recovery health.", "error"));
       review.append(element("small", `Settlement asset ${this.review.settlementAsset}. Amounts shown in smallest token units.`));
-      review.append(this.button("Confirm action", async () => {
+      if (this.review.canExecute) review.append(this.button("Confirm action", async () => {
         if (!this.review) throw new Error("action-review-required");
         const result = await this.credit!.app.execute(this.action!, this.review);
         this.saveRecentAction(result);

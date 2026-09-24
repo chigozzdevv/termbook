@@ -42,6 +42,7 @@ export type ClientConfig = {
   riskEngine?: `0x${string}`;
   confirmations?: number;
   actions?: CapabilityDefinition[];
+  settlementAsset?: `0x${string}`;
   sourceWalletResolver?: (market: CollateralMarket) => Promise<SourceLockWallet>;
 };
 

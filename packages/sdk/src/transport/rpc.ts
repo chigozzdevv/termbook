@@ -1,4 +1,4 @@
-import { createPublicClient, http, type PublicClient } from "viem";
+import { BaseError, ContractFunctionRevertedError, createPublicClient, http, parseAbi, type PublicClient } from "viem";
 import type { ActivityEvent, ResolvedClientConfig, ContractWriteRequest, TxHash } from "../types/client.types.js";
 import {
   collateralVaultAbi,
@@ -13,6 +13,12 @@ const erc20Abi = [
   { type: "function", name: "balanceOf", inputs: [{ name: "account", type: "address" }], outputs: [{ type: "uint256" }], stateMutability: "view" },
   { type: "function", name: "approve", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "bool" }], stateMutability: "nonpayable" },
 ] as const;
+const previewAbi = parseAbi([
+  "function previewAction(bytes32 creditId,address target,bytes data,uint256 amount,uint256 borrowerNonce)",
+  "error ActionPreview(uint256 healthBps,uint256 initialBps,uint256 debt,uint256 recoveryValue)",
+]);
+
+export type ActionPreview = { healthBps: bigint; initialBps: bigint; debt: bigint; recoveryValue: bigint };
 
 export class RpcClient {
   config: ResolvedClientConfig;
@@ -73,6 +79,26 @@ export class RpcClient {
 
   async coreWrite(functionName: string, args: readonly unknown[] = []): Promise<TxHash> {
     return this.write(this.config.core, termbookCoreAbi, functionName, args);
+  }
+
+  async previewAction(creditId: `0x${string}`, target: `0x${string}`, data: `0x${string}`,
+    amount: bigint, borrowerNonce: bigint): Promise<ActionPreview> {
+    try {
+      await this.client.simulateContract({ address: this.config.core, abi: previewAbi,
+        functionName: "previewAction", args: [creditId, target, data, amount, borrowerNonce],
+        account: this.config.wallet.address });
+    } catch (error) {
+      const reverted = error instanceof BaseError
+        ? error.walk((cause) => cause instanceof ContractFunctionRevertedError) : undefined;
+      if (reverted instanceof ContractFunctionRevertedError && reverted.data?.errorName === "ActionPreview") {
+        const values = reverted.data.args as readonly bigint[] | undefined;
+        if (values?.length === 4 && values.every((value) => typeof value === "bigint")) {
+          return { healthBps: values[0]!, initialBps: values[1]!, debt: values[2]!, recoveryValue: values[3]! };
+        }
+      }
+      throw new Error("action-preview-unavailable", { cause: error });
+    }
+    throw new Error("action-preview-unavailable");
   }
 
   async tokenBalance(token: `0x${string}`, account: `0x${string}`): Promise<bigint> {

@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { parseAbiItem, toFunctionSelector } from "viem";
+import { keccak256, parseAbiItem, toFunctionSelector } from "viem";
 import type { CapabilityDefinition } from "@termbook/schema";
 import { monadClient } from "../chain/monad.client.js";
 import { env } from "../config/env.js";
@@ -12,10 +12,14 @@ const coreAbi = [
   { type: "function", name: "healthSource", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "riskEngine", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "exitVerifierOfBundle", stateMutability: "view", inputs: [{ type: "bytes32" }], outputs: [{ type: "address" }] },
+  { type: "function", name: "appRecoveryAdapterOfBundle", stateMutability: "view", inputs: [{ type: "bytes32" }], outputs: [{ type: "address" }] },
+  { type: "function", name: "exitVerifierCodeHash", stateMutability: "view", inputs: [{ type: "bytes32" }], outputs: [{ type: "bytes32" }] },
+  { type: "function", name: "appRecoveryAdapterCodeHash", stateMutability: "view", inputs: [{ type: "bytes32" }], outputs: [{ type: "bytes32" }] },
 ] as const;
 const registryAbi = [
   { type: "function", name: "versions", stateMutability: "view", inputs: [{ type: "bytes32" }], outputs: [{ type: "bytes32" }, { type: "bool" }, { type: "bool" }] },
   { type: "function", name: "isActive", stateMutability: "view", inputs: [{ type: "bytes32" }], outputs: [{ type: "bool" }] },
+  { type: "function", name: "recoveryCallCount", stateMutability: "view", inputs: [{ type: "bytes32" }], outputs: [{ type: "uint256" }] },
 ] as const;
 const healthAbi = [
   { type: "function", name: "isReaderActive", stateMutability: "view", inputs: [{ type: "bytes32" }], outputs: [{ type: "bool" }] },
@@ -41,22 +45,31 @@ async function admitted(versionId: `0x${string}`, codeHash: string): Promise<boo
   const chain = monadClient();
   const block = await chain.getBlock({ blockTag: "finalized" });
   const core = env.core as `0x${string}`;
-  const [registry, health, exit, actualChainId] = await Promise.all([
+  const [registry, health, exit, recoveryAdapter, actualChainId] = await Promise.all([
     chain.readContract({ address: core, abi: coreAbi, functionName: "integrationRegistry", blockNumber: block.number }),
     chain.readContract({ address: core, abi: coreAbi, functionName: "healthSource", blockNumber: block.number }),
     chain.readContract({ address: core, abi: coreAbi, functionName: "exitVerifierOfBundle", args: [versionId], blockNumber: block.number }),
+    chain.readContract({ address: core, abi: coreAbi, functionName: "appRecoveryAdapterOfBundle", args: [versionId], blockNumber: block.number }),
     chain.getChainId(),
   ]);
-  if (actualChainId !== env.monadChainId || !addressPattern.test(registry) || !addressPattern.test(health) || !addressPattern.test(exit)
-    || /^0x0{40}$/i.test(registry) || /^0x0{40}$/i.test(health) || /^0x0{40}$/i.test(exit)) return false;
-  const [version, active, reader, exitCode] = await Promise.all([
+  if (actualChainId !== env.monadChainId || !addressPattern.test(registry) || !addressPattern.test(health)
+    || !addressPattern.test(exit) || !addressPattern.test(recoveryAdapter)
+    || /^0x0{40}$/i.test(registry) || /^0x0{40}$/i.test(health)
+    || /^0x0{40}$/i.test(exit) || /^0x0{40}$/i.test(recoveryAdapter)) return false;
+  const [version, active, reader, recoveryCalls, exitHash, adapterHash, exitCode, adapterCode] = await Promise.all([
     chain.readContract({ address: registry, abi: registryAbi, functionName: "versions", args: [versionId], blockNumber: block.number }),
     chain.readContract({ address: registry, abi: registryAbi, functionName: "isActive", args: [versionId], blockNumber: block.number }),
     chain.readContract({ address: health, abi: healthAbi, functionName: "isReaderActive", args: [versionId], blockNumber: block.number }),
+    chain.readContract({ address: registry, abi: registryAbi, functionName: "recoveryCallCount", args: [versionId], blockNumber: block.number }),
+    chain.readContract({ address: core, abi: coreAbi, functionName: "exitVerifierCodeHash", args: [versionId], blockNumber: block.number }),
+    chain.readContract({ address: core, abi: coreAbi, functionName: "appRecoveryAdapterCodeHash", args: [versionId], blockNumber: block.number }),
     chain.getBytecode({ address: exit, blockNumber: block.number }),
+    chain.getBytecode({ address: recoveryAdapter, blockNumber: block.number }),
   ]);
   return version[0].toLowerCase() === codeHash.toLowerCase() && version[1] && !version[2]
-    && active && reader && !!exitCode && exitCode !== "0x";
+    && active && reader && recoveryCalls > 0n && !!exitCode && exitCode !== "0x"
+    && !!adapterCode && adapterCode !== "0x" && keccak256(exitCode) === exitHash
+    && keccak256(adapterCode) === adapterHash;
 }
 
 async function admittedActions(versionId: `0x${string}`, actions: CapabilityDefinition[]): Promise<boolean> {
@@ -75,12 +88,16 @@ async function admittedActions(versionId: `0x${string}`, actions: CapabilityDefi
 }
 
 export const integrationService = {
-  async approve(input: { versionId: string; codeHash: string; actions: CapabilityDefinition[] }) {
+  async approve(input: { versionId: string; codeHash: string; settlementAsset: string; actions: CapabilityDefinition[] }) {
     const versionId = input.versionId as `0x${string}`;
+    if (!addressPattern.test(input.settlementAsset) || /^0x0{40}$/i.test(input.settlementAsset)) {
+      throw new Error("settlement-asset-unavailable");
+    }
     if (!await admitted(versionId, input.codeHash) || !await admittedActions(versionId, input.actions)) throw new Error("integration-not-admitted");
     const appToken = `tbk_${randomBytes(32).toString("hex")}`;
     try {
-      await integrationRepo.create({ versionId: input.versionId.toLowerCase(), codeHash: input.codeHash.toLowerCase(), actions: input.actions,
+      await integrationRepo.create({ versionId: input.versionId.toLowerCase(), codeHash: input.codeHash.toLowerCase(),
+        settlementAsset: input.settlementAsset.toLowerCase(), actions: input.actions,
         tokenHash: tokenHash(appToken), active: true, frozen: false });
     } catch (error) {
       if (error && typeof error === "object" && "code" in error && error.code === 11000) throw new Error("integration-conflict", { cause: error });
@@ -93,6 +110,7 @@ export const integrationService = {
     const row = await integrationRepo.byTokenHash(tokenHash(appToken));
     const actions = row?.["actions"] as CapabilityDefinition[] | undefined;
     if (!row || row["active"] !== true || row["frozen"] === true || !Array.isArray(actions)
+      || !addressPattern.test(String(row["settlementAsset"])) || /^0x0{40}$/i.test(String(row["settlementAsset"]))
       || !await admitted(String(row["versionId"]) as `0x${string}`, String(row["codeHash"]))
       || !await admittedActions(String(row["versionId"]) as `0x${string}`, actions)) {
       throw new Error("integration-not-found");
@@ -115,7 +133,7 @@ export const integrationService = {
     if (!coreCode || coreCode === "0x" || !factoryCode || factoryCode === "0x"
       || settlementFactory && (!settlementCode || settlementCode === "0x")
       || !addressPattern.test(riskEngine) || /^0x0{40}$/i.test(riskEngine)) throw new Error("integration-config-unavailable");
-    return { appToken, versionId: String(row["versionId"]), core: env.core,
+    return { appToken, versionId: String(row["versionId"]), settlementAsset: String(row["settlementAsset"]), core: env.core,
       chainId: env.monadChainId, rpcUrl: publicUrl(env.publicRpcUrl), apiBase: publicUrl(env.publicApiBase),
       accountFactory: env.accountFactory, riskEngine, settlementFactory, actions };
   },

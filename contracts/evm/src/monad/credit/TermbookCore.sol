@@ -9,6 +9,7 @@ import {SafeTransferLib} from "../../shared/SafeTransferLib.sol";
 import {RemoteAction} from "../../shared/collateral/RemoteAction.sol";
 import {ITermbookCore} from "./ITermbookCore.sol";
 import {IExitVerifier} from "../integration/IExitVerifier.sol";
+import {IAppRecoveryAdapter} from "../integration/IAppRecoveryAdapter.sol";
 import {InboxFactory} from "../routing/InboxFactory.sol";
 
 interface IHouseVaultCore {
@@ -68,6 +69,7 @@ interface ICreditAccountCore {
 interface IRiskCore {
     function riskState(bytes32 creditId) external view returns (Types.Risk);
     function maintenanceBps(bytes32 creditId) external view returns (uint256);
+    function initialBps(bytes32 creditId) external view returns (uint256);
     function checkDraw(bytes32 creditId, uint256 newDebt) external view;
     function checkWithdraw(bytes32 creditId, uint256 cashAfter) external view;
     function applyCashWithdraw(bytes32 creditId, uint256 cashAfter) external;
@@ -99,7 +101,12 @@ interface IOracleRegistrySaleCore {
 
 interface IIntegrationRegistryCore {
     function isActive(bytes32 versionId) external view returns (bool);
+    function recoveryCallCount(bytes32 versionId) external view returns (uint256);
     function validateCall(bytes32 versionId, address target, bytes calldata data, address account, uint256 drawAmount)
+        external
+        view
+        returns (bool);
+    function validateRecoveryCall(bytes32 versionId, address target, bytes calldata data, address account)
         external
         view
         returns (bool);
@@ -384,6 +391,8 @@ contract TermbookCore is ITermbookCore {
     mapping(address => bool) public vaultEverUsed;
     mapping(bytes32 => address) public exitVerifierOfBundle;
     mapping(bytes32 => bytes32) public exitVerifierCodeHash;
+    mapping(bytes32 => address) public appRecoveryAdapterOfBundle;
+    mapping(bytes32 => bytes32) public appRecoveryAdapterCodeHash;
     mapping(bytes32 => bool) public bundleEverUsed;
     mapping(bytes32 => bool) public intentUsed;
     mapping(address => mapping(uint256 => bool)) public houseNonces;
@@ -475,6 +484,8 @@ contract TermbookCore is ITermbookCore {
     event LocalSalePolicyDisabled(bytes32 indexed marketId);
     event LocalCollateralVaultSet(address indexed vault, address indexed asset, bytes32 codeHash);
     event LocalCollateralSold(bytes32 indexed creditId, address indexed buyer, uint256 collateralAmount, uint256 settlementAmount);
+    event AppRecoveryAdapterSet(bytes32 indexed bundleId, address indexed adapter);
+    event AppRecoveryStep(bytes32 indexed creditId, address indexed adapter, address indexed target, bytes32 callHash);
     event SolanaMarketSet(
         uint256 indexed sourceChain, bytes32 indexed sourceGenesis, bytes32 programId, bytes32 programDataHash
     );
@@ -496,6 +507,7 @@ contract TermbookCore is ITermbookCore {
     error Pending();
     error RecoveryIncomplete();
     error InvalidAuthority();
+    error ActionPreview(uint256 healthBps, uint256 initialBps, uint256 debt, uint256 recoveryValue);
 
     uint256 private constant BPS = 10_000;
     uint256 private constant MINIMUM_SALE_PRICE_BPS = 9_000;
@@ -870,6 +882,14 @@ contract TermbookCore is ITermbookCore {
         exitVerifierCodeHash[bundleId] = verifier.codehash;
     }
 
+    function setAppRecoveryAdapter(bytes32 bundleId, address adapter) external onlyGovernance {
+        if (bundleId == bytes32(0) || bundleEverUsed[bundleId] || appRecoveryAdapterOfBundle[bundleId] != address(0)
+            || adapter.code.length == 0) revert InvalidTerms();
+        appRecoveryAdapterOfBundle[bundleId] = adapter;
+        appRecoveryAdapterCodeHash[bundleId] = adapter.codehash;
+        emit AppRecoveryAdapterSet(bundleId, adapter);
+    }
+
     function setVerifierRegistry(address registry) external onlyGovernance {
         if (acceptedCredits != 0) revert Frozen();
         if (registry == address(0) || registry.code.length == 0) revert InvalidTerms();
@@ -905,6 +925,7 @@ contract TermbookCore is ITermbookCore {
             c.debt
         );
         if (snapshot_.debt != c.debt) revert BadHealth();
+        if (snapshot_.appValue > 0) _requireAppRecoveryAdapter(c.bundleId);
         IRiskCore(riskEngine).record(creditId, snapshot_);
         healthSnapshotAt[creditId] = block.timestamp;
         healthSnapshotRevision[creditId] = c.revision;
@@ -1379,8 +1400,11 @@ contract TermbookCore is ITermbookCore {
         if (integrationRegistry != address(0)) {
             if (
                 !IIntegrationRegistryCore(integrationRegistry).isActive(p.bundleId)
+                    || IIntegrationRegistryCore(integrationRegistry).recoveryCallCount(p.bundleId) == 0
                     || exitVerifierOfBundle[p.bundleId] == address(0)
                     || exitVerifierOfBundle[p.bundleId].codehash != exitVerifierCodeHash[p.bundleId]
+                    || appRecoveryAdapterOfBundle[p.bundleId] == address(0)
+                    || appRecoveryAdapterOfBundle[p.bundleId].codehash != appRecoveryAdapterCodeHash[p.bundleId]
                     || healthSource == address(0) || !IHealthSourceCore(healthSource).isReaderActive(p.bundleId)
             ) revert InvalidTerms();
         }
@@ -2765,12 +2789,7 @@ contract TermbookCore is ITermbookCore {
     ) external nonReentrant returns (bytes memory result) {
         Credit storage c = _credits[creditId];
         if (c.facility != Types.Facility.Ready || paused) revert BadState();
-        if (data.length < 4) revert Unauthorized();
-        bytes4 selector = bytes4(data[:4]);
-        bool allowed = integrationRegistry != address(0)
-            ? IIntegrationRegistryCore(integrationRegistry).validateCall(c.bundleId, target, data, c.account, amount)
-            : approvedCalls[target][selector];
-        if (!allowed) revert Unauthorized();
+        _requireAppCall(c, target, data, amount);
         bytes32 actionHash = keccak256(abi.encode(target, data));
         bytes32 digest =
             keccak256(abi.encode(domain, creditId, actionHash, amount, maxBound, borrowerNonce, deadline, c.revision));
@@ -2785,16 +2804,53 @@ contract TermbookCore is ITermbookCore {
             c.nonce = borrowerNonce;
             c.revision = RevisionLib.next(c.revision);
         }
+        result = _executeAppCall(c, target, data, amount);
+        _recordPostActionHealth(c, creditId);
+    }
+
+    function previewAction(bytes32 creditId, address target, bytes calldata data, uint256 amount, uint256 borrowerNonce)
+        external
+        nonReentrant
+    {
+        Credit storage c = _credits[creditId];
+        if (c.facility != Types.Facility.Ready || paused || nonceUsed[creditId][borrowerNonce]) revert BadState();
+        _requireAppCall(c, target, data, amount);
+        if (amount > 0) {
+            _draw(c, creditId, amount, amount, borrowerNonce, borrowerNonce, false);
+        } else {
+            nonceUsed[creditId][borrowerNonce] = true;
+            c.nonce = borrowerNonce;
+            c.revision = RevisionLib.next(c.revision);
+        }
+        _executeAppCall(c, target, data, amount);
+        if (healthSource == address(0) || riskEngine == address(0)) revert BadHealth();
+        Types.HealthSnapshot memory snap =
+            IHealthSourceCore(healthSource).snapshot(creditId, c.bundleId, c.revision, c.debt);
+        if (snap.debt != c.debt) revert BadHealth();
+        if (snap.appValue > 0) _requireAppRecoveryAdapter(c.bundleId);
+        revert ActionPreview(snap.healthBps, IRiskCore(riskEngine).initialBps(creditId), c.debt, snap.recoveryValue);
+    }
+
+    function _requireAppCall(Credit storage c, address target, bytes calldata data, uint256 amount) internal view {
+        if (data.length < 4) revert Unauthorized();
+        bytes4 selector = bytes4(data[:4]);
+        bool allowed = integrationRegistry != address(0)
+            ? IIntegrationRegistryCore(integrationRegistry).validateCall(c.bundleId, target, data, c.account, amount)
+            : approvedCalls[target][selector];
+        if (!allowed) revert Unauthorized();
+    }
+
+    function _executeAppCall(Credit storage c, address target, bytes calldata data, uint256 amount)
+        internal
+        returns (bytes memory result)
+    {
         if (amount > 0) {
             address token = IHouseVaultCore(c.vault).asset();
             ICreditAccountCore(c.account).approveSpend(token, target, 0);
             ICreditAccountCore(c.account).approveSpend(token, target, amount);
-            result = ICreditAccountCore(c.account).execute(target, data);
-            ICreditAccountCore(c.account).approveSpend(token, target, 0);
-        } else {
-            result = ICreditAccountCore(c.account).execute(target, data);
         }
-        _recordPostActionHealth(c, creditId);
+        result = ICreditAccountCore(c.account).execute(target, data);
+        if (amount > 0) ICreditAccountCore(c.account).approveSpend(IHouseVaultCore(c.vault).asset(), target, 0);
     }
 
     function _recordPostActionHealth(Credit storage c, bytes32 creditId) internal {
@@ -2802,6 +2858,7 @@ contract TermbookCore is ITermbookCore {
         Types.HealthSnapshot memory snapshot_ =
             IHealthSourceCore(healthSource).snapshot(creditId, c.bundleId, c.revision, c.debt);
         if (snapshot_.debt != c.debt) revert BadHealth();
+        if (snapshot_.appValue > 0) _requireAppRecoveryAdapter(c.bundleId);
         IRiskCore(riskEngine).record(creditId, snapshot_);
         IRiskCore(riskEngine).checkDraw(creditId, c.debt);
         healthSnapshotAt[creditId] = block.timestamp;
@@ -3053,6 +3110,40 @@ contract TermbookCore is ITermbookCore {
             revert BadState();
         }
         _repay(c, creditId, amount, true);
+    }
+
+    function recoverApp(bytes32 creditId, bytes calldata instruction) external nonReentrant {
+        Credit storage c = _credits[creditId];
+        if (!recoveryKeepers[msg.sender]) revert Unauthorized();
+        if (c.facility != Types.Facility.Liquidating && c.facility != Types.Facility.RecoveryPending) {
+            revert BadState();
+        }
+        _accrue(c, creditId);
+        address adapter = _requireAppRecoveryAdapter(c.bundleId);
+        (address target, bytes memory data, bytes32 expectedState) =
+            IAppRecoveryAdapter(adapter).recoveryCall(creditId, c.account, instruction);
+        if (target == address(0) || target == c.account || target.code.length == 0 || data.length < 4) {
+            revert BadState();
+        }
+        if (integrationRegistry != address(0)
+            && !IIntegrationRegistryCore(integrationRegistry).validateRecoveryCall(c.bundleId, target, data, c.account)) {
+            revert Unauthorized();
+        }
+        ICreditAccountCore(c.account).execute(target, data);
+        if (!IAppRecoveryAdapter(adapter).verifyRecovery(creditId, c.account, instruction, expectedState)) {
+            revert BadState();
+        }
+        c.revision = RevisionLib.next(c.revision);
+        emit AppRecoveryStep(creditId, adapter, target, keccak256(data));
+    }
+
+    function _requireAppRecoveryAdapter(bytes32 bundleId) internal view returns (address adapter) {
+        adapter = appRecoveryAdapterOfBundle[bundleId];
+        if (adapter == address(0) || adapter.codehash != appRecoveryAdapterCodeHash[bundleId]) {
+            revert BadHealth();
+        }
+        if (integrationRegistry != address(0)
+            && IIntegrationRegistryCore(integrationRegistry).recoveryCallCount(bundleId) == 0) revert BadHealth();
     }
 
     function recoverCollateral(bytes32 creditId, uint256 amount) external nonReentrant {

@@ -94,6 +94,11 @@ assumptions and risk terms visible. Requests without an action use the same
 disclosed draw and utilization assumptions across offers. Show fewer offers when
 fewer qualify. No offer reserves funds until accepted.
 
+An open Intent has a short discovery expiry independent of the requested loan
+duration. Registered Houses poll an authenticated, asset-filtered feed and
+submit signed Quotes before that expiry. Offer discovery rechecks the House,
+vault asset, Quote expiry, and application binding against finalized state.
+
 A Quote binds:
 
 - borrower, collateral owner, Intent, House, and HouseVault;
@@ -175,7 +180,8 @@ changes payment state and disables further draws.
 ### 5. Review, draw, and execute
 
 `credit.app.execute(action)` validates the registered capability, reads current
-state, and shows the draw, fees, debt, exposure, and recovery health for approval.
+state, and shows the draw, fees, projected debt, exposure, and simulated
+post-action recovery health against the initial threshold for approval.
 The SDK prepares this review internally. The caller supplies the typed action.
 
 ```text

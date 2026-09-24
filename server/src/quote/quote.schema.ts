@@ -7,13 +7,13 @@ export const quoteSchema = z.object({
   borrower: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
   house: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
   vault: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
-  owner: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
-  sourceChain: z.number().int().positive().optional(),
-  collateralVault: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
-  collateralAsset: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
-  collateralAmount: z.string().regex(/^\d+$/).optional(),
-  returnRecipient: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
-  settlementAsset: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
+  owner: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+  sourceChain: z.number().int().positive(),
+  collateralVault: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+  collateralAsset: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+  collateralAmount: z.string().regex(/^\d+$/).refine((value) => BigInt(value) > 0n),
+  returnRecipient: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+  settlementAsset: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
   limit: z.string().regex(/^\d+$/).refine((value) => BigInt(value) > 0n),
   aprBps: z.number().int().nonnegative().max(1_000_000),
   originationFee: z.string().regex(/^\d+$/).default("0"),
@@ -27,7 +27,7 @@ export const quoteSchema = z.object({
   bundleId: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
   termsHash: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
   revolving: z.boolean().default(false),
-  signature: z.string().regex(/^0x[a-fA-F0-9]{130}$/),
+  signature: z.string().regex(/^0x(?:[a-fA-F0-9]{2})+$/).max(8194),
   domain: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
   solana: z.object({
     sourceGenesis: solanaKeySchema,
@@ -42,11 +42,8 @@ export const quoteSchema = z.object({
   if (BigInt(value.originationFee) > BigInt(value.limit)) ctx.addIssue({ code: "custom", path: ["originationFee"], message: "origination-fee-exceeds-limit" });
   if (value.setupDeadline >= value.maturity) ctx.addIssue({ code: "custom", path: ["setupDeadline"], message: "setup-before-maturity-required" });
   if (value.expiry > value.setupDeadline) ctx.addIssue({ code: "custom", path: ["expiry"], message: "quote-expiry-before-setup-deadline-required" });
-  const full = [value.owner, value.sourceChain, value.collateralVault, value.collateralAsset, value.collateralAmount, value.returnRecipient, value.settlementAsset].every((item) => item !== undefined);
-  const partial = [value.owner, value.sourceChain, value.collateralVault, value.collateralAsset, value.collateralAmount, value.returnRecipient, value.settlementAsset].some((item) => item !== undefined);
-  if (partial && !full) ctx.addIssue({ code: "custom", path: ["collateralVault"], message: "complete-collateral-binding-required" });
   if (value.kind === "solana") {
-    if (!value.solana || !full || !value.collateralAmount || BigInt(value.collateralAmount) === 0n || BigInt(value.collateralAmount) > (1n << 64n) - 1n) ctx.addIssue({ code: "custom", path: ["solana"], message: "complete-solana-binding-required" });
+    if (!value.solana || BigInt(value.collateralAmount) > (1n << 64n) - 1n) ctx.addIssue({ code: "custom", path: ["solana"], message: "complete-solana-binding-required" });
   } else if (value.solana) {
     ctx.addIssue({ code: "custom", path: ["solana"], message: "solana-kind-required" });
   }

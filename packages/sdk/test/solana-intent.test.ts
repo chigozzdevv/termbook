@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { encodeAbiParameters, keccak256 } from "viem";
 import { NATIVE_SOL_ASSET_BYTES } from "@termbook/schema";
-import { Intent, type Offer } from "../src/intent/intent.js";
+import { Intent, offerFingerprint, type Offer } from "../src/intent/intent.js";
 import { solanaAlias, solanaPubkeyBase58, solanaPubkeyBytes } from "../src/collateral/solana.js";
 import { restoreCollateralSetup } from "../src/collateral/setup.js";
 import type { TermbookClient } from "../src/client/client.js";
@@ -100,6 +100,11 @@ describe("Solana collateral acceptance", () => {
       observeLock: async () => ({ state: submitted ? "submitted" : "missing", txId: submitted ? "source-tx" : undefined }),
       submitLock: async () => { submitted++; return { txId: "source-tx" }; },
     };
+    const changed = { ...offer, riskTerms: { policyVersion: 2n, initialBps: 15_000n,
+      maintenanceBps: 13_000n, watchBps: 12_000n, freezeBps: 11_500n, liquidationBps: 11_000n } };
+    expect(offerFingerprint(changed)).not.toBe(offerFingerprint(offer));
+    await expect(intent.accept({ offerId: offer.id, reviewedOffer: changed, source_wallet: sourceWallet }))
+      .rejects.toThrow("offer-review-stale");
     const credit = await intent.accept({ offerId: offer.id, source_wallet: sourceWallet });
     expect(credit.id).toBe(creditId);
     expect(credit.setup?.snapshot().stage).toBe("awaiting_finality");

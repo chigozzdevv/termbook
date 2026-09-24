@@ -29,7 +29,7 @@ describe("public SDK configuration", () => {
     const fetcher = vi.fn(async () => ({ ok: true, json: async () => ({
       appToken: token, versionId, core: address("2"), chainId: 143,
       rpcUrl: "https://rpc.termbook.example", apiBase: "https://api.termbook.example",
-      accountFactory: address("3"), riskEngine: address("4"), actions,
+      accountFactory: address("3"), riskEngine: address("4"), settlementAsset: address("7"), actions,
     }) }));
     vi.stubGlobal("fetch", fetcher);
     const chain = {
@@ -52,6 +52,7 @@ describe("public SDK configuration", () => {
     await Promise.all([client.ready(), client.ready()]);
     expect(client.config.core).toBe(address("2"));
     expect(client.config.riskEngine).toBe(address("4"));
+    expect(client.config.settlementAsset).toBe(address("7"));
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(chain.readContract).toHaveBeenCalledWith(expect.objectContaining({ functionName: "isActive", blockTag: "finalized" }));
   });

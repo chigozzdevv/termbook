@@ -13,10 +13,13 @@ import {Types} from "../../src/shared/Types.sol";
 import {SettlementInbox} from "../../src/monad/routing/SettlementInbox.sol";
 import {InboxFactory} from "../../src/monad/routing/InboxFactory.sol";
 import {MockHealthSource} from "../MockHealthSource.sol";
-import {IHealthSource} from "../../src/monad/risk/IHealthSource.sol";
+import {IHealthSource, IHealthReader, HealthReading} from "../../src/monad/risk/IHealthSource.sol";
 import {HealthMath} from "../../src/monad/risk/HealthMath.sol";
 import {IExitVerifier} from "../../src/monad/integration/IExitVerifier.sol";
 import {IntegrationRegistry} from "../../src/monad/integration/IntegrationRegistry.sol";
+import {IAppRecoveryAdapter} from "../../src/monad/integration/IAppRecoveryAdapter.sol";
+import {IAppValueReader} from "../../src/monad/integration/IAppValueReader.sol";
+import {AppHealthReader} from "../../src/monad/risk/AppHealthReader.sol";
 
 contract MockExitVerifier is IExitVerifier {
     bool public ready = true;
@@ -75,6 +78,60 @@ contract FundedPositionTarget {
     function deposit(uint256 amount) external {
         require(token.transferFrom(msg.sender, address(this), amount));
         positions[msg.sender] += amount;
+    }
+
+    function withdraw(uint256 amount) external {
+        require(positions[msg.sender] >= amount);
+        positions[msg.sender] -= amount;
+        require(token.transfer(msg.sender, amount));
+    }
+}
+
+contract FundedPositionRecoveryAdapter is IAppRecoveryAdapter {
+    FundedPositionTarget public immutable target;
+
+    constructor(FundedPositionTarget target_) {
+        target = target_;
+    }
+
+    function recoveryCall(bytes32, address account, bytes calldata instruction)
+        external
+        view
+        returns (address, bytes memory, bytes32)
+    {
+        uint256 amount = abi.decode(instruction, (uint256));
+        uint256 beforePosition = target.positions(account);
+        require(amount > 0 && amount <= beforePosition);
+        return (address(target), abi.encodeWithSelector(FundedPositionTarget.withdraw.selector, amount),
+            bytes32(beforePosition - amount));
+    }
+
+    function verifyRecovery(bytes32, address account, bytes calldata, bytes32 expectedState)
+        external
+        view
+        returns (bool)
+    {
+        return target.positions(account) == uint256(expectedState);
+    }
+}
+
+contract BasePositionHealthReader is IHealthReader {
+    function readHealth(bytes32, uint256, uint256 debt, address)
+        external
+        view
+        returns (HealthReading memory)
+    {
+        return HealthReading(debt, 50, 100, 0, 8_000, 0, 5, block.timestamp);
+    }
+}
+
+contract TestAppValueReader is IAppValueReader {
+    function readAppValue(bytes32, address, address)
+        external
+        view
+        returns (int256, uint16, uint128, uint256)
+    {
+        return (200, 9_000, 10, block.timestamp);
     }
 }
 
@@ -199,6 +256,9 @@ contract RealFlowTest is Test {
         registry.approve(bundleId, keccak256("manifest"));
         registry.registerCall(bundleId, address(target), RealFlowTarget.setValue.selector,
             36, type(uint8).max, type(uint8).max, 0);
+        registry.registerRecoveryCall(bundleId, address(target), RealFlowTarget.setValue.selector, 36, type(uint8).max);
+        core.setAppRecoveryAdapter(bundleId,
+            address(new FundedPositionRecoveryAdapter(new FundedPositionTarget(token))));
         vm.expectRevert(TermbookCore.InvalidTerms.selector);
         this.acceptGateCredit();
         registry.activate(bundleId);
@@ -484,7 +544,7 @@ contract RealFlowTest is Test {
         _prepare(creditId);
         _recordHealth(creditId, Types.HealthSnapshot(0, 0, 100, 0, 10_000, 0, 0, 100, 0));
         healthSource.setSnapshot(
-            creditId, Types.HealthSnapshot(200, 0, 100, 300, 10_000, 10_000, 0, 400, 20_000)
+            creditId, Types.HealthSnapshot(200, 0, 400, 0, 10_000, 0, 0, 400, 20_000)
         );
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory data = abi.encodeWithSelector(RealFlowTarget.setValue.selector, 42);
@@ -506,6 +566,7 @@ contract RealFlowTest is Test {
         FundedPositionTarget positionTarget = new FundedPositionTarget(token);
         FundedPositionHealthSource positionHealth = new FundedPositionHealthSource(token, core, positionTarget);
         core.setHealthSource(address(positionHealth));
+        core.setAppRecoveryAdapter(keccak256("bundle"), address(new FundedPositionRecoveryAdapter(positionTarget)));
         core.setApprovedCall(address(positionTarget), FundedPositionTarget.deposit.selector, true);
         _prepare(creditId);
         uint256 deadline = block.timestamp + 1 hours;
@@ -525,6 +586,82 @@ contract RealFlowTest is Test {
         assertEq(risk.health(creditId), 15_000);
     }
 
+    function testPreviewReportsPostActionHealthAndRollsBack() public {
+        bytes32 creditId = keccak256("preview-position");
+        FundedPositionTarget positionTarget = new FundedPositionTarget(token);
+        FundedPositionHealthSource positionHealth = new FundedPositionHealthSource(token, core, positionTarget);
+        core.setHealthSource(address(positionHealth));
+        core.setAppRecoveryAdapter(keccak256("bundle"), address(new FundedPositionRecoveryAdapter(positionTarget)));
+        core.setApprovedCall(address(positionTarget), FundedPositionTarget.deposit.selector, true);
+        _prepare(creditId);
+        address account = core.creditAccount(creditId);
+        uint256 revision = core.creditRevision(creditId);
+        bytes memory data = abi.encodeWithSelector(FundedPositionTarget.deposit.selector, 200);
+        vm.expectRevert(abi.encodeWithSelector(TermbookCore.ActionPreview.selector, 15_000, 15_000, 200, 300));
+        core.previewAction(creditId, address(positionTarget), data, 200, 10);
+        assertEq(core.creditDebt(creditId), 0);
+        assertEq(core.creditRevision(creditId), revision);
+        assertEq(positionTarget.positions(account), 0);
+        assertEq(token.balanceOf(account), 0);
+        assertEq(token.allowance(account, address(positionTarget)), 0);
+        assertEq(houseVault.creditCommitted(creditId), 500);
+    }
+
+    function testKeeperClosesAppPositionAndRepaysHouse() public {
+        bytes32 creditId = keccak256("app-recovery-position");
+        FundedPositionTarget positionTarget = new FundedPositionTarget(token);
+        core.setHealthSource(address(new FundedPositionHealthSource(token, core, positionTarget)));
+        core.setAppRecoveryAdapter(keccak256("bundle"), address(new FundedPositionRecoveryAdapter(positionTarget)));
+        core.setApprovedCall(address(positionTarget), FundedPositionTarget.deposit.selector, true);
+        _prepare(creditId);
+        bytes memory data = abi.encodeWithSelector(FundedPositionTarget.deposit.selector, 200);
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes32 digest = keccak256(abi.encode(core.domain(), creditId,
+            keccak256(abi.encode(address(positionTarget), data)), uint256(200), uint256(200),
+            uint256(10), deadline, core.creditRevision(creditId)));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(borrowerKey, digest);
+        core.executeAction(creditId, address(positionTarget), data, 200, 200, 10, deadline, abi.encodePacked(r, s, v));
+        address account = core.creditAccount(creditId);
+        vm.warp(block.timestamp + 30 days + 1);
+        core.markDefaulted(creditId);
+        core.startLiquidation(creditId);
+        vm.expectRevert(TermbookCore.Unauthorized.selector);
+        core.recoverApp(creditId, abi.encode(uint256(200)));
+        core.setRecoveryKeeper(address(this), true);
+        vm.expectRevert();
+        core.recoverApp(creditId, abi.encode(uint256(201)));
+        core.recoverApp(creditId, abi.encode(uint256(200)));
+        assertEq(positionTarget.positions(account), 0);
+        assertEq(token.balanceOf(account), 200);
+        core.recoverAccountCash(creditId, 200);
+        assertEq(core.creditDebt(creditId), 0);
+        assertEq(token.balanceOf(account), 0);
+        assertEq(houseVault.drawnPrincipal(), 0);
+    }
+
+    function testAppHealthReaderCombinesCollateralAndAppRecoveryValue() public {
+        bytes32 creditId = keccak256("app-health-reader");
+        FundedPositionTarget positionTarget = new FundedPositionTarget(token);
+        address adapter = address(new FundedPositionRecoveryAdapter(positionTarget));
+        core.setAppRecoveryAdapter(keccak256("bundle"), adapter);
+        _prepare(creditId);
+        BasePositionHealthReader base = new BasePositionHealthReader();
+        TestAppValueReader appValue = new TestAppValueReader();
+        AppHealthReader reader = new AppHealthReader(address(core), keccak256("bundle"),
+            address(base), address(appValue), adapter);
+        HealthReading memory reading = reader.readHealth(creditId, core.creditRevision(creditId), 200, address(1));
+        assertEq(reading.cash, 50);
+        assertEq(reading.sourceValue, 100);
+        assertEq(reading.appValue, 200);
+        assertEq(reading.retainedSource, 8_000);
+        assertEq(reading.retainedApp, 9_000);
+        assertEq(reading.recoveryCosts, 15);
+        vm.etch(address(appValue), hex"6000");
+        uint256 revision = core.creditRevision(creditId);
+        vm.expectRevert(AppHealthReader.Invalid.selector);
+        reader.readHealth(creditId, revision, 200, address(1));
+    }
+
     function testUnsafeFinancedActionRevertsDrawAndAction() public {
         bytes32 creditId = keccak256("unsafe-action");
         _prepare(creditId);
@@ -534,6 +671,10 @@ contract RealFlowTest is Test {
         );
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory data = abi.encodeWithSelector(RealFlowTarget.setValue.selector, 99);
+        vm.expectRevert(abi.encodeWithSelector(TermbookCore.ActionPreview.selector, 5_000, 15_000, 200, 100));
+        core.previewAction(creditId, address(target), data, 200, 8);
+        assertEq(target.value(), 0);
+        assertEq(core.creditDebt(creditId), 0);
         bytes32 digest = keccak256(
             abi.encode(
                 core.domain(), creditId, keccak256(abi.encode(address(target), data)), uint256(200), uint256(200),

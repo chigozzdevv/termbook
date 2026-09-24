@@ -2,7 +2,7 @@ import type { TermbookClient } from "../client/client.js";
 import type { EvmCollateralSelection, IntentRequest } from "../types/intent.types.js";
 import { Credit } from "../credit/credit.js";
 import { HttpClient } from "../transport/http.js";
-import { encodeAbiParameters, keccak256 } from "viem";
+import { encodeAbiParameters, keccak256, stringToHex } from "viem";
 import { collateralSelectionSchema, NATIVE_SOL_ASSET_BYTES, type CollateralSetupBinding, type CollateralSetupCheckpoint } from "@termbook/schema";
 import { CollateralChainNotIntegratedError, CollateralSetup, CollateralSetupInterruptedError, type CollateralProofSource, type SourceLockWallet } from "../collateral/setup.js";
 import { EvmSourceLockWallet, type EvmSourceWalletConfig } from "../collateral/evm-source.js";
@@ -37,6 +37,10 @@ export type Offer = {
   aprBps: number;
   originationFee: bigint;
   commitmentFeeBps: number;
+  estimatedTotalCost?: bigint;
+  costAssumptions?: { draw: bigint; durationSeconds: number; interest: bigint; commitmentFee: bigint };
+  riskTerms?: { policyVersion: bigint; initialBps: bigint; maintenanceBps: bigint;
+    watchBps: bigint; freezeBps: bigint; liquidationBps: bigint };
   expiry: number;
   maturity: number;
   setupDeadline: number;
@@ -52,11 +56,17 @@ export type Offer = {
 export type AcceptOptions = {
   offer_id?: string;
   offerId?: string;
+  reviewedOffer?: Offer;
   source_wallet?: EvmSourceWalletConfig | SourceLockWallet;
   proof_source?: CollateralProofSource;
   checkpoint?: CollateralSetupCheckpoint;
   on_progress?: (checkpoint: CollateralSetupCheckpoint, binding: CollateralSetupBinding) => void | Promise<void>;
 };
+
+export function offerFingerprint(offer: Offer): `0x${string}` {
+  return keccak256(stringToHex(JSON.stringify(offer, (_, value: unknown) =>
+    typeof value === "bigint" ? value.toString() : value)));
+}
 
 function address(value: unknown): `0x${string}` {
   if (typeof value !== "string" || !/^0x[a-fA-F0-9]{40}$/.test(value)) throw new Error("offer-invalid");
@@ -87,9 +97,28 @@ function parseOffer(raw: Record<string, unknown>): Offer {
   const commitmentFeeBps = Number(raw["commitmentFeeBps"] ?? raw["commitment_fee_bps"] ?? 0);
   const aprBps = Number(raw["aprBps"] ?? raw["apr_bps"] ?? 0);
   const nonce = BigInt(String(raw["nonce"] ?? "0"));
+  const estimatedTotalCost = raw["estimatedTotalCost"] === undefined ? undefined : BigInt(String(raw["estimatedTotalCost"]));
+  const assumptions = raw["costAssumptions"] as Record<string, unknown> | undefined;
+  const costAssumptions = assumptions ? { draw: BigInt(String(assumptions["draw"])),
+    durationSeconds: Number(assumptions["durationSeconds"]), interest: BigInt(String(assumptions["interest"])),
+    commitmentFee: BigInt(String(assumptions["commitmentFee"])) } : undefined;
+  const risk = raw["riskTerms"] as Record<string, unknown> | undefined;
+  const riskTerms = risk ? { policyVersion: BigInt(String(risk["policyVersion"])),
+    initialBps: BigInt(String(risk["initialBps"])), maintenanceBps: BigInt(String(risk["maintenanceBps"])),
+    watchBps: BigInt(String(risk["watchBps"])), freezeBps: BigInt(String(risk["freezeBps"])),
+    liquidationBps: BigInt(String(risk["liquidationBps"])) } : undefined;
   if (limit <= 0n || nonce < 0n || reservationBond < 0n || originationFee < 0n || !Number.isSafeInteger(aprBps) || aprBps < 0 || aprBps > 1_000_000 || !Number.isSafeInteger(commitmentFeeBps) || commitmentFeeBps < 0 || commitmentFeeBps > 10_000) throw new Error("offer-invalid");
+  if (estimatedTotalCost !== undefined && estimatedTotalCost < 0n || costAssumptions &&
+    (!Number.isSafeInteger(costAssumptions.durationSeconds) || costAssumptions.durationSeconds <= 0 ||
+      costAssumptions.draw < 0n || costAssumptions.interest < 0n || costAssumptions.commitmentFee < 0n)) throw new Error("offer-invalid");
+  if (riskTerms && (riskTerms.policyVersion <= 0n || riskTerms.initialBps < riskTerms.maintenanceBps
+    || riskTerms.maintenanceBps <= riskTerms.watchBps || riskTerms.watchBps < riskTerms.freezeBps
+    || riskTerms.freezeBps < riskTerms.liquidationBps || riskTerms.liquidationBps < 11_000n)) {
+    throw new Error("offer-invalid");
+  }
   const signature = raw["signature"];
-  if (typeof signature !== "string" || !/^0x[a-fA-F0-9]{130}$/.test(signature)) throw new Error("offer-invalid");
+  if (typeof signature !== "string" || !/^0x(?:[a-fA-F0-9]{2})+$/.test(signature)
+    || signature.length > 8194) throw new Error("offer-invalid");
   const id = String(raw["id"] ?? raw["quoteId"] ?? "");
   if (!id) throw new Error("offer-invalid");
   const kind = raw["kind"] === "solana" ? "solana" : raw["kind"] === "evm" || raw["kind"] === undefined ? "evm" : undefined;
@@ -124,6 +153,9 @@ function parseOffer(raw: Record<string, unknown>): Offer {
     aprBps,
     originationFee,
     commitmentFeeBps,
+    estimatedTotalCost,
+    costAssumptions,
+    riskTerms,
     expiry,
     maturity,
     setupDeadline,
@@ -232,6 +264,9 @@ export class Intent {
     if (!offerId) throw new Error("offer-required");
     const offer = (await this.offers()).find((item) => item.id === offerId);
     if (!offer) throw new Error("offer-not-found");
+    if (args.reviewedOffer && offerFingerprint(args.reviewedOffer) !== offerFingerprint(offer)) {
+      throw new Error("offer-review-stale");
+    }
     if (offer.kind === "solana") throw new Error("offer-collateral-mismatch");
     if (offer.borrower.toLowerCase() !== this.client.signer.address().toLowerCase()) throw new Error("unauthorized");
     const creditId = keccak256(
@@ -310,6 +345,9 @@ export class Intent {
     if (!offerId) throw new Error("offer-required");
     const offer = (await this.offers()).find((item) => item.id === offerId);
     if (!offer || offer.kind !== "solana" || !offer.solana) throw new Error("offer-not-found");
+    if (args.reviewedOffer && offerFingerprint(args.reviewedOffer) !== offerFingerprint(offer)) {
+      throw new Error("offer-review-stale");
+    }
     const source = offer.solana;
     if (offer.borrower.toLowerCase() !== this.client.signer.address().toLowerCase()) throw new Error("unauthorized");
     if (offer.owner === undefined || offer.sourceChain === undefined || offer.collateralVault === undefined

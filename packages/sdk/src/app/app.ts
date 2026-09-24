@@ -55,14 +55,20 @@ export class CreditApp {
       throw new Error("capability-denied");
     }
     const health = await new CreditAccount(this.client, this.creditId).health();
+    const preview = await this.client.rpc.previewAction(this.creditId, target, data, amount, nonce);
+    const canExecute = preview.initialBps > 0n && preview.healthBps >= preview.initialBps;
     const fingerprint = keccak256(encodeAbiParameters(
       [{ type: "bytes32" }, { type: "address" }, { type: "bytes" }, { type: "uint256" }, { type: "uint256" },
-        { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }],
-      [this.creditId, target, data, amount, currentDebt, revisionValue, nonce, freeAssets, originationFee, health.value ?? 0n],
+        { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" },
+        { type: "uint256" }, { type: "uint256" }, { type: "uint256" }],
+      [this.creditId, target, data, amount, currentDebt, revisionValue, nonce, freeAssets, originationFee,
+        preview.healthBps, preview.initialBps, preview.debt, preview.recoveryValue],
     ));
     const review: ActionReview = { capability: action.capability, requiredInput, freeAssets, draw: amount,
-      currentDebt, projectedDebt: currentDebt + amount + originationFee, originationFee,
-      healthBps: health.value, healthState: health.state, settlementAsset: asset, revision: revisionValue, fingerprint };
+      currentDebt, projectedDebt: preview.debt, originationFee,
+      healthBps: health.value, healthState: health.state, projectedHealthBps: preview.healthBps,
+      initialHealthBps: preview.initialBps, projectedRecoveryValue: preview.recoveryValue, canExecute,
+      settlementAsset: asset, revision: revisionValue, fingerprint };
     return { review, target, data, nonce, definition };
   }
 
@@ -73,6 +79,7 @@ export class CreditApp {
   async execute(action: AppAction, reviewed?: ActionReview): Promise<ExecuteResult> {
     const { review, target, data, nonce, definition } = await this.prepare(action);
     if (reviewed && review.fingerprint !== reviewed.fingerprint) throw new Error("action-review-stale");
+    if (!review.canExecute) throw new Error("action-health-insufficient");
     const deadline = Math.floor(Date.now() / 1000) + 900;
     const digest = this.client.signer.actionDigest(
       await this.client.rpc.domain(),

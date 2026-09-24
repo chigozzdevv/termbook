@@ -43,6 +43,25 @@ export const healthSourceAbi = [
   },
   {
     "type": "function",
+    "name": "isReaderActive",
+    "inputs": [
+      {
+        "name": "bundleId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "oracleRegistry",
     "inputs": [],
     "outputs": [

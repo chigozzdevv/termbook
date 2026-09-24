@@ -2,7 +2,7 @@
 set -eu
 
 usage() {
-  echo "usage: scripts/deploy.sh {protocol|routing|source|ethereum-beacon-client|ethereum-verifier|native-collateral|collateral-health-reader}" >&2
+  echo "usage: scripts/deploy.sh {protocol|routing|source|ethereum-beacon-client|ethereum-verifier|native-collateral|collateral-health-reader|app-health-reader}" >&2
   exit 2
 }
 
@@ -48,7 +48,7 @@ case "$MONAD_CHAIN_ID" in
 esac
 
 case "$1" in
-  protocol|routing|ethereum-beacon-client|ethereum-verifier|native-collateral|collateral-health-reader)
+  protocol|routing|ethereum-beacon-client|ethereum-verifier|native-collateral|collateral-health-reader|app-health-reader)
     foundry_version=$(forge --version)
     if ! printf '%s\n' "$foundry_version" | awk -F '[ .-]' 'NR == 1 { exit !($3 > 1 || ($3 == 1 && $4 >= 8)) }'; then
       echo "Foundry 1.8 or newer is required for Monad deployment" >&2
@@ -111,6 +111,7 @@ case "$1" in
   ethereum-verifier) script=deploy-ethereum-verifier.s.sol ;;
   native-collateral) script=deploy-native-collateral.s.sol ;;
   collateral-health-reader) script=deploy-collateral-health-reader.s.sol ;;
+  app-health-reader) script=deploy-app-health-reader.s.sol ;;
 esac
 
 if [ "$1" = source ]; then

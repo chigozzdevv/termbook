@@ -39,12 +39,14 @@ The server publishes an admitted integration's SDK configuration at
 `PUBLIC_RPC_URL` to public HTTPS endpoints and `ACCOUNT_FACTORY_ADDRESS` to
 the deployed Monad factory. Build the SDK with `TERMBOOK_PUBLIC_API_BASE` set
 to the same API origin. An admin can issue a public app token with
-`POST /integrations` after the IntegrationVersion, HealthSource reader, and
-exit verifier are active onchain. The token is shown only at creation; the
+`POST /integrations` after the IntegrationVersion, HealthSource reader, exit
+verifier, pinned app recovery adapter, and reviewed recovery calls are active
+onchain. The token is shown only at creation; the
 server stores its hash. Borrower intents created through the SDK are bound to
 that IntegrationVersion.
 
-The approval request includes an `actions` array. Each action names a public
+The approval request includes the House settlement asset and an `actions`
+array. Each action names a public
 capability, its approved contract target and ABI function, and the source of
 each ABI argument (`input`, `borrower`, `credit_account`, or `credit_id`).
 `fundingPath` identifies the borrower input used to calculate the required
@@ -79,6 +81,23 @@ Application position valuation, forced unwind, and exit verification must be
 reviewed for each integration before it is admitted. The repository's
 `CollateralHealthReader` values collateral and Credit Account cash only.
 
+An active House polls `POST /houses/intents` with its House wallet and optional
+`cursor: { createdAt, id }`. The feed contains unexpired intents for that
+House's settlement asset. The House signs a complete collateral-bound quote
+and submits it to `POST /quotes`. Offers are checked against the finalized
+HouseRegistry and vault asset, then ranked by estimated cost for a common draw
+and duration. The displayed estimate includes origination, interest, and
+commitment fees under those assumptions.
+
+`CreditApp.review()` simulates the exact action through `Core.previewAction`
+and displays the resulting debt, recoverable value, and health threshold. The
+simulation always reverts its state changes. Actual execution repeats the
+checks with the borrower's signature and enforces post-action health. During
+liquidation, an approved keeper calls `recoverApp` through the bundle's pinned
+adapter and registered recovery call, then repays recovered account cash to
+HouseVault. Freezing new app actions does not disable a reviewed recovery call.
+Each integration still needs a concrete reader and adapter for its deployed app.
+
 `COLLATERAL_MARKETS` publishes the admitted source-wallet choices in the modal.
 It is a JSON array of EVM entries (`id`, `label`, `decimals`, `chainId`,
 `rpcUrl`, `asset`, `vault`, `controller`, `nativeVault`) or Solana entries
@@ -89,7 +108,8 @@ connect their Solana wallet adapter; the borrower chooses that wallet in the
 modal.
 
 `scripts/deploy.sh` takes one stage and one RPC. `protocol`, `routing`,
-`ethereum-beacon-client`, `ethereum-verifier`, `native-collateral`, and `collateral-health-reader` require
+`ethereum-beacon-client`, `ethereum-verifier`, `native-collateral`,
+`collateral-health-reader`, and `app-health-reader` require
 Foundry 1.8 or newer, the Monad RPC, and `MONAD_CHAIN_ID`. The wrapper selects
 Monad execution. `source` requires the Ethereum mainnet RPC,
 `SOURCE_CHAIN_ID=1`, and `MONAD_CHAIN_ID=143`. The Ethereum verifier stage
@@ -174,13 +194,23 @@ payout state.
 
 `CollateralHealthReader` values bound collateral and free USDC held in the
 Credit Account; it assigns zero value to application positions. Markets that
-count application positions need a separate reviewed reader. Governance sets
+count application positions can register `AppHealthReader` for that bundle.
+It combines the collateral reading with a pinned, application-specific
+`IAppValueReader` and checks the pinned recovery adapter before counting app
+value. The application reader reports stressed proceeds after liabilities in
+settlement-token base units, with remaining exit costs reported separately.
+Governance sets
 the immutable feed and haircut for each market and registers the reader with
 `HealthSource`. Different-token local collateral also needs an active
 `TermbookCore` sale policy. During liquidation, a buyer pays USDC into the
 HouseVault and receives WMON atomically at or above the oracle floor. If the
 debt is repaid before all collateral is sold, the remaining MON can return to
 the original recipient after the exit verifier approves.
+
+Deploy `app-health-reader` with `APP_BUNDLE_ID`, `COLLATERAL_READER_ADDRESS`,
+`APP_READER_ADDRESS`, and `APP_RECOVERY_ADAPTER_ADDRESS` after Core registers
+the adapter. Governance then registers that reader for the bundle in
+`HealthSource` before new Credits use it.
 
 ## Aurora value routing
 

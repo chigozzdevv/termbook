@@ -5,6 +5,7 @@ import { parseAbiItem } from "viem";
 export const integrationSchema = z.strictObject({
   versionId: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
   codeHash: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
+  settlementAsset: z.string().regex(/^0x[a-fA-F0-9]{40}$/).refine((value) => !/^0x0{40}$/i.test(value)),
   actions: z.array(capabilityDefinitionSchema).min(1).max(32),
 }).superRefine((value, ctx) => {
   const names = new Set<string>();

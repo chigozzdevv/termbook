@@ -37,6 +37,7 @@ export async function resolveClientConfig(input: ClientConfig): Promise<Resolved
   if (data["appToken"] !== appToken || publicUrl(data["apiBase"]) !== apiBase
     || !addressPattern.test(String(data["core"])) || /^0x0{40}$/i.test(String(data["core"]))
     || !addressPattern.test(String(data["accountFactory"])) || /^0x0{40}$/i.test(String(data["accountFactory"]))
+    || !addressPattern.test(String(data["settlementAsset"])) || /^0x0{40}$/i.test(String(data["settlementAsset"]))
     || !wordPattern.test(String(data["versionId"]))
     || !Number.isSafeInteger(data["chainId"]) || Number(data["chainId"]) <= 0) {
     throw new Error("sdk-config-invalid");
@@ -76,5 +77,6 @@ export async function resolveClientConfig(input: ClientConfig): Promise<Resolved
   ]);
   if (!active || !allowed.every(Boolean) || input.wallet.getChainId && await input.wallet.getChainId() !== chainId) throw new Error("sdk-config-invalid");
   return { appToken, versionId, wallet: input.wallet, core, rpcUrl, chainId, apiBase, accountFactory,
-    riskEngine: riskEngine as `0x${string}`, settlementFactory: settlementFactory as `0x${string}` | undefined, actions };
+    riskEngine: riskEngine as `0x${string}`, settlementFactory: settlementFactory as `0x${string}` | undefined,
+    settlementAsset: data["settlementAsset"] as `0x${string}`, actions };
 }

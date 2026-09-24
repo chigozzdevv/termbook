@@ -17,10 +17,19 @@ contract IntegrationRegistry {
         bool active;
     }
 
+    struct RecoveryCallPolicy {
+        bytes32 codeHash;
+        uint256 maxDataLength;
+        uint8 recipientArg;
+        bool active;
+    }
+
     mapping(bytes32 => Version) public versions;
     mapping(bytes32 => uint256) public callCount;
+    mapping(bytes32 => uint256) public recoveryCallCount;
     mapping(bytes32 => mapping(address => mapping(bytes4 => bytes32))) public callCodeHashes;
     mapping(bytes32 => mapping(address => mapping(bytes4 => CallPolicy))) public callPolicies;
+    mapping(bytes32 => mapping(address => mapping(bytes4 => RecoveryCallPolicy))) public recoveryCallPolicies;
     address public immutable reviewer;
     error Unauthorized();
     error Invalid();
@@ -30,6 +39,8 @@ contract IntegrationRegistry {
     event VersionActivated(bytes32 indexed id);
     event VersionFrozen(bytes32 indexed id);
     event CallRegistered(bytes32 indexed id, address indexed target, bytes4 selector);
+    event RecoveryCallRegistered(bytes32 indexed id, address indexed target, bytes4 selector);
+    event RecoveryCallDisabled(bytes32 indexed id, address indexed target, bytes4 selector);
 
     constructor(address reviewer_) {
         reviewer = reviewer_;
@@ -83,6 +94,52 @@ contract IntegrationRegistry {
             CallPolicy(target.codehash, maxDataLength, recipientArg, amountArg, maxAmount, true);
         callCount[id] += 1;
         emit CallRegistered(id, target, selector);
+    }
+
+    function registerRecoveryCall(bytes32 id, address target, bytes4 selector, uint256 maxDataLength, uint8 recipientArg)
+        external
+    {
+        if (msg.sender != reviewer || target.code.length == 0 || selector == bytes4(0) || maxDataLength < 4) {
+            revert Invalid();
+        }
+        Version memory version = versions[id];
+        if (version.frozen) revert Frozen();
+        if (version.codeHash == bytes32(0) || version.active || recoveryCallPolicies[id][target][selector].active) {
+            revert Invalid();
+        }
+        recoveryCallPolicies[id][target][selector] =
+            RecoveryCallPolicy(target.codehash, maxDataLength, recipientArg, true);
+        recoveryCallCount[id] += 1;
+        emit RecoveryCallRegistered(id, target, selector);
+    }
+
+    function disableRecoveryCall(bytes32 id, address target, bytes4 selector) external {
+        if (msg.sender != reviewer || !recoveryCallPolicies[id][target][selector].active) revert Invalid();
+        recoveryCallPolicies[id][target][selector].active = false;
+        recoveryCallCount[id] -= 1;
+        emit RecoveryCallDisabled(id, target, selector);
+    }
+
+    function validateRecoveryCall(bytes32 id, address target, bytes calldata data, address account)
+        external
+        view
+        returns (bool)
+    {
+        if (data.length < 4) return false;
+        Version memory version = versions[id];
+        RecoveryCallPolicy memory policy = recoveryCallPolicies[id][target][bytes4(data[:4])];
+        if (version.codeHash == bytes32(0) || !policy.active || target.codehash != policy.codeHash
+            || data.length > policy.maxDataLength) return false;
+        if (policy.recipientArg != type(uint8).max) {
+            uint256 recipientArg = policy.recipientArg;
+            if (data.length < 4 + recipientArg * 32 + 32) return false;
+            uint256 recipient;
+            assembly {
+                recipient := calldataload(add(data.offset, add(4, mul(recipientArg, 32))))
+            }
+            if (address(uint160(recipient)) != account) return false;
+        }
+        return true;
     }
 
     function isCallAllowed(bytes32 id, address target, bytes4 selector) external view returns (bool) {

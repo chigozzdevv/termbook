@@ -18,7 +18,7 @@ export const intentController = {
     const funding = input.action && definition ? actionFunding(definition, input.action) : 0n;
     if (input.action && definition) validateActionCall(definition, input.action, input.borrower as `0x${string}`);
     if (input.limit && BigInt(input.limit) < funding) throw new Error("credit-limit-insufficient");
-    return intentService.create(input, integration.versionId, funding);
+    return intentService.create(input, integration.versionId, funding, integration.settlementAsset);
   },
   async get(req: FastifyRequest<{ Params: { id: string } }>) {
     return intentService.get(req.params.id);

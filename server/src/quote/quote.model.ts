@@ -35,4 +35,6 @@ const quoteSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
+quoteSchema.index({ intentId: 1, expiry: 1, createdAt: -1 });
+
 export const QuoteModel = mongoose.models["Quote"] ?? mongoose.model("Quote", quoteSchema);

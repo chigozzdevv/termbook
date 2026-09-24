@@ -30,6 +30,7 @@ const contracts = {
   OracleRegistry: "oracle-registry",
   HealthSource: "health-source",
   CollateralHealthReader: "collateral-health-reader",
+  AppHealthReader: "app-health-reader",
   FlowExecutor: "flow-executor",
 } as const;
 

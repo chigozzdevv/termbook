@@ -61,11 +61,17 @@ The approval request includes the House settlement asset and an `actions`
 array. Each action names a public
 capability, its approved contract target and ABI function, and the source of
 each ABI argument (`input`, `borrower`, `credit_account`, or `credit_id`).
+It also includes `verifiedSources`, one entry per distinct action target with
+the `sourceHash` returned by `/integrations/draft`. Proxy entries include the
+reviewed `implementation` address and `implementationSourceHash`. Approval
+checks the exact verified source against finalized bytecode and stores runtime
+pins. App token resolution rejects a changed proxy implementation.
 An admin can call `POST /integrations/draft` with up to 32 target addresses,
 expected runtime code hashes, function signatures, and reference Core action
 transaction hashes. It checks the finalized deployment, EIP-1967 implementation
-when present, and the actual nested app call. The response gives the observed
-ABI parameters and logs for review; it does not assign economic meaning or
+when present, the exact Sourcify verified runtime source and ABI, and the actual
+nested app call. The response gives source digests, observed ABI parameters,
+and logs for review; it does not assign economic meaning or
 borrower input sources automatically.
 For EIP-1967 proxies it requires the reviewed implementation code hash and
 rejects beacon proxies. Proxy upgrades remain an integration trust risk and

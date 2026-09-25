@@ -6,6 +6,7 @@ const integrationSchema = new mongoose.Schema(
     codeHash: String,
     settlementAsset: { type: String, required: true },
     actions: { type: [mongoose.Schema.Types.Mixed], default: [] },
+    sourcePins: { type: [mongoose.Schema.Types.Mixed], default: [] },
     acceptance: { type: mongoose.Schema.Types.Mixed, required: true },
     accepted: { type: Boolean, default: false },
     tokenHash: { type: String, unique: true, sparse: true },

@@ -29,6 +29,12 @@ export const integrationSchema = z.strictObject({
   codeHash: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
   settlementAsset: z.string().regex(/^0x[a-fA-F0-9]{40}$/).refine((value) => !/^0x0{40}$/i.test(value)),
   actions: z.array(capabilityDefinitionSchema).min(1).max(32),
+  verifiedSources: z.array(z.strictObject({
+    target: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+    sourceHash: word,
+    implementation: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
+    implementationSourceHash: word.optional(),
+  })).min(1).max(32),
   acceptance: integrationAcceptanceSchema,
 }).superRefine((value, ctx) => {
   const names = new Set<string>();
@@ -44,5 +50,11 @@ export const integrationSchema = z.strictObject({
     } catch {
       ctx.addIssue({ code: "custom", path: ["actions", index], message: "capability-definition-invalid" });
     }
+  }
+  const targets = new Set(value.actions.map((action) => action.target.toLowerCase()));
+  const sources = value.verifiedSources.map((source) => source.target.toLowerCase());
+  if (new Set(sources).size !== sources.length || sources.length !== targets.size
+    || sources.some((target) => !targets.has(target))) {
+    ctx.addIssue({ code: "custom", path: ["verifiedSources"], message: "integration-source-evidence-incomplete" });
   }
 });

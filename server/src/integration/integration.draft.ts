@@ -1,16 +1,15 @@
 import {
-  decodeFunctionData, keccak256, parseAbiItem, stringToHex, toFunctionSelector, toHex,
+  decodeFunctionData, keccak256, parseAbiItem, toFunctionSelector,
   type Address, type Hex,
 } from "viem";
 import { monadClient } from "../chain/monad.client.js";
 import { env } from "../config/env.js";
 import { coreActionAbi } from "./integration.abi.js";
+import { beaconSlot, implementationSlot, importVerifiedSource } from "./integration.source.js";
 import type { integrationDraftSchema } from "./integration.schema.js";
 import type { z } from "zod";
 
 type DraftInput = z.infer<typeof integrationDraftSchema>;
-const implementationSlot = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc";
-const beaconSlot = toHex(BigInt(keccak256(stringToHex("eip1967.proxy.beacon"))) - 1n, { size: 32 });
 const zero = "0x0000000000000000000000000000000000000000";
 
 function equal(left: string, right: string): boolean {
@@ -53,8 +52,9 @@ export async function inspectIntegrationDraft(input: DraftInput) {
     if (equal(implementation, zero) !== (entry.implementationCodeHash === undefined)) {
       throw new Error("integration-draft-proxy-mismatch");
     }
+    let implementationCode: Hex | undefined;
     if (!equal(implementation, zero)) {
-      const implementationCode = await chain.getBytecode({ address: implementation, blockNumber: finalized.number });
+      implementationCode = await chain.getBytecode({ address: implementation, blockNumber: finalized.number });
       if (!implementationCode || implementationCode === "0x"
         || !equal(keccak256(implementationCode), entry.implementationCodeHash!)) {
         throw new Error("integration-draft-proxy-mismatch");
@@ -81,11 +81,17 @@ export async function inspectIntegrationDraft(input: DraftInput) {
     if (!equal(calledTarget, target) || !equal(data.slice(0, 10), toFunctionSelector(signature))) {
       throw new Error("integration-draft-reference-invalid");
     }
+    const selector = toFunctionSelector(signature);
+    const [source, implementationSource] = await Promise.all([
+      importVerifiedSource(env.monadChainId, target, code, equal(implementation, zero) ? selector : null),
+      equal(implementation, zero) ? Promise.resolve(null) : importVerifiedSource(env.monadChainId,
+        implementation, implementationCode!, selector),
+    ]);
     entries.push({
       target, codeHash: entry.codeHash.toLowerCase(),
       implementation: equal(implementation, zero) ? null : implementation,
       implementationCodeHash: entry.implementationCodeHash?.toLowerCase() ?? null,
-      signature: entry.signature, selector: toFunctionSelector(signature),
+      signature: entry.signature, selector, source, implementationSource,
       parameters: signature.inputs.map((param) => ({ name: param.name, type: param.type })),
       reference: { txHash: entry.txHash.toLowerCase(), blockNumber: receipt.blockNumber.toString(),
         creditId, functionName: decoded.functionName, callData: data,

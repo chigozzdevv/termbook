@@ -2391,9 +2391,10 @@ contract TermbookCore is ITermbookCore {
         Credit storage c = _credits[creditId];
         address owner = collateralOwnerOf[creditId];
         if (msg.sender != c.borrower && msg.sender != owner) revert Unauthorized();
+        if (collateralSourceChainOf[creditId] != 1 && msg.value != 0) revert InvalidAuthority();
         if (
             !remoteCollateral[creditId] || solanaCollateral[creditId]
-                || collateralSourceChainOf[creditId] != 1 || !remoteSeizureConfirmed[creditId]
+                || !remoteSeizureConfirmed[creditId]
                 || c.debt != 0
                 || pendingRemoteSeizure[creditId] != 0
                 || (c.facility != Types.Facility.RecoveryPending && c.facility != Types.Facility.Liquidated)
@@ -2405,7 +2406,9 @@ contract TermbookCore is ITermbookCore {
         sourceRecoveryReturnDeadlineOf[actionHash] = deadline;
         sourceRecoveryReturnCreditOf[actionHash] = creditId;
         c.revision = RevisionLib.next(c.revision);
-        _publishEthereumAuthorization(creditId, actionHash, RemoteAction.RELEASE);
+        if (collateralSourceChainOf[creditId] == 1) {
+            _publishEthereumAuthorization(creditId, actionHash, RemoteAction.RELEASE);
+        }
         emit SourceRecoveryReturnAuthorized(creditId, actionHash, owner, amount, nonce, deadline);
         emit RemoteActionAuthorized(creditId, actionHash, RemoteAction.RELEASE);
     }

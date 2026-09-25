@@ -5,9 +5,11 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:scripts": "tsc -p tsconfig.scripts.json",
     "start": "node dist/server.js",
     "dev": "tsx src/server.ts",
-    "verify:solana-program": "node --import tsx scripts/verify-solana-program.ts"
+    "verify:solana-program": "node --import tsx scripts/verify-solana-program.ts",
+    "relay:ethereum-beacon-block": "node --import tsx scripts/relay-ethereum-beacon-block.ts"
   },
   "dependencies": {
     "@defuse-protocol/one-click-sdk-typescript": "0.1.26",

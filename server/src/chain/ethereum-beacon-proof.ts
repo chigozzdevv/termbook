@@ -438,12 +438,30 @@ export async function fetchFinalizedBeaconBlock(input: {
   if (beacon.slot !== input.targetSlot || word(headerData["root"]) !== beaconHeaderRoot(beacon)) {
     throw new Error("beacon-proof-invalid");
   }
-  const branch = record(await fetchJson(new URL(input.proofUrl), 20_000));
-  if (word(branch["checkpoint_root"]) !== input.checkpointRoot
-    || decimal(branch["target_slot"]) !== input.targetSlot) throw new Error("beacon-proof-invalid");
+  const base = new URL(input.proofUrl);
+  const stateUrl = new URL(base);
+  stateUrl.pathname = `${stateUrl.pathname.replace(/\/$/, "")}/state_proof`;
+  const stateIndex = 69n * 8192n + beacon.slot % 8192n;
+  stateUrl.search = new URLSearchParams({ state_id: input.checkpointRoot,
+    gindex: stateIndex.toString(), network: "mainnet" }).toString();
+  const blockUrl = new URL(base);
+  blockUrl.pathname = `${blockUrl.pathname.replace(/\/$/, "")}/block_proof`;
+  const executionIndex = 12n * 512n + 812n - 512n;
+  blockUrl.search = new URLSearchParams({ block_id: beaconHeaderRoot(beacon),
+    gindex: executionIndex.toString(), network: "mainnet" }).toString();
+  const [stateProof, blockProof] = await Promise.all([
+    fetchJson(stateUrl, 20_000).then(record), fetchJson(blockUrl, 20_000).then(record),
+  ]);
+  const blockRootBranch = words(stateProof["witnesses"], 19);
+  const executionWitnesses = words(blockProof["witnesses"], 12);
+  const executionBlockHash = word(blockProof["leaf"]);
+  if (stateProof["type"] !== "single" || decimal(String(stateProof["gindex"])) !== stateIndex
+    || word(stateProof["leaf"]) !== beaconHeaderRoot(beacon)
+    || blockProof["type"] !== "single" || decimal(String(blockProof["gindex"])) !== executionIndex
+    || !verifySszBranch(executionBlockHash, executionWitnesses, executionIndex, beaconHeaderRoot(beacon))) {
+    throw new Error("beacon-proof-invalid");
+  }
   return prepareFinalizedBeaconBlock({ checkpointRoot: input.checkpointRoot,
     checkpointStateRoot, checkpointSlot, beacon,
-    blockRootBranch: words(branch["block_root_branch"], 19),
-    executionBlockHash: word(branch["execution_block_hash"]),
-    executionBranch: words(branch["execution_branch"], 9) });
+    blockRootBranch, executionBlockHash, executionBranch: executionWitnesses.slice(0, 9) });
 }

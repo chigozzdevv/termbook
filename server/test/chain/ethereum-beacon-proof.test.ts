@@ -231,23 +231,39 @@ describe("Ethereum Beacon proof preparation", () => {
       .toThrow("beacon-proof-invalid");
     const readContract = vi.fn(async () => [checkpointStateRoot, checkpointSlot]);
     vi.mocked(monadClient).mockReturnValue({ readContract } as never);
+    const uint64Root = (value: bigint) => {
+      const buffer = Buffer.alloc(32);
+      buffer.writeBigUInt64LE(value);
+      return `0x${buffer.toString("hex")}` as Hex;
+    };
+    const upperBranch = [zero, pair(zero, zero), pair(pair(uint64Root(beacon.slot),
+      uint64Root(beacon.proposerIndex)), pair(beacon.parentRoot, beacon.stateRoot))];
+    const stateIndex = 69n * 8192n + beacon.slot % 8192n;
+    const executionIndex = 6444n;
+    expect(branchRoot(executionBlockHash, [...executionBranch, ...upperBranch], executionIndex))
+      .toBe(beaconHeaderRoot(beacon));
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ data: {
         root: beaconHeaderRoot(beacon), header: { message: headerJson(beacon) },
       } })))
       .mockResolvedValueOnce(new Response(JSON.stringify({
-        checkpoint_root: input.checkpointRoot, target_slot: beacon.slot.toString(),
-        block_root_branch: blockRootBranch, execution_block_hash: executionBlockHash,
-        execution_branch: executionBranch,
+        type: "single", gindex: Number(stateIndex), leaf: beaconHeaderRoot(beacon), witnesses: blockRootBranch,
+      })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        type: "single", gindex: Number(executionIndex), leaf: executionBlockHash,
+        witnesses: [...executionBranch, ...upperBranch],
       })));
     vi.stubGlobal("fetch", fetchMock);
     const fetched = await fetchFinalizedBeaconBlock({ beaconApiUrl: "https://beacon.example",
-      proofUrl: "https://proof.example/branch", beaconClient: `0x${"11".repeat(20)}`,
+      proofUrl: "https://proof.example", beaconClient: `0x${"11".repeat(20)}`,
       checkpointRoot: input.checkpointRoot, targetSlot: beacon.slot });
     expect(fetched).toEqual(prepared);
     expect(readContract).toHaveBeenCalledWith(expect.objectContaining({
       functionName: "finalizedCheckpoints", args: [input.checkpointRoot],
     }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2,
+      new URL(`https://proof.example/state_proof?state_id=${input.checkpointRoot}&gindex=${stateIndex}&network=mainnet`),
+      expect.any(Object));
   });
 
   it("uses the SSZ 48-byte pubkey chunks for the sync committee root", () => {

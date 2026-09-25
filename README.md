@@ -185,6 +185,14 @@ For Monad-to-Ethereum proofs, deploy `MonadEpochCommitter` on Monad and call
 receipt of that event. Its bootstrap block and initial validator set require
 independent verification. A Monad consensus node must supply native headers,
 quorum signatures, and execution headers for the proof relay.
+For Ethereum events older than the latest finalized Beacon block,
+`fetchFinalizedBeaconBlock` accepts a Lodestar-backed state prover origin. It reads
+`/state_proof` and `/block_proof` for the exact finalized checkpoint and event
+block and verifies both SSZ branches. A relay must submit the resulting calldata
+to the Ethereum light client on Monad before those event proofs can be used.
+With a Lodestar-backed state prover running, set `ETHEREUM_BEACON_PROOF_URL` to its
+origin and run `pnpm --dir server relay:ethereum-beacon-block <slot>
+<checkpoint-root>` for a finalized block that needs historical admission.
 
 ## Collateral markets
 

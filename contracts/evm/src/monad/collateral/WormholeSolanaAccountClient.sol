@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {IWormholeCore} from "./IWormholeCore.sol";
+import {IWormholeCore} from "../../shared/collateral/IWormholeCore.sol";
 
 contract WormholeSolanaAccountClient {
     bytes32 private constant SNAPSHOT_DOMAIN = keccak256("Termbook Solana snapshot v1");

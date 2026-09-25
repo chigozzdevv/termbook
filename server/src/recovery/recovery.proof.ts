@@ -1,5 +1,6 @@
 import { keccak256, padHex, stringToHex, type Hex, type TransactionReceipt } from "viem";
 import { fetchMonadReceiptProof } from "../chain/monad-receipt-proof.js";
+import { currentEthereumRecoveryOperation } from "../chain/monad-wormhole.js";
 import { env } from "../config/env.js";
 import type { Operation } from "./recovery.plan.js";
 
@@ -19,7 +20,13 @@ export function recoveryOperationLogIndex(receipt: TransactionReceipt, operation
   return matches[0]!;
 }
 
-export async function fetchRecoveryOperationProof(operation: Operation, digest: Hex) {
+export async function fetchRecoveryOperationProof(operation: Operation, digest: Hex, wormhole = false, refresh = false) {
+  if (wormhole) {
+    return currentEthereumRecoveryOperation({
+      factory: env.settlementFactory as Hex, operationId: operation.operationId as Hex,
+      digest, inbox: operation.inbox as Hex, refresh,
+    });
+  }
   return fetchMonadReceiptProof({
     txHash: operation.registrationTxHash as Hex,
     selectLog: (receipt) => recoveryOperationLogIndex(

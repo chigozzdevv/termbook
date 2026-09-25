@@ -3,6 +3,8 @@ pragma solidity ^0.8.24;
 
 import {SettlementInbox} from "./SettlementInbox.sol";
 import {AuthLib} from "../../shared/AuthLib.sol";
+import {IWormholeCore} from "../../shared/collateral/IWormholeCore.sol";
+import {WormholeTermbookMessages as WormholeMessages} from "../../shared/collateral/WormholeTermbookMessages.sol";
 
 interface IRouteAdmission {
     function routes(bytes32 id) external view returns (address, bytes32, bool, uint256, uint256);
@@ -33,8 +35,14 @@ contract InboxFactory {
     address public immutable governance;
     address public registrar;
     address public routeRegistry;
+    address public ethereumWormholeCore;
+    bytes32 public ethereumWormholeCodeHash;
     mapping(bytes32 => address) public inboxOf;
     mapping(bytes32 => bytes32) public operationDigestOf;
+    mapping(bytes32 => bool) public recoveryOperation;
+    mapping(bytes32 => uint256) public recoveryOperationDeadlineOf;
+    mapping(bytes32 => bool) public recoveryVaaPublished;
+    mapping(bytes32 => uint64) public recoveryVaaSequenceOf;
     bytes32 public constant OPERATION_TYPEHASH = keccak256(
         "SettlementOperation(bytes32 operationId,uint8 kind,address payer,uint256 sourceChain,address sourceAsset,address vault,address token,bytes32 creditId,uint256 maxAmountIn,uint256 minOut,uint256 maxReceived,address sourceRefund,address refundRecipient,uint256 deadline,bytes32 routeId,bytes32 routeVersion,address lpRecipient,uint256 minShares)"
     );
@@ -66,6 +74,7 @@ contract InboxFactory {
     event RecoveryOperationCreated(bytes32 indexed operationId, bytes32 indexed operationDigest, address indexed inbox);
     event RegistrarSet(address indexed registrar);
     event RouteRegistrySet(address indexed registry);
+    event EthereumWormholeConfigured(address indexed wormhole);
 
     constructor(address governance_) {
         if (governance_ == address(0)) revert Unauthorized();
@@ -85,6 +94,16 @@ contract InboxFactory {
         emit RouteRegistrySet(registry);
     }
 
+    function configureEthereumWormhole(address wormhole) external {
+        if (
+            msg.sender != governance || ethereumWormholeCore != address(0)
+                || wormhole.code.length == 0 || IWormholeCore(wormhole).chainId() != 48
+        ) revert Invalid();
+        ethereumWormholeCore = wormhole;
+        ethereumWormholeCodeHash = wormhole.codehash;
+        emit EthereumWormholeConfigured(wormhole);
+    }
+
     function operationDigest(Operation calldata op) public view returns (bytes32) {
         bytes32 structHash = keccak256(abi.encode(
             OPERATION_TYPEHASH, op.operationId, op.kind, op.payer, op.sourceChain, op.sourceAsset,
@@ -95,7 +114,7 @@ contract InboxFactory {
         return AuthLib.typedDigest(AuthLib.domainSeparator(), structHash);
     }
 
-    function createAuthorized(Operation calldata op, bytes calldata signature) external returns (address inbox) {
+    function createAuthorized(Operation calldata op, bytes calldata signature) external payable returns (address inbox) {
         if (
             routeRegistry == address(0) || op.operationId == bytes32(0) || inboxOf[op.operationId] != address(0)
                 || op.payer == address(0) || op.sourceChain == 0 || op.sourceAsset == address(0)
@@ -143,8 +162,42 @@ contract InboxFactory {
         bytes32 digest = operationDigest(op);
         operationDigestOf[op.operationId] = digest;
         IHouseInboxRegistration(op.vault).registerInboxFromFactory(inbox, op.kind, op.lpRecipient, op.minShares);
+        if (op.kind == 1 && op.sourceChain == 1) {
+            recoveryOperation[op.operationId] = true;
+            recoveryOperationDeadlineOf[op.operationId] = op.deadline;
+        }
+        if (op.kind == 1 && op.sourceChain == 1 && ethereumWormholeCore != address(0)) {
+            address wormhole = ethereumWormholeCore;
+            if (wormhole.codehash != ethereumWormholeCodeHash || msg.value != IWormholeCore(wormhole).messageFee()) {
+                revert Invalid();
+            }
+            uint64 sequence = IWormholeCore(wormhole).publishMessage{value: msg.value}(
+                0, abi.encode(WormholeMessages.RECOVERY, keccak256(abi.encode(op.operationId, digest, inbox))), 0
+            );
+            recoveryVaaPublished[op.operationId] = true;
+            recoveryVaaSequenceOf[op.operationId] = sequence;
+        } else if (msg.value != 0) {
+            revert Invalid();
+        }
         emit InboxCreated(op.operationId, inbox);
         if (op.kind == 1) emit RecoveryOperationCreated(op.operationId, digest, inbox);
+    }
+
+    function republishEthereumRecoveryOperation(bytes32 operationId) external payable {
+        address wormhole = ethereumWormholeCore;
+        bytes32 digest = operationDigestOf[operationId];
+        address inbox = inboxOf[operationId];
+        if (
+            wormhole == address(0) || wormhole.codehash != ethereumWormholeCodeHash
+                || !recoveryOperation[operationId] || block.timestamp > recoveryOperationDeadlineOf[operationId]
+                || digest == bytes32(0) || inbox == address(0)
+                || msg.value != IWormholeCore(wormhole).messageFee()
+        ) revert Invalid();
+        uint64 sequence = IWormholeCore(wormhole).publishMessage{value: msg.value}(
+            0, abi.encode(WormholeMessages.RECOVERY, keccak256(abi.encode(operationId, digest, inbox))), 0
+        );
+        recoveryVaaPublished[operationId] = true;
+        recoveryVaaSequenceOf[operationId] = sequence;
     }
 
     function create(

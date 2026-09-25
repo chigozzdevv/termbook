@@ -11,7 +11,8 @@ import {ITermbookCore} from "./ITermbookCore.sol";
 import {IExitVerifier} from "../integration/IExitVerifier.sol";
 import {IAppRecoveryAdapter} from "../integration/IAppRecoveryAdapter.sol";
 import {InboxFactory} from "../routing/InboxFactory.sol";
-import {IWormholeCore} from "../collateral/IWormholeCore.sol";
+import {IWormholeCore} from "../../shared/collateral/IWormholeCore.sol";
+import {WormholeTermbookMessages as WormholeMessages} from "../../shared/collateral/WormholeTermbookMessages.sol";
 
 interface IHouseVaultCore {
     function core() external view returns (address);
@@ -429,6 +430,8 @@ contract TermbookCore is ITermbookCore {
     mapping(bytes32 => uint256) public remoteSeizureRevision;
     mapping(bytes32 => address) public remoteSeizureRecipient;
     mapping(bytes32 => uint256) public remoteSeizureDeadline;
+    mapping(bytes32 => uint256) public sourceRecoveryReturnDeadlineOf;
+    mapping(bytes32 => bytes32) public sourceRecoveryReturnCreditOf;
     mapping(bytes32 => bool) public remoteSeizureConfirmed;
     mapping(bytes32 => uint256) public solanaSeizedAmount;
     mapping(bytes32 => uint256) public solanaRecoveryAllocated;
@@ -462,6 +465,10 @@ contract TermbookCore is ITermbookCore {
     address public solanaRiskSigner;
     address public solanaWormholeCore;
     bytes32 public solanaWormholeCodeHash;
+    address public ethereumWormholeCore;
+    bytes32 public ethereumWormholeCodeHash;
+    mapping(bytes32 => bool) public ethereumAuthorizationPublished;
+    mapping(bytes32 => uint64) public ethereumAuthorizationSequenceOf;
     uint256 public healthMaxAge = 1 days;
 
     event RemoteActionAuthorized(bytes32 indexed creditId, bytes32 indexed actionHash, uint8 kind);
@@ -845,6 +852,65 @@ contract TermbookCore is ITermbookCore {
         solanaWormholeCore = wormhole;
         solanaWormholeCodeHash = wormhole.codehash;
         emit SolanaWormholeConfigured(wormhole);
+    }
+
+    function configureEthereumWormhole(address wormhole) external onlyGovernance {
+        if (
+            ethereumWormholeCore != address(0) || wormhole.code.length == 0
+                || IWormholeCore(wormhole).chainId() != 48
+        ) revert InvalidAuthority();
+        ethereumWormholeCore = wormhole;
+        ethereumWormholeCodeHash = wormhole.codehash;
+    }
+
+    function _publishEthereumAuthorization(bytes32 creditId, bytes32 actionHash, uint8 kind) internal {
+        address wormhole = ethereumWormholeCore;
+        if (wormhole == address(0)) {
+            if (msg.value != 0) revert InvalidAuthority();
+            return;
+        }
+        if (wormhole.codehash != ethereumWormholeCodeHash || actionHash == bytes32(0)) {
+            revert InvalidAuthority();
+        }
+        uint256 fee = IWormholeCore(wormhole).messageFee();
+        if (msg.value != fee) revert InvalidAuthority();
+        uint64 sequence = IWormholeCore(wormhole).publishMessage{value: fee}(
+            0, abi.encode(WormholeMessages.AUTH, keccak256(abi.encode(creditId, actionHash, kind))), 0
+        );
+        ethereumAuthorizationPublished[actionHash] = true;
+        ethereumAuthorizationSequenceOf[actionHash] = sequence;
+    }
+
+    function republishEthereumAuthorization(bytes32 creditId, uint8 kind) external payable nonReentrant {
+        if (
+            !remoteCollateral[creditId] || solanaCollateral[creditId]
+                || collateralSourceChainOf[creditId] != 1 || ethereumWormholeCore == address(0)
+                || kind > RemoteAction.SEIZE
+        ) revert InvalidAuthority();
+        bytes32 actionHash;
+        if (kind == RemoteAction.RELEASE) {
+            if (pendingRemoteReturn[creditId] == 0 || block.timestamp > remoteReturnDeadline[creditId]) {
+                revert InvalidAuthority();
+            }
+            actionHash = remoteReturnActionHash[creditId];
+        } else {
+            if (pendingRemoteSeizure[creditId] == 0 || block.timestamp > remoteSeizureDeadline[creditId]) {
+                revert InvalidAuthority();
+            }
+            actionHash = remoteSeizureActionHash[creditId];
+        }
+        _publishEthereumAuthorization(creditId, actionHash, kind);
+    }
+
+    function republishEthereumRecoveryReturn(bytes32 creditId, bytes32 actionHash) external payable nonReentrant {
+        uint256 deadline = sourceRecoveryReturnDeadlineOf[actionHash];
+        if (
+            !remoteCollateral[creditId] || solanaCollateral[creditId]
+                || collateralSourceChainOf[creditId] != 1 || ethereumWormholeCore == address(0)
+                || sourceRecoveryReturnCreditOf[actionHash] != creditId
+                || deadline == 0 || block.timestamp > deadline
+        ) revert InvalidAuthority();
+        _publishEthereumAuthorization(creditId, actionHash, RemoteAction.RELEASE);
     }
 
     function _publishSolanaAuthorization(bytes32 actionHash) internal {
@@ -2006,7 +2072,9 @@ contract TermbookCore is ITermbookCore {
 
     function authorizeReturn(bytes32 creditId, bytes32 lockId, uint256 amount) external payable nonReentrant {
         Credit storage c = _credits[creditId];
-        if (!solanaCollateral[creditId] && msg.value != 0) revert InvalidAuthority();
+        if (!solanaCollateral[creditId] && collateralSourceChainOf[creditId] != 1 && msg.value != 0) {
+            revert InvalidAuthority();
+        }
         bool repaidRecovery = _repaidRecoveryCanReturn(c, creditId);
         if (
             msg.sender != c.borrower
@@ -2037,6 +2105,9 @@ contract TermbookCore is ITermbookCore {
             remoteReturnDeadline[creditId] = deadline;
             c.revision = revision;
             if (solanaCollateral[creditId]) _publishSolanaAuthorization(actionHash);
+            else if (collateralSourceChainOf[creditId] == 1) {
+                _publishEthereumAuthorization(creditId, actionHash, RemoteAction.RELEASE);
+            }
             emit Events.RemoteReturnRequested(creditId, lockId, amount, c.returnRecipient);
             emit RemoteActionAuthorized(creditId, actionHash, RemoteAction.RELEASE);
             return;
@@ -2121,7 +2192,9 @@ contract TermbookCore is ITermbookCore {
 
     function authorizeRemoteSeizure(bytes32 creditId, uint256 amount, uint256 deadline) external payable nonReentrant {
         Credit storage c = _credits[creditId];
-        if (!solanaCollateral[creditId] && msg.value != 0) revert InvalidAuthority();
+        if (!solanaCollateral[creditId] && collateralSourceChainOf[creditId] != 1 && msg.value != 0) {
+            revert InvalidAuthority();
+        }
         if (!recoveryKeepers[msg.sender]) revert Unauthorized();
         if (
             !remoteCollateral[creditId]
@@ -2148,6 +2221,9 @@ contract TermbookCore is ITermbookCore {
         remoteSeizureDeadline[creditId] = deadline;
         c.revision = revision;
         if (solanaCollateral[creditId]) _publishSolanaAuthorization(actionHash);
+        else if (collateralSourceChainOf[creditId] == 1) {
+            _publishEthereumAuthorization(creditId, actionHash, RemoteAction.SEIZE);
+        }
         emit RemoteActionAuthorized(creditId, actionHash, RemoteAction.SEIZE);
     }
 
@@ -2310,13 +2386,14 @@ contract TermbookCore is ITermbookCore {
     }
 
     function authorizeSourceRecoveryReturn(bytes32 creditId, uint256 amount, uint256 deadline)
-        external nonReentrant returns (bytes32 actionHash)
+        external payable nonReentrant returns (bytes32 actionHash)
     {
         Credit storage c = _credits[creditId];
         address owner = collateralOwnerOf[creditId];
         if (msg.sender != c.borrower && msg.sender != owner) revert Unauthorized();
         if (
-            !remoteCollateral[creditId] || solanaCollateral[creditId] || !remoteSeizureConfirmed[creditId]
+            !remoteCollateral[creditId] || solanaCollateral[creditId]
+                || collateralSourceChainOf[creditId] != 1 || !remoteSeizureConfirmed[creditId]
                 || c.debt != 0
                 || pendingRemoteSeizure[creditId] != 0
                 || (c.facility != Types.Facility.RecoveryPending && c.facility != Types.Facility.Liquidated)
@@ -2325,7 +2402,10 @@ contract TermbookCore is ITermbookCore {
         ) revert BadState();
         uint256 nonce = ++remoteActionNonce[creditId];
         actionHash = sourceRecoveryReturnHash(creditId, amount, nonce, deadline);
+        sourceRecoveryReturnDeadlineOf[actionHash] = deadline;
+        sourceRecoveryReturnCreditOf[actionHash] = creditId;
         c.revision = RevisionLib.next(c.revision);
+        _publishEthereumAuthorization(creditId, actionHash, RemoteAction.RELEASE);
         emit SourceRecoveryReturnAuthorized(creditId, actionHash, owner, amount, nonce, deadline);
         emit RemoteActionAuthorized(creditId, actionHash, RemoteAction.RELEASE);
     }

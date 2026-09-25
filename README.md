@@ -140,10 +140,10 @@ connect their Solana wallet adapter; the borrower chooses that wallet in the
 modal.
 
 `scripts/deploy.sh` takes one stage and one RPC. `protocol`, `routing`,
-`ethereum-beacon-client`, `ethereum-verifier`, `native-collateral`,
+`ethereum-beacon-client`, `ethereum-verifier`, `ethereum-wormhole-verifier`, `native-collateral`,
 `collateral-health-reader`, and `app-health-reader` require
 Foundry 1.8 or newer, the Monad RPC, and `MONAD_CHAIN_ID`. The wrapper selects
-Monad execution. `source` requires the Ethereum mainnet RPC,
+Monad execution. `source` and `source-wormhole` require the Ethereum mainnet RPC,
 `SOURCE_CHAIN_ID=1`, and `MONAD_CHAIN_ID=143`. The Ethereum verifier stage
 also requires Monad mainnet. Every stage checks the connected chain before
 broadcasting.
@@ -156,12 +156,25 @@ Deploy `protocol` first with explicit `GOVERNANCE`, `GUARDIAN`,
 Run `routing` with that address as `MONAD_FACTORY_ADDRESS` and the protocol
 governance contract as `GOVERNANCE_ADDRESS`; governance then calls
 `InboxFactory.setRouteRegistry(routes)`. The routing stage deploys only the
-registry. On Ethereum, `source` deploys the Monad verifier, recovery vault, and
-controller; the controller creates its collateral vault. This stage requires a
-deployed Ethereum governance contract and checks the Monad Core, HouseVault,
-and inbox factory bindings at a Verified block using `MONAD_RPC_URL` and their
-reviewed deployment code hashes. That RPC must serve historical state. Bind
-`SourceRecoveryVault.setController(controller)` before the next stage. Deploy
+registry. For the Wormhole Ethereum route, deploy `source-wormhole` to create
+the Ethereum custody contracts, Monad VAA verifier, and Ethereum snapshot
+publisher. The source stage checks the Monad Core, HouseVault, and inbox factory
+bindings at a Verified block using `MONAD_RPC_URL` and their reviewed runtime
+code hashes; that RPC must serve historical state. Bind
+`SourceRecoveryVault.setController(controller)`, then deploy
+`ethereum-wormhole-verifier` on
+Monad with the finalized publisher, vault, and controller code hashes. Configure
+the Monad Wormhole Core in `TermbookCore.configureEthereumWormhole` and
+`InboxFactory.configureEthereumWormhole`, admit the Ethereum verifier, bind
+the market, and unpause the source controller. The publisher checks the vault's
+lock commitment or the controller's executed or expired action before
+publishing. The receiving verifier pins the emitter and message type. This
+route trusts Wormhole's Guardian quorum.
+
+The native consensus route uses `source` and `ethereum-verifier`. The `source`
+stage deploys the Monad verifier, recovery vault, and controller on Ethereum;
+the controller creates its collateral vault. Bind
+`SourceRecoveryVault.setController(controller)` after deployment. Deploy
 `ethereum-beacon-client` on Monad from an independently verified recent Fulu
 checkpoint with `ETHEREUM_CHECKPOINT_FILE` and a deployed
 `ETHEREUM_CHECKPOINT_GOVERNANCE` contract, then run `ethereum-verifier` with
@@ -203,7 +216,7 @@ USDC price, a recovery route, and the required governance configuration.
 | Asset | Lock location | Current implementation |
 | --- | --- | --- |
 | MON | Native MON enters `NativeCollateralVault` on Monad and is held as WMON. | Local custody, native return, WMON sale for USDC, and oracle-backed collateral-only health reader. Requires reviewed WMON and USDC deployments, feed, risk bands, exit verifier, and market admission. |
-| ETH | WETH stays in `CollateralVault` on Ethereum. | Lock custody, a Fulu Ethereum-to-Monad Beacon verifier, and a Monad BFT receipts client with proof-bound validator-set transitions are implemented. A live Monad consensus witness feed and end-to-end proof tests are required before accepting funds. |
+| ETH | WETH stays in `CollateralVault` on Ethereum. | The Wormhole route publishes Ethereum custody snapshots and Monad action authorizations as Guardian VAAs, with pinned emitters and payloads verified onchain. The native Beacon and Monad BFT verifier contracts remain available as a separate route. The Wormhole route still needs deployment and live lock, return, seizure, and recovery tests before accepting funds. |
 | SOL | Native SOL stays in a Solana program-derived account. | Monad publishes lock and action authorizations through Wormhole. The Solana program verifies posted VAAs and emits custody snapshots through the Wormhole shim; Monad verifies signed snapshot VAAs. The SDK connects a browser Solana wallet and posts VAAs; immutable program deployment and live recovery tests are still required. |
 
 For SOL, Monad Core binds the lock and publishes its Wormhole authorization
@@ -320,7 +333,18 @@ funding. Source refund attribution requires the risk signer
 to match the transfer with Aurora's operation; Aurora's origin transaction hashes
 alone do not prove which refund belongs to an operation.
 
-The Ethereum collateral proof worker needs `SOURCE_RPC_URL` with historical
+For the Wormhole Ethereum route, set `SOURCE_RPC_URL`, `WORMHOLE_SCAN_URL`,
+`SOURCE_WORMHOLE_PUBLISHER_KEY`, `MONAD_WORMHOLE_PUBLISHER_KEY`, `COLLATERAL_KEEPER_KEY`,
+`SOURCE_ACTION_KEEPER_KEY`, and `MONAD_CONFIRM_KEEPER_KEY`. The publisher key
+must be distinct from the source action and collateral keeper keys. The worker
+publishes lock, applied action, and expired unconsumed action snapshots on
+Ethereum and relays their VAAs to Monad. Monad authorizations and recovery
+operation registrations publish VAAs for the source controller and recovery
+vault. Those authorization and registration transactions must include the
+current Monad Wormhole Core `messageFee()`. `WORMHOLE_SCAN_URL` is the API origin, such as
+`https://api.wormholescan.io`; Wormhole Core verifies the VAA onchain.
+
+For the native route, the Ethereum collateral proof worker needs `SOURCE_RPC_URL` with historical
 `eth_getProof` support, `COLLATERAL_KEEPER_KEY`, and `ETHEREUM_BEACON_API_URL`.
 It reads the standard Beacon finality update for the current finalized execution
 block and checks the Beacon branches, canonical Ethereum block, storage proof,
@@ -333,7 +357,7 @@ seizure or return that was never executed, `POST /collateral/actions/cancel`
 prepares a cancellation using a finalized Ethereum storage proof from the
 current Beacon update. Applied actions are confirmed from the controller's
 permanent consumed flag, which is set atomically with the source vault transfer.
-Monad authorizations still require native consensus witnesses and a relay.
+On the native route, Monad authorizations require consensus witnesses and a relay.
 Monad receipt proof generation waits until the source block
 reaches Verified execution, three blocks after Finalized.
 
@@ -349,9 +373,9 @@ Governance must admit the corresponding pair and version in `RouteRegistry`, the
 set that registry on the House's `InboxFactory`. The factory address in the SDK
 and server must be the factory configured on the HouseVault.
 
-Ethereum remote collateral requires source and Monad consensus light clients
-that verify finalized contract events and lock state. SOL uses the Wormhole
-Guardian attestation path described above. After deploying the source
+Ethereum remote collateral can use the Wormhole Guardian route described above
+or the separate native consensus route. SOL uses Wormhole Guardian attestations.
+After deploying the source
 controller, `SOURCE_GOVERNANCE` must call
 `SourceRecoveryVault.setController(controller)` and then
 `RemoteCollateralController.setPaused(false)` before accepting locks. The

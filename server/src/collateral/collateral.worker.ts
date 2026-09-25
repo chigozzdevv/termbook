@@ -3,6 +3,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { termbookCoreAbi, verifierRegistryAbi } from "@termbook/bindings";
 import { drainQueue, registerHandler } from "../queue/queue.worker.js";
 import { fetchProof } from "../chain/source.client.js";
+import { ethereumWormholeMode, fetchEthereumSnapshot } from "../chain/ethereum-wormhole-snapshot.js";
 import { monadClient } from "../chain/monad.client.js";
 import { env } from "../config/env.js";
 import { logger } from "../logging/logger.js";
@@ -43,7 +44,8 @@ export function lockCommitment(input: LockContext): Hex {
 }
 
 function configured(): boolean {
-  return Boolean(env.sourceRpcUrl && env.sourceBeaconApiUrl && env.collateralKeeperKey);
+  return Boolean(env.sourceRpcUrl && env.collateralKeeperKey
+    && (env.sourceBeaconApiUrl || (env.wormholeScanUrl && env.sourceWormholePublisherKey)));
 }
 
 export async function handleCollateralJob(job: { kind: string; payload: Record<string, unknown> }): Promise<void> {
@@ -116,10 +118,14 @@ export async function handleCollateralJob(job: { kind: string; payload: Record<s
     sourceChain, returnRecipient: credit.returnRecipient, recoveryVault,
     monadChain: BigInt(env.monadChainId), core: env.core as Address,
   });
-  const proof = await fetchProof({
-    rpcUrl: env.sourceRpcUrl, lockId: lockId as Hex,
-    vault: credit.collateralVault, commitment, expectedCodeHash: sourceCodeHash,
-  });
+  const proof = (await ethereumWormholeMode(verifier))
+    ? await fetchEthereumSnapshot({
+      verifier, vault: credit.collateralVault, kind: 1, digest: commitment, lockId: lockId as Hex,
+    })
+    : await fetchProof({
+      rpcUrl: env.sourceRpcUrl, lockId: lockId as Hex,
+      vault: credit.collateralVault, commitment, expectedCodeHash: sourceCodeHash,
+    });
   await collateralRepo.setState(lockId, "proof_fetched", proof);
   const accepted = await chain.readContract({
     address: verifier, abi: ethereumVerifierAbi, functionName: "verifyLock",

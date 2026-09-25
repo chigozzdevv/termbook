@@ -26,7 +26,11 @@ interface IWormholeCore {
     function chainId() external view returns (uint16);
     function messageFee() external view returns (uint256);
     function publishMessage(uint32 nonce, bytes memory payload, uint8 consistencyLevel)
-        external payable returns (uint64);
+        external
+        payable
+        returns (uint64);
     function parseAndVerifyVM(bytes calldata encodedVM)
-        external view returns (VM memory vm, bool valid, string memory reason);
+        external
+        view
+        returns (VM memory vm, bool valid, string memory reason);
 }

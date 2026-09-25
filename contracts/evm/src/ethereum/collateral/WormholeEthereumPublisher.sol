@@ -1,0 +1,73 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import {CollateralVault} from "../../shared/collateral/CollateralVault.sol";
+import {RemoteCollateralController} from "./RemoteCollateralController.sol";
+import {IWormholeCore} from "../../shared/collateral/IWormholeCore.sol";
+import {WormholeTermbookMessages as Messages} from "../../shared/collateral/WormholeTermbookMessages.sol";
+
+contract WormholeEthereumPublisher {
+    CollateralVault public immutable vault;
+    RemoteCollateralController public immutable controller;
+    IWormholeCore public immutable wormhole;
+    bytes32 public immutable vaultCodeHash;
+    bytes32 public immutable controllerCodeHash;
+    bytes32 public immutable wormholeCodeHash;
+    mapping(bytes32 => bool) public published;
+    mapping(bytes32 => uint64) public sequenceOf;
+    mapping(bytes32 => uint256) public snapshotPublishedAt;
+
+    error Invalid();
+
+    constructor(address vault_, address controller_, address wormhole_) {
+        if (
+            block.chainid != 1 || vault_.code.length == 0 || controller_.code.length == 0 || wormhole_.code.length == 0
+                || IWormholeCore(wormhole_).chainId() != 2
+                || address(RemoteCollateralController(controller_).vault()) != vault_
+                || CollateralVault(vault_).core() != controller_
+        ) revert Invalid();
+        vault = CollateralVault(vault_);
+        controller = RemoteCollateralController(controller_);
+        wormhole = IWormholeCore(wormhole_);
+        vaultCodeHash = vault_.codehash;
+        controllerCodeHash = controller_.codehash;
+        wormholeCodeHash = wormhole_.codehash;
+    }
+
+    function publishLock(bytes32 lockId) external payable returns (uint64) {
+        if (lockId == bytes32(0)) revert Invalid();
+        bytes32 commitment = vault.lockCommitments(lockId);
+        if (commitment == bytes32(0) || !vault.lockExists(lockId)) revert Invalid();
+        return _publish(Messages.LOCK, commitment, 0);
+    }
+
+    function publishApplied(bytes32 actionHash) external payable returns (uint64) {
+        if (actionHash == bytes32(0) || !controller.consumed(actionHash)) revert Invalid();
+        return _publish(Messages.APPLIED, actionHash, 0);
+    }
+
+    function publishUnconsumed(bytes32 actionHash, uint256 deadline) external payable returns (uint64) {
+        if (actionHash == bytes32(0) || deadline == 0 || block.timestamp <= deadline || controller.consumed(actionHash))
+        revert Invalid();
+        return _publish(Messages.UNCONSUMED, actionHash, deadline);
+    }
+
+    function _publish(uint8 kind, bytes32 digest, uint256 deadline) private returns (uint64) {
+        bytes32 key = snapshotKey(kind, digest, deadline);
+        if (
+            (published[key] && block.timestamp < snapshotPublishedAt[key] + 1 hours)
+                || address(vault).codehash != vaultCodeHash || address(controller).codehash != controllerCodeHash
+                || address(wormhole).codehash != wormholeCodeHash || msg.value != wormhole.messageFee()
+        ) revert Invalid();
+        uint64 sequence =
+            wormhole.publishMessage{value: msg.value}(0, abi.encode(Messages.SNAPSHOT, kind, digest, deadline), 0);
+        published[key] = true;
+        sequenceOf[key] = sequence;
+        snapshotPublishedAt[key] = block.timestamp;
+        return sequence;
+    }
+
+    function snapshotKey(uint8 kind, bytes32 digest, uint256 deadline) public pure returns (bytes32) {
+        return keccak256(abi.encode(kind, digest, deadline));
+    }
+}

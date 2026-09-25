@@ -2,6 +2,7 @@ import { createPublicClient, encodeFunctionData, http, keccak256, parseAbi, type
 import { termbookCoreAbi, verifierRegistryAbi } from "@termbook/bindings";
 import { monadClient } from "../chain/monad.client.js";
 import { fetchConsumedActionProof, fetchUnconsumedActionProof } from "../chain/source.client.js";
+import { ethereumWormholeMode, fetchEthereumSnapshot } from "../chain/ethereum-wormhole-snapshot.js";
 import { appliedLogIndex } from "../chain/source-action-receipt.js";
 import { env } from "../config/env.js";
 import { queue } from "../queue/queue.client.js";
@@ -32,7 +33,7 @@ const zero = "0x0000000000000000000000000000000000000000";
 
 export const remoteActionService = {
   async schedule(input: Input, requester: Address) {
-    if (!env.sourceRpcUrl || !env.sourceBeaconApiUrl
+    if (!env.sourceRpcUrl || !(env.sourceBeaconApiUrl || (env.wormholeScanUrl && env.sourceWormholePublisherKey))
       || !env.sourceActionKeeperKey || !env.monadConfirmKeeperKey) {
       throw new Error("remote-action-worker-unavailable");
     }
@@ -57,7 +58,8 @@ export const remoteActionService = {
     return remoteActionRepo.listByCredit(creditId.toLowerCase());
   },
   async attachSourceTx(input: SourceTxInput, requester: Address) {
-    if (!env.sourceRpcUrl || !env.sourceBeaconApiUrl || !env.monadConfirmKeeperKey) {
+    if (!env.sourceRpcUrl || !(env.sourceBeaconApiUrl || (env.wormholeScanUrl && env.sourceWormholePublisherKey))
+      || !env.monadConfirmKeeperKey) {
       throw new Error("remote-action-worker-unavailable");
     }
     const saved = await remoteActionRepo.find(input.actionHash);
@@ -104,10 +106,14 @@ export const remoteActionService = {
     ]);
     if (vault.toLowerCase() !== action.sourceVault.toLowerCase() || controller === zero
       || BigInt(controllerCodeHash) === 0n) throw new Error("source-controller-mismatch");
-    const proof = await fetchConsumedActionProof({
-      rpcUrl: env.sourceRpcUrl, actionHash: input.actionHash as Hex,
-      controller, expectedCodeHash: controllerCodeHash,
-    });
+    const proof = (await ethereumWormholeMode(verifier))
+      ? await fetchEthereumSnapshot({
+        verifier, vault: action.sourceVault, controller, kind: 2, digest: input.actionHash as Hex,
+      })
+      : await fetchConsumedActionProof({
+        rpcUrl: env.sourceRpcUrl, actionHash: input.actionHash as Hex,
+        controller, expectedCodeHash: controllerCodeHash,
+      });
     const accepted = await chain.readContract({ address: verifier, abi: sourceVerifierAbi,
       functionName: "verifyAppliedAction",
       args: [proof.header, proof.proof, action.sourceVault, input.actionHash as Hex] });
@@ -128,7 +134,7 @@ export const remoteActionService = {
     return { actionHash: input.actionHash, sourceTxHash: input.sourceTxHash, state: "source_finalized" };
   },
   async prepareExpiredActionCancel(input: CancelInput, requester: Address) {
-    if (!env.sourceRpcUrl || !env.sourceBeaconApiUrl) {
+    if (!env.sourceRpcUrl || !(env.sourceBeaconApiUrl || (env.wormholeScanUrl && env.sourceWormholePublisherKey))) {
       throw new Error("source-proof-unavailable");
     }
     const kind = input.kind === "release" ? 0 : 1;
@@ -159,10 +165,15 @@ export const remoteActionService = {
     ]);
     if (vault.toLowerCase() !== action.sourceVault.toLowerCase() || controller === zero
       || BigInt(controllerCodeHash) === 0n) throw new Error("source-controller-mismatch");
-    const proof = await fetchUnconsumedActionProof({
-      rpcUrl: env.sourceRpcUrl, actionHash,
-      controller, expectedCodeHash: controllerCodeHash, deadline: action.deadline,
-    });
+    const proof = (await ethereumWormholeMode(verifier))
+      ? await fetchEthereumSnapshot({
+        verifier, vault: action.sourceVault, controller, kind: 3,
+        digest: actionHash, deadline: action.deadline,
+      })
+      : await fetchUnconsumedActionProof({
+        rpcUrl: env.sourceRpcUrl, actionHash,
+        controller, expectedCodeHash: controllerCodeHash, deadline: action.deadline,
+      });
     const accepted = await chain.readContract({
       address: verifier, abi: sourceVerifierAbi, functionName: "verifyUnconsumedAction",
       args: [proof.header, proof.proof, controller, actionHash, action.deadline],

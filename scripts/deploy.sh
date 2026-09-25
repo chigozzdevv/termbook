@@ -2,7 +2,7 @@
 set -eu
 
 usage() {
-  echo "usage: scripts/deploy.sh {protocol|routing|source|ethereum-beacon-client|ethereum-verifier|native-collateral|collateral-health-reader|app-health-reader}" >&2
+  echo "usage: scripts/deploy.sh {protocol|routing|source|source-wormhole|ethereum-beacon-client|ethereum-verifier|ethereum-wormhole-verifier|native-collateral|collateral-health-reader|app-health-reader}" >&2
   exit 2
 }
 
@@ -48,21 +48,21 @@ case "$MONAD_CHAIN_ID" in
 esac
 
 case "$1" in
-  protocol|routing|ethereum-beacon-client|ethereum-verifier|native-collateral|collateral-health-reader|app-health-reader)
+  protocol|routing|ethereum-beacon-client|ethereum-verifier|ethereum-wormhole-verifier|native-collateral|collateral-health-reader|app-health-reader)
     foundry_version=$(forge --version)
     if ! printf '%s\n' "$foundry_version" | awk -F '[ .-]' 'NR == 1 { exit !($3 > 1 || ($3 == 1 && $4 >= 8)) }'; then
       echo "Foundry 1.8 or newer is required for Monad deployment" >&2
       exit 1
     fi
     ;;
-  source)
+  source|source-wormhole)
     : "${SOURCE_CHAIN_ID:?SOURCE_CHAIN_ID is required}"
     [ "$SOURCE_CHAIN_ID" = 1 ] || { echo "Ethereum mainnet source required" >&2; exit 1; }
     ;;
   *) usage ;;
 esac
 
-if [ "$1" = source ] || [ "$1" = ethereum-beacon-client ] || [ "$1" = ethereum-verifier ]; then
+if [ "$1" = source ] || [ "$1" = source-wormhole ] || [ "$1" = ethereum-beacon-client ] || [ "$1" = ethereum-verifier ] || [ "$1" = ethereum-wormhole-verifier ]; then
   [ "$MONAD_CHAIN_ID" = 143 ] || { echo "Monad mainnet is required for Ethereum mainnet collateral" >&2; exit 1; }
 fi
 
@@ -72,14 +72,14 @@ if [ "$1" = ethereum-beacon-client ]; then
   [ -f "$ETHEREUM_CHECKPOINT_FILE" ] || fail "Ethereum checkpoint file missing"
 fi
 
-if [ "$1" = source ]; then
+if [ "$1" = source ] || [ "$1" = source-wormhole ]; then
   : "${MONAD_RPC_URL:?MONAD_RPC_URL is required}"
   : "${SOURCE_GOVERNANCE:?SOURCE_GOVERNANCE is required}"
   check_monad_deployment "$MONAD_RPC_URL"
   [ "$(cast code "$SOURCE_GOVERNANCE" --block finalized --rpc-url "$RPC_URL")" != 0x ] || fail "Ethereum governance contract missing"
 fi
 
-if [ "$1" = ethereum-verifier ]; then
+if [ "$1" = ethereum-verifier ] || [ "$1" = ethereum-wormhole-verifier ]; then
   check_monad_deployment "$RPC_URL"
   : "${SOURCE_RPC_URL:?SOURCE_RPC_URL is required}"
   : "${SOURCE_VAULT_ADDRESS:?SOURCE_VAULT_ADDRESS is required}"
@@ -103,18 +103,38 @@ if [ "$1" = ethereum-verifier ]; then
   same "$(cast call "$SOURCE_RECOVERY_VAULT_ADDRESS" 'monadFactory()(address)' --block finalized --rpc-url "$SOURCE_RPC_URL")" "$MONAD_FACTORY_ADDRESS" || fail "source recovery factory mismatch"
 fi
 
+if [ "$1" = source-wormhole ]; then
+  : "${ETHEREUM_WORMHOLE_CORE:?ETHEREUM_WORMHOLE_CORE is required}"
+  same "$ETHEREUM_WORMHOLE_CORE" 0x98f3c9e6E3fAce36bAAd05FE09d375Ef1464288B || fail "canonical Ethereum Wormhole Core required"
+  [ "$(cast to-dec "$(cast call "$ETHEREUM_WORMHOLE_CORE" 'chainId()(uint16)' --rpc-url "$RPC_URL")")" = 2 ] || fail "Ethereum Wormhole Core mismatch"
+fi
+
+if [ "$1" = ethereum-wormhole-verifier ]; then
+  : "${MONAD_WORMHOLE_CORE:?MONAD_WORMHOLE_CORE is required}"
+  : "${SOURCE_PUBLISHER_ADDRESS:?SOURCE_PUBLISHER_ADDRESS is required}"
+  : "${SOURCE_PUBLISHER_CODE_HASH:?SOURCE_PUBLISHER_CODE_HASH is required}"
+  same "$MONAD_WORMHOLE_CORE" 0x194B123c5E96B9b2E49763619985790Dc241CAC0 || fail "canonical Monad Wormhole Core required"
+  [ "$(cast to-dec "$(cast call "$MONAD_WORMHOLE_CORE" 'chainId()(uint16)' --rpc-url "$RPC_URL")")" = 48 ] || fail "Monad Wormhole Core mismatch"
+  same "$(cast codehash "$SOURCE_PUBLISHER_ADDRESS" --block finalized --rpc-url "$SOURCE_RPC_URL")" "$SOURCE_PUBLISHER_CODE_HASH" || fail "source publisher code hash mismatch"
+  same "$(cast call "$SOURCE_PUBLISHER_ADDRESS" 'vault()(address)' --block finalized --rpc-url "$SOURCE_RPC_URL")" "$SOURCE_VAULT_ADDRESS" || fail "source publisher vault mismatch"
+  same "$(cast call "$SOURCE_PUBLISHER_ADDRESS" 'controller()(address)' --block finalized --rpc-url "$SOURCE_RPC_URL")" "$SOURCE_CONTROLLER_ADDRESS" || fail "source publisher controller mismatch"
+  same "$(cast call "$SOURCE_PUBLISHER_ADDRESS" 'wormhole()(address)' --block finalized --rpc-url "$SOURCE_RPC_URL")" 0x98f3c9e6E3fAce36bAAd05FE09d375Ef1464288B || fail "source publisher Wormhole mismatch"
+fi
+
 case "$1" in
   protocol) script=deploy-protocol.s.sol ;;
   routing) script=deploy-routing.s.sol ;;
   source) script=deploy-source.s.sol ;;
+  source-wormhole) script=deploy-source-wormhole.s.sol ;;
   ethereum-beacon-client) script=deploy-ethereum-beacon-client.s.sol ;;
   ethereum-verifier) script=deploy-ethereum-verifier.s.sol ;;
+  ethereum-wormhole-verifier) script=deploy-ethereum-wormhole-verifier.s.sol ;;
   native-collateral) script=deploy-native-collateral.s.sol ;;
   collateral-health-reader) script=deploy-collateral-health-reader.s.sol ;;
   app-health-reader) script=deploy-app-health-reader.s.sol ;;
 esac
 
-if [ "$1" = source ]; then
+if [ "$1" = source ] || [ "$1" = source-wormhole ]; then
   forge script "script/$script" --root contracts/evm --rpc-url "$RPC_URL" --broadcast
 else
   forge script "script/$script" --root contracts/evm --rpc-url "$RPC_URL" --network monad --broadcast

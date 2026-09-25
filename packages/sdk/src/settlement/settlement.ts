@@ -277,7 +277,10 @@ export class Settlement {
         ] },
         message: operation,
       });
-      const tx = await this.client.rpc.write(factory, inboxFactoryAbi, "createAuthorized", [operation, signature]);
+      const wormholeFee = input.kind === "recovery" && operation.sourceChain === 1n
+        ? await this.client.rpc.ethereumFactoryWormholeFee(factory) : undefined;
+      const tx = await this.client.rpc.write(factory, inboxFactoryAbi, "createAuthorized",
+        [operation, signature], wormholeFee);
       await this.client.rpc.wait(tx);
       registrationTxHash = tx;
     }

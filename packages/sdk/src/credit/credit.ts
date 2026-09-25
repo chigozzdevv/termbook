@@ -194,7 +194,8 @@ export class Credit {
         [{ type: "function", name: "solanaCollateral", stateMutability: "view", inputs: [{ type: "bytes32" }], outputs: [{ type: "bool" }] }],
         "solanaCollateral", [this.id]);
       const returnTx = await this.client.rpc.coreWrite("authorizeReturn", [this.id, lock, collateralAmount],
-        solana ? await this.client.rpc.solanaWormholeFee() : undefined);
+        solana ? await this.client.rpc.solanaWormholeFee()
+          : remote ? await this.client.rpc.ethereumWormholeFee() : undefined);
       await this.client.rpc.wait(returnTx);
       if (remote) return { closed: false, tx: returnTx };
     } else if (!collateralReturned && typeof lock === "string" && /^0x[a-fA-F0-9]{64}$/.test(lock)) {

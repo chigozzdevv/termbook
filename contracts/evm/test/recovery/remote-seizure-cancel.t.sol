@@ -11,6 +11,25 @@ import {HouseVault} from "../../src/monad/house/HouseVault.sol";
 import {RiskEngine} from "../../src/monad/risk/RiskEngine.sol";
 import {VerifierRegistry} from "../../src/monad/collateral/VerifierRegistry.sol";
 import {Types} from "../../src/shared/Types.sol";
+import {WormholeTermbookMessages as WormholeMessages} from "../../src/shared/collateral/WormholeTermbookMessages.sol";
+
+contract MockEthereumAuthorizationWormhole {
+    bytes public lastPayload;
+
+    function chainId() external pure returns (uint16) {
+        return 48;
+    }
+
+    function messageFee() external pure returns (uint256) {
+        return 1 wei;
+    }
+
+    function publishMessage(uint32, bytes memory payload, uint8 consistency) external payable returns (uint64) {
+        require(msg.value == 1 wei && consistency == 0, "invalid-publish");
+        lastPayload = payload;
+        return 7;
+    }
+}
 
 contract MockUnconsumedVerifier {
     address public immutable sourceVault;
@@ -182,5 +201,24 @@ contract RemoteSeizureCancelTest is Test {
         core.cancelExpiredRemoteSeizure(creditId, hex"01", hex"02");
         core.authorizeRemoteSeizure(creditId, 10e18, block.timestamp + 1 hours);
         assertTrue(core.remoteSeizureActionHash(creditId) != actionHash);
+    }
+
+    function testEthereumSeizurePublishesAndRepublishesExactAuthorization() public {
+        bytes32 creditId = _credit();
+        MockEthereumAuthorizationWormhole wormhole = new MockEthereumAuthorizationWormhole();
+        core.configureEthereumWormhole(address(wormhole));
+        vm.deal(address(this), 2 wei);
+        uint256 deadline = block.timestamp + 1 hours;
+        core.authorizeRemoteSeizure{value: 1 wei}(creditId, 10e18, deadline);
+        bytes32 actionHash = core.remoteSeizureActionHash(creditId);
+        bytes32 eventDigest = keccak256(abi.encode(creditId, actionHash, uint8(1)));
+        assertEq(wormhole.lastPayload(), abi.encode(WormholeMessages.AUTH, eventDigest));
+        assertTrue(core.ethereumAuthorizationPublished(actionHash));
+        assertEq(core.ethereumAuthorizationSequenceOf(actionHash), 7);
+        core.republishEthereumAuthorization{value: 1 wei}(creditId, 1);
+        assertEq(wormhole.lastPayload(), abi.encode(WormholeMessages.AUTH, eventDigest));
+        vm.warp(deadline + 1);
+        vm.expectRevert(TermbookCore.InvalidAuthority.selector);
+        core.republishEthereumAuthorization(creditId, 1);
     }
 }

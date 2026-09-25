@@ -8,6 +8,25 @@ import {HouseVault} from "../../src/monad/house/HouseVault.sol";
 import {SettlementInbox} from "../../src/monad/routing/SettlementInbox.sol";
 import {MockERC20} from "../MockERC20.sol";
 import {MockSettlementReceiver} from "../MockSettlementReceiver.sol";
+import {WormholeTermbookMessages as WormholeMessages} from "../../src/shared/collateral/WormholeTermbookMessages.sol";
+
+contract MockRecoveryWormhole {
+    bytes public lastPayload;
+
+    function chainId() external pure returns (uint16) {
+        return 48;
+    }
+
+    function messageFee() external pure returns (uint256) {
+        return 1 wei;
+    }
+
+    function publishMessage(uint32, bytes memory payload, uint8 consistency) external payable returns (uint64) {
+        require(msg.value == 1 wei && consistency == 0, "invalid-publish");
+        lastPayload = payload;
+        return 9;
+    }
+}
 
 contract MockRouteCore {
     address public vault;
@@ -20,13 +39,34 @@ contract MockRouteCore {
         sourceAsset = sourceAsset_;
     }
 
-    function creditVault(bytes32) external view returns (address) { return vault; }
-    function creditDebt(bytes32) external pure returns (uint256) { return 500; }
-    function creditFacility(bytes32) external pure returns (uint8) { return 8; }
-    function remoteCollateral(bytes32) external pure returns (bool) { return true; }
-    function recoveryKeepers(address candidate) external view returns (bool) { return candidate == keeper; }
-    function recoveryRefundRecipientOf(bytes32) external view returns (address) { return keeper; }
-    function minimumRemoteRecoveryProceeds(bytes32, uint256) external pure returns (uint256) { return 350; }
+    function creditVault(bytes32) external view returns (address) {
+        return vault;
+    }
+
+    function creditDebt(bytes32) external pure returns (uint256) {
+        return 500;
+    }
+
+    function creditFacility(bytes32) external pure returns (uint8) {
+        return 8;
+    }
+
+    function remoteCollateral(bytes32) external pure returns (bool) {
+        return true;
+    }
+
+    function recoveryKeepers(address candidate) external view returns (bool) {
+        return candidate == keeper;
+    }
+
+    function recoveryRefundRecipientOf(bytes32) external view returns (address) {
+        return keeper;
+    }
+
+    function minimumRemoteRecoveryProceeds(bytes32, uint256) external pure returns (uint256) {
+        return 350;
+    }
+
     function remoteRecoveryContext(bytes32) external view returns (uint256, address, address) {
         return (1, sourceAsset, keeper);
     }
@@ -52,7 +92,12 @@ contract AuthorizedInboxTest is Test {
         house = new HouseVault(address(token), address(core), address(this), address(factory), address(0));
         payer = vm.addr(payerKey);
         core.set(address(house), payer, address(token));
-        registry.setRoute(routeId, address(adapter), keccak256(abi.encode(uint256(1), address(token), block.chainid, address(token))), 1_000);
+        registry.setRoute(
+            routeId,
+            address(adapter),
+            keccak256(abi.encode(uint256(1), address(token), block.chainid, address(token))),
+            1_000
+        );
         factory.setRouteRegistry(address(registry));
     }
 
@@ -91,6 +136,25 @@ contract AuthorizedInboxTest is Test {
             assertTrue(house.settlementInboxes(inbox));
             assertEq(SettlementInbox(inbox).creditId(), op.creditId);
         }
+    }
+
+    function testEthereumRecoveryRegistrationPublishesAndRepublishesOperation() public {
+        MockRecoveryWormhole wormhole = new MockRecoveryWormhole();
+        factory.configureEthereumWormhole(address(wormhole));
+        InboxFactory.Operation memory op = _operation(1);
+        vm.deal(address(this), 2 wei);
+        address inbox = factory.createAuthorized{value: 1 wei}(op, _signature(op));
+        bytes32 digest = factory.operationDigest(op);
+        assertEq(
+            wormhole.lastPayload(),
+            abi.encode(WormholeMessages.RECOVERY, keccak256(abi.encode(op.operationId, digest, inbox)))
+        );
+        assertTrue(factory.recoveryVaaPublished(op.operationId));
+        assertEq(factory.recoveryVaaSequenceOf(op.operationId), 9);
+        factory.republishEthereumRecoveryOperation{value: 1 wei}(op.operationId);
+        assertEq(factory.recoveryVaaSequenceOf(op.operationId), 9);
+        vm.expectRevert(InboxFactory.Invalid.selector);
+        factory.republishEthereumRecoveryOperation(bytes32(uint256(1)));
     }
 
     function testLpRegistrationBindsShareRecipientAndMinimum() public {
@@ -190,7 +254,12 @@ contract AuthorizedInboxTest is Test {
         registry.disable(routeId);
         vm.expectRevert(InboxFactory.Invalid.selector);
         factory.createAuthorized(op, signature);
-        registry.setRoute(routeId, address(adapter), keccak256(abi.encode(uint256(1), address(token), block.chainid, address(token))), 1_000);
+        registry.setRoute(
+            routeId,
+            address(adapter),
+            keccak256(abi.encode(uint256(1), address(token), block.chainid, address(token))),
+            1_000
+        );
         op.routeVersion = bytes32(uint256(2));
         signature = _signature(op);
         factory.createAuthorized(op, signature);

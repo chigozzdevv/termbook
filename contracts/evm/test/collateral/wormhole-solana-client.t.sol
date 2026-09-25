@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
-import {IWormholeCore} from "../../src/monad/collateral/IWormholeCore.sol";
+import {IWormholeCore} from "../../src/shared/collateral/IWormholeCore.sol";
 import {WormholeSolanaAccountClient} from "../../src/monad/collateral/WormholeSolanaAccountClient.sol";
 
 contract MockWormholeCore is IWormholeCore {

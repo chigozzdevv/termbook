@@ -37,7 +37,7 @@ const authorizationTopic = keccak256(stringToHex("RemoteActionAuthorized(bytes32
 
 function receipt(): TransactionReceipt {
   return {
-    status: "success", blockHash,
+    status: "success", blockHash, blockNumber: 50n,
     logs: [
       {
         address: core, topics: [returnTopic, creditId, actionHash, padHex(owner, { size: 32 })],
@@ -54,7 +54,7 @@ function receipt(): TransactionReceipt {
 function setup() {
   mocks.monad.getChainId.mockResolvedValue(101);
   mocks.monad.getTransactionReceipt.mockResolvedValue(receipt());
-  mocks.monad.getBlock.mockResolvedValue({ number: 100n });
+  mocks.monad.getBlock.mockResolvedValue({ number: 100n, hash: blockHash });
   mocks.monad.readContract.mockImplementation(async ({ functionName }: { functionName: string }) => {
     const values: Record<string, unknown> = {
       creditDetails: { borrower, debt: 0n, collateralAsset: asset }, collateralSourceChainOf: 1n,
@@ -67,7 +67,7 @@ function setup() {
   mocks.source.getBlock.mockResolvedValue({ number: 12n });
   mocks.source.readContract.mockImplementation(async ({ functionName }: { functionName: string }) => {
     const values: Record<string, unknown> = {
-      asset, controller, monadChain: 101n, held: 40n, returnHeldHash: actionHash,
+      asset, controller, verifier: address("d"), monadChain: 101n, held: 40n, returnHeldHash: actionHash,
       monadCore: core, recoveryVault: vault,
     };
     return values[functionName];
@@ -108,7 +108,7 @@ describe("held collateral return preparation", () => {
     setup();
     mocks.source.readContract.mockImplementation(async ({ functionName }: { functionName: string }) => {
       const values: Record<string, unknown> = {
-        asset, controller, monadChain: 101n, held: 40n, returnHeldHash: word("c"),
+        asset, controller, verifier: address("d"), monadChain: 101n, held: 40n, returnHeldHash: word("c"),
         monadCore: core, recoveryVault: vault,
       };
       return values[functionName];

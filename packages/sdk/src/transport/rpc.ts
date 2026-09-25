@@ -21,6 +21,8 @@ const previewAbi = parseAbi([
 ]);
 const wormholeAbi = parseAbi(["function messageFee() view returns (uint256)"]);
 const solanaCoreAbi = parseAbi(["function solanaWormholeCore() view returns (address)"]);
+const ethereumCoreAbi = parseAbi(["function ethereumWormholeCore() view returns (address)"]);
+const ethereumFactoryAbi = parseAbi(["function ethereumWormholeCore() view returns (address)"]);
 
 export type ActionPreview = { healthBps: bigint; initialBps: bigint; debt: bigint; recoveryValue: bigint };
 
@@ -88,6 +90,18 @@ export class RpcClient {
   async solanaWormholeFee(): Promise<bigint> {
     const wormhole = await this.read<`0x${string}`>(this.config.core, solanaCoreAbi, "solanaWormholeCore");
     if (/^0x0{40}$/i.test(wormhole)) throw new Error("solana-wormhole-unavailable");
+    return this.read<bigint>(wormhole, wormholeAbi, "messageFee");
+  }
+
+  async ethereumWormholeFee(): Promise<bigint> {
+    const wormhole = await this.read<`0x${string}`>(this.config.core, ethereumCoreAbi, "ethereumWormholeCore");
+    if (/^0x0{40}$/i.test(wormhole)) return 0n;
+    return this.read<bigint>(wormhole, wormholeAbi, "messageFee");
+  }
+
+  async ethereumFactoryWormholeFee(factory: `0x${string}`): Promise<bigint> {
+    const wormhole = await this.read<`0x${string}`>(factory, ethereumFactoryAbi, "ethereumWormholeCore");
+    if (/^0x0{40}$/i.test(wormhole)) return 0n;
     return this.read<bigint>(wormhole, wormholeAbi, "messageFee");
   }
 

@@ -5,6 +5,9 @@ export const env = {
   rpcUrl: process.env["RPC_URL"] ?? "http://127.0.0.1:8545",
   sourceRpcUrl: process.env["SOURCE_RPC_URL"] ?? "",
   sourceBeaconApiUrl: process.env["ETHEREUM_BEACON_API_URL"] ?? "",
+  wormholeScanUrl: process.env["WORMHOLE_SCAN_URL"] ?? "",
+  sourceWormholePublisherKey: process.env["SOURCE_WORMHOLE_PUBLISHER_KEY"] ?? "",
+  monadWormholePublisherKey: process.env["MONAD_WORMHOLE_PUBLISHER_KEY"] ?? "",
   collateralKeeperKey: process.env["COLLATERAL_KEEPER_KEY"] ?? "",
   sourceActionKeeperKey: process.env["SOURCE_ACTION_KEEPER_KEY"] ?? "",
   monadConfirmKeeperKey: process.env["MONAD_CONFIRM_KEEPER_KEY"] ?? "",
@@ -33,6 +36,7 @@ export function assertRuntimeConfig(): void {
   for (const [name, value] of [
     ["SOURCE_RPC_URL", env.sourceRpcUrl],
     ["ETHEREUM_BEACON_API_URL", env.sourceBeaconApiUrl],
+    ["WORMHOLE_SCAN_URL", env.wormholeScanUrl],
   ] as const) {
     if (!value) continue;
     let endpoint: URL;
@@ -46,17 +50,26 @@ export function assertRuntimeConfig(): void {
   if (env.collateralKeeperKey && !/^0x[a-fA-F0-9]{64}$/.test(env.collateralKeeperKey)) {
     throw new Error("COLLATERAL_KEEPER_KEY is invalid");
   }
+  if (env.sourceWormholePublisherKey && !/^0x[a-fA-F0-9]{64}$/.test(env.sourceWormholePublisherKey)) {
+    throw new Error("SOURCE_WORMHOLE_PUBLISHER_KEY is invalid");
+  }
+  if (env.monadWormholePublisherKey && !/^0x[a-fA-F0-9]{64}$/.test(env.monadWormholePublisherKey)) {
+    throw new Error("MONAD_WORMHOLE_PUBLISHER_KEY is invalid");
+  }
   if (env.sourceActionKeeperKey && !/^0x[a-fA-F0-9]{64}$/.test(env.sourceActionKeeperKey)) {
     throw new Error("SOURCE_ACTION_KEEPER_KEY is invalid");
   }
   if (env.monadConfirmKeeperKey && !/^0x[a-fA-F0-9]{64}$/.test(env.monadConfirmKeeperKey)) {
     throw new Error("MONAD_CONFIRM_KEEPER_KEY is invalid");
   }
-  if (env.collateralKeeperKey && (!env.sourceRpcUrl || !env.sourceBeaconApiUrl)) {
+  const ethereumProofConfigured = Boolean(env.sourceBeaconApiUrl
+    || (env.wormholeScanUrl && env.sourceWormholePublisherKey));
+  if (env.collateralKeeperKey && (!env.sourceRpcUrl || !ethereumProofConfigured)) {
     throw new Error("collateral-worker-config-incomplete");
   }
   if ([env.sourceActionKeeperKey, env.monadConfirmKeeperKey].some(Boolean)
-    && ![env.sourceRpcUrl, env.sourceBeaconApiUrl, env.sourceActionKeeperKey, env.monadConfirmKeeperKey].every(Boolean)) {
+    && (!env.sourceRpcUrl || !ethereumProofConfigured
+      || !env.sourceActionKeeperKey || !env.monadConfirmKeeperKey)) {
     throw new Error("remote-action-worker-config-incomplete");
   }
   if (env.monadConfirmKeeperKey && [env.collateralKeeperKey, env.settlementKeeperKey]
@@ -66,6 +79,16 @@ export function assertRuntimeConfig(): void {
   if (env.sourceActionKeeperKey && process.env["RECOVERY_FUNDING_KEY"]
     && env.sourceActionKeeperKey.toLowerCase() === process.env["RECOVERY_FUNDING_KEY"]!.toLowerCase()) {
     throw new Error("source-action-keeper-key-conflict");
+  }
+  if (env.sourceWormholePublisherKey && [env.collateralKeeperKey, env.sourceActionKeeperKey,
+    process.env["RECOVERY_FUNDING_KEY"] ?? ""].some((key) => key
+      && key.toLowerCase() === env.sourceWormholePublisherKey.toLowerCase())) {
+    throw new Error("source-wormhole-publisher-key-conflict");
+  }
+  if (env.monadWormholePublisherKey && [env.collateralKeeperKey, env.monadConfirmKeeperKey,
+    env.settlementKeeperKey].some((key) => key
+      && key.toLowerCase() === env.monadWormholePublisherKey.toLowerCase())) {
+    throw new Error("monad-wormhole-publisher-key-conflict");
   }
   if (env.auroraRoutes && (!/^0x[a-fA-F0-9]{40}$/.test(env.settlementFactory) || !env.auroraApiKey)) {
     throw new Error("aurora-config-invalid");

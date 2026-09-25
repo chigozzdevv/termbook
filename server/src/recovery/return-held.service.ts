@@ -1,10 +1,11 @@
 import {
-  createPublicClient, decodeAbiParameters, encodeFunctionData, http, keccak256, padHex, parseAbi,
+  createPublicClient, decodeAbiParameters, encodeAbiParameters, encodeFunctionData, http, keccak256, padHex, parseAbi,
   stringToHex, type Address, type Hex, type TransactionReceipt,
 } from "viem";
 import { termbookCoreAbi } from "@termbook/bindings";
 import { authorizationLogIndex, fetchMonadReceiptProof } from "../chain/monad-receipt-proof.js";
 import { monadClient } from "../chain/monad.client.js";
+import { currentEthereumAuthorization } from "../chain/monad-wormhole.js";
 import { env } from "../config/env.js";
 import { HttpError } from "../http/http.errors.js";
 
@@ -18,6 +19,7 @@ const coreAbi = parseAbi([
 const sourceAbi = parseAbi([
   "function asset() view returns (address)",
   "function controller() view returns (address)",
+  "function verifier() view returns (address)",
   "function monadChain() view returns (uint256)",
   "function held(bytes32) view returns (uint256)",
   "function returnHeldHash(bytes32,address,uint256,uint256,uint256) view returns (bytes32)",
@@ -26,6 +28,10 @@ const sourceAbi = parseAbi([
 const controllerAbi = parseAbi([
   "function monadCore() view returns (address)",
   "function recoveryVault() view returns (address)",
+]);
+const wormholeVerifierAbi = parseAbi([
+  "function wormholeMode() pure returns (bool)",
+  "function verifyEvent(bytes,bytes,address,bytes32) view returns (bool)",
 ]);
 const returnTopic = keccak256(stringToHex(
   "SourceRecoveryReturnAuthorized(bytes32,bytes32,address,uint256,uint256,uint256)",
@@ -63,18 +69,10 @@ export async function prepareHeldReturn(input: { creditId: Hex; authorizationTxH
   const core = env.core as Address;
   const receipt = await monad.getTransactionReceipt({ hash: input.authorizationTxHash });
   const authorized = sourceRecoveryReturnEvent(receipt, core, input.creditId);
-  const proof = await fetchMonadReceiptProof({
-    txHash: input.authorizationTxHash,
-    selectLog: (provedReceipt) => {
-      const proved = sourceRecoveryReturnEvent(provedReceipt, core, input.creditId);
-      if (proved.actionHash !== authorized.actionHash || !equal(proved.owner, authorized.owner)
-        || proved.amount !== authorized.amount || proved.nonce !== authorized.nonce
-        || proved.deadline !== authorized.deadline) throw new Error("return-held-authorization-changed");
-      return authorizationLogIndex(provedReceipt, core, input.creditId, authorized.actionHash, 0);
-    },
-  });
-  if (!equal(proof.blockHash, receipt.blockHash)) throw new Error("return-held-authorization-changed");
   const finalized = await monad.getBlock({ blockTag: "finalized" });
+  if (receipt.blockNumber > finalized.number) throw new Error("return-held-authorization-not-finalized");
+  const canonical = await monad.getBlock({ blockNumber: receipt.blockNumber });
+  if (!equal(canonical.hash, receipt.blockHash)) throw new Error("return-held-authorization-changed");
   const at = finalized.number;
   const [credit, sourceChain, owner, vault, confirmed, actionHash] = await Promise.all([
     monad.readContract({ address: core, abi: termbookCoreAbi, functionName: "creditDetails", args: [input.creditId], blockNumber: at }),
@@ -110,6 +108,44 @@ export async function prepareHeldReturn(input: { creditId: Hex; authorizationTxH
   ]);
   if (!equal(controllerCore, core) || !equal(controllerVault, vault)) {
     throw new HttpError(409, "return-held-controller-binding-mismatch");
+  }
+  const verifier = await source.readContract({
+    address: vault, abi: sourceAbi, functionName: "verifier", blockNumber: sourceFinalized.number,
+  });
+  const wormhole = await source.readContract({
+    address: verifier, abi: wormholeVerifierAbi, functionName: "wormholeMode",
+    blockNumber: sourceFinalized.number,
+  }).catch(() => false);
+  let proof = wormhole
+    ? await currentEthereumAuthorization({
+      core, creditId: input.creditId, actionHash: authorized.actionHash,
+      kind: 0, recoveryReturn: true,
+    })
+    : await fetchMonadReceiptProof({
+      txHash: input.authorizationTxHash,
+      selectLog: (provedReceipt) => {
+        const proved = sourceRecoveryReturnEvent(provedReceipt, core, input.creditId);
+        if (proved.actionHash !== authorized.actionHash || !equal(proved.owner, authorized.owner)
+          || proved.amount !== authorized.amount || proved.nonce !== authorized.nonce
+          || proved.deadline !== authorized.deadline) throw new Error("return-held-authorization-changed");
+        return authorizationLogIndex(provedReceipt, core, input.creditId, authorized.actionHash, 0);
+      },
+    });
+  if (wormhole) {
+    const digest = keccak256(encodeAbiParameters(
+      [{ type: "bytes32" }, { type: "bytes32" }, { type: "uint8" }],
+      [input.creditId, authorized.actionHash, 0],
+    ));
+    const valid = await source.readContract({
+      address: verifier, abi: wormholeVerifierAbi, functionName: "verifyEvent",
+      args: [proof.header, proof.proof, core, digest],
+    });
+    if (!valid) {
+      proof = await currentEthereumAuthorization({
+        core, creditId: input.creditId, actionHash: authorized.actionHash,
+        kind: 0, recoveryReturn: true, refresh: true,
+      });
+    }
   }
   const args = [input.creditId, owner, authorized.amount, authorized.nonce, authorized.deadline,
     proof.header, proof.proof] as const;

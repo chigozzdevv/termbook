@@ -4,7 +4,8 @@ import { env } from "../config/env.js";
 
 export const collateralService = {
   async track(input: Record<string, unknown>) {
-    if (!env.sourceRpcUrl || !env.sourceBeaconApiUrl || !env.collateralKeeperKey) {
+    if (!env.sourceRpcUrl || !env.collateralKeeperKey
+      || !(env.sourceBeaconApiUrl || (env.wormholeScanUrl && env.sourceWormholePublisherKey))) {
       throw new Error("collateral-worker-unavailable");
     }
     const saved = await collateralRepo.save(input);

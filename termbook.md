@@ -590,20 +590,23 @@ stay recorded.
 
 ## Cross-chain collateral
 
-Each source chain has a CollateralVault and versioned onchain light-client
-verification in both directions. Each verifier validates the other chain's
-consensus finality and state inclusion under its registered consensus rules:
+Each source chain has a collateral vault or custody program and versioned
+onchain verification in both directions. A market can use native consensus and
+state proofs or a Wormhole VAA from a pinned Termbook emitter. The VAA route
+verifies Guardian quorum signatures and the emitter's exact message on the
+receiving chain. Guardians observe source finality before signing. This route
+relies on the Guardian quorum rather than verifying source consensus onchain:
 
 ```text
 Source lock -> source finality -> proof on Monad -> collateral binding
 Monad release or recovery -> Monad finality -> proof on source -> vault release
 ```
 
-Configuration fixes verifier code, consensus rules, bootstrap checkpoints and
-their trust assumptions, validator-set updates, proof format and age, reorg
-handling, and keeper fees. Keepers transport proofs; keeper or application
-signatures do not establish finality. A source chain is eligible only after both
-verification directions and their failure paths have been validated.
+Configuration fixes verifier code, the native consensus rules or Guardian set,
+trusted emitters, bootstrap data, proof format and age, reorg handling, and
+keeper fees. Keepers transport proofs; keeper or application signatures do not
+establish finality. A source chain is eligible only after both verification
+directions and their failure paths have been validated.
 
 Each collateral market publishes an admission manifest identifying the concrete
 verifier implementations, reproducible source and code hashes on both chains,

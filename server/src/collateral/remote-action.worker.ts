@@ -5,6 +5,8 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 import { termbookCoreAbi, verifierRegistryAbi } from "@termbook/bindings";
 import { fetchMonadAuthorizationProof } from "../chain/monad-receipt-proof.js";
+import { ethereumWormholeMode, fetchEthereumSnapshot } from "../chain/ethereum-wormhole-snapshot.js";
+import { currentEthereumAuthorization } from "../chain/monad-wormhole.js";
 import { fetchConsumedActionProof } from "../chain/source.client.js";
 import { monadClient } from "../chain/monad.client.js";
 import { env } from "../config/env.js";
@@ -35,6 +37,7 @@ const verifierAbi = parseAbi([
   "function sourceController() view returns (address)",
   "function sourceControllerCodeHash() view returns (bytes32)",
   "function verifyAppliedAction(bytes header,bytes proof,address vault,bytes32 actionHash) view returns (bool)",
+  "function wormholeMode() pure returns (bool)",
 ]);
 const recoveryVaultAbi = parseAbi([
   "function asset() view returns (address)",
@@ -54,7 +57,8 @@ const zero = "0x0000000000000000000000000000000000000000";
 const zeroHash = `0x${"0".repeat(64)}`;
 
 function configured(): boolean {
-  return Boolean(env.sourceRpcUrl && env.sourceBeaconApiUrl
+  return Boolean(env.sourceRpcUrl
+    && (env.sourceBeaconApiUrl || (env.wormholeScanUrl && env.sourceWormholePublisherKey))
     && env.sourceActionKeeperKey && env.monadConfirmKeeperKey);
 }
 
@@ -247,9 +251,13 @@ async function confirmSourceAction(action: RemoteAction, actionHash: Hex): Promi
     if (!equal(vault, action.sourceVault) || controller === zero || BigInt(controllerCodeHash) === 0n) {
       throw new Error("remote-action-confirm-controller-mismatch");
     }
-    const proof = await fetchConsumedActionProof({
-      rpcUrl: env.sourceRpcUrl, actionHash, controller, expectedCodeHash: controllerCodeHash,
-    });
+    const proof = (await ethereumWormholeMode(verifier))
+      ? await fetchEthereumSnapshot({
+        verifier, vault: action.sourceVault, controller, kind: 2, digest: actionHash,
+      })
+      : await fetchConsumedActionProof({
+        rpcUrl: env.sourceRpcUrl, actionHash, controller, expectedCodeHash: controllerCodeHash,
+      });
     const accepted = await chain.readContract({
       address: verifier, abi: verifierAbi, functionName: "verifyAppliedAction",
       args: [proof.header, proof.proof, action.sourceVault, actionHash],
@@ -354,24 +362,42 @@ export async function handleRemoteActionJob(job: { kind: string; payload: Record
       await remoteActionRepo.state(actionHash, "expired");
       return;
     }
-    const authorization = await fetchMonadAuthorizationProof({
-      txHash: record.authorizationTxHash as Hex, core: action.monadCore, creditId: action.creditId,
-      actionHash: actionHash as Hex, kind: action.kind,
-    });
+    const digest = keccak256(encodeAbiParameters(
+      [{ type: "bytes32" }, { type: "bytes32" }, { type: "uint8" }],
+      [action.creditId, actionHash as Hex, action.kind],
+    ));
+    const wormhole = await source.readContract({
+      address: binding.verifier, abi: verifierAbi, functionName: "wormholeMode",
+    }).catch(() => false);
+    let authorization = wormhole
+      ? await currentEthereumAuthorization({
+        core: action.monadCore, creditId: action.creditId,
+        actionHash: actionHash as Hex, kind: action.kind,
+      })
+      : await fetchMonadAuthorizationProof({
+        txHash: record.authorizationTxHash as Hex, core: action.monadCore, creditId: action.creditId,
+        actionHash: actionHash as Hex, kind: action.kind,
+      });
     const [chainId, version, bootstrap] = await source.readContract({
       address: binding.verifier, abi: verifierAbi, functionName: "admission", blockNumber: binding.finalized.number,
     });
     if (chainId !== action.monadChain || version === 0n || BigInt(bootstrap) === 0n) {
       throw new Error("remote-action-verifier-unadmitted");
     }
-    const digest = keccak256(encodeAbiParameters(
-      [{ type: "bytes32" }, { type: "bytes32" }, { type: "uint8" }],
-      [action.creditId, actionHash as Hex, action.kind],
-    ));
-    const accepted = await source.readContract({
+    let accepted = await source.readContract({
       address: binding.verifier, abi: verifierAbi, functionName: "verifyEvent",
       args: [authorization.header, authorization.proof, action.monadCore, digest],
     });
+    if (!accepted && wormhole) {
+      authorization = await currentEthereumAuthorization({
+        core: action.monadCore, creditId: action.creditId,
+        actionHash: actionHash as Hex, kind: action.kind, refresh: true,
+      });
+      accepted = await source.readContract({
+        address: binding.verifier, abi: verifierAbi, functionName: "verifyEvent",
+        args: [authorization.header, authorization.proof, action.monadCore, digest],
+      });
+    }
     if (!accepted) throw new Error("remote-action-proof-rejected");
     await source.simulateContract({
       address: binding.controller, abi: controllerAbi, functionName: "execute",

@@ -62,6 +62,7 @@ const controllerAbi = parseAbi([
 ]);
 const verifierAbi = parseAbi([
   "function admission() view returns (uint256,uint256,bytes32)",
+  "function wormholeMode() pure returns (bool)",
   "function verifyRecoveryOperation(bytes header,bytes proof,address emitter,bytes32 eventDigest) view returns (bool)",
 ]);
 
@@ -331,15 +332,25 @@ async function reconcile(operation: Operation, record: RecoveryFundingRecord, fu
     }
     const signedFunding = recoveryFundingTypedData(operation, funding);
     if (!riskSignature) throw new Error("recovery-risk-approval-missing");
-    const routeProof = await fetchRecoveryOperationProof(operation, digest);
+    const wormhole = await source.readContract({
+      address: verifier, abi: verifierAbi, functionName: "wormholeMode",
+    }).catch(() => false);
+    let routeProof = await fetchRecoveryOperationProof(operation, digest, wormhole);
     const eventDigest = keccak256(encodeAbiParameters(
       [{ type: "bytes32" }, { type: "bytes32" }, { type: "address" }],
       [funding.operationId, digest, funding.inbox],
     ));
-    const verified = await source.readContract({
+    let verified = await source.readContract({
       address: verifier, abi: verifierAbi, functionName: "verifyRecoveryOperation",
       args: [routeProof.header, routeProof.proof, env.settlementFactory as `0x${string}`, eventDigest],
     });
+    if (!verified && wormhole) {
+      routeProof = await fetchRecoveryOperationProof(operation, digest, true, true);
+      verified = await source.readContract({
+        address: verifier, abi: verifierAbi, functionName: "verifyRecoveryOperation",
+        args: [routeProof.header, routeProof.proof, env.settlementFactory as `0x${string}`, eventDigest],
+      });
+    }
     if (!verified) throw new Error("recovery-operation-proof-rejected");
     const routeSignature = await config.routeSigner.signTypedData(signedFunding);
     const fundArgs = [funding, recoveryFactoryOperation(operation), routeProof.header, routeProof.proof, routeSignature, riskSignature] as const;

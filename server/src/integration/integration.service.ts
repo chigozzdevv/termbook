@@ -5,6 +5,7 @@ import { monadClient } from "../chain/monad.client.js";
 import { env } from "../config/env.js";
 import { integrationRepo } from "./integration.repo.js";
 import { validateIntegrationAcceptance } from "./integration.builder.js";
+import { applicationService } from "./application.service.js";
 import { integrationAcceptanceSchema, integrationSchema } from "./integration.schema.js";
 import { validateIntegrationSources, verifyIntegrationSourcePins, type SourcePin } from "./integration.source.js";
 import type { z } from "zod";
@@ -119,7 +120,8 @@ async function admittedActions(versionId: `0x${string}`, actions: CapabilityDefi
 }
 
 export const integrationService = {
-  async approve(input: z.infer<typeof integrationSchema>) {
+  async prepare(input: z.infer<typeof integrationSchema>) {
+    const application = await applicationService.requireVerified(input.applicationId, undefined, true);
     const versionId = input.versionId as `0x${string}`;
     if (!addressPattern.test(input.settlementAsset) || /^0x0{40}$/i.test(input.settlementAsset)) {
       throw new Error("settlement-asset-unavailable");
@@ -128,16 +130,23 @@ export const integrationService = {
     await validateIntegrationAcceptance(versionId, input.settlementAsset as `0x${string}`, input.actions, input.acceptance);
     const sourcePins = await validateIntegrationSources(input.actions, input.verifiedSources);
     const appToken = `tbk_${randomBytes(32).toString("hex")}`;
-    try {
-      await integrationRepo.create({ versionId: input.versionId.toLowerCase(), codeHash: input.codeHash.toLowerCase(),
+    const doc = { versionId: input.versionId.toLowerCase(), codeHash: input.codeHash.toLowerCase(),
+        applicationId: application.id, applicationOwner: application.owner, applicationOrigin: application.origin,
+        category: input.category,
         settlementAsset: input.settlementAsset.toLowerCase(), actions: input.actions, sourcePins,
         acceptance: input.acceptance, accepted: true,
-        tokenHash: tokenHash(appToken), active: true, frozen: false });
+        tokenHash: tokenHash(appToken), active: true, frozen: false };
+    return { doc, appToken, versionId: input.versionId.toLowerCase() };
+  },
+  async approve(input: z.infer<typeof integrationSchema>) {
+    const prepared = await this.prepare(input);
+    try {
+      await integrationRepo.create(prepared.doc);
     } catch (error) {
       if (error && typeof error === "object" && "code" in error && error.code === 11000) throw new Error("integration-conflict", { cause: error });
       throw error;
     }
-    return { versionId: input.versionId.toLowerCase(), appToken };
+    return { versionId: prepared.versionId, appToken: prepared.appToken };
   },
   async resolve(appToken: string) {
     if (!tokenPattern.test(appToken)) throw new Error("integration-not-found");

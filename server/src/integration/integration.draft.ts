@@ -11,9 +11,79 @@ import type { z } from "zod";
 
 type DraftInput = z.infer<typeof integrationDraftSchema>;
 const zero = "0x0000000000000000000000000000000000000000";
+const maxTraceCalls = 256;
 
 function equal(left: string, right: string): boolean {
   return left.toLowerCase() === right.toLowerCase();
+}
+
+type CallFrame = { type?: unknown; to?: unknown; input?: unknown; error?: unknown; calls?: unknown };
+
+function traceCall(frame: unknown, target: Address, selector: Hex): Hex {
+  const matches: Hex[] = [];
+  let visited = 0;
+  const visit = (value: unknown, depth: number) => {
+    if (!value || typeof value !== "object" || Array.isArray(value) || depth > 16 || ++visited > maxTraceCalls) {
+      throw new Error("integration-draft-trace-invalid");
+    }
+    const call = value as CallFrame;
+    if (call.error != null || typeof call.type !== "string" || typeof call.to !== "string"
+      || typeof call.input !== "string" || !/^0x(?:[a-fA-F0-9]{2})*$/.test(call.input)) {
+      throw new Error("integration-draft-trace-invalid");
+    }
+    if (call.type === "CALL" && equal(call.to, target) && equal(call.input.slice(0, 10), selector)) {
+      matches.push(call.input as Hex);
+    }
+    if (call.calls !== undefined) {
+      if (!Array.isArray(call.calls) || call.calls.length > maxTraceCalls) {
+        throw new Error("integration-draft-trace-invalid");
+      }
+      for (const child of call.calls) visit(child, depth + 1);
+    }
+  };
+  visit(frame, 0);
+  if (matches.length !== 1) throw new Error("integration-draft-reference-ambiguous");
+  return matches[0]!;
+}
+
+async function observedCall(chain: ReturnType<typeof monadClient>, transaction: {
+  to: Address | null; input: Hex; hash: Hex;
+}, target: Address, signature: string, core: Address): Promise<{
+  callData: Hex; creditId: Hex | null; functionName: string; kind: "application" | "termbook" | "nested";
+}> {
+  const item = parseAbiItem(signature);
+  if (item.type !== "function") throw new Error("integration-draft-signature-invalid");
+  const selector = toFunctionSelector(item);
+  if (transaction.to && equal(transaction.to, target) && equal(transaction.input.slice(0, 10), selector)) {
+    return { callData: transaction.input, creditId: null, functionName: item.name, kind: "application" };
+  }
+  if (transaction.to && equal(transaction.to, core)) {
+    try {
+      const decoded = decodeFunctionData({ abi: coreActionAbi, data: transaction.input });
+      const [creditId, calledTarget, data] = decoded.args;
+      if (equal(calledTarget, target) && equal(data.slice(0, 10), selector)) {
+        return { callData: data, creditId, functionName: decoded.functionName, kind: "termbook" };
+      }
+    } catch {
+      throw new Error("integration-draft-reference-invalid");
+    }
+    throw new Error("integration-draft-reference-invalid");
+  }
+  if (!transaction.to) throw new Error("integration-draft-reference-invalid");
+  let frame: unknown;
+  try {
+    frame = await (chain as unknown as { request(args: { method: string; params: unknown[] }): Promise<unknown> })
+      .request({ method: "debug_traceTransaction", params: [transaction.hash, { tracer: "callTracer" }] });
+  } catch {
+    throw new Error("integration-draft-trace-unavailable");
+  }
+  if (!frame || typeof frame !== "object" || Array.isArray(frame)) throw new Error("integration-draft-trace-invalid");
+  const root = frame as CallFrame;
+  if (!equal(String(root.to), transaction.to) || !equal(String(root.input), transaction.input)) {
+    throw new Error("integration-draft-trace-invalid");
+  }
+  return { callData: traceCall(frame, target, selector), creditId: null,
+    functionName: item.name, kind: "nested" };
 }
 
 export async function inspectIntegrationDraft(input: DraftInput) {
@@ -62,8 +132,8 @@ export async function inspectIntegrationDraft(input: DraftInput) {
     }
     if (receipt.status !== "success" || receipt.blockNumber > finalized.number
       || !equal(receipt.transactionHash, entry.txHash)
-      || !equal(receipt.to ?? zero, core) || !equal(transaction.hash, entry.txHash)
-      || !equal(transaction.to ?? zero, core) || !equal(transaction.blockHash ?? "", receipt.blockHash)
+      || !equal(receipt.to ?? zero, transaction.to ?? zero) || !equal(transaction.hash, entry.txHash)
+      || !equal(transaction.blockHash ?? "", receipt.blockHash)
       || receipt.logs.length > 256 || transaction.input.length > 200_002
       || receipt.logs.reduce((size, log) => size + log.data.length
         + log.topics.reduce((total, topic) => total + topic.length, 0), 0) > 500_000) {
@@ -71,16 +141,19 @@ export async function inspectIntegrationDraft(input: DraftInput) {
     }
     const block = await chain.getBlock({ blockNumber: receipt.blockNumber });
     if (!equal(block.hash, receipt.blockHash)) throw new Error("integration-draft-reference-invalid");
-    let decoded;
-    try {
-      decoded = decodeFunctionData({ abi: coreActionAbi, data: transaction.input });
-    } catch {
+    const [referenceCode, referenceImplementationWord, referenceImplementationCode] = await Promise.all([
+      chain.getBytecode({ address: target, blockNumber: receipt.blockNumber }),
+      chain.getStorageAt({ address: target, slot: implementationSlot, blockNumber: receipt.blockNumber }),
+      equal(implementation, zero) ? Promise.resolve(undefined)
+        : chain.getBytecode({ address: implementation, blockNumber: receipt.blockNumber }),
+    ]);
+    if (!referenceCode || !equal(keccak256(referenceCode), entry.codeHash)
+      || !equal(referenceImplementationWord ?? "0x", implementationWord ?? "0x")
+      || implementationCode && (!referenceImplementationCode
+        || !equal(keccak256(referenceImplementationCode), keccak256(implementationCode)))) {
       throw new Error("integration-draft-reference-invalid");
     }
-    const [creditId, calledTarget, data] = decoded.args;
-    if (!equal(calledTarget, target) || !equal(data.slice(0, 10), toFunctionSelector(signature))) {
-      throw new Error("integration-draft-reference-invalid");
-    }
+    const observed = await observedCall(chain, transaction, target, entry.signature, core);
     const selector = toFunctionSelector(signature);
     const [source, implementationSource] = await Promise.all([
       importVerifiedSource(env.monadChainId, target, code, equal(implementation, zero) ? selector : null),
@@ -94,7 +167,8 @@ export async function inspectIntegrationDraft(input: DraftInput) {
       signature: entry.signature, selector, source, implementationSource,
       parameters: signature.inputs.map((param) => ({ name: param.name, type: param.type })),
       reference: { txHash: entry.txHash.toLowerCase(), blockNumber: receipt.blockNumber.toString(),
-        creditId, functionName: decoded.functionName, callData: data,
+        creditId: observed.creditId, functionName: observed.functionName, kind: observed.kind,
+        callData: observed.callData,
         logs: receipt.logs.map((log) => ({ address: log.address, topics: log.topics, data: log.data })) },
     });
   }

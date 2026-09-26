@@ -2,6 +2,10 @@ import mongoose from "mongoose";
 
 const integrationSchema = new mongoose.Schema(
   {
+    applicationId: { type: String, required: true },
+    applicationOwner: { type: String, required: true },
+    applicationOrigin: { type: String, required: true },
+    category: { type: String, required: true },
     versionId: { type: String, required: true, unique: true },
     codeHash: String,
     settlementAsset: { type: String, required: true },

@@ -10,6 +10,7 @@ import { inspectIntegrationDraft } from "../../src/integration/integration.draft
 const core = `0x${"11".repeat(20)}` as const;
 const target = `0x${"22".repeat(20)}` as const;
 const account = `0x${"33".repeat(20)}` as const;
+const router = `0x${"99".repeat(20)}` as const;
 const creditId = `0x${"44".repeat(32)}` as const;
 const txHash = `0x${"55".repeat(32)}` as const;
 const blockHash = `0x${"66".repeat(32)}` as const;
@@ -23,17 +24,21 @@ const request = { entries: [{ target, codeHash: keccak256(code), signature, txHa
 const previous = { core: env.core, monadChainId: env.monadChainId };
 const implementationSlot = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc";
 
-function chain(proxyWord?: `0x${string}`) {
+function chain(options: { proxyWord?: `0x${string}`; transactionTo?: `0x${string}`;
+  transactionInput?: `0x${string}`; trace?: unknown; historicalCode?: `0x${string}` } = {}) {
   return {
     getChainId: vi.fn(async () => 143),
     getBlock: vi.fn(async ({ blockTag }: { blockTag?: string }) =>
       blockTag === "finalized" ? { number: 100n } : { hash: blockHash }),
-    getBytecode: vi.fn(async () => code),
+    getBytecode: vi.fn(async ({ blockNumber }: { blockNumber?: bigint }) =>
+      blockNumber === 20n ? options.historicalCode ?? code : code),
     getStorageAt: vi.fn(async ({ slot }: { slot: string }) => slot === implementationSlot
-      ? proxyWord ?? `0x${"00".repeat(32)}` : `0x${"00".repeat(32)}`),
+      ? options.proxyWord ?? `0x${"00".repeat(32)}` : `0x${"00".repeat(32)}`),
     getTransactionReceipt: vi.fn(async () => ({ status: "success", blockNumber: 20n,
-      transactionHash: txHash, blockHash, to: core, logs: [] })),
-    getTransaction: vi.fn(async () => ({ hash: txHash, blockHash, to: core, input })),
+      transactionHash: txHash, blockHash, to: options.transactionTo ?? core, logs: [] })),
+    getTransaction: vi.fn(async () => ({ hash: txHash, blockHash,
+      to: options.transactionTo ?? core, input: options.transactionInput ?? input })),
+    request: vi.fn(async () => options.trace),
   };
 }
 
@@ -61,16 +66,53 @@ describe("integration draft import", () => {
     const result = await inspectIntegrationDraft(request);
     expect(result.entries[0]).toMatchObject({ target, selector: appData.slice(0, 10),
       source: { matchId: "1", compilerVersion: "v0.8.24", files: ["App.sol"] },
-      reference: { creditId, txHash, callData: appData, blockNumber: "20" } });
+      reference: { creditId, txHash, callData: appData, kind: "termbook", blockNumber: "20" } });
+  });
+
+  it("imports an application's own finalized trade as a draft reference", async () => {
+    const client = chain({ transactionTo: target, transactionInput: appData });
+    vi.mocked(monadClient).mockReturnValue(client as never);
+    const result = await inspectIntegrationDraft(request);
+    expect(result.entries[0]?.reference).toMatchObject({
+      creditId: null, callData: appData, kind: "application", functionName: "placeOrder",
+    });
+    expect(client.request).not.toHaveBeenCalled();
+  });
+
+  it("imports one nested app call from a canonical router transaction", async () => {
+    const routerInput = "0x12345678" as const;
+    const client = chain({ transactionTo: router, transactionInput: routerInput,
+      trace: { type: "CALL", to: router, input: routerInput,
+        calls: [{ type: "CALL", to: target, input: appData }] } });
+    vi.mocked(monadClient).mockReturnValue(client as never);
+    const result = await inspectIntegrationDraft(request);
+    expect(result.entries[0]?.reference).toMatchObject({
+      creditId: null, callData: appData, kind: "nested", functionName: "placeOrder",
+    });
+  });
+
+  it("rejects a router sample that called the proposed target more than once", async () => {
+    const routerInput = "0x12345678" as const;
+    vi.mocked(monadClient).mockReturnValue(chain({ transactionTo: router, transactionInput: routerInput,
+      trace: { type: "CALL", to: router, input: routerInput,
+        calls: [{ type: "CALL", to: target, input: appData },
+          { type: "CALL", to: target, input: appData }] } }) as never);
+    await expect(inspectIntegrationDraft(request)).rejects.toThrow("integration-draft-reference-ambiguous");
+  });
+
+  it("rejects a sample from an older implementation", async () => {
+    vi.mocked(monadClient).mockReturnValue(chain({ transactionTo: target, transactionInput: appData,
+      historicalCode: "0x5678" }) as never);
+    await expect(inspectIntegrationDraft(request)).rejects.toThrow("integration-draft-reference-invalid");
   });
 
   it("requires an explicitly reviewed implementation for an EIP-1967 proxy", async () => {
-    vi.mocked(monadClient).mockReturnValue(chain(`0x${"00".repeat(12)}${"77".repeat(20)}`) as never);
+    vi.mocked(monadClient).mockReturnValue(chain({ proxyWord: `0x${"00".repeat(12)}${"77".repeat(20)}` }) as never);
     await expect(inspectIntegrationDraft(request)).rejects.toThrow("integration-draft-proxy-mismatch");
   });
 
   it("imports both the proxy and implementation source", async () => {
-    vi.mocked(monadClient).mockReturnValue(chain(`0x${"00".repeat(12)}${"77".repeat(20)}`) as never);
+    vi.mocked(monadClient).mockReturnValue(chain({ proxyWord: `0x${"00".repeat(12)}${"77".repeat(20)}` }) as never);
     const result = await inspectIntegrationDraft({ entries: [{ ...request.entries[0]!,
       implementationCodeHash: keccak256(code) }] });
     expect(result.entries[0]).toMatchObject({

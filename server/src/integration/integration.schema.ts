@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { capabilityDefinitionSchema } from "@termbook/schema";
 import { parseAbiItem } from "viem";
+import { applicationIdSchema } from "./application.schema.js";
 
 const word = z.string().regex(/^0x[a-fA-F0-9]{64}$/).refine((value) => !/^0x0{64}$/i.test(value));
 export const integrationAcceptanceSchema = z.strictObject({
@@ -24,7 +25,11 @@ export const integrationDraftSchema = z.strictObject({
   })).min(1).max(32),
 });
 
-export const integrationSchema = z.strictObject({
+export const integrationDraftRequestSchema = integrationDraftSchema.extend({ applicationId: applicationIdSchema });
+
+export const integrationMappingSchema = z.strictObject({
+  applicationId: applicationIdSchema,
+  category: z.enum(["perps", "staking", "vault", "liquidity", "spot"]),
   versionId: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
   codeHash: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
   settlementAsset: z.string().regex(/^0x[a-fA-F0-9]{40}$/).refine((value) => !/^0x0{40}$/i.test(value)),
@@ -35,7 +40,6 @@ export const integrationSchema = z.strictObject({
     implementation: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
     implementationSourceHash: word.optional(),
   })).min(1).max(32),
-  acceptance: integrationAcceptanceSchema,
 }).superRefine((value, ctx) => {
   const names = new Set<string>();
   for (const [index, action] of value.actions.entries()) {
@@ -51,6 +55,9 @@ export const integrationSchema = z.strictObject({
       ctx.addIssue({ code: "custom", path: ["actions", index], message: "capability-definition-invalid" });
     }
   }
+  if (value.category === "perps" && (!names.has("place_order") || !names.has("close_position"))) {
+    ctx.addIssue({ code: "custom", path: ["actions"], message: "perps-lifecycle-incomplete" });
+  }
   const targets = new Set(value.actions.map((action) => action.target.toLowerCase()));
   const sources = value.verifiedSources.map((source) => source.target.toLowerCase());
   if (new Set(sources).size !== sources.length || sources.length !== targets.size
@@ -58,3 +65,5 @@ export const integrationSchema = z.strictObject({
     ctx.addIssue({ code: "custom", path: ["verifiedSources"], message: "integration-source-evidence-incomplete" });
   }
 });
+
+export const integrationSchema = integrationMappingSchema.safeExtend({ acceptance: integrationAcceptanceSchema });

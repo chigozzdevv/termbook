@@ -17,6 +17,7 @@ import {IHealthSource, IHealthReader, HealthReading} from "../../src/monad/risk/
 import {HealthMath} from "../../src/monad/risk/HealthMath.sol";
 import {IExitVerifier} from "../../src/monad/integration/IExitVerifier.sol";
 import {IntegrationRegistry} from "../../src/monad/integration/IntegrationRegistry.sol";
+import {MockAppCallValidator} from "../MockAppCallValidator.sol";
 import {IAppRecoveryAdapter} from "../../src/monad/integration/IAppRecoveryAdapter.sol";
 import {IAppValueReader} from "../../src/monad/integration/IAppValueReader.sol";
 import {IAppStateReader} from "../../src/monad/integration/IAppStateReader.sol";
@@ -306,6 +307,9 @@ contract RealFlowTest is Test {
         registry.registerCall(bundleId, address(target), RealFlowTarget.setValue.selector,
             36, type(uint8).max, type(uint8).max, 0);
         registry.registerRecoveryCall(bundleId, address(target), RealFlowTarget.setValue.selector, 36, type(uint8).max);
+        MockAppCallValidator validator = new MockAppCallValidator();
+        registry.setCallValidator(bundleId, address(target), RealFlowTarget.setValue.selector, address(validator));
+        registry.setRecoveryCallValidator(bundleId, address(target), RealFlowTarget.setValue.selector, address(validator));
         core.setAppRecoveryAdapter(bundleId,
             address(new FundedPositionRecoveryAdapter(new FundedPositionTarget(token))));
         vm.expectRevert(TermbookCore.InvalidTerms.selector);
@@ -808,6 +812,11 @@ contract RealFlowTest is Test {
             36, type(uint8).max, 0, 500);
         registry.registerRecoveryCall(bundleId, address(positionTarget), FundedPositionTarget.withdraw.selector,
             36, type(uint8).max);
+        MockAppCallValidator validator = new MockAppCallValidator();
+        registry.setCallValidator(bundleId, address(positionTarget), FundedPositionTarget.deposit.selector,
+            address(validator));
+        registry.setRecoveryCallValidator(bundleId, address(positionTarget), FundedPositionTarget.withdraw.selector,
+            address(validator));
         registry.activate(bundleId);
         (, address account) = _prepare(creditId);
         bytes memory data = abi.encodeWithSelector(FundedPositionTarget.deposit.selector, 200);

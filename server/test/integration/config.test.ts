@@ -4,6 +4,7 @@ import { integrationRepo } from "../../src/integration/integration.repo.js";
 import { integrationService } from "../../src/integration/integration.service.js";
 import { validateIntegrationAcceptance } from "../../src/integration/integration.builder.js";
 import { validateIntegrationSources, verifyIntegrationSourcePins } from "../../src/integration/integration.source.js";
+import { applicationService } from "../../src/integration/application.service.js";
 import { keccak256 } from "viem";
 
 vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: vi.fn() }));
@@ -14,6 +15,9 @@ vi.mock("../../src/integration/integration.builder.js", () => ({ validateIntegra
 vi.mock("../../src/integration/integration.source.js", () => ({
   validateIntegrationSources: vi.fn(), verifyIntegrationSourcePins: vi.fn(),
 }));
+vi.mock("../../src/integration/application.service.js", () => ({ applicationService: {
+  requireVerified: vi.fn(),
+} }));
 vi.mock("../../src/config/env.js", () => ({ env: {
   core: `0x${"1".repeat(40)}`, monadChainId: 143,
   accountFactory: `0x${"2".repeat(40)}`,
@@ -23,15 +27,21 @@ vi.mock("../../src/config/env.js", () => ({ env: {
 
 const address = (digit: string) => `0x${digit.repeat(40)}` as `0x${string}`;
 const versionId = `0x${"a".repeat(64)}`;
+const applicationId = "1f3474c2-f4c2-461d-919d-143749012e27";
 const codeHash = `0x${"b".repeat(64)}`;
 const settlementAsset = address("8");
 const actions = [{ capability: "place_order", label: "Place order", target: address("7"),
   signature: "function placeOrder(uint256 amount,address account)",
   arguments: [{ source: "input" as const, path: "amount", label: "Amount" }, { source: "credit_account" as const }],
-  fundingPath: "amount", settlement: "atomic" as const }];
+  fundingPath: "amount", settlement: "atomic" as const },
+  { capability: "close_position", label: "Close position", target: address("7"),
+    signature: "function closePosition(uint256 positionId,address account)",
+    arguments: [{ source: "input" as const, path: "position_id", label: "Position ID" },
+      { source: "credit_account" as const }], settlement: "atomic" as const }];
 const acceptance = { evidenceHash: `0x${"e".repeat(64)}`,
   activeCreditId: `0x${"c".repeat(64)}`, recoveredCreditId: `0x${"d".repeat(64)}`,
-  actionTransactions: { place_order: { creditId: `0x${"d".repeat(64)}`, txHash: `0x${"1".repeat(64)}` } },
+  actionTransactions: { place_order: { creditId: `0x${"d".repeat(64)}`, txHash: `0x${"1".repeat(64)}` },
+    close_position: { creditId: `0x${"d".repeat(64)}`, txHash: `0x${"4".repeat(64)}` } },
   recoveryTxHashes: [`0x${"2".repeat(64)}`], repaymentTxHash: `0x${"3".repeat(64)}` };
 const verifiedSources = [{ target: address("7"), sourceHash: `0x${"f".repeat(64)}` }];
 const sourcePins = [{ target: address("7"), codeHash: keccak256("0x1234"),
@@ -44,6 +54,8 @@ beforeEach(() => {
   readerAdapter = address("9");
   vi.mocked(validateIntegrationSources).mockResolvedValue(sourcePins as never);
   vi.mocked(verifyIntegrationSourcePins).mockResolvedValue(true);
+  vi.mocked(applicationService.requireVerified).mockResolvedValue({ id: applicationId,
+    owner: address("f"), origin: "https://trade.example.org", chainId: 143 });
   const chain = {
     getBlock: vi.fn(async () => ({ number: 100n })),
     getChainId: vi.fn(async () => 143),
@@ -72,7 +84,7 @@ beforeEach(() => {
 
 describe("integration app token", () => {
   it("issues a token only for an admitted bundle and stores only its hash", async () => {
-    const result = await integrationService.approve({ versionId, codeHash, settlementAsset, actions,
+    const result = await integrationService.approve({ applicationId, category: "perps", versionId, codeHash, settlementAsset, actions,
       verifiedSources, acceptance });
     expect(result.appToken).toMatch(/^tbk_[a-f0-9]{64}$/);
     expect(integrationRepo.create).toHaveBeenCalledWith(expect.objectContaining({
@@ -84,7 +96,7 @@ describe("integration app token", () => {
   });
 
   it("resolves only an active token and returns Core derived risk config", async () => {
-    const result = await integrationService.approve({ versionId, codeHash, settlementAsset, actions,
+    const result = await integrationService.approve({ applicationId, category: "perps", versionId, codeHash, settlementAsset, actions,
       verifiedSources, acceptance });
     vi.mocked(integrationRepo.byTokenHash).mockResolvedValue({ versionId, codeHash, settlementAsset, actions,
       acceptance, sourcePins, accepted: true, active: true, frozen: false } as never);
@@ -95,7 +107,7 @@ describe("integration app token", () => {
   });
 
   it("rejects a frozen local integration before returning deployment config", async () => {
-    const result = await integrationService.approve({ versionId, codeHash, settlementAsset, actions,
+    const result = await integrationService.approve({ applicationId, category: "perps", versionId, codeHash, settlementAsset, actions,
       verifiedSources, acceptance });
     vi.mocked(integrationRepo.byTokenHash).mockResolvedValue({ versionId, codeHash, settlementAsset, actions,
       acceptance, sourcePins, accepted: true, active: true, frozen: true } as never);
@@ -103,7 +115,7 @@ describe("integration app token", () => {
   });
 
   it("rejects a legacy token without acceptance evidence", async () => {
-    const result = await integrationService.approve({ versionId, codeHash, settlementAsset, actions,
+    const result = await integrationService.approve({ applicationId, category: "perps", versionId, codeHash, settlementAsset, actions,
       verifiedSources, acceptance });
     vi.mocked(integrationRepo.byTokenHash).mockResolvedValue({ versionId, codeHash, settlementAsset, actions,
       sourcePins, active: true, frozen: false } as never);
@@ -112,13 +124,13 @@ describe("integration app token", () => {
 
   it("rejects a health reader bound to another recovery adapter", async () => {
     readerAdapter = address("e");
-    await expect(integrationService.approve({ versionId, codeHash, settlementAsset, actions,
+    await expect(integrationService.approve({ applicationId, category: "perps", versionId, codeHash, settlementAsset, actions,
       verifiedSources, acceptance }))
       .rejects.toThrow("integration-not-admitted");
   });
 
   it("rejects a changed source pin when resolving an app token", async () => {
-    const result = await integrationService.approve({ versionId, codeHash, settlementAsset, actions,
+    const result = await integrationService.approve({ applicationId, category: "perps", versionId, codeHash, settlementAsset, actions,
       verifiedSources, acceptance });
     vi.mocked(integrationRepo.byTokenHash).mockResolvedValue({ versionId, codeHash, settlementAsset, actions,
       acceptance, sourcePins, accepted: true, active: true, frozen: false } as never);

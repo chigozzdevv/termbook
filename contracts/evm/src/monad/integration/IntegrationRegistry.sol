@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {IAppCallValidator} from "./IAppCallValidator.sol";
+
 contract IntegrationRegistry {
     struct Version {
         bytes32 codeHash;
@@ -14,6 +16,8 @@ contract IntegrationRegistry {
         uint8 recipientArg;
         uint8 amountArg;
         uint256 maxAmount;
+        address validator;
+        bytes32 validatorCodeHash;
         bool active;
     }
 
@@ -21,12 +25,16 @@ contract IntegrationRegistry {
         bytes32 codeHash;
         uint256 maxDataLength;
         uint8 recipientArg;
+        address validator;
+        bytes32 validatorCodeHash;
         bool active;
     }
 
     mapping(bytes32 => Version) public versions;
     mapping(bytes32 => uint256) public callCount;
+    mapping(bytes32 => uint256) public validatedCallCount;
     mapping(bytes32 => uint256) public recoveryCallCount;
+    mapping(bytes32 => uint256) public validatedRecoveryCallCount;
     mapping(bytes32 => mapping(address => mapping(bytes4 => bytes32))) public callCodeHashes;
     mapping(bytes32 => mapping(address => mapping(bytes4 => CallPolicy))) public callPolicies;
     mapping(bytes32 => mapping(address => mapping(bytes4 => RecoveryCallPolicy))) public recoveryCallPolicies;
@@ -39,7 +47,9 @@ contract IntegrationRegistry {
     event VersionActivated(bytes32 indexed id);
     event VersionFrozen(bytes32 indexed id);
     event CallRegistered(bytes32 indexed id, address indexed target, bytes4 selector);
+    event CallValidatorRegistered(bytes32 indexed id, address indexed target, bytes4 selector, address validator);
     event RecoveryCallRegistered(bytes32 indexed id, address indexed target, bytes4 selector);
+    event RecoveryValidatorRegistered(bytes32 indexed id, address indexed target, bytes4 selector, address validator);
     event RecoveryCallDisabled(bytes32 indexed id, address indexed target, bytes4 selector);
 
     constructor(address reviewer_) {
@@ -59,7 +69,10 @@ contract IntegrationRegistry {
         if (msg.sender != reviewer) revert Unauthorized();
         Version storage version = versions[id];
         if (version.frozen) revert Frozen();
-        if (version.codeHash == bytes32(0) || version.active || callCount[id] == 0) revert Invalid();
+        if (version.codeHash == bytes32(0) || version.active || callCount[id] == 0
+            || validatedCallCount[id] != callCount[id] || validatedRecoveryCallCount[id] != recoveryCallCount[id]) {
+            revert Invalid();
+        }
         version.active = true;
         emit VersionActivated(id);
     }
@@ -91,9 +104,21 @@ contract IntegrationRegistry {
         if (maxDataLength < 4 || (amountArg != type(uint8).max && maxAmount == 0)) revert Invalid();
         callCodeHashes[id][target][selector] = target.codehash;
         callPolicies[id][target][selector] =
-            CallPolicy(target.codehash, maxDataLength, recipientArg, amountArg, maxAmount, true);
+            CallPolicy(target.codehash, maxDataLength, recipientArg, amountArg, maxAmount, address(0), bytes32(0), true);
         callCount[id] += 1;
         emit CallRegistered(id, target, selector);
+    }
+
+    function setCallValidator(bytes32 id, address target, bytes4 selector, address validator) external {
+        if (msg.sender != reviewer || versions[id].active || versions[id].frozen || validator.code.length == 0) {
+            revert Invalid();
+        }
+        CallPolicy storage policy = callPolicies[id][target][selector];
+        if (!policy.active || policy.validator != address(0)) revert Invalid();
+        policy.validator = validator;
+        policy.validatorCodeHash = validator.codehash;
+        validatedCallCount[id] += 1;
+        emit CallValidatorRegistered(id, target, selector, validator);
     }
 
     function registerRecoveryCall(bytes32 id, address target, bytes4 selector, uint256 maxDataLength, uint8 recipientArg)
@@ -108,13 +133,26 @@ contract IntegrationRegistry {
             revert Invalid();
         }
         recoveryCallPolicies[id][target][selector] =
-            RecoveryCallPolicy(target.codehash, maxDataLength, recipientArg, true);
+            RecoveryCallPolicy(target.codehash, maxDataLength, recipientArg, address(0), bytes32(0), true);
         recoveryCallCount[id] += 1;
         emit RecoveryCallRegistered(id, target, selector);
     }
 
+    function setRecoveryCallValidator(bytes32 id, address target, bytes4 selector, address validator) external {
+        if (msg.sender != reviewer || versions[id].active || versions[id].frozen || validator.code.length == 0) {
+            revert Invalid();
+        }
+        RecoveryCallPolicy storage policy = recoveryCallPolicies[id][target][selector];
+        if (!policy.active || policy.validator != address(0)) revert Invalid();
+        policy.validator = validator;
+        policy.validatorCodeHash = validator.codehash;
+        validatedRecoveryCallCount[id] += 1;
+        emit RecoveryValidatorRegistered(id, target, selector, validator);
+    }
+
     function disableRecoveryCall(bytes32 id, address target, bytes4 selector) external {
         if (msg.sender != reviewer || !recoveryCallPolicies[id][target][selector].active) revert Invalid();
+        if (recoveryCallPolicies[id][target][selector].validator != address(0)) validatedRecoveryCallCount[id] -= 1;
         recoveryCallPolicies[id][target][selector].active = false;
         recoveryCallCount[id] -= 1;
         emit RecoveryCallDisabled(id, target, selector);
@@ -129,7 +167,8 @@ contract IntegrationRegistry {
         Version memory version = versions[id];
         RecoveryCallPolicy memory policy = recoveryCallPolicies[id][target][bytes4(data[:4])];
         if (version.codeHash == bytes32(0) || !policy.active || target.codehash != policy.codeHash
-            || data.length > policy.maxDataLength) return false;
+            || data.length > policy.maxDataLength || policy.validator == address(0)
+            || policy.validator.codehash != policy.validatorCodeHash) return false;
         if (policy.recipientArg != type(uint8).max) {
             uint256 recipientArg = policy.recipientArg;
             if (data.length < 4 + recipientArg * 32 + 32) return false;
@@ -139,13 +178,20 @@ contract IntegrationRegistry {
             }
             if (address(uint160(recipient)) != account) return false;
         }
-        return true;
+        try IAppCallValidator(policy.validator).validateRecovery(id, target, data, account) returns (bool valid) {
+            return valid;
+        } catch {
+            return false;
+        }
     }
 
     function isCallAllowed(bytes32 id, address target, bytes4 selector) external view returns (bool) {
         Version memory version = versions[id];
         return version.active && !version.frozen && callPolicies[id][target][selector].active
-            && target.codehash == callCodeHashes[id][target][selector];
+            && target.codehash == callCodeHashes[id][target][selector]
+            && callPolicies[id][target][selector].validator != address(0)
+            && callPolicies[id][target][selector].validator.codehash
+                == callPolicies[id][target][selector].validatorCodeHash;
     }
 
     function isActive(bytes32 id) external view returns (bool) {
@@ -164,7 +210,8 @@ contract IntegrationRegistry {
         CallPolicy memory policy = callPolicies[id][target][selector];
         if (
             !version.active || version.frozen || !policy.active || target.codehash != policy.codeHash
-                || data.length > policy.maxDataLength
+                || data.length > policy.maxDataLength || policy.validator == address(0)
+                || policy.validator.codehash != policy.validatorCodeHash
         ) return false;
         if (policy.amountArg == type(uint8).max && policy.maxAmount != 0 && drawAmount > policy.maxAmount) {
             return false;
@@ -187,7 +234,13 @@ contract IntegrationRegistry {
             }
             if (address(uint160(recipient)) != account) return false;
         }
-        return true;
+        try IAppCallValidator(policy.validator).validateAction(id, target, data, account, drawAmount)
+            returns (bool valid)
+        {
+            return valid;
+        } catch {
+            return false;
+        }
     }
 
     function callCodeHash(bytes32 id, address target, bytes4 selector) external view returns (bytes32) {

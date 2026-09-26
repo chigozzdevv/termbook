@@ -41,41 +41,47 @@ The server publishes an admitted integration's SDK configuration at
 `GET /integrations/config?app_token=...`. Set `PUBLIC_API_BASE` and
 `PUBLIC_RPC_URL` to public HTTPS endpoints and `ACCOUNT_FACTORY_ADDRESS` to
 the deployed Monad factory. Build the SDK with `TERMBOOK_PUBLIC_API_BASE` set
-to the same API origin. An admin can issue a public app token with
-`POST /integrations` after the IntegrationVersion, HealthSource reader, exit
-verifier, pinned app recovery adapter, and reviewed recovery calls are active
-onchain. Approval also checks a finalized active Credit with positive app value,
-a separate recovered Credit with no tracked positions or pending actions,
-one successful Core action transaction per capability, finalized Core
-recovery transactions after the sampled app action, and an account-funded
-House repayment after recovery. The request's `acceptance`
-object supplies `evidenceHash`, `activeCreditId`, `recoveredCreditId`,
-`actionTransactions` keyed by capability with `creditId` and `txHash`, and
-`recoveryTxHashes`, and `repaymentTxHash`. The evidence hash identifies the reviewed source and test
-record; a reviewer must verify that record against the deployed code and
-recovery semantics. The token is shown only at creation; the
-server stores its hash. Borrower intents created through the SDK are bound to
-that IntegrationVersion.
+to the same API origin.
 
-The approval request includes the House settlement asset and an `actions`
-array. Each action names a public
-capability, its approved contract target and ABI function, and the source of
-each ABI argument (`input`, `borrower`, `credit_account`, or `credit_id`).
-It also includes `verifiedSources`, one entry per distinct action target with
-the `sourceHash` returned by `/integrations/draft`. Proxy entries include the
-reviewed `implementation` address and `implementationSourceHash`. Approval
-checks the exact verified source against finalized bytecode and stores runtime
-pins. App token resolution rejects a changed proxy implementation.
-An admin can call `POST /integrations/draft` with up to 32 target addresses,
-expected runtime code hashes, function signatures, and reference Core action
-transaction hashes. It checks the finalized deployment, EIP-1967 implementation
-when present, the exact Sourcify verified runtime source and ABI, and the actual
-nested app call. The response gives source digests, observed ABI parameters,
-and logs for review; it does not assign economic meaning or
-borrower input sources automatically.
-For EIP-1967 proxies it requires the reviewed implementation code hash and
-rejects beacon proxies. Proxy upgrades remain an integration trust risk and
-must trigger a freeze and renewed review before use.
+An app owner calls `POST /applications` with `name`, `origin`, and `chainId`.
+The owner places the returned TXT value at `_termbook.<origin-host>` and calls
+`POST /applications/:id/verify-origin`. The signed wallet is the application
+owner; origin verification is repeated before publication. Signed
+`POST /applications/:id/details` resumes an interrupted registration. The owner then calls
+`POST /integrations/draft` with `applicationId` and up to 32 entries containing
+target, code hash, function signature, and example transaction hash. References
+may be direct app transactions, router transactions with one unambiguous traced
+app call, or existing Core actions. The response contains a candidate ID and
+imported source and call evidence; it does not assign economic meaning. Signed
+`POST /integrations/candidates/:id/details` resumes an interrupted candidate.
+
+The owner submits a reviewed `category`, `versionId`, `codeHash`, settlement
+asset, `actions`, and `verifiedSources` to
+`POST /integrations/candidates/:id/mapping`. Each action names its approved
+target, ABI function, and argument source (`input`, `borrower`,
+`credit_account`, or `credit_id`). Perps mappings must include placement and
+closure. The candidate stays inactive in `ready_to_test` until the owner submits
+an `acceptance` record to `POST /integrations/candidates/:id/evidence`. It
+includes `evidenceHash`, active and recovered Credit IDs, one actual Core action
+transaction per declared capability, recovery transaction hashes, and an
+account-funded House repayment hash. The server verifies finalized receipts,
+positive live app value, empty recovered positions and pending actions, and
+recovery order. A reviewer must verify the report's economic assertions and
+that each action changed the intended app state.
+
+Only an admin publishes a candidate in `security_review` using
+`POST /integrations` with `{ "candidateId": "..." }`. Publication repeats
+source and onchain admission checks and issues a public app token. The token is
+shown once and stored only as a hash. Publication uses a MongoDB transaction,
+so the database deployment must support transactions. The IntegrationVersion, health reader,
+exit verifier, recovery adapter, reviewed action and recovery calls, and their
+call validators must be active onchain. Core calls the validators on every app
+action and recovery step. Proxy source and implementation are pinned in server
+configuration; an external proxy upgrade remains a separate trust risk that
+must be resolved in the integration review before accepting House funds.
+`StaticCallValidator` covers fixed-width ABI calls with exact, account, range,
+and spend bounds. Calls with dynamic arguments or app-specific state checks need
+a reviewed validator implementing `IAppCallValidator`.
 `fundingPath` identifies the borrower input used to calculate the required
 settlement-token draw. The server checks the target and selector against the
 finalized IntegrationRegistry policy before publishing the app token. The SDK

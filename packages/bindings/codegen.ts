@@ -39,6 +39,8 @@ const contracts = {
   CollateralHealthReader: "collateral-health-reader",
   AppHealthReader: "app-health-reader",
   AppExitVerifier: "app-exit-verifier",
+  IAppCallValidator: "app-call-validator",
+  StaticCallValidator: "static-call-validator",
   IAppStateReader: "app-state-reader",
   FlowExecutor: "flow-executor",
 } as const;

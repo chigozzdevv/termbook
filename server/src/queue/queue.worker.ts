@@ -14,13 +14,26 @@ export async function drainQueue(handle: Handler, kinds: readonly string[]): Pro
   let n = 0;
   let claimed = await queue.claim(kinds);
   while (claimed) {
+    const current = claimed;
+    let leaseLost = false;
+    const heartbeat = setInterval(() => {
+      void queue.renew(current.id, current.lease).then((renewed) => {
+        if (!renewed) leaseLost = true;
+      }).catch((err: unknown) => {
+        leaseLost = true;
+        logger.error("job-lease-renew-failed", { id: current.id, err });
+      });
+    }, 15_000);
     try {
-      await handle(claimed.job);
-      await queue.complete(claimed.id);
+      await handle(current.job);
+      if (leaseLost) throw new Error("job-lease-lost");
+      await queue.complete(current.id, current.lease);
       n += 1;
     } catch (err) {
-      await queue.retry(claimed.id);
-      logger.error("job-failed", { job: claimed.job, err });
+      await queue.retry(current.id, current.lease, current.attempts);
+      logger.error("job-failed", { job: current.job, err });
+    } finally {
+      clearInterval(heartbeat);
     }
     claimed = await queue.claim(kinds);
   }

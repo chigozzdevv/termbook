@@ -13,6 +13,8 @@ import { CollateralSetup, restoreCollateralSetup, type CollateralSetupOptions } 
 import { resolveClientConfig } from "./config.js";
 import type { CollateralMarket } from "@termbook/schema";
 import type { SourceLockWallet } from "../collateral/setup.js";
+import { apiAuthorizationMessage, canonicalJson } from "@termbook/schema";
+import { hashMessage } from "viem";
 import { connectSourceWallet } from "../modal/source-wallet.js";
 import { TermbookModal, type OpenOptions } from "../modal/modal.js";
 
@@ -101,12 +103,22 @@ export class TermbookClient {
     if (!this.config.apiBase) throw new Error("api-required");
     if (!this.config.wallet.signMessage) throw new Error("wallet-message-signing-unavailable");
     const http = new HttpClient(this.config.apiBase);
-    const challenge = await http.post<{ message: string }>("/auth/nonce", { wallet: this.signer.address() });
+    const request = { method: "POST" as const, path, bodyHash: hashMessage(canonicalJson(body)) };
+    const challenge = await http.post<{ wallet: string; message: string; nonce: string; expiresAt: number; domain: string }>(
+      "/auth/nonce", { wallet: this.signer.address(), ...request });
+    if (challenge.wallet?.toLowerCase() !== this.signer.address().toLowerCase()
+      || !/^[a-f0-9]{64}\.[0-9]{1,12}$/.test(challenge.nonce)
+      || !Number.isSafeInteger(challenge.expiresAt) || challenge.expiresAt <= Math.floor(Date.now() / 1000)
+      || challenge.nonce.split(".")[1] !== String(challenge.expiresAt)
+      || typeof challenge.domain !== "string" || /[\r\n]/.test(challenge.domain)
+      || challenge.message !== apiAuthorizationMessage(challenge.domain, this.signer.address(),
+        challenge.nonce, challenge.expiresAt, request)) throw new Error("auth-challenge-invalid");
     const signature = await this.config.wallet.signMessage(challenge.message);
     return http.post<T>(path, body, {
       "x-termbook-app-token": this.config.appToken,
       "x-termbook-wallet": this.signer.address(),
       "x-termbook-signature": signature,
+      "x-termbook-nonce": challenge.nonce,
     });
   }
 }

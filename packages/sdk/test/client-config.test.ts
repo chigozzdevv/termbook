@@ -76,14 +76,30 @@ describe("public SDK configuration", () => {
   });
 
   it("sends the app token with wallet-authorized intent requests", async () => {
-    const fetcher = vi.fn(async (url: string) => ({ ok: true, json: async () =>
-      url.endsWith("/auth/nonce") ? { message: "login" } : { intentId: versionId } }));
+    const expiresAt = Math.floor(Date.now() / 1000) + 60;
+    const nonce = `${"11".repeat(32)}.${expiresAt}`;
+    const { apiAuthorizationMessage } = await import("@termbook/schema");
+    const fetcher = vi.fn(async (url: string, init: { body: string }) => ({ ok: true, json: async () =>
+      url.endsWith("/auth/nonce") ? { wallet: wallet.address, domain: "termbook", expiresAt, nonce,
+        message: apiAuthorizationMessage("termbook", wallet.address, nonce, expiresAt, JSON.parse(init.body)) }
+        : { intentId: versionId } }));
     vi.stubGlobal("fetch", fetcher);
     const client = create_termbook({ app_token: token, wallet: { ...wallet, signMessage: async () => versionId as `0x${string}` },
       core: address("2"), rpcUrl: "https://rpc.termbook.example", chainId: 143,
       apiBase: "https://api.termbook.example" });
     await client.authenticatedPost("/intents", { borrower: wallet.address });
     expect(fetcher).toHaveBeenLastCalledWith("https://api.termbook.example/intents",
-      expect.objectContaining({ headers: expect.objectContaining({ "x-termbook-app-token": token }) }));
+      expect.objectContaining({ headers: expect.objectContaining({ "x-termbook-app-token": token,
+        "x-termbook-nonce": nonce }) }));
+  });
+
+  it("rejects a server challenge that asks the wallet to sign unrelated text", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ message: "unrelated" }) })));
+    const signMessage = vi.fn();
+    const client = create_termbook({ app_token: token, wallet: { ...wallet, signMessage },
+      core: address("2"), rpcUrl: "https://rpc.termbook.example", chainId: 143,
+      apiBase: "https://api.termbook.example" });
+    await expect(client.authenticatedPost("/intents", { borrower: wallet.address })).rejects.toThrow("auth-challenge-invalid");
+    expect(signMessage).not.toHaveBeenCalled();
   });
 });

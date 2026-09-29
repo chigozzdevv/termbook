@@ -3,6 +3,8 @@ import { Queue as BullQueue, type JobsOptions } from "bullmq";
 import { env } from "../config/env.js";
 import { logger } from "../logging/logger.js";
 import mongoose from "mongoose";
+import { createHash, randomUUID } from "node:crypto";
+import { canonicalJson } from "@termbook/schema";
 
 export type Job = { kind: string; payload: Record<string, unknown> };
 
@@ -14,7 +16,10 @@ const outboxSchema = new mongoose.Schema({
   status: { type: String, enum: ["pending", "processing", "done"], default: "pending" },
   attempts: { type: Number, default: 0 },
   nextRunAt: { type: Date, default: Date.now },
+  lease: String,
+  leaseExpiresAt: Date,
 }, { timestamps: true });
+outboxSchema.index({ kind: 1, status: 1, nextRunAt: 1, leaseExpiresAt: 1 });
 const JobModel = mongoose.models["TermbookJob"] ?? mongoose.model("TermbookJob", outboxSchema);
 const queues = new Map<string, BullQueue>();
 const defaults: JobsOptions = {
@@ -44,8 +49,8 @@ export function jobId(job: Job): string {
     p["lockId"] ??
     p["creditId"] ??
     p["intentId"] ??
-    JSON.stringify(p)) as string;
-  return `${job.kind}:${raw}`;
+    canonicalJson(p)) as string;
+  return createHash("sha256").update(canonicalJson([job.kind, raw])).digest("hex");
 }
 
 function queueFor(kind: string): BullQueue | null {
@@ -89,30 +94,43 @@ export const queue = {
       await fallback(job);
     }
   },
-  async claim(kinds: readonly string[]): Promise<{ id: string; job: Job } | undefined> {
+  async claim(kinds: readonly string[]): Promise<{ id: string; lease: string; attempts: number; job: Job } | undefined> {
     if (kinds.length === 0) return undefined;
     if (mongoose.connection.readyState !== 1) return undefined;
     const stale = new Date(Date.now() - 60_000);
+    const lease = randomUUID();
     const doc = await JobModel.findOneAndUpdate(
       {
         kind: { $in: kinds },
         $or: [
           { status: "pending", nextRunAt: { $lte: new Date() } },
-          { status: "processing", updatedAt: { $lte: stale } },
+          { status: "processing", leaseExpiresAt: { $lte: new Date() } },
+          { status: "processing", leaseExpiresAt: { $exists: false }, updatedAt: { $lte: stale } },
         ],
       },
-      { $set: { status: "processing" }, $inc: { attempts: 1 } },
+      { $set: { status: "processing", lease, leaseExpiresAt: new Date(Date.now() + 60_000) }, $inc: { attempts: 1 } },
       { sort: { createdAt: 1 }, new: true },
     ).lean();
     if (!doc) return undefined;
-    return { id: String(doc["jobId"]), job: { kind: String(doc["kind"]), payload: doc["payload"] as Record<string, unknown> } };
+    return { id: String(doc["jobId"]), lease, attempts: Number(doc["attempts"]),
+      job: { kind: String(doc["kind"]), payload: doc["payload"] as Record<string, unknown> } };
   },
 
-  async complete(id: string): Promise<void> {
-    await JobModel.deleteOne({ jobId: id });
+  async renew(id: string, lease: string): Promise<boolean> {
+    const result = await JobModel.updateOne({ jobId: id, status: "processing", lease,
+      leaseExpiresAt: { $gt: new Date() } }, { $set: { leaseExpiresAt: new Date(Date.now() + 60_000) } });
+    return result.modifiedCount === 1;
   },
 
-  async retry(id: string): Promise<void> {
-    await JobModel.updateOne({ jobId: id }, { $set: { status: "pending", nextRunAt: new Date(Date.now() + 2000) } });
+  async complete(id: string, lease: string): Promise<void> {
+    await JobModel.deleteOne({ jobId: id, status: "processing", lease });
+  },
+
+  async retry(id: string, lease: string, attempts: number): Promise<void> {
+    const delay = Math.min(300_000, 2000 * 2 ** Math.min(8, Math.max(0, attempts - 1)));
+    await JobModel.updateOne({ jobId: id, status: "processing", lease }, {
+      $set: { status: "pending", nextRunAt: new Date(Date.now() + delay) },
+      $unset: { lease: 1, leaseExpiresAt: 1 },
+    });
   },
 };

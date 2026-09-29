@@ -2,6 +2,8 @@ import { authRepo } from "./auth.repo.js";
 import { env } from "../config/env.js";
 import { hashMessage, parseAbi, recoverMessageAddress } from "viem";
 import { monadClient } from "../chain/monad.client.js";
+import { apiAuthorizationMessage, type ApiAuthorization } from "@termbook/schema";
+import { randomBytes } from "node:crypto";
 
 const erc1271Abi = parseAbi(["function isValidSignature(bytes32,bytes) view returns (bytes4)"]);
 
@@ -26,30 +28,29 @@ async function validSignature(wallet: string, message: string, signature: string
 }
 
 export const authService = {
-  async nonce(wallet: string) {
+  async nonce(wallet: string, request: ApiAuthorization) {
     const normalized = wallet.toLowerCase();
     const expiresAt = Math.floor(Date.now() / 1000) + env.authTtlSeconds;
-    const doc = await authRepo.touch(normalized, expiresAt);
-    const nonce = Number(doc?.["nonce"] ?? 0);
+    const nonce = `${randomBytes(32).toString("hex")}.${expiresAt}`;
     return {
-      wallet: doc?.["wallet"],
+      wallet: normalized,
       nonce,
       domain: env.authDomain,
-      message: `Termbook login ${env.authDomain} ${normalized} ${nonce}`,
+      message: apiAuthorizationMessage(env.authDomain, normalized, nonce, expiresAt, request),
       expiresAt,
     };
   },
 
-  async authenticate(wallet: string, signature: string) {
+  async authenticate(wallet: string, signature: string, nonce: string, request: ApiAuthorization) {
     const normalized = wallet.toLowerCase();
-    const challenge = await authRepo.get(normalized);
+    const challenge = /^([a-f0-9]{64})\.([0-9]{1,12})$/.exec(nonce);
+    if (!challenge) throw new Error("auth-invalid");
     const now = Math.floor(Date.now() / 1000);
-    const expiresAt = Number(challenge?.["expiresAt"] ?? 0);
-    const nonce = Number(challenge?.["nonce"] ?? -1);
-    if (!challenge || expiresAt <= now || nonce < 0) throw new Error("auth-expired");
-    const message = `Termbook login ${env.authDomain} ${normalized} ${nonce}`;
+    const expiresAt = Number(challenge[2]);
+    if (expiresAt <= now || expiresAt > now + env.authTtlSeconds) throw new Error("auth-expired");
+    const message = apiAuthorizationMessage(env.authDomain, normalized, nonce, expiresAt, request);
     if (!await validSignature(normalized, message, signature)) throw new Error("auth-invalid");
-    const consumed = await authRepo.consume(normalized, nonce, now);
+    const consumed = await authRepo.consume(normalized, nonce, expiresAt);
     if (!consumed) throw new Error("auth-expired");
     return { wallet: normalized as `0x${string}`, nonce };
   },

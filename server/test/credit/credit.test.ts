@@ -4,6 +4,7 @@ import { jobId } from "../../src/queue/queue.client.js";
 import { fetchProof } from "../../src/chain/source.client.js";
 import { deriveOperationId } from "../../src/settlement/operation-id.js";
 import { operationId } from "../../../packages/sdk/src/settlement/operation.js";
+import { Job } from "bullmq";
 
 describe("events", () => {
   it("detects reorg", () => {
@@ -19,7 +20,12 @@ describe("events", () => {
 describe("jobs", () => {
   it("derives stable id", () => {
     const a = jobId({ kind: "settle-finalize", payload: { operationId: "0x1" } });
-    expect(a).toBe("settle-finalize:0x1");
+    expect(a).toMatch(/^[a-f0-9]{64}$/);
+    expect(a).toBe(jobId({ kind: "settle-finalize", payload: { operationId: "0x1" } }));
+    expect(a).not.toBe(jobId({ kind: "settle-finalize", payload: { operationId: "0x2" } }));
+    expect(a).not.toBe(jobId({ kind: "other", payload: { operationId: "0x1" } }));
+    const prototype = Job.prototype as unknown as { validateOptions(data: { data: string }): void };
+    expect(() => prototype.validateOptions.call({ opts: { jobId: a } } as never, { data: "{}" })).not.toThrow();
   });
 
   it("rejects bad proof input", async () => {

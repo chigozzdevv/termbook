@@ -12,26 +12,35 @@ import { integrationRoute } from "./integration/integration.route.js";
 import { recoveryRoute } from "./recovery/recovery.route.js";
 import { catalogRoute } from "./catalog/catalog.route.js";
 import { authService } from "./auth/auth.service.js";
+import { canonicalJson } from "@termbook/schema";
+import { hashMessage } from "viem";
+import { requestLimiter } from "./http/http-limit.js";
 
 export function buildApp() {
   const app = Fastify({ logger: false });
   registerErrors(app);
+  const nonceLimit = requestLimiter(20, 60_000);
   app.addHook("onRequest", async (req, reply) => {
+    if (req.method === "POST" && req.url === "/auth/nonce" && !nonceLimit(req.ip)) {
+      return reply.status(429).header("retry-after", "60").send({ error: "auth-rate-limited" });
+    }
     if (!req.headers.origin) return;
     reply.header("access-control-allow-origin", "*");
     reply.header("access-control-allow-methods", "GET, POST, OPTIONS");
-    reply.header("access-control-allow-headers", "content-type, x-termbook-app-token, x-termbook-wallet, x-termbook-signature");
+    reply.header("access-control-allow-headers", "content-type, x-termbook-app-token, x-termbook-wallet, x-termbook-signature, x-termbook-nonce");
     if (req.method === "OPTIONS") return reply.status(204).send();
   });
   app.addHook("preHandler", async (req, reply) => {
     if (req.method === "GET" || req.method === "HEAD" || req.url === "/health" || req.url === "/auth/nonce") return;
     const wallet = req.headers["x-termbook-wallet"];
     const signature = req.headers["x-termbook-signature"];
-    if (typeof wallet !== "string" || typeof signature !== "string") {
+    const nonce = req.headers["x-termbook-nonce"];
+    if (typeof wallet !== "string" || typeof signature !== "string" || typeof nonce !== "string") {
       return reply.status(401).send({ error: "auth-required" });
     }
     try {
-      const identity = await authService.authenticate(wallet, signature);
+      const identity = await authService.authenticate(wallet, signature, nonce,
+        { method: "POST", path: req.url, bodyHash: hashMessage(canonicalJson(req.body)) });
       (req as typeof req & { user: typeof identity }).user = identity;
     } catch {
       return reply.status(401).send({ error: "auth-invalid" });

@@ -7,6 +7,7 @@ export function registerErrors(app: FastifyInstance): void {
     if (err instanceof HttpError) return reply.status(err.status).send({ error: err.message });
     if (err instanceof ZodError) return reply.status(400).send({ error: "validation-failed", issues: err.issues });
     const message = err instanceof Error ? err.message : "internal";
+    if (message === "auth-rate-limited") return reply.status(429).send({ error: message });
     if (message.endsWith("-conflict")) return reply.status(409).send({ error: message });
     if (message === "permission-denied" || message === "auth-invalid") return reply.status(403).send({ error: message });
     if (message === "application-state-unavailable" || message === "integration-draft-trace-unavailable"

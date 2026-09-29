@@ -1,8 +1,11 @@
 import mongoose from "mongoose";
 
 const authSchema = new mongoose.Schema(
-  { wallet: { type: String, required: true, unique: true }, nonce: { type: Number, default: 0 }, expiresAt: Number },
+  { _id: { type: String, required: true }, wallet: { type: String, required: true }, expiresOn: Date },
   { timestamps: true },
 );
 
-export const AuthModel = mongoose.models["Auth"] ?? mongoose.model("Auth", authSchema);
+authSchema.index({ expiresOn: 1 }, { expireAfterSeconds: 0 });
+
+export const AuthModel = mongoose.models["TermbookUsedAuthorization"]
+  ?? mongoose.model("TermbookUsedAuthorization", authSchema);

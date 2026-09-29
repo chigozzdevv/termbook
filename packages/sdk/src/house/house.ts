@@ -4,6 +4,7 @@ import type { ActivityCallback, Unsubscribe, TxHash } from "../types/client.type
 import type { HouseActivity } from "../types/house.types.js";
 import { houseVaultAbi } from "@termbook/bindings";
 import { settlementNonce } from "../settlement/settlement.js";
+import { parseEventLogs } from "viem";
 
 export class House {
   client: TermbookClient;
@@ -134,7 +135,7 @@ export class HouseAccount {
     const shares = args.amount * 1_000_000_000_000_000_000n / sharePrice;
     if (shares <= 0n) throw new Error("param-invalid");
     const amount = shares * sharePrice / 1_000_000_000_000_000_000n;
-    const freeCash = await this.house.client.rpc.read<bigint>(this.house.id, houseVaultAbi, "freeCash");
+    const freeCash = await this.house.client.rpc.read<bigint>(this.house.id, houseVaultAbi, "availableCash");
     const functionName = amount <= freeCash ? "requestWithdrawTo" : "requestWithdrawQueued";
     const argsForCall = functionName === "requestWithdrawTo" ? [shares, to] : [shares, to];
     const tx = await this.house.client.rpc.write(this.house.id, houseVaultAbi, functionName, argsForCall);
@@ -172,9 +173,13 @@ export class HouseAccount {
     const owner = row[0];
     if (typeof owner !== "string" || owner.toLowerCase() !== this.owner.toLowerCase()) throw new Error("unauthorized");
     if (Boolean(row[4]) || Boolean(row[5])) throw new Error("withdrawal-unavailable");
-    const amount = BigInt(String(row[3]));
     const tx = await this.house.client.rpc.write(this.house.id, houseVaultAbi, "claimWithdrawal", [id]);
-    await this.house.client.rpc.wait(tx);
+    const receipt = await this.house.client.rpc.wait(tx);
+    const events = parseEventLogs({ abi: houseVaultAbi, eventName: "WithdrawalClaimed",
+      logs: receipt.logs.filter((log) => log.address.toLowerCase() === this.house.id.toLowerCase()) });
+    const claimed = events.find((event) => event.args.withdrawalId === id);
+    if (!claimed) throw new Error("withdrawal-receipt-missing");
+    const amount = claimed.args.amount;
     return { amount, tx };
   }
 

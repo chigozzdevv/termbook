@@ -26,4 +26,10 @@ interface IHealthSource {
         external
         view
         returns (Types.HealthSnapshot memory);
+
+    function freeCash(bytes32 creditId, bytes32 bundleId, uint256 revision) external view returns (uint256);
+}
+
+interface ICashReader {
+    function readCash(bytes32 creditId, uint256 revision) external view returns (uint256 cash, uint256 observedAt);
 }

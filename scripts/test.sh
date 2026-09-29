@@ -1,4 +1,8 @@
 #!/bin/sh
 set -e
+pnpm build
 pnpm test
-forge test --root contracts/evm
+pnpm typecheck
+pnpm lint
+FOUNDRY_VIA_IR=true forge test --root contracts/evm -j 1 "$@"
+cargo test --manifest-path contracts/solana/Cargo.toml --locked

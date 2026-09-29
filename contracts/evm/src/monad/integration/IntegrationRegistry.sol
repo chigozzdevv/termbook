@@ -2,8 +2,22 @@
 pragma solidity ^0.8.24;
 
 import {IAppCallValidator} from "./IAppCallValidator.sol";
+import {IAppDeploymentGuard} from "./IAppDeploymentGuard.sol";
+import {CodeInspection} from "../../shared/CodeInspection.sol";
 
 contract IntegrationRegistry {
+    struct Dependency {
+        bytes32 codeHash;
+        address guard;
+        bytes32 guardCodeHash;
+        bool requiresGuard;
+        bool shared;
+    }
+
+    mapping(bytes32 => mapping(address => Dependency)) public dependencies;
+    mapping(bytes32 => address[]) private dependencyList;
+    mapping(bytes32 => address[]) private sharedDependencies;
+    uint256 public constant MAX_DEPENDENCIES = 64;
     struct Version {
         bytes32 codeHash;
         bool active;
@@ -51,6 +65,8 @@ contract IntegrationRegistry {
     event RecoveryCallRegistered(bytes32 indexed id, address indexed target, bytes4 selector);
     event RecoveryValidatorRegistered(bytes32 indexed id, address indexed target, bytes4 selector, address validator);
     event RecoveryCallDisabled(bytes32 indexed id, address indexed target, bytes4 selector);
+    event DependencyPinned(bytes32 indexed id, address indexed dependency, bytes32 codeHash);
+    event DependencyGuardSet(bytes32 indexed id, address indexed dependency, address guard);
 
     constructor(address reviewer_) {
         reviewer = reviewer_;
@@ -69,12 +85,70 @@ contract IntegrationRegistry {
         if (msg.sender != reviewer) revert Unauthorized();
         Version storage version = versions[id];
         if (version.frozen) revert Frozen();
-        if (version.codeHash == bytes32(0) || version.active || callCount[id] == 0
+        if (version.codeHash == bytes32(0) || version.active || callCount[id] == 0 || !dependenciesValid(id)
             || validatedCallCount[id] != callCount[id] || validatedRecoveryCallCount[id] != recoveryCallCount[id]) {
             revert Invalid();
         }
         version.active = true;
         emit VersionActivated(id);
+    }
+
+    function pinDependency(bytes32 id, address dependency) external {
+        if (msg.sender != reviewer || versions[id].active || versions[id].frozen
+            || versions[id].codeHash == bytes32(0)) revert Invalid();
+        _pinDependency(id, dependency);
+        if (!dependencies[id][dependency].shared) {
+            dependencies[id][dependency].shared = true;
+            sharedDependencies[id].push(dependency);
+        }
+    }
+
+    function _pinDependency(bytes32 id, address dependency) private {
+        if (dependency.code.length == 0) revert Invalid();
+        Dependency storage pin = dependencies[id][dependency];
+        if (pin.codeHash != bytes32(0)) {
+            if (pin.codeHash != dependency.codehash) revert Invalid();
+            return;
+        }
+        if (dependencyList[id].length >= MAX_DEPENDENCIES) revert Invalid();
+        pin.codeHash = dependency.codehash;
+        pin.requiresGuard = CodeInspection.delegates(dependency);
+        dependencyList[id].push(dependency);
+        emit DependencyPinned(id, dependency, pin.codeHash);
+    }
+
+    function setDependencyGuard(bytes32 id, address dependency, address guard) external {
+        if (msg.sender != reviewer || versions[id].active || versions[id].frozen
+            || guard.code.length == 0 || CodeInspection.delegates(guard)) revert Invalid();
+        Dependency storage pin = dependencies[id][dependency];
+        if (pin.codeHash == bytes32(0) || pin.guard != address(0)
+            || !IAppDeploymentGuard(guard).valid(dependency)) revert Invalid();
+        pin.guard = guard;
+        pin.guardCodeHash = guard.codehash;
+        emit DependencyGuardSet(id, dependency, guard);
+    }
+
+    function dependenciesValid(bytes32 id) public view returns (bool) {
+        for (uint256 i; i < dependencyList[id].length; ++i) {
+            if (!dependencyValid(id, dependencyList[id][i])) return false;
+        }
+        return true;
+    }
+
+    function dependencyValid(bytes32 id, address dependency) public view returns (bool) {
+        Dependency memory pin = dependencies[id][dependency];
+        if (pin.codeHash == bytes32(0) || dependency.code.length == 0 || dependency.codehash != pin.codeHash) return false;
+        if (pin.guard == address(0)) return !pin.requiresGuard;
+        if (pin.guard.codehash != pin.guardCodeHash) return false;
+        try IAppDeploymentGuard(pin.guard).valid(dependency) returns (bool valid) { return valid; }
+        catch { return false; }
+    }
+
+    function _sharedDependenciesValid(bytes32 id) private view returns (bool) {
+        for (uint256 i; i < sharedDependencies[id].length; ++i) {
+            if (!dependencyValid(id, sharedDependencies[id][i])) return false;
+        }
+        return true;
     }
 
     function freeze(bytes32 id) external {
@@ -103,6 +177,7 @@ contract IntegrationRegistry {
         }
         if (maxDataLength < 4 || (amountArg != type(uint8).max && maxAmount == 0)) revert Invalid();
         callCodeHashes[id][target][selector] = target.codehash;
+        _pinDependency(id, target);
         callPolicies[id][target][selector] =
             CallPolicy(target.codehash, maxDataLength, recipientArg, amountArg, maxAmount, address(0), bytes32(0), true);
         callCount[id] += 1;
@@ -116,6 +191,7 @@ contract IntegrationRegistry {
         CallPolicy storage policy = callPolicies[id][target][selector];
         if (!policy.active || policy.validator != address(0)) revert Invalid();
         policy.validator = validator;
+        _pinDependency(id, validator);
         policy.validatorCodeHash = validator.codehash;
         validatedCallCount[id] += 1;
         emit CallValidatorRegistered(id, target, selector, validator);
@@ -134,6 +210,7 @@ contract IntegrationRegistry {
         }
         recoveryCallPolicies[id][target][selector] =
             RecoveryCallPolicy(target.codehash, maxDataLength, recipientArg, address(0), bytes32(0), true);
+        _pinDependency(id, target);
         recoveryCallCount[id] += 1;
         emit RecoveryCallRegistered(id, target, selector);
     }
@@ -145,6 +222,7 @@ contract IntegrationRegistry {
         RecoveryCallPolicy storage policy = recoveryCallPolicies[id][target][selector];
         if (!policy.active || policy.validator != address(0)) revert Invalid();
         policy.validator = validator;
+        _pinDependency(id, validator);
         policy.validatorCodeHash = validator.codehash;
         validatedRecoveryCallCount[id] += 1;
         emit RecoveryValidatorRegistered(id, target, selector, validator);
@@ -166,7 +244,8 @@ contract IntegrationRegistry {
         if (data.length < 4) return false;
         Version memory version = versions[id];
         RecoveryCallPolicy memory policy = recoveryCallPolicies[id][target][bytes4(data[:4])];
-        if (version.codeHash == bytes32(0) || !policy.active || target.codehash != policy.codeHash
+        if (version.codeHash == bytes32(0) || !_sharedDependenciesValid(id) || !dependencyValid(id, target)
+            || !dependencyValid(id, policy.validator) || !policy.active || target.codehash != policy.codeHash
             || data.length > policy.maxDataLength || policy.validator == address(0)
             || policy.validator.codehash != policy.validatorCodeHash) return false;
         if (policy.recipientArg != type(uint8).max) {
@@ -187,7 +266,7 @@ contract IntegrationRegistry {
 
     function isCallAllowed(bytes32 id, address target, bytes4 selector) external view returns (bool) {
         Version memory version = versions[id];
-        return version.active && !version.frozen && callPolicies[id][target][selector].active
+        return version.active && !version.frozen && dependenciesValid(id) && callPolicies[id][target][selector].active
             && target.codehash == callCodeHashes[id][target][selector]
             && callPolicies[id][target][selector].validator != address(0)
             && callPolicies[id][target][selector].validator.codehash
@@ -196,7 +275,7 @@ contract IntegrationRegistry {
 
     function isActive(bytes32 id) external view returns (bool) {
         Version memory version = versions[id];
-        return version.active && !version.frozen && callCount[id] != 0;
+        return version.active && !version.frozen && dependenciesValid(id) && callCount[id] != 0;
     }
 
     function validateCall(bytes32 id, address target, bytes calldata data, address account, uint256 drawAmount)
@@ -209,7 +288,7 @@ contract IntegrationRegistry {
         Version memory version = versions[id];
         CallPolicy memory policy = callPolicies[id][target][selector];
         if (
-            !version.active || version.frozen || !policy.active || target.codehash != policy.codeHash
+            !version.active || version.frozen || !dependenciesValid(id) || !policy.active || target.codehash != policy.codeHash
                 || data.length > policy.maxDataLength || policy.validator == address(0)
                 || policy.validator.codehash != policy.validatorCodeHash
         ) return false;

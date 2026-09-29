@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Events} from "../../shared/Events.sol";
 import {ISettlementInbox} from "./ISettlementInbox.sol";
 import {SafeTransferLib} from "../../shared/SafeTransferLib.sol";
+import {AuthLib} from "../../shared/AuthLib.sol";
 
 interface ISettlementReceiver {
     function onSettlement(bytes32 operationId, bytes32 creditId, address token, uint256 amount) external;
@@ -24,10 +25,15 @@ contract SettlementInbox is ISettlementInbox {
     address public immutable vault;
     address public immutable token;
     bytes32 public immutable creditId;
-    uint256 public immutable minOut;
+    uint256 public minOut;
     uint256 public immutable maxReceived;
     address public immutable refundRecipient;
-    uint256 public immutable deadline;
+    uint256 public deadline;
+    address public immutable factory;
+    address public lpAuthorizer;
+    uint256 public lpMinShares;
+    uint256 public lpMaxDeposit;
+    uint256 public lpRevision = 1;
     uint256 public received;
     uint256 public applied;
     uint256 public refunded;
@@ -44,6 +50,8 @@ contract SettlementInbox is ISettlementInbox {
     error ReceiverFailed();
 
     event UntrackedRefunded(bytes32 indexed operationId, uint256 amount);
+    event LpAuthorizationRevised(bytes32 indexed operationId, uint256 revision);
+    event Cancelled(bytes32 indexed operationId);
 
     constructor(
         bytes32 operationId_,
@@ -67,6 +75,9 @@ contract SettlementInbox is ISettlementInbox {
         maxReceived = maxReceived_;
         refundRecipient = refundRecipient_;
         deadline = deadline_;
+        factory = msg.sender;
+        lpAuthorizer = refundRecipient_;
+        lpMaxDeposit = maxReceived_;
     }
 
     modifier guard() {
@@ -97,18 +108,51 @@ contract SettlementInbox is ISettlementInbox {
         received += amount;
     }
 
-    function cancel() external {
+    function configureLp(address authorizer, uint256 minShares) external {
+        if (msg.sender != factory || creditId != bytes32(0) || authorizer == address(0)
+            || minShares == 0 || lpMinShares != 0 || applied != 0 || refunded != 0 || cancelled) revert InvalidRecipient();
+        lpAuthorizer = authorizer;
+        lpMinShares = minShares;
+    }
+
+    function reviseLp(uint256 minimum, uint256 maximum, uint256 minShares, uint256 newDeadline,
+        uint256 revision, uint256 authorizationDeadline, bytes calldata signature) external guard {
+        if (creditId != bytes32(0) || cancelled || applied != 0 || refunded != 0 || lpMinShares == 0
+            || minimum > maximum || maximum == 0 || maximum > maxReceived || minShares == 0
+            || newDeadline <= block.timestamp || block.timestamp > authorizationDeadline
+            || revision != lpRevision + 1) revert InvalidRecipient();
+        bytes32 digest = lpRevisionDigest(minimum, maximum, minShares, newDeadline, revision, authorizationDeadline);
+        if (msg.sender != lpAuthorizer && !AuthLib.verify(digest, signature, lpAuthorizer)) revert InvalidRecipient();
+        minOut = minimum;
+        lpMaxDeposit = maximum;
+        lpMinShares = minShares;
+        deadline = newDeadline;
+        lpRevision = revision;
+        emit LpAuthorizationRevised(operationId, revision);
+    }
+
+    function lpRevisionDigest(uint256 minimum, uint256 maximum, uint256 minShares, uint256 newDeadline,
+        uint256 revision, uint256 authorizationDeadline) public view returns (bytes32) {
+        return AuthLib.typedDigest(AuthLib.domainSeparator(), keccak256(abi.encode(
+            keccak256("LpRevision(bytes32 operationId,uint256 minimum,uint256 maximum,uint256 minShares,uint256 deadline,uint256 revision,uint256 authorizationDeadline)"),
+            operationId, minimum, maximum, minShares, newDeadline, revision, authorizationDeadline
+        )));
+    }
+
+    function cancel() external guard {
         if (creditId != bytes32(0)) revert InvalidRecipient();
-        if (msg.sender != vault && msg.sender != refundRecipient) revert InvalidRecipient();
-        if (block.timestamp > deadline) revert Expired();
-        if (available() != 0) revert Nothing();
+        if (msg.sender != lpAuthorizer || applied != 0 || cancelled) revert InvalidRecipient();
         cancelled = true;
+        emit Cancelled(operationId);
     }
 
     function settle(uint256 amount) external guard {
         if (cancelled || (creditId == bytes32(0) && block.timestamp > deadline)) revert Expired();
         if (amount == 0 || amount > available()) revert Nothing();
-        if (creditId == bytes32(0) && (amount != available() || amount < minOut)) revert Nothing();
+        if (creditId == bytes32(0)
+            && (applied != 0 || refunded != 0 || amount != available() || amount < minOut || amount > lpMaxDeposit)) {
+            revert Nothing();
+        }
         applied += amount;
         uint256 vaultBalance = _balanceOf(vault);
         token.safeTransfer(vault, amount);
@@ -120,7 +164,9 @@ contract SettlementInbox is ISettlementInbox {
     }
 
     function refund(uint256 amount) external guard {
-        if (!cancelled && block.timestamp <= deadline) revert Expired();
+        if (!cancelled && block.timestamp <= deadline && !(creditId == bytes32(0) && (applied != 0 || refunded != 0))) {
+            revert Expired();
+        }
         if (amount == 0 || amount > available()) revert Nothing();
         if (creditId != bytes32(0) && ICreditDebt(ISettlementDebt(vault).core()).creditDebt(creditId) != 0) {
             revert Nothing();
@@ -133,7 +179,9 @@ contract SettlementInbox is ISettlementInbox {
     }
 
     function refundUntracked(uint256 amount) external guard {
-        if (block.timestamp <= deadline) revert Expired();
+        if (block.timestamp <= deadline && !(creditId == bytes32(0) && (cancelled || applied != 0 || refunded != 0))) {
+            revert Expired();
+        }
         if (creditId != bytes32(0) && ICreditDebt(ISettlementDebt(vault).core()).creditDebt(creditId) != 0) {
             revert Nothing();
         }

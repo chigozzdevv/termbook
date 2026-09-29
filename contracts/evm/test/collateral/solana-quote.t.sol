@@ -154,8 +154,8 @@ contract SolanaQuoteTest is Test {
 
     function setUp() public {
         settlement = new MockERC20();
-        core = new TermbookCore(address(this), address(this), address(0));
-        vault = new HouseVault(address(settlement), address(core), address(this), address(0), address(0));
+        core = TermbookCore(deployCode("TermbookCore.sol:TermbookCore", abi.encode(address(this), address(this), address(0))));
+        vault = HouseVault(deployCode("HouseVault.sol:HouseVault", abi.encode(address(settlement), address(core), address(this), address(0), address(0))));
         registry = new VerifierRegistry(address(this));
         verifier = new MockSolanaProofVerifier();
         oracle = new MockRemoteSaleOracle();

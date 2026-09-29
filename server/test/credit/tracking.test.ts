@@ -15,7 +15,7 @@ const bundleId = `0x${"b".repeat(64)}`;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(monadClient).mockReturnValue({ readContract: async () => ({
+  vi.mocked(monadClient).mockReturnValue({ getBlock: async () => ({ number: 100n, hash: `0x${"f".repeat(64)}` }), readContract: async () => ({
     revision: 7n, facility: 4, debt: 125n, borrower, house, bundleId,
   }) } as never);
   vi.mocked(creditRepo.save).mockImplementation(async (input) => input as never);

@@ -45,6 +45,19 @@ export const houseVaultAbi = [
   },
   {
     "type": "function",
+    "name": "MAX_ACTIVE_CREDITS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "accruedReceivables",
     "inputs": [],
     "outputs": [
@@ -52,6 +65,38 @@ export const houseVaultAbi = [
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "activeCreditCount",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "activeCredits",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ],
     "stateMutability": "view"
@@ -209,6 +254,25 @@ export const houseVaultAbi = [
   },
   {
     "type": "function",
+    "name": "claimLateRecovery",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "claimWithdrawal",
     "inputs": [
       {
@@ -284,6 +348,44 @@ export const houseVaultAbi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "contingentPrincipal",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "contingentReceivables",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -376,6 +478,63 @@ export const houseVaultAbi = [
   },
   {
     "type": "function",
+    "name": "creditFundingOpen",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "creditImpairment",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "creditWrittenOff",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "deposit",
     "inputs": [
       {
@@ -457,6 +616,62 @@ export const houseVaultAbi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "economicShares",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "economicSharesAt",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "sequence",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "finalizeRecovery",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -591,6 +806,58 @@ export const houseVaultAbi = [
   },
   {
     "type": "function",
+    "name": "lateRecoveryCash",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "losses",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "sequence",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "shares",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "uncovered",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "recovered",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "covered",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "lpInboxMinShares",
     "inputs": [
       {
@@ -715,6 +982,19 @@ export const houseVaultAbi = [
   },
   {
     "type": "function",
+    "name": "pendingAccrual",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "pendingByCredit",
     "inputs": [
       {
@@ -785,6 +1065,25 @@ export const houseVaultAbi = [
   },
   {
     "type": "function",
+    "name": "protectionRefundable",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "protocolFeeBps",
     "inputs": [],
     "outputs": [
@@ -811,6 +1110,19 @@ export const houseVaultAbi = [
   },
   {
     "type": "function",
+    "name": "protocolFeeRemainder",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "protocolFeesPaid",
     "inputs": [],
     "outputs": [
@@ -825,6 +1137,19 @@ export const houseVaultAbi = [
   {
     "type": "function",
     "name": "queuedWithdrawalAssets",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "queuedWithdrawalShares",
     "inputs": [],
     "outputs": [
       {
@@ -901,19 +1226,6 @@ export const houseVaultAbi = [
   },
   {
     "type": "function",
-    "name": "recognizeImpairment",
-    "inputs": [
-      {
-        "name": "amount",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "recordAccruedReceivable",
     "inputs": [
       {
@@ -929,6 +1241,43 @@ export const houseVaultAbi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "recoveryClaimed",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "recoveryReserve",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract RecoveryReserve"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -948,6 +1297,19 @@ export const houseVaultAbi = [
         "name": "amount",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "registerCredit",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ],
     "outputs": [],
@@ -1135,6 +1497,24 @@ export const houseVaultAbi = [
   },
   {
     "type": "function",
+    "name": "setCreditImpairment",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setDepositsOpen",
     "inputs": [
       {
@@ -1260,6 +1640,19 @@ export const houseVaultAbi = [
   },
   {
     "type": "function",
+    "name": "shareSequence",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "shares",
     "inputs": [
       {
@@ -1293,6 +1686,32 @@ export const houseVaultAbi = [
   {
     "type": "function",
     "name": "totalShares",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "unregisterCredit",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "unresolvedCreditImpairment",
     "inputs": [],
     "outputs": [
       {
@@ -1353,7 +1772,33 @@ export const houseVaultAbi = [
   },
   {
     "type": "function",
+    "name": "withdrawalHead",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "withdrawalNonce",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "withdrawalTail",
     "inputs": [],
     "outputs": [
       {
@@ -1407,6 +1852,79 @@ export const houseVaultAbi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "writeOff",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "principal",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "receivables",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "event",
+    "name": "CreditImpairmentSet",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "CreditWrittenOff",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "loss",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "coverage",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "lpLoss",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
   },
   {
     "type": "event",
@@ -1466,10 +1984,47 @@ export const houseVaultAbi = [
   },
   {
     "type": "event",
-    "name": "ImpairmentRecognized",
+    "name": "LateRecoveryClaimed",
     "inputs": [
       {
+        "name": "creditId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "owner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
         "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "LateRecoveryReceived",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "lpAmount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "protectionAmount",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -1725,6 +2280,11 @@ export const houseVaultAbi = [
   {
     "type": "error",
     "name": "AccountingMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ApproveFailed",
     "inputs": []
   },
   {

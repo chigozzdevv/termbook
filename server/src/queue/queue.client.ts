@@ -9,6 +9,7 @@ import { canonicalJson } from "@termbook/schema";
 export type Job = { kind: string; payload: Record<string, unknown> };
 
 let shared: IORedis | null = null;
+const connections = new Set<IORedis>();
 const outboxSchema = new mongoose.Schema({
   jobId: { type: String, unique: true, required: true },
   kind: { type: String, required: true },
@@ -36,10 +37,26 @@ export function redisConnection(): IORedis | null {
 }
 
 export async function closeRedis(): Promise<void> {
+  const queueResults = await Promise.allSettled([...queues.values()].map((value) => value.close()));
+  queues.clear();
+  const connectionResults = await Promise.allSettled([...connections].map(async (connection) => {
+    try { await connection.quit(); } finally { connection.disconnect(); }
+  }));
+  connections.clear();
+  for (const result of [...queueResults, ...connectionResults]) {
+    if (result.status === "rejected") logger.error("queue-close-failed", { err: result.reason });
+  }
   if (shared) {
-    await shared.quit();
+    try { await shared.quit(); } catch (err) { logger.error("redis-close-failed", { err }); }
+    finally { shared.disconnect(); }
     shared = null;
   }
+}
+
+export function duplicateRedis(): IORedis | null {
+  const connection = redisConnection()?.duplicate() ?? null;
+  if (connection) connections.add(connection);
+  return connection;
 }
 
 export function jobId(job: Job): string {
@@ -58,7 +75,7 @@ function queueFor(kind: string): BullQueue | null {
   if (!conn) return null;
   let q = queues.get(kind);
   if (!q) {
-    q = new BullQueue(kind, { connection: conn.duplicate() });
+    q = new BullQueue(kind, { connection: duplicateRedis()! });
     queues.set(kind, q);
   }
   return q;

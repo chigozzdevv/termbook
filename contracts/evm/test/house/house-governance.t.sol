@@ -17,7 +17,7 @@ contract HouseGovernanceTest is Test {
 
     function setUp() public {
         token = new MockERC20();
-        vault = new HouseVault(address(token), address(this), address(this), address(0), address(0));
+        vault = HouseVault(deployCode("HouseVault.sol:HouseVault", abi.encode(address(token), address(this), address(this), address(0), address(0))));
         registry = new HouseRegistry(address(this));
         registry.register(house, address(vault), address(token), address(this));
         registry.setPolicy(house, 1, 500, 1 days, 365 days, 10_000, 100, 1_000);

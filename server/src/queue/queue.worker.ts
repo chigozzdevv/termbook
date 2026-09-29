@@ -1,5 +1,5 @@
 import { Worker } from "bullmq";
-import { queue, redisConnection } from "./queue.client.js";
+import { duplicateRedis, queue, redisConnection } from "./queue.client.js";
 import { logger } from "../logging/logger.js";
 
 export type Handler = (job: { kind: string; payload: Record<string, unknown> }) => Promise<void>;
@@ -41,6 +41,7 @@ export async function drainQueue(handle: Handler, kinds: readonly string[]): Pro
 }
 
 export async function startWorkers(): Promise<void> {
+  if (workers.length !== 0) return;
   const conn = redisConnection();
   if (!conn) return;
   for (const [kind, fn] of handlers) {
@@ -49,7 +50,7 @@ export async function startWorkers(): Promise<void> {
       async (j) => {
         await fn({ kind: j.name, payload: (j.data ?? {}) as Record<string, unknown> });
       },
-      { connection: conn.duplicate(), concurrency: 5 },
+      { connection: duplicateRedis()!, concurrency: 5 },
     );
     w.on("failed", (j, err) => logger.error("worker-failed", { kind, id: j?.id, err }));
     workers.push(w);
@@ -57,6 +58,9 @@ export async function startWorkers(): Promise<void> {
 }
 
 export async function stopWorkers(): Promise<void> {
-  await Promise.all(workers.map((w) => w.close()));
+  const results = await Promise.allSettled(workers.map((w) => w.close()));
+  for (const result of results) {
+    if (result.status === "rejected") logger.error("worker-close-failed", { err: result.reason });
+  }
   workers.length = 0;
 }

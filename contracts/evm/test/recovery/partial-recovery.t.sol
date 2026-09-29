@@ -14,7 +14,7 @@ contract PartialRecoveryTest is Test {
 
     function setUp() public {
         engine = new RiskEngine(address(this));
-        core = new TermbookCore(address(this), address(this), address(engine));
+        core = TermbookCore(deployCode("TermbookCore.sol:TermbookCore", abi.encode(address(this), address(this), address(engine))));
         engine = RiskEngine(address(engine));
     }
 

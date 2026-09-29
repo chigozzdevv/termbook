@@ -12,6 +12,11 @@ import {SettlementInbox} from "../../src/monad/routing/SettlementInbox.sol";
 import {InboxFactory} from "../../src/monad/routing/InboxFactory.sol";
 import {Types} from "../../src/shared/Types.sol";
 import {MockHealthSource} from "../MockHealthSource.sol";
+import {IExitVerifier} from "../../src/monad/integration/IExitVerifier.sol";
+
+contract LocalRecoveryExitVerifier is IExitVerifier {
+    function canExit(bytes32, address) external pure returns (bool) { return true; }
+}
 
 contract LocalRecoveryTest is Test {
     MockERC20 token;
@@ -29,11 +34,11 @@ contract LocalRecoveryTest is Test {
 
     function setUp() public {
         token = new MockERC20();
-        core = new TermbookCore(address(this), address(this), address(0));
+        core = TermbookCore(deployCode("TermbookCore.sol:TermbookCore", abi.encode(address(this), address(this), address(0))));
         risk = new RiskEngine(address(core));
         healthSource = new MockHealthSource();
-        inboxFactory = new InboxFactory(address(this));
-        houseVault = new HouseVault(address(token), address(core), address(this), address(inboxFactory), address(0));
+        inboxFactory = InboxFactory(deployCode("InboxFactory.sol:InboxFactory", abi.encode(address(this))));
+        houseVault = HouseVault(deployCode("HouseVault.sol:HouseVault", abi.encode(address(token), address(core), address(this), address(inboxFactory), address(0))));
         collateralVault = new CollateralVault(address(token), block.chainid, address(core));
         core.setLocalCollateralVault(address(collateralVault), address(collateralVault).codehash);
         accounts = new AccountFactory();
@@ -41,6 +46,7 @@ contract LocalRecoveryTest is Test {
         borrower = vm.addr(borrowerKey);
         core.setRisk(address(risk));
         core.setHealthSource(address(healthSource));
+        core.setExitVerifier(keccak256("bundle"), address(new LocalRecoveryExitVerifier()));
         core.setRecoveryKeeper(address(this), true);
         token.mint(address(this), 2_000);
         token.approve(address(houseVault), 1_000);
@@ -49,6 +55,10 @@ contract LocalRecoveryTest is Test {
     }
 
     function _prepare(bytes32 creditId) internal returns (bytes32 lockId) {
+        return _prepareWithCollateral(creditId, 1_000);
+    }
+
+    function _prepareWithCollateral(bytes32 creditId, uint256 collateralAmount) internal returns (bytes32 lockId) {
         uint256 setupDeadline = block.timestamp + 1 days;
         uint256 maturity = block.timestamp + 30 days;
         uint256 expiry = block.timestamp + 1 days;
@@ -94,7 +104,7 @@ contract LocalRecoveryTest is Test {
         token.approve(address(collateralVault), 1_000);
         core.setCollateral(creditId, address(collateralVault), borrower);
         lockId = keccak256("lock");
-        collateralVault.lock(lockId, creditId, borrower, 1_000, borrower);
+        collateralVault.lock(lockId, creditId, borrower, collateralAmount, borrower);
         vm.stopPrank();
         vm.prank(borrower);
         core.bindCollateral(creditId, lockId);
@@ -192,8 +202,10 @@ contract LocalRecoveryTest is Test {
         _draw(creditId);
         _liquidate(creditId);
         core.recoverCollateral(creditId, 100);
-        vm.prank(address(houseVault));
-        core.finalizeRecovery(creditId);
+        vm.expectRevert(TermbookCore.RecoveryIncomplete.selector);
+        houseVault.finalizeRecovery(creditId);
+        core.recoverCollateral(creditId, 400);
+        houseVault.finalizeRecovery(creditId);
         _recordHealth(creditId, Types.HealthSnapshot(400, 0, 1_000, 0, 10_000, 0, 0, 1_000, 25_000));
         vm.expectRevert(TermbookCore.BadState.selector);
         core.cure(creditId);
@@ -246,14 +258,13 @@ contract LocalRecoveryTest is Test {
 
     function testLateSettlementAfterLiquidationRecordsRecovery() public {
         bytes32 creditId = keccak256("credit-late-recovery");
-        _prepare(creditId);
+        _prepareWithCollateral(creditId, 100);
         _draw(creditId);
+        deal(address(token), core.creditAccount(creditId), 0);
         _liquidate(creditId);
         core.recoverCollateral(creditId, 100);
 
-        vm.prank(address(houseVault));
-        core.finalizeRecovery(creditId);
-        core.finishLiquidation(creditId);
+        houseVault.finalizeRecovery(creditId);
 
         SettlementInbox inbox = SettlementInbox(inboxFactory.create(
             keccak256("late-recovery-operation"),
@@ -274,5 +285,8 @@ contract LocalRecoveryTest is Test {
         TermbookCore.Credit memory credit = core.creditDetails(creditId);
         assertEq(credit.recovery, 200);
         assertEq(uint256(core.creditFacility(creditId)), uint256(Types.Facility.Liquidated));
+        assertEq(houseVault.contingentPrincipal(creditId), 300);
+        assertEq(houseVault.drawnPrincipal(), 0);
+        assertEq(houseVault.claimLateRecovery(creditId), 100);
     }
 }

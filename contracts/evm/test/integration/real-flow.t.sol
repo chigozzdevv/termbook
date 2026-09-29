@@ -22,16 +22,31 @@ import {IAppRecoveryAdapter} from "../../src/monad/integration/IAppRecoveryAdapt
 import {IAppValueReader} from "../../src/monad/integration/IAppValueReader.sol";
 import {IAppStateReader} from "../../src/monad/integration/IAppStateReader.sol";
 import {AppHealthReader} from "../../src/monad/risk/AppHealthReader.sol";
+import {IAppExitPlanner} from "../../src/monad/integration/IAppExitPlanner.sol";
+import {IAppCashReader} from "../../src/monad/integration/IAppCashReader.sol";
 
 contract MockExitVerifier is IExitVerifier {
     bool public ready = true;
+    FundedPositionTarget public target;
+
+    function watch(FundedPositionTarget target_) external { target = target_; }
 
     function setReady(bool value) external {
         ready = value;
     }
 
-    function canExit(bytes32, address) external view returns (bool) {
-        return ready;
+    function canExit(bytes32, address account) external view returns (bool) {
+        return ready && (address(target) == address(0) || target.positions(account) == 0);
+    }
+}
+
+contract PositionExitPlanner is IAppExitPlanner {
+    FundedPositionTarget public immutable target;
+    constructor(FundedPositionTarget target_) { target = target_; }
+
+    function nextExitStep(bytes32, address account) external view returns (bytes32, bytes memory, uint256) {
+        uint256 position = target.positions(account);
+        return (bytes32(position), abi.encode(position > 100 ? uint256(100) : position), 0);
     }
 }
 
@@ -123,6 +138,9 @@ contract FundedPositionRecoveryAdapter is IAppRecoveryAdapter {
 }
 
 contract BasePositionHealthReader is IHealthReader {
+    function readCash(bytes32, uint256) external view returns (uint256, uint256) {
+        return (50, block.timestamp);
+    }
     function readHealth(bytes32, uint256, uint256 debt, address)
         external
         view
@@ -133,6 +151,9 @@ contract BasePositionHealthReader is IHealthReader {
 }
 
 contract TestAppValueReader is IAppValueReader, IAppStateReader {
+    function reservedCash(bytes32, address, address) external view returns (uint256, uint256) {
+        return (0, block.timestamp);
+    }
     uint256 public positionsCount;
     uint256 public pendingActionsCount;
 
@@ -142,7 +163,7 @@ contract TestAppValueReader is IAppValueReader, IAppStateReader {
     }
 
     function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
-        return interfaceId == type(IAppStateReader).interfaceId;
+        return interfaceId == type(IAppStateReader).interfaceId || interfaceId == type(IAppCashReader).interfaceId;
     }
 
     function positionCount(bytes32, address) external view returns (uint256) {
@@ -210,6 +231,10 @@ contract FundedPositionHealthSource is IHealthSource {
             HealthMath.healthBps(recovery, debt, 0)
         );
     }
+
+    function freeCash(bytes32 creditId, bytes32, uint256) external view returns (uint256) {
+        return token.balanceOf(core.creditAccount(creditId)) - reservedCash;
+    }
 }
 
 contract RealFlowTest is Test {
@@ -232,15 +257,15 @@ contract RealFlowTest is Test {
         house = vm.addr(houseKey);
         borrower = vm.addr(borrowerKey);
         token = new MockERC20();
-        core = new TermbookCore(address(this), address(this), address(0));
+        core = TermbookCore(deployCode("TermbookCore.sol:TermbookCore", abi.encode(address(this), address(this), address(0))));
         risk = new RiskEngine(address(core));
         healthSource = new MockHealthSource();
         exitVerifier = new MockExitVerifier();
         core.setRisk(address(risk));
         core.setHealthSource(address(healthSource));
         core.setExitVerifier(keccak256("bundle"), address(exitVerifier));
-        inboxFactory = new InboxFactory(address(this));
-        houseVault = new HouseVault(address(token), address(core), address(this), address(inboxFactory), address(0));
+        inboxFactory = InboxFactory(deployCode("InboxFactory.sol:InboxFactory", abi.encode(address(this))));
+        houseVault = HouseVault(deployCode("HouseVault.sol:HouseVault", abi.encode(address(token), address(core), address(this), address(inboxFactory), address(0))));
         collateralVault = new CollateralVault(address(token), block.chainid, address(core));
         core.setLocalCollateralVault(address(collateralVault), address(collateralVault).codehash);
         accountFactory = new AccountFactory();
@@ -430,7 +455,7 @@ contract RealFlowTest is Test {
         vm.prank(borrower);
         core.bindAccount(creditId, account);
         core.configureRisk(creditId, 15_000, 13_000, 12_000, 11_500, 11_000);
-        _recordHealth(creditId, Types.HealthSnapshot(0, 0, 0, 0, 0, 0, 0, 10_000, 0));
+        _recordHealth(creditId, Types.HealthSnapshot(0, 0, 10_000, 0, 10_000, 0, 0, 10_000, 0));
     }
 
     function _prepare(bytes32 creditId) internal returns (bytes32 lockId, address account) {
@@ -447,7 +472,7 @@ contract RealFlowTest is Test {
         vm.prank(borrower);
         core.bindAccount(creditId, account);
         core.configureRisk(creditId, 15_000, 13_000, 12_000, 11_500, 11_000);
-        Types.HealthSnapshot memory snapshot = Types.HealthSnapshot(0, 0, 0, 0, 0, 0, 0, 10_000, 0);
+        Types.HealthSnapshot memory snapshot = Types.HealthSnapshot(0, 0, 10_000, 0, 10_000, 0, 0, 10_000, 0);
         _recordHealth(creditId, snapshot);
     }
 
@@ -850,6 +875,55 @@ contract RealFlowTest is Test {
         core.exitApp(creditId, abi.encode(uint256(100)));
     }
 
+    function testClosingUnwindsAndRepaysAnAccountWithNoFreeCash() public {
+        bytes32 id = keccak256("indebted-close");
+        bytes32 bundle = keccak256("bundle");
+        FundedPositionTarget position = new FundedPositionTarget(token);
+        FundedPositionRecoveryAdapter adapter = new FundedPositionRecoveryAdapter(position);
+        core.setAppRecoveryAdapter(bundle, address(adapter));
+        core.setExitPlanner(bundle, address(new PositionExitPlanner(position)));
+        core.setHealthSource(address(new FundedPositionHealthSource(token, core, position)));
+        exitVerifier.watch(position);
+        core.setApprovedCall(address(position), FundedPositionTarget.deposit.selector, true);
+        (bytes32 lockId, address account) = _prepare(id);
+        bytes memory data = abi.encodeWithSelector(FundedPositionTarget.deposit.selector, 200);
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes32 digest = keccak256(abi.encode(core.domain(), id, keccak256(abi.encode(address(position), data)),
+            uint256(200), uint256(200), uint256(1), deadline, core.creditRevision(id)));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(borrowerKey, digest);
+        core.executeAction(id, address(position), data, 200, 200, 1, deadline, abi.encodePacked(r, s, v));
+        assertEq(token.balanceOf(account), 0);
+        vm.prank(borrower);
+        core.startClosing(id);
+        assertEq(houseVault.creditCommitted(id), 0);
+        (bytes32 step,,,) = core.closeStep(id);
+        vm.prank(borrower);
+        vm.expectRevert(TermbookCore.BadState.selector);
+        core.advanceClose(id, keccak256("wrong"));
+        adapter.setValid(false);
+        vm.prank(borrower);
+        vm.expectRevert(TermbookCore.BadState.selector);
+        core.advanceClose(id, step);
+        assertEq(position.positions(account), 200);
+        assertFalse(core.completedExitSteps(id, bytes32(uint256(200))));
+        adapter.setValid(true);
+        vm.startPrank(borrower);
+        core.advanceClose(id, step);
+        assertEq(core.repayAvailableCash(id), 100);
+        (step,,,) = core.closeStep(id);
+        core.advanceClose(id, step);
+        assertEq(core.repayAvailableCash(id), 100);
+        (,, bool done,) = core.closeStep(id);
+        assertTrue(done);
+        core.authorizeReturn(id, lockId, 500);
+        core.finishClose(id);
+        vm.stopPrank();
+        assertEq(core.creditDebt(id), 0);
+        assertEq(uint256(core.creditFacility(id)), uint256(Types.Facility.Closed));
+        assertEq(houseVault.totalAssets(), 10_000);
+        assertEq(houseVault.activeCreditCount(), 0);
+    }
+
     function testAppActionsCannotBorrowOrSpendAfterMaturity() public {
         bytes32 creditId = keccak256("matured-app-action");
         _prepare(creditId);
@@ -870,7 +944,7 @@ contract RealFlowTest is Test {
         _prepare(creditId);
         uint256 deadline = block.timestamp + 1 hours;
         for (uint256 nonce = 1; nonce <= 2; ++nonce) {
-            _recordHealth(creditId, Types.HealthSnapshot(0, 0, 0, 0, 0, 0, 0, 10_000, 0));
+            _recordHealth(creditId, Types.HealthSnapshot(0, 0, 10_000, 0, 10_000, 0, 0, 10_000, 0));
             bytes32 digest = keccak256(abi.encode(core.domain(), creditId, uint256(100), uint256(100),
                 nonce, deadline, core.creditRevision(creditId)));
             (uint8 v, bytes32 r, bytes32 s) = vm.sign(borrowerKey, digest);
@@ -1053,7 +1127,7 @@ contract RealFlowTest is Test {
         assertEq(core.creditDebt(creditId), 150);
     }
 
-    function testHealthSnapshotMustMatchCreditRevision() public {
+    function testDrawRefreshesHealthForCurrentCreditRevision() public {
         bytes32 creditId = keccak256("revision-health-credit");
         _prepare(creditId);
         uint256 deadline = block.timestamp + 1 hours;
@@ -1067,7 +1141,6 @@ contract RealFlowTest is Test {
         digest =
             keccak256(abi.encode(core.domain(), creditId, uint256(100), uint256(100), uint256(5), deadline, revision));
         (v, r, s) = vm.sign(borrowerKey, digest);
-        vm.expectRevert(TermbookCore.BadHealth.selector);
         core.draw(creditId, 100, 100, 5, deadline, abi.encodePacked(r, s, v));
     }
 
@@ -1150,7 +1223,7 @@ contract RealFlowTest is Test {
         vm.prank(borrower);
         core.bindAccount(creditId, account);
         core.configureRisk(creditId, 15_000, 13_000, 12_000, 11_500, 11_000);
-        _recordHealth(creditId, Types.HealthSnapshot(0, 0, 0, 0, 0, 0, 0, 10_000, 0));
+        _recordHealth(creditId, Types.HealthSnapshot(0, 0, 10_000, 0, 10_000, 0, 0, 10_000, 0));
     }
 
     function testInboxSettlementUpdatesDebtAtomically() public {

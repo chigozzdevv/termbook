@@ -77,10 +77,10 @@ contract VerifierVersionTest is Test {
 
     function setUp() public {
         token = new MockERC20();
-        core = new TermbookCore(address(this), address(this), address(0));
+        core = TermbookCore(deployCode("TermbookCore.sol:TermbookCore", abi.encode(address(this), address(this), address(0))));
         monadCore = address(core);
         monadChain = block.chainid;
-        vault = new HouseVault(address(token), address(core), address(this), address(0), address(0));
+        vault = HouseVault(deployCode("HouseVault.sol:HouseVault", abi.encode(address(token), address(core), address(this), address(0), address(0))));
         registry = new VerifierRegistry(address(this));
         oracle = new MockRemoteSaleOracle();
         core.setVerifierRegistry(address(registry));
@@ -294,8 +294,8 @@ contract VerifierVersionTest is Test {
         internal
         returns (TermbookCore target, bytes32 creditId)
     {
-        target = new TermbookCore(address(this), address(this), address(0));
-        HouseVault targetVault = new HouseVault(address(token), address(target), address(this), address(0), address(0));
+        target = TermbookCore(deployCode("TermbookCore.sol:TermbookCore", abi.encode(address(this), address(this), address(0))));
+        HouseVault targetVault = HouseVault(deployCode("HouseVault.sol:HouseVault", abi.encode(address(token), address(target), address(this), address(0), address(0))));
         target.setSourceCollateralVault(99, address(token), address(0x1234));
         if (configureVerifier) target.setVerifierRegistry(address(registry));
         if (configureRecovery) target.setSourceRecoveryVault(99, address(token), address(0x5678));

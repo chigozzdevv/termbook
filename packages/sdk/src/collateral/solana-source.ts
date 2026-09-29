@@ -270,6 +270,11 @@ export class SolanaSourceLockWallet implements SourceLockWallet {
     this.rpc = config.rpc ?? new SolanaJsonRpc(config.rpcUrl);
   }
 
+  async submitAction(plan: unknown): Promise<{ txId: string }> {
+    const { submitSolanaAction } = await import("./solana-action.js");
+    return { txId: await submitSolanaAction(plan, this.config.wallet, this.rpc) };
+  }
+
   private async checked(binding: CollateralSetupBinding): Promise<string> {
     collateralSetupBindingSchema.parse(binding);
     if (binding.asset.namespace !== "solana" || binding.sourceVault.namespace !== "solana"

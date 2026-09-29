@@ -87,9 +87,9 @@ contract AuthorizedInboxTest is Test {
         token = new MockERC20();
         adapter = new MockSettlementReceiver();
         core = new MockRouteCore();
-        factory = new InboxFactory(address(this));
+        factory = InboxFactory(deployCode("InboxFactory.sol:InboxFactory", abi.encode(address(this))));
         registry = new RouteRegistry(address(this));
-        house = new HouseVault(address(token), address(core), address(this), address(factory), address(0));
+        house = HouseVault(deployCode("HouseVault.sol:HouseVault", abi.encode(address(token), address(core), address(this), address(factory), address(0))));
         payer = vm.addr(payerKey);
         core.set(address(house), payer, address(token));
         registry.setRoute(
@@ -173,6 +173,57 @@ contract AuthorizedInboxTest is Test {
         assertEq(house.shares(payer), 500);
         assertEq(house.freeCash(), 500);
         assertTrue(house.lpInboxMinted(address(inbox)));
+    }
+
+    function testLpPayerCanCancelFundedInboxAndRefundLateReceipts() public {
+        InboxFactory.Operation memory op = _operation(2);
+        op.refundRecipient = address(0xD00D);
+        SettlementInbox inbox = SettlementInbox(factory.createAuthorized(op, _signature(op)));
+        token.mint(address(inbox), 300);
+        inbox.notifyAll();
+        vm.prank(op.refundRecipient);
+        vm.expectRevert(SettlementInbox.InvalidRecipient.selector);
+        inbox.cancel();
+        vm.prank(payer);
+        inbox.cancel();
+        vm.expectRevert(SettlementInbox.Expired.selector);
+        inbox.settle(300);
+        inbox.refund(300);
+        token.mint(address(inbox), 200);
+        inbox.notifyAll();
+        inbox.refund(200);
+        assertEq(token.balanceOf(op.refundRecipient), 500);
+        assertEq(house.shares(payer), 0);
+        assertEq(inbox.available(), 0);
+    }
+
+    function testLpSignedRevisionResolvesFailedMintWithoutChangingRecipients() public {
+        InboxFactory.Operation memory op = _operation(2);
+        op.minShares = 501;
+        SettlementInbox inbox = SettlementInbox(factory.createAuthorized(op, _signature(op)));
+        token.mint(address(inbox), 500);
+        inbox.notifyAll();
+        vm.expectRevert(SettlementInbox.ReceiverFailed.selector);
+        inbox.settle(500);
+        uint256 deadline = block.timestamp + 2 days;
+        bytes32 digest = inbox.lpRevisionDigest(450, 550, 500, deadline, 2, deadline);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(payerKey, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+        vm.expectRevert(SettlementInbox.InvalidRecipient.selector);
+        inbox.reviseLp(450, 550, 499, deadline, 2, deadline, signature);
+        inbox.reviseLp(450, 550, 500, deadline, 2, deadline, signature);
+        vm.expectRevert(SettlementInbox.InvalidRecipient.selector);
+        inbox.reviseLp(450, 550, 500, deadline, 2, deadline, signature);
+        inbox.settle(500);
+        assertEq(house.shares(payer), 500);
+        assertEq(inbox.lpRevision(), 2);
+        token.mint(address(inbox), 50);
+        inbox.notifyAll();
+        inbox.refund(50);
+        assertEq(token.balanceOf(payer), 50);
+        vm.prank(payer);
+        vm.expectRevert(SettlementInbox.InvalidRecipient.selector);
+        inbox.reviseLp(450, 550, 500, deadline, 3, deadline, "");
     }
 
     function testLpDeliveryCannotMintWhileDepositsClosed() public {

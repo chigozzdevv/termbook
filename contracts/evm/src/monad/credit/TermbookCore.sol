@@ -10,8 +10,10 @@ import {RemoteAction} from "../../shared/collateral/RemoteAction.sol";
 import {ITermbookCore} from "./ITermbookCore.sol";
 import {IExitVerifier} from "../integration/IExitVerifier.sol";
 import {IAppRecoveryAdapter} from "../integration/IAppRecoveryAdapter.sol";
+import {IAppExitPlanner} from "../integration/IAppExitPlanner.sol";
 import {InboxFactory} from "../routing/InboxFactory.sol";
 import {IWormholeCore} from "../../shared/collateral/IWormholeCore.sol";
+import {CodeInspection} from "../../shared/CodeInspection.sol";
 import {WormholeTermbookMessages as WormholeMessages} from "../../shared/collateral/WormholeTermbookMessages.sol";
 
 interface IHouseVaultCore {
@@ -43,6 +45,9 @@ interface IHouseVaultCore {
     function collectBond(bytes32 creditId, address from, uint256 amount) external;
     function settleBond(bytes32 creditId, uint256 amount) external;
     function refundBond(bytes32 creditId, address recipient, uint256 amount) external;
+    function registerCredit(bytes32 creditId) external;
+    function unregisterCredit(bytes32 creditId) external;
+    function writeOff(bytes32 creditId, uint256 principal, uint256 receivables) external;
 }
 
 interface ICollateralVaultCore {
@@ -95,6 +100,7 @@ interface IHealthSourceCore {
         external
         view
         returns (Types.HealthSnapshot memory);
+    function freeCash(bytes32 creditId, bytes32 bundleId, uint256 revision) external view returns (uint256);
 }
 
 interface IOracleRegistrySaleCore {
@@ -103,6 +109,7 @@ interface IOracleRegistrySaleCore {
 
 interface IIntegrationRegistryCore {
     function isActive(bytes32 versionId) external view returns (bool);
+    function dependenciesValid(bytes32 versionId) external view returns (bool);
     function recoveryCallCount(bytes32 versionId) external view returns (uint256);
     function validateCall(bytes32 versionId, address target, bytes calldata data, address account, uint256 drawAmount)
         external
@@ -399,7 +406,11 @@ contract TermbookCore is ITermbookCore {
     mapping(bytes32 => bytes32) public exitVerifierCodeHash;
     mapping(bytes32 => address) public appRecoveryAdapterOfBundle;
     mapping(bytes32 => bytes32) public appRecoveryAdapterCodeHash;
+    mapping(bytes32 => address) public exitPlannerOfBundle;
+    mapping(bytes32 => bytes32) public exitPlannerCodeHash;
+    mapping(bytes32 => mapping(bytes32 => bool)) public completedExitSteps;
     mapping(bytes32 => bool) public bundleEverUsed;
+    mapping(bytes32 => bool) public fullTermination;
     mapping(bytes32 => bool) public intentUsed;
     mapping(address => mapping(uint256 => bool)) public houseNonces;
     mapping(bytes32 => mapping(uint256 => bool)) public nonceUsed;
@@ -502,6 +513,8 @@ contract TermbookCore is ITermbookCore {
     event AppRecoveryAdapterSet(bytes32 indexed bundleId, address indexed adapter);
     event AppRecoveryStep(bytes32 indexed creditId, address indexed adapter, address indexed target, bytes32 callHash);
     event AppExitStep(bytes32 indexed creditId, address indexed adapter, address indexed target, bytes32 callHash);
+    event FullRecoveryCommitted(bytes32 indexed creditId);
+    event RecoveryFinalized(bytes32 indexed creditId, uint256 remainingDebt);
     event SolanaMarketSet(
         uint256 indexed sourceChain, bytes32 indexed sourceGenesis, bytes32 programId, bytes32 programDataHash
     );
@@ -975,7 +988,7 @@ contract TermbookCore is ITermbookCore {
     function setExitVerifier(bytes32 bundleId, address verifier) external onlyGovernance {
         if (
             bundleId == bytes32(0) || bundleEverUsed[bundleId] || exitVerifierOfBundle[bundleId] != address(0)
-                || verifier.code.length == 0
+                || verifier.code.length == 0 || CodeInspection.delegates(verifier)
         ) revert InvalidTerms();
         exitVerifierOfBundle[bundleId] = verifier;
         exitVerifierCodeHash[bundleId] = verifier.codehash;
@@ -983,10 +996,17 @@ contract TermbookCore is ITermbookCore {
 
     function setAppRecoveryAdapter(bytes32 bundleId, address adapter) external onlyGovernance {
         if (bundleId == bytes32(0) || bundleEverUsed[bundleId] || appRecoveryAdapterOfBundle[bundleId] != address(0)
-            || adapter.code.length == 0) revert InvalidTerms();
+            || adapter.code.length == 0 || CodeInspection.delegates(adapter)) revert InvalidTerms();
         appRecoveryAdapterOfBundle[bundleId] = adapter;
         appRecoveryAdapterCodeHash[bundleId] = adapter.codehash;
         emit AppRecoveryAdapterSet(bundleId, adapter);
+    }
+
+    function setExitPlanner(bytes32 bundleId, address planner) external onlyGovernance {
+        if (bundleId == bytes32(0) || bundleEverUsed[bundleId] || exitPlannerOfBundle[bundleId] != address(0)
+            || planner.code.length == 0 || CodeInspection.delegates(planner)) revert InvalidTerms();
+        exitPlannerOfBundle[bundleId] = planner;
+        exitPlannerCodeHash[bundleId] = planner.codehash;
     }
 
     function setVerifierRegistry(address registry) external onlyGovernance {
@@ -1016,18 +1036,7 @@ contract TermbookCore is ITermbookCore {
     function recordHealth(bytes32 creditId) external nonReentrant {
         Credit storage c = _credits[creditId];
         _accrue(c, creditId);
-        if (healthSource == address(0) || riskEngine == address(0)) revert BadHealth();
-        Types.HealthSnapshot memory snapshot_ = IHealthSourceCore(healthSource).snapshot(
-            creditId,
-            c.bundleId,
-            c.revision,
-            c.debt
-        );
-        if (snapshot_.debt != c.debt) revert BadHealth();
-        if (snapshot_.appValue > 0) _requireAppRecoveryAdapter(c.bundleId);
-        IRiskCore(riskEngine).record(creditId, snapshot_);
-        healthSnapshotAt[creditId] = block.timestamp;
-        healthSnapshotRevision[creditId] = c.revision;
+        _requireFreshHealth(c, creditId);
     }
 
     function healthSnapshot(bytes32 creditId) external view returns (Types.HealthSnapshot memory) {
@@ -1534,6 +1543,7 @@ contract TermbookCore is ITermbookCore {
         c.policyVersion = policyVersion;
         c.accruedAt = block.timestamp;
         c.revision = 1;
+        IHouseVaultCore(p.vault).registerCredit(p.creditId);
         if (houseRegistry != address(0)) {
             if (riskEngine == address(0)) revert InvalidTerms();
             IRiskCore(riskEngine)
@@ -1965,6 +1975,13 @@ contract TermbookCore is ITermbookCore {
         _accrue(_credits[creditId], creditId);
     }
 
+    function previewVaultAccrual(bytes32 creditId) external view returns (uint256) {
+        Credit memory c = _credits[creditId];
+        if (msg.sender != c.vault || c.revision == 0) revert Unauthorized();
+        (uint256 interest, uint256 commitmentFee) = _previewAccrual(c, creditId);
+        return interest + commitmentFee;
+    }
+
     function _accrue(Credit storage c, bytes32 creditId) internal {
         if (c.revision == 0) revert BadState();
         if (c.accruedAt == 0) {
@@ -2067,6 +2084,7 @@ contract TermbookCore is ITermbookCore {
         c.revision = RevisionLib.next(c.revision);
         sessionGeneration[creditId] += 1;
         c.facility = Types.Facility.Aborted;
+        IHouseVaultCore(c.vault).unregisterCredit(creditId);
         emit Events.CreditAborted(creditId);
     }
 
@@ -2079,7 +2097,7 @@ contract TermbookCore is ITermbookCore {
         if (
             msg.sender != c.borrower
                 || (c.facility != Types.Facility.Closing && c.facility != Types.Facility.Aborted && !repaidRecovery)
-                || lockId != c.lockId || c.collateralReturned
+                || lockId != c.lockId || c.collateralReturned || c.debt != 0
         ) revert Unauthorized();
         if (c.facility == Types.Facility.Closing || repaidRecovery) _requireExitReady(c, creditId);
         if (amount == 0 || amount > c.collateralAmount) revert InvalidCollateral();
@@ -2789,8 +2807,7 @@ contract TermbookCore is ITermbookCore {
         if (amount == 0 || amount >= c.collateralAmount) revert InvalidCollateral();
         _accrue(c, creditId);
         if (riskEngine != address(0)) {
-            Types.HealthSnapshot memory snapshot =
-                c.debt > 0 ? _requireFreshHealth(c, creditId) : IRiskCore(riskEngine).snapshot(creditId);
+            Types.HealthSnapshot memory snapshot = _requireFreshHealth(c, creditId);
             uint256 sourceValueAfter =
                 c.collateralAmount == 0 ? 0 : snapshot.sourceValue * (c.collateralAmount - amount) / c.collateralAmount;
             IRiskCore(riskEngine).checkCollateralWithdraw(creditId, sourceValueAfter);
@@ -3044,6 +3061,7 @@ contract TermbookCore is ITermbookCore {
 
     function _recordPostActionHealth(Credit storage c, bytes32 creditId) internal {
         if (healthSource == address(0) || riskEngine == address(0)) revert BadHealth();
+        _requireHealthIntegrity(c, creditId);
         Types.HealthSnapshot memory snapshot_ =
             IHealthSourceCore(healthSource).snapshot(creditId, c.bundleId, c.revision, c.debt);
         if (snapshot_.debt != c.debt) revert BadHealth();
@@ -3064,6 +3082,9 @@ contract TermbookCore is ITermbookCore {
         bool checkBeforeDraw
     ) internal {
         if (amount == 0 || amount > maxBound) revert OverLimit();
+        if (integrationRegistry != address(0) && !IIntegrationRegistryCore(integrationRegistry).isActive(c.bundleId)) {
+            revert BadHealth();
+        }
         if (block.timestamp >= c.maturity) revert Expired();
         if (remoteCollateral[creditId]) {
             _requireRemoteSalePolicy(collateralSourceChainOf[creditId], c.collateralAsset, IHouseVaultCore(c.vault).asset());
@@ -3110,34 +3131,40 @@ contract TermbookCore is ITermbookCore {
         _repay(c, creditId, amount, true);
     }
 
+    function creditFreeCash(bytes32 creditId) public view returns (uint256 cash) {
+        Credit storage c = _credits[creditId];
+        if (healthSource == address(0) || c.account == address(0) || c.revision == 0) revert BadHealth();
+        cash = IHealthSourceCore(healthSource).freeCash(creditId, c.bundleId, c.revision);
+        if (cash > ICreditAccountCore(c.account).tokenBalance(IHouseVaultCore(c.vault).asset())) revert BadHealth();
+    }
+
+    function repayAvailableCash(bytes32 creditId) external nonReentrant returns (uint256 amount) {
+        Credit storage c = _credits[creditId];
+        if (msg.sender != c.borrower && !(recoveryKeepers[msg.sender]
+            && (c.facility == Types.Facility.Liquidating || c.facility == Types.Facility.RecoveryPending))) {
+            revert Unauthorized();
+        }
+        _accrue(c, creditId);
+        uint256 cash = creditFreeCash(creditId);
+        amount = cash < c.debt ? cash : c.debt;
+        if (amount != 0) _repay(c, creditId, amount, true);
+    }
+
     function _repay(Credit storage c, bytes32 creditId, uint256 amount, bool fromAccount) internal {
         _accrue(c, creditId);
         if (amount == 0 || amount > c.debt) revert BadState();
         address token = IHouseVaultCore(c.vault).asset();
         uint256 vaultBalance = token.balanceOf(c.vault);
         if (fromAccount) {
-            if (healthSource == address(0)) revert BadHealth();
-            Types.HealthSnapshot memory accountHealth =
-                IHealthSourceCore(healthSource).snapshot(creditId, c.bundleId, c.revision, c.debt);
-            if (accountHealth.debt != c.debt) revert BadHealth();
-            if (amount > accountHealth.cash) revert OverLimit();
+            if (amount > creditFreeCash(creditId)) revert OverLimit();
             ICreditAccountCore(c.account).transferToken(token, c.vault, amount);
         } else {
             token.safeTransferFrom(msg.sender, c.vault, amount);
         }
         if (token.balanceOf(c.vault) - vaultBalance != amount) revert BadHealth();
-        uint256 remaining = amount;
-        uint256 feePaid = remaining > c.accruedFees ? c.accruedFees : remaining;
-        remaining -= feePaid;
-        uint256 interestPaid = remaining > c.accruedInterest ? c.accruedInterest : remaining;
-        remaining -= interestPaid;
-        uint256 principalPaid = remaining;
-        if (principalPaid > c.principal) revert BadState();
-        c.accruedFees -= feePaid;
-        c.accruedInterest -= interestPaid;
-        c.principal -= principalPaid;
+        (uint256 principalPaid, uint256 interestPaid, uint256 feePaid) = _allocateRepayment(c, amount);
         IHouseVaultCore(c.vault).receiveRepay(creditId, amount, principalPaid, interestPaid, feePaid);
-        if (c.revolving && principalPaid > 0) IHouseVaultCore(c.vault).restoreCommitment(creditId, principalPaid);
+        _restoreRepaymentCommitment(c, creditId, principalPaid);
         if (
             c.facility == Types.Facility.Liquidating || c.facility == Types.Facility.RecoveryPending
                 || c.facility == Types.Facility.Liquidated
@@ -3156,18 +3183,9 @@ contract TermbookCore is ITermbookCore {
         if (msg.sender != c.vault || amount == 0) revert Unauthorized();
         _accrue(c, creditId);
         if (amount > c.debt) revert BadState();
-        uint256 remaining = amount;
-        uint256 feePaid = remaining > c.accruedFees ? c.accruedFees : remaining;
-        remaining -= feePaid;
-        uint256 interestPaid = remaining > c.accruedInterest ? c.accruedInterest : remaining;
-        remaining -= interestPaid;
-        uint256 principalPaid = remaining;
-        if (principalPaid > c.principal) revert BadState();
-        c.accruedFees -= feePaid;
-        c.accruedInterest -= interestPaid;
-        c.principal -= principalPaid;
+        (uint256 principalPaid, uint256 interestPaid, uint256 feePaid) = _allocateRepayment(c, amount);
         IHouseVaultCore(c.vault).applyRepaymentSettlement(creditId, inbox, amount, principalPaid, interestPaid, feePaid);
-        if (c.revolving && principalPaid > 0) IHouseVaultCore(c.vault).restoreCommitment(creditId, principalPaid);
+        _restoreRepaymentCommitment(c, creditId, principalPaid);
         c.debt -= amount;
         if (
             c.facility == Types.Facility.Liquidating || c.facility == Types.Facility.RecoveryPending
@@ -3184,18 +3202,23 @@ contract TermbookCore is ITermbookCore {
     function withdraw(bytes32 creditId, address token, address recipient, uint256 amount) external nonReentrant {
         Credit storage c = _credits[creditId];
         if (
-            msg.sender != c.borrower || (c.facility != Types.Facility.Ready && c.facility != Types.Facility.Closing)
+            msg.sender != c.borrower || (c.facility != Types.Facility.Ready && c.facility != Types.Facility.Closing
+                && !(c.facility == Types.Facility.Liquidated && c.recoveryFinalized && c.debt == 0))
                 || recipient != c.borrower
         ) revert Unauthorized();
-        if (c.facility == Types.Facility.Closing) _requireExitReady(c, creditId);
+        if (c.facility == Types.Facility.Closing || c.facility == Types.Facility.Liquidated) _requireExitReady(c, creditId);
         _accrue(c, creditId);
+        if (c.facility == Types.Facility.Closing && c.debt != 0) revert BadState();
         if (token != IHouseVaultCore(c.vault).asset()) revert InvalidTerms();
         uint256 balance = ICreditAccountCore(c.account).tokenBalance(token);
         if (amount == 0 || amount > balance) revert OverLimit();
         uint256 cashAfter;
-        if (riskEngine != address(0)) {
-            Types.HealthSnapshot memory snapshot =
-                c.debt > 0 ? _requireFreshHealth(c, creditId) : IRiskCore(riskEngine).snapshot(creditId);
+        if (c.debt == 0) {
+            if (amount > creditFreeCash(creditId)) revert OverLimit();
+        } else if (riskEngine != address(0)) {
+            if (paused || (integrationRegistry != address(0)
+                && !IIntegrationRegistryCore(integrationRegistry).isActive(c.bundleId))) revert BadHealth();
+            Types.HealthSnapshot memory snapshot = _requireFreshHealth(c, creditId);
             if (amount > snapshot.cash) revert OverLimit();
             cashAfter = snapshot.cash - amount;
             if (c.debt > 0) IRiskCore(riskEngine).checkWithdraw(creditId, cashAfter);
@@ -3212,10 +3235,8 @@ contract TermbookCore is ITermbookCore {
             revert BadState();
         }
         _accrue(c, creditId);
-        if (c.facility == Types.Facility.Ready && c.vault != address(0)) {
-            uint256 committed = IHouseVaultCore(c.vault).creditCommitted(creditId);
-            if (committed > 0) IHouseVaultCore(c.vault).release(creditId, committed);
-        }
+        fullTermination[creditId] = true;
+        _releaseCommitment(c, creditId);
         if (c.payment == Types.Payment.Current) {
             c.payment = Types.Payment.Matured;
             c.revision = RevisionLib.next(c.revision);
@@ -3227,6 +3248,8 @@ contract TermbookCore is ITermbookCore {
         if (block.timestamp <= c.maturity + c.grace) revert BadState();
         _accrue(c, creditId);
         if (c.debt == 0) revert BadState();
+        fullTermination[creditId] = true;
+        _releaseCommitment(c, creditId);
         c.payment = Types.Payment.Defaulted;
         c.revision = RevisionLib.next(c.revision);
     }
@@ -3235,14 +3258,51 @@ contract TermbookCore is ITermbookCore {
         Credit storage c = _credits[creditId];
         if (msg.sender != c.borrower || c.facility != Types.Facility.Ready) revert BadState();
         _accrue(c, creditId);
-        if (c.debt != 0) revert BadState();
         if (c.vault != address(0)) {
             uint256 committed = IHouseVaultCore(c.vault).creditCommitted(creditId);
             if (committed > 0) IHouseVaultCore(c.vault).release(creditId, committed);
         }
         c.facility = Types.Facility.Closing;
+        fullTermination[creditId] = true;
         sessionGeneration[creditId] += 1;
         c.revision = RevisionLib.next(c.revision);
+    }
+
+    function closeStep(bytes32 creditId) public view
+        returns (bytes32 stepId, bytes memory instruction, bool done, uint256 retryAt)
+    {
+        (stepId, instruction, done, retryAt) = _plannedExit(creditId);
+        if (stepId != bytes32(0)) stepId = keccak256(abi.encode(stepId, keccak256(instruction), _credits[creditId].revision));
+    }
+
+    function _plannedExit(bytes32 creditId) internal view
+        returns (bytes32 stepId, bytes memory instruction, bool done, uint256 retryAt)
+    {
+        Credit storage c = _credits[creditId];
+        if (c.facility != Types.Facility.Closing) revert BadState();
+        address verifier = exitVerifierOfBundle[c.bundleId];
+        if (verifier.code.length == 0 || verifier.codehash != exitVerifierCodeHash[c.bundleId]) revert BadState();
+        if (IExitVerifier(verifier).canExit(creditId, c.account)) return (bytes32(0), "", true, 0);
+        address planner = exitPlannerOfBundle[c.bundleId];
+        if (planner.code.length == 0 || planner.codehash != exitPlannerCodeHash[c.bundleId]) revert BadState();
+        (stepId, instruction, retryAt) = IAppExitPlanner(planner).nextExitStep(creditId, c.account);
+        if (instruction.length == 0) {
+            if (retryAt <= block.timestamp || retryAt > block.timestamp + 7 days) revert BadState();
+            return (bytes32(0), "", false, retryAt);
+        }
+        if (stepId == bytes32(0) || instruction.length > 4096 || retryAt > block.timestamp) revert BadState();
+        if (completedExitSteps[creditId][stepId]) revert BadState();
+        return (stepId, instruction, false, 0);
+    }
+
+    function advanceClose(bytes32 creditId, bytes32 expectedStepId) external nonReentrant {
+        Credit storage c = _credits[creditId];
+        if (msg.sender != c.borrower) revert Unauthorized();
+        (bytes32 operationId, bytes memory instruction, bool done, uint256 retryAt) = _plannedExit(creditId);
+        if (done || retryAt != 0
+            || keccak256(abi.encode(operationId, keccak256(instruction), c.revision)) != expectedStepId) revert BadState();
+        completedExitSteps[creditId][operationId] = true;
+        _executeAppRecovery(c, creditId, instruction, true);
     }
 
     function finishClose(bytes32 creditId) external nonReentrant {
@@ -3251,6 +3311,7 @@ contract TermbookCore is ITermbookCore {
         _requireExitReady(c, creditId);
         if (ICreditAccountCore(c.account).tokenBalance(IHouseVaultCore(c.vault).asset()) != 0) revert BadState();
         c.facility = Types.Facility.Closed;
+        IHouseVaultCore(c.vault).unregisterCredit(creditId);
         emit Events.Closed(creditId);
     }
 
@@ -3266,20 +3327,36 @@ contract TermbookCore is ITermbookCore {
 
     function startLiquidation(bytes32 creditId) external nonReentrant {
         Credit storage c = _credits[creditId];
-        if (c.facility != Types.Facility.Ready) revert BadState();
+        if (c.facility != Types.Facility.Ready && c.facility != Types.Facility.Closing) revert BadState();
         _accrue(c, creditId);
         if (
             c.payment != Types.Payment.Defaulted
                 && (riskEngine == address(0) || !_isLiquidatableWithFreshHealth(c, creditId))
         ) revert BadState();
+        if (c.facility == Types.Facility.Closing || c.payment == Types.Payment.Defaulted || block.timestamp >= c.maturity) {
+            fullTermination[creditId] = true;
+        }
         c.facility = Types.Facility.Liquidating;
         sessionGeneration[creditId] += 1;
         c.revision = RevisionLib.next(c.revision);
-        if (c.vault != address(0)) {
-            uint256 committed = IHouseVaultCore(c.vault).creditCommitted(creditId);
-            if (committed > 0) IHouseVaultCore(c.vault).release(creditId, committed);
-        }
+        if (fullTermination[creditId]) _releaseCommitment(c, creditId);
         emit Events.LiquidationStarted(creditId);
+    }
+
+    function commitFullRecovery(bytes32 creditId) external nonReentrant {
+        Credit storage c = _credits[creditId];
+        if (!recoveryKeepers[msg.sender] && msg.sender != c.vault) revert Unauthorized();
+        if (c.facility != Types.Facility.Liquidating && c.facility != Types.Facility.RecoveryPending) revert BadState();
+        fullTermination[creditId] = true;
+        _releaseCommitment(c, creditId);
+        c.revision = RevisionLib.next(c.revision);
+        emit FullRecoveryCommitted(creditId);
+    }
+
+    function _releaseCommitment(Credit storage c, bytes32 creditId) internal {
+        if (c.vault == address(0)) return;
+        uint256 committed = IHouseVaultCore(c.vault).creditCommitted(creditId);
+        if (committed != 0) IHouseVaultCore(c.vault).release(creditId, committed);
     }
 
     function recordRecovery(bytes32 creditId, uint256 amount) external {
@@ -3319,7 +3396,7 @@ contract TermbookCore is ITermbookCore {
         _executeAppRecovery(c, creditId, instruction, true);
     }
 
-    function _executeAppRecovery(Credit storage c, bytes32 creditId, bytes calldata instruction, bool borrowerExit)
+    function _executeAppRecovery(Credit storage c, bytes32 creditId, bytes memory instruction, bool borrowerExit)
         internal
     {
         _accrue(c, creditId);
@@ -3405,17 +3482,9 @@ contract TermbookCore is ITermbookCore {
     function _applyCollateralRecovery(Credit storage c, bytes32 creditId, uint256 settlementAmount, uint256 collateralAmount)
         internal
     {
-        uint256 remaining = settlementAmount;
-        uint256 feePaid = remaining > c.accruedFees ? c.accruedFees : remaining;
-        remaining -= feePaid;
-        uint256 interestPaid = remaining > c.accruedInterest ? c.accruedInterest : remaining;
-        remaining -= interestPaid;
-        uint256 principalPaid = remaining;
-        if (principalPaid > c.principal) revert BadState();
-        c.accruedFees -= feePaid;
-        c.accruedInterest -= interestPaid;
-        c.principal -= principalPaid;
+        (uint256 principalPaid, uint256 interestPaid, uint256 feePaid) = _allocateRepayment(c, settlementAmount);
         IHouseVaultCore(c.vault).receiveRepay(creditId, settlementAmount, principalPaid, interestPaid, feePaid);
+        _restoreRepaymentCommitment(c, creditId, principalPaid);
         c.debt -= settlementAmount;
         c.collateralAmount -= collateralAmount;
         c.recovery += settlementAmount;
@@ -3427,15 +3496,18 @@ contract TermbookCore is ITermbookCore {
 
     function cure(bytes32 creditId) external nonReentrant {
         Credit storage c = _credits[creditId];
-        if (c.facility != Types.Facility.RecoveryPending) revert BadState();
+        if (c.facility != Types.Facility.RecoveryPending && c.facility != Types.Facility.Liquidating) revert BadState();
         if (
-            block.timestamp >= c.maturity || c.payment == Types.Payment.Defaulted || c.recoveryFinalized
+            block.timestamp >= c.maturity || c.payment == Types.Payment.Defaulted || c.recoveryFinalized || fullTermination[creditId]
                 || pendingRemoteSeizure[creditId] != 0 || pendingRemoteReturn[creditId] != 0
                 || remoteSeizureConfirmed[creditId]
         ) {
             revert BadState();
         }
         _accrue(c, creditId);
+        if (c.debt == 0) _requireExitReady(c, creditId);
+        if (paused || (integrationRegistry != address(0)
+            && !IIntegrationRegistryCore(integrationRegistry).isActive(c.bundleId))) revert BadHealth();
         if (c.debt != 0) {
             if (riskEngine == address(0)) revert BadHealth();
             _requireFreshHealth(c, creditId);
@@ -3449,8 +3521,8 @@ contract TermbookCore is ITermbookCore {
             uint256 required =
                 c.revolving ? (c.limit > c.debt ? c.limit - c.debt : 0) : (c.limit > c.drawn ? c.limit - c.drawn : 0);
             uint256 committed = IHouseVaultCore(c.vault).creditCommitted(creditId);
-            if (required > committed) IHouseVaultCore(c.vault).reserve(creditId, required - committed);
-            else if (committed > required) IHouseVaultCore(c.vault).release(creditId, committed - required);
+            if (required > committed) revert BadState();
+            if (committed > required) IHouseVaultCore(c.vault).release(creditId, committed - required);
         }
         c.facility = Types.Facility.Ready;
         c.payment = Types.Payment.Current;
@@ -3458,15 +3530,24 @@ contract TermbookCore is ITermbookCore {
         emit Events.Cured(creditId);
     }
 
-    function finalizeRecovery(bytes32 creditId) external {
+    function finalizeRecovery(bytes32 creditId) external nonReentrant {
         Credit storage c = _credits[creditId];
         if (
-            msg.sender != c.vault || c.facility != Types.Facility.RecoveryPending
+            msg.sender != c.vault || (c.facility != Types.Facility.RecoveryPending && c.facility != Types.Facility.Liquidating)
+                || !fullTermination[creditId] || c.recoveryFinalized || pendingRemoteReturn[creditId] != 0
                 || pendingRemoteSeizure[creditId] != 0 || pendingSolanaFundingHash[creditId] != bytes32(0)
                 || pendingSolanaPayoutHash[creditId] != bytes32(0)
         ) revert Unauthorized();
+        _accrue(c, creditId);
+        _requireExitReady(c, creditId);
+        if ((c.debt != 0 && (ICreditAccountCore(c.account).tokenBalance(IHouseVaultCore(c.vault).asset()) != 0
+                || c.collateralAmount != 0))
+            || remoteSeizureConfirmed[creditId]) revert RecoveryIncomplete();
+        IHouseVaultCore(c.vault).writeOff(creditId, c.principal, c.accruedInterest + c.accruedFees);
+        c.facility = Types.Facility.RecoveryPending;
         c.recoveryFinalized = true;
         c.revision = RevisionLib.next(c.revision);
+        emit RecoveryFinalized(creditId, c.debt);
     }
 
     function finishLiquidation(bytes32 creditId) external nonReentrant {
@@ -3480,23 +3561,78 @@ contract TermbookCore is ITermbookCore {
         emit Events.Liquidated(creditId);
     }
 
-    function _isLiquidatableWithFreshHealth(Credit storage c, bytes32 creditId) internal view returns (bool) {
+    function _allocateRepayment(Credit storage c, uint256 amount)
+        internal
+        returns (uint256 principalPaid, uint256 interestPaid, uint256 feePaid)
+    {
+        uint256 remaining = amount;
+        bool recovery = c.facility == Types.Facility.Liquidating || c.facility == Types.Facility.RecoveryPending
+            || c.facility == Types.Facility.Liquidated || c.facility == Types.Facility.Closing
+            || c.payment == Types.Payment.Defaulted || c.payment == Types.Payment.Matured;
+        if (recovery) {
+            principalPaid = remaining > c.principal ? c.principal : remaining;
+            remaining -= principalPaid;
+            interestPaid = remaining > c.accruedInterest ? c.accruedInterest : remaining;
+            remaining -= interestPaid;
+            feePaid = remaining;
+            if (feePaid > c.accruedFees) revert BadState();
+        } else {
+            feePaid = remaining > c.accruedFees ? c.accruedFees : remaining;
+            remaining -= feePaid;
+            interestPaid = remaining > c.accruedInterest ? c.accruedInterest : remaining;
+            principalPaid = remaining - interestPaid;
+            if (principalPaid > c.principal) revert BadState();
+        }
+        c.principal -= principalPaid;
+        c.accruedInterest -= interestPaid;
+        c.accruedFees -= feePaid;
+    }
+
+    function _restoreRepaymentCommitment(Credit storage c, bytes32 creditId, uint256 principalPaid) internal {
+        if (c.revolving && principalPaid > 0 && !fullTermination[creditId] && block.timestamp < c.maturity
+            && (c.facility == Types.Facility.Ready || c.facility == Types.Facility.Liquidating
+                || c.facility == Types.Facility.RecoveryPending)) {
+            IHouseVaultCore(c.vault).restoreCommitment(creditId, principalPaid);
+        }
+    }
+
+    function _isLiquidatableWithFreshHealth(Credit storage c, bytes32 creditId) internal returns (bool) {
         _requireFreshHealth(c, creditId);
         return IRiskCore(riskEngine).riskState(creditId) == Types.Risk.Liquidatable;
     }
 
     function _requireFreshHealth(Credit storage c, bytes32 creditId)
         internal
-        view
         returns (Types.HealthSnapshot memory snapshot)
     {
-        if (
-            riskEngine == address(0) || healthSnapshotAt[creditId] == 0
-                || healthSnapshotRevision[creditId] != c.revision
-                || block.timestamp > healthSnapshotAt[creditId] + healthMaxAge
-        ) revert BadHealth();
-        snapshot = IRiskCore(riskEngine).snapshot(creditId);
+        if (riskEngine == address(0) || healthSource == address(0)) revert BadHealth();
+        _requireHealthIntegrity(c, creditId);
+        try IHealthSourceCore(healthSource).snapshot(creditId, c.bundleId, c.revision, c.debt)
+            returns (Types.HealthSnapshot memory current) {
+            snapshot = current;
+        } catch {
+            revert BadHealth();
+        }
         if (snapshot.debt != c.debt) revert BadHealth();
+        if (snapshot.appValue > 0) _requireAppRecoveryAdapter(c.bundleId);
+        IRiskCore(riskEngine).record(creditId, snapshot);
+        healthSnapshotAt[creditId] = block.timestamp;
+        healthSnapshotRevision[creditId] = c.revision;
+    }
+
+    function _requireHealthIntegrity(Credit storage c, bytes32 creditId) internal view {
+        if (integrationRegistry != address(0) && !IIntegrationRegistryCore(integrationRegistry).dependenciesValid(c.bundleId)) {
+            revert BadHealth();
+        }
+        if (!remoteCollateral[creditId]) {
+            if (_requireLocalCollateralVault(c.collateralVault) != c.collateralAsset) revert InvalidCollateral();
+            return;
+        }
+        (address verifier, uint256 version, bool active,, bytes32 codeHash) =
+            IVerifierRegistryCore(verifierRegistry).verifiers(collateralSourceChainOf[creditId]);
+        if (!active || verifier.code.length == 0 || version != c.verifierVersion
+            || codeHash != c.verifierCodeHash || verifier.codehash != codeHash) revert InvalidCollateral();
+        _requireRemoteSalePolicy(collateralSourceChainOf[creditId], c.collateralAsset, IHouseVaultCore(c.vault).asset());
     }
 
     function creditFacility(bytes32 creditId) external view returns (Types.Facility) {

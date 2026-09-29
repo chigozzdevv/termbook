@@ -38,6 +38,12 @@ export const collateralController = {
     if (!user) throw new Error("permission-denied");
     return solanaActionService.plan(solanaActionPlanSchema.parse(req.body), user.wallet);
   },
+  async readSolanaActionPlan(req: FastifyRequest) {
+    return solanaActionService.plan(solanaActionPlanSchema.parse(req.query));
+  },
+  async readSolanaConfirmationPlan(req: FastifyRequest) {
+    return solanaActionService.confirmationPlan(solanaConfirmationPlanSchema.parse(req.query));
+  },
   async planSolanaConfirmation(req: FastifyRequest) {
     const user = (req as FastifyRequest & { user?: { wallet: string } }).user;
     if (!user) throw new Error("permission-denied");

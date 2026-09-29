@@ -1,10 +1,9 @@
-import { BaseError, ContractFunctionRevertedError, createPublicClient, http, parseAbi, type PublicClient } from "viem";
+import { BaseError, ContractFunctionRevertedError, createPublicClient, http, parseAbi, type PublicClient, type TransactionReceipt } from "viem";
 import type { ActivityEvent, ResolvedClientConfig, ContractWriteRequest, TxHash } from "../types/client.types.js";
 import {
   collateralVaultAbi,
   creditAccountAbi,
   houseVaultAbi,
-  healthSourceAbi,
   riskEngineAbi,
   settlementInboxAbi,
   termbookCoreAbi,
@@ -49,7 +48,7 @@ export class RpcClient {
     return writer(request);
   }
 
-  async wait(hash: TxHash): Promise<unknown> {
+  async wait(hash: TxHash): Promise<TransactionReceipt> {
     const confirmations = this.config.confirmations ?? 1;
     if (!Number.isSafeInteger(confirmations) || confirmations < 1) throw new Error("confirmations-invalid");
     const receipt = await this.client.waitForTransactionReceipt({ hash, confirmations });
@@ -164,15 +163,10 @@ export class RpcClient {
     return this.read<bigint>(account, creditAccountAbi, "tokenBalance", [token]);
   }
 
-  async creditFreeCash(creditId: `0x${string}`, bundleId: `0x${string}`, revision: bigint, debt: bigint): Promise<bigint> {
-    const source = await this.read<`0x${string}`>(this.config.core, termbookCoreAbi, "healthSource");
-    if (!/^0x[a-fA-F0-9]{40}$/.test(source) || /^0x0{40}$/i.test(source)) throw new Error("free-cash-unavailable");
-    const reading = await this.read<{ debt: bigint; cash: bigint }>(source, healthSourceAbi, "snapshot",
-      [creditId, bundleId, revision, debt]);
-    if (reading.debt !== debt || typeof reading.cash !== "bigint" || reading.cash < 0n) {
-      throw new Error("free-cash-unavailable");
-    }
-    return reading.cash;
+  async creditFreeCash(creditId: `0x${string}`): Promise<bigint> {
+    const cash = await this.read<bigint>(this.config.core, termbookCoreAbi, "creditFreeCash", [creditId]);
+    if (typeof cash !== "bigint" || cash < 0n) throw new Error("free-cash-unavailable");
+    return cash;
   }
 
   async riskState(risk: `0x${string}`, creditId: `0x${string}`): Promise<number> {

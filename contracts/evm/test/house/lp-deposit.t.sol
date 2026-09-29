@@ -12,7 +12,7 @@ contract LpDepositTest is Test {
     function setUp() public {
         token = new MockERC20();
         token.mint(address(this), 100);
-        vault = new HouseVault(address(token), address(this), address(this), address(0), address(0));
+        vault = HouseVault(deployCode("HouseVault.sol:HouseVault", abi.encode(address(token), address(this), address(this), address(0), address(0))));
         token.approve(address(vault), type(uint256).max);
     }
 

@@ -113,13 +113,13 @@ contract LocalCollateralSaleTest is Test {
     function setUp() public {
         usdc = new MockSaleUsdc();
         mon = new MockERC20();
-        core = new TermbookCore(address(this), address(this), address(0));
+        core = TermbookCore(deployCode("TermbookCore.sol:TermbookCore", abi.encode(address(this), address(this), address(0))));
         risk = new RiskEngine(address(core));
         healthSource = new MockHealthSource();
         oracle = new OracleRegistry(address(this));
         feed = new MockSaleFeed();
         oracle.setFeed(priceId, address(feed), 1 days, 8);
-        houseVault = new HouseVault(address(usdc), address(core), address(this), address(0), address(0));
+        houseVault = HouseVault(deployCode("HouseVault.sol:HouseVault", abi.encode(address(usdc), address(core), address(this), address(0), address(0))));
         collateralVault = new CollateralVault(address(mon), block.chainid, address(core));
         core.setLocalCollateralVault(address(collateralVault), address(collateralVault).codehash);
         accounts = new AccountFactory();

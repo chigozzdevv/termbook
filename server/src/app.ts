@@ -15,6 +15,7 @@ import { authService } from "./auth/auth.service.js";
 import { canonicalJson } from "@termbook/schema";
 import { hashMessage } from "viem";
 import { requestLimiter } from "./http/http-limit.js";
+import { readiness } from "./http/readiness.js";
 
 export function buildApp() {
   const app = Fastify({ logger: false });
@@ -47,6 +48,10 @@ export function buildApp() {
     }
   });
   app.get("/health", async () => ({ ok: true }));
+  app.get("/ready", async (_, reply) => {
+    const ok = await readiness().catch(() => false);
+    return reply.status(ok ? 200 : 503).send({ ok });
+  });
   authRoute(app);
   intentRoute(app);
   quoteRoute(app);

@@ -8,6 +8,7 @@ const contracts = {
   TermbookCore: "termbook-core",
   CreditAccount: "credit-account",
   HouseVault: "house-vault",
+  RecoveryReserve: "recovery-reserve",
   CollateralVault: "collateral-vault",
   NativeCollateralVault: "native-collateral-vault",
   RemoteCollateralController: "remote-collateral-controller",
@@ -42,6 +43,10 @@ const contracts = {
   IAppCallValidator: "app-call-validator",
   StaticCallValidator: "static-call-validator",
   IAppStateReader: "app-state-reader",
+  IAppCashReader: "app-cash-reader",
+  IAppExitPlanner: "app-exit-planner",
+  IAppDeploymentGuard: "app-deployment-guard",
+  ImplementationGuard: "implementation-guard",
   FlowExecutor: "flow-executor",
 } as const;
 

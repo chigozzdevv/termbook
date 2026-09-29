@@ -12,7 +12,7 @@ contract LpWithdrawTest is Test {
     function setUp() public {
         token = new MockERC20();
         token.mint(address(this), 2000);
-        vault = new HouseVault(address(token), address(this), address(this), address(0), address(0));
+        vault = HouseVault(deployCode("HouseVault.sol:HouseVault", abi.encode(address(token), address(this), address(this), address(0), address(0))));
         token.approve(address(vault), type(uint256).max);
         vault.deposit(address(this), 2000);
     }
@@ -22,9 +22,11 @@ contract LpWithdrawTest is Test {
         vault.requestWithdraw(1_000_000 ether);
     }
 
-    function testImpairmentLowersPrice() public {
+    function testRealizedWriteOffLowersPrice() public {
         uint256 before = vault.sharePrice();
-        vault.recognizeImpairment(500);
+        vault.reserve(bytes32(uint256(1)), 500);
+        vault.fundDraw(bytes32(uint256(1)), address(0xB), 500);
+        vault.writeOff(bytes32(uint256(1)), 500, 0);
         assertLt(vault.sharePrice(), before);
     }
 }

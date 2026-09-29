@@ -13,16 +13,20 @@ import { startWorkers, stopWorkers } from "./queue/queue.worker.js";
 import { closeRedis } from "./queue/queue.client.js";
 import { logger } from "./logging/logger.js";
 import { assertRuntimeConfig, assertSettlementWorkerConfig } from "./config/env.js";
+import mongoose from "mongoose";
+import { indexerStart, runIndexerWorker } from "./chain/indexer.worker.js";
 
 async function main(): Promise<void> {
   assertRuntimeConfig();
   assertSettlementWorkerConfig();
   assertRecoveryWorkerConfig();
+  indexerStart();
   solanaProofConfig();
   await connectDb();
   await startWorkers();
   const tick = async (): Promise<void> => {
     const results = await Promise.allSettled([
+      runIndexerWorker(),
       runCreditWorker(),
       runCollateralWorker(),
       runRemoteActionWorker(),
@@ -39,16 +43,28 @@ async function main(): Promise<void> {
     });
     logger.info(`workers-tick:${counts.join(",")}`);
   };
-  await tick();
-  const timer = setInterval(() => void tick(), 15_000);
+  let stopping = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let active: Promise<void> | undefined;
+  const schedule = (): void => {
+    if (stopping) return;
+    active = tick().finally(() => {
+      if (!stopping) timer = setTimeout(schedule, 15_000);
+    });
+  };
   const shutdown = async (): Promise<void> => {
-    clearInterval(timer);
+    if (stopping) return;
+    stopping = true;
+    clearTimeout(timer);
+    await active;
     await stopWorkers();
     await closeRedis();
+    await mongoose.disconnect();
     process.exit(0);
   };
   process.on("SIGINT", () => void shutdown());
   process.on("SIGTERM", () => void shutdown());
+  schedule();
 }
 
 void main();

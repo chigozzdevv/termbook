@@ -1,0 +1,25 @@
+Compiling 2 files with Solc 0.8.24
+Solc 0.8.24 finished in 355.73s
+Compiler run successful with warnings:
+Warning (5740): Unreachable code.
+   --> src/monad/credit/TermbookCore.sol:545:9:
+    |
+545 |         entered = false;
+    |         ^^^^^^^^^^^^^^^
+
+
+Ran 1 test for test/audit-proxy.t.sol:AuditProxyTest
+[PASS] testAuditProxyUpgradeRemainsAdmitted() (gas: 2402572)
+Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 5.45ms (2.24ms CPU time)
+
+Ran 7 tests for test/audit-review.t.sol:AuditReviewTest
+[PASS] testAuditCannotStartClosingWithDebt() (gas: 2013216)
+[PASS] testAuditFreshSnapshotFailsAfterAccrual() (gas: 2462969)
+[PASS] testAuditProtocolFeesPaidBeforePrincipalDuringRecovery() (gas: 2264271)
+[PASS] testAuditQueueBlocksRevolvingRepayment() (gas: 2330990)
+[PASS] testAuditQueueCancellationDilutesOtherLp() (gas: 484671)
+[PASS] testAuditRecoveryRepaymentRecommitsFunds() (gas: 2111636)
+[PASS] testAuditWithdrawalIgnoresChangedMarketValue() (gas: 2193471)
+Suite result: ok. 7 passed; 0 failed; 0 skipped; finished in 18.29ms (12.38ms CPU time)
+
+Ran 2 test suites in 29.93ms (23.73ms CPU time): 8 tests passed, 0 failed, 0 skipped (8 total tests)

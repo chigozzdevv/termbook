@@ -11,7 +11,7 @@ contract SetupAbortTest is Test {
     uint256 borrowerKey = 0xCAFE;
 
     function setUp() public {
-        core = new TermbookCore(address(this), address(this), address(0));
+        core = TermbookCore(deployCode("TermbookCore.sol:TermbookCore", abi.encode(address(this), address(this), address(0))));
     }
 
     function _accept(bytes32 id, bytes32 intentId) internal {

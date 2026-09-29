@@ -13,7 +13,7 @@ contract CreditLifecycleTest is Test {
     address borrower;
 
     function setUp() public {
-        core = new TermbookCore(address(this), address(this), address(0));
+        core = TermbookCore(deployCode("TermbookCore.sol:TermbookCore", abi.encode(address(this), address(this), address(0))));
         house = vm.addr(houseKey);
         borrower = vm.addr(borrowerKey);
     }

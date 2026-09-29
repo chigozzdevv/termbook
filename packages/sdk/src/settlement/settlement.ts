@@ -2,7 +2,7 @@ import type { TermbookClient } from "../client/client.js";
 import type { ReceiptView } from "./receipt.js";
 import type { OperationKind } from "./operation.js";
 import { operationId } from "./operation.js";
-import { inboxFactoryAbi, sourceRecoveryVaultAbi } from "@termbook/bindings";
+import { inboxFactoryAbi, sourceRecoveryVaultAbi, settlementInboxAbi } from "@termbook/bindings";
 import { quoteHash, verifyQuoteSignature, type OneClickQuoteResponse } from "@defuse-protocol/one-click-sdk-typescript";
 import { createPublicClient, hashTypedData, http, keccak256, stringToHex } from "viem";
 import type { Wallet } from "../types/client.types.js";
@@ -88,6 +88,55 @@ export class Settlement {
     await this.client.ready();
     if (!/^0x[a-fA-F0-9]{40}$/.test(inbox)) throw new Error("param-invalid");
     return this.client.rpc.inboxStatus(inbox);
+  }
+
+  private async requireLp(inbox: `0x${string}`, authorizer = false): Promise<void> {
+    await this.client.ready();
+    if (!/^0x[a-fA-F0-9]{40}$/.test(inbox)) throw new Error("param-invalid");
+    const creditId = await this.client.rpc.read<`0x${string}`>(inbox, settlementInboxAbi, "creditId");
+    if (creditId !== zeroBytes32) throw new Error("lp-inbox-required");
+    if (authorizer) {
+      const payer = await this.client.rpc.read<`0x${string}`>(inbox, settlementInboxAbi, "lpAuthorizer");
+      if (payer.toLowerCase() !== this.client.signer.address().toLowerCase()) throw new Error("lp-payer-required");
+    }
+  }
+
+  async reviseLp(inbox: `0x${string}`, bounds: {
+    minAmount: bigint; maxAmount: bigint; minShares: bigint; deadline: number;
+  }): Promise<{ tx: `0x${string}`; revision: bigint }> {
+    await this.requireLp(inbox, true);
+    if (bounds.minAmount < 0n || bounds.maxAmount < bounds.minAmount || bounds.maxAmount <= 0n
+      || bounds.minShares <= 0n || !Number.isSafeInteger(bounds.deadline)
+      || bounds.deadline <= Math.floor(Date.now() / 1000)) throw new Error("param-invalid");
+    const revision = await this.client.rpc.read<bigint>(inbox, settlementInboxAbi, "lpRevision") + 1n;
+    const tx = await this.client.rpc.write(inbox, settlementInboxAbi, "reviseLp", [bounds.minAmount,
+      bounds.maxAmount, bounds.minShares, BigInt(bounds.deadline), revision, BigInt(bounds.deadline), "0x"]);
+    await this.client.rpc.wait(tx);
+    return { tx, revision };
+  }
+
+  async cancelLp(inbox: `0x${string}`): Promise<{ tx: `0x${string}` }> {
+    await this.requireLp(inbox, true);
+    const tx = await this.client.rpc.write(inbox, settlementInboxAbi, "cancel");
+    await this.client.rpc.wait(tx);
+    return { tx };
+  }
+
+  async settleLp(inbox: `0x${string}`): Promise<{ tx: `0x${string}` }> {
+    await this.requireLp(inbox);
+    const amount = await this.client.rpc.read<bigint>(inbox, settlementInboxAbi, "available");
+    if (amount <= 0n) throw new Error("settlement-empty");
+    const tx = await this.client.rpc.write(inbox, settlementInboxAbi, "settle", [amount]);
+    await this.client.rpc.wait(tx);
+    return { tx };
+  }
+
+  async refundLp(inbox: `0x${string}`, amount: bigint): Promise<{ tx: `0x${string}` }> {
+    await this.requireLp(inbox);
+    if (amount <= 0n) throw new Error("param-invalid");
+    const tx = await this.client.rpc.write(inbox, settlementInboxAbi, "refund", [amount]);
+    await this.client.rpc.wait(tx);
+    return { tx };
   }
 
   async fundErc20(registration: SettlementRegistration, sourceRpcUrl: string, sourceWallet: Wallet): Promise<`0x${string}`> {

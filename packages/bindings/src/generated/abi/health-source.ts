@@ -30,6 +30,35 @@ export const healthSourceAbi = [
   },
   {
     "type": "function",
+    "name": "freeCash",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "bundleId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "revision",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "cash",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "governance",
     "inputs": [],
     "outputs": [

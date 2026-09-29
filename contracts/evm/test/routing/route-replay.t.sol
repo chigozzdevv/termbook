@@ -9,7 +9,7 @@ import {MockSettlementReceiver} from "../MockSettlementReceiver.sol";
 
 contract RouteReplayTest is Test {
     function testSeparateInboxes() public {
-        InboxFactory f = new InboxFactory(address(this));
+        InboxFactory f = InboxFactory(deployCode("InboxFactory.sol:InboxFactory", abi.encode(address(this))));
         MockERC20 token = new MockERC20();
         MockSettlementReceiver receiver = new MockSettlementReceiver();
         address a = f.create(bytes32("a"), address(receiver), address(token), bytes32("ca"), 0, 1_000, address(3), block.timestamp + 1 days);
@@ -19,7 +19,7 @@ contract RouteReplayTest is Test {
     }
 
     function testGovernanceDelegatesRegistration() public {
-        InboxFactory f = new InboxFactory(address(this));
+        InboxFactory f = InboxFactory(deployCode("InboxFactory.sol:InboxFactory", abi.encode(address(this))));
         address registrar = address(0xBEEF);
         f.setRegistrar(registrar);
         MockERC20 token = new MockERC20();
@@ -39,7 +39,7 @@ contract RouteReplayTest is Test {
     }
 
     function testOnlyGovernanceChangesRegistrar() public {
-        InboxFactory f = new InboxFactory(address(this));
+        InboxFactory f = InboxFactory(deployCode("InboxFactory.sol:InboxFactory", abi.encode(address(this))));
         vm.prank(address(0xBEEF));
         vm.expectRevert(InboxFactory.Unauthorized.selector);
         f.setRegistrar(address(0xCAFE));

@@ -33,14 +33,14 @@ contract FacilityFlowTest is Test {
     }
 
     function testFullFlow() public {
-        TermbookCore core = new TermbookCore(address(this), address(this), address(0));
+        TermbookCore core = TermbookCore(deployCode("TermbookCore.sol:TermbookCore", abi.encode(address(this), address(this), address(0))));
         bytes32 id = keccak256("e2e");
         _accept(core, id, keccak256("ie"));
     }
 
     function testVaultDrawCycle() public {
         MockERC20 token = new MockERC20();
-        HouseVault v = new HouseVault(address(token), address(this), address(this), address(0), address(0));
+        HouseVault v = HouseVault(deployCode("HouseVault.sol:HouseVault", abi.encode(address(token), address(this), address(this), address(0), address(0))));
         token.mint(address(this), 2000);
         token.approve(address(v), 2000);
         v.deposit(address(this), 2000);

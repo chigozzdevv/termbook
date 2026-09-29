@@ -21,9 +21,9 @@ contract HouseAdmissionTest is Test {
 
     function setUp() public {
         token = new MockERC20();
-        core = new TermbookCore(address(this), address(this), address(0));
+        core = TermbookCore(deployCode("TermbookCore.sol:TermbookCore", abi.encode(address(this), address(this), address(0))));
         registry = new HouseRegistry(address(this));
-        vault = new HouseVault(address(token), address(core), address(this), address(0), address(0));
+        vault = HouseVault(deployCode("HouseVault.sol:HouseVault", abi.encode(address(token), address(core), address(this), address(0), address(0))));
         risk = new RiskEngine(address(core));
         core.setRisk(address(risk));
         core.setHouseRegistry(address(registry));

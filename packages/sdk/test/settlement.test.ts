@@ -50,6 +50,27 @@ function fixture(format: "evm" | "solana", depositAddress: string, sourceRefundR
 }
 
 describe("settlement", () => {
+  it("revises only the next LP authorization and enforces the payer wallet", async () => {
+    const { settlement, rpc } = fixture("evm", address("2"), address("7"));
+    const zero = word("0");
+    rpc.read.mockImplementation(async (_address: string, _abi: unknown, name: string) => {
+      if (name === "creditId") return zero;
+      if (name === "lpAuthorizer") return address("a");
+      if (name === "lpRevision") return 4n;
+      throw new Error(name);
+    });
+    rpc.write.mockResolvedValue(word("9"));
+    const deadline = Math.floor(Date.now() / 1000) + 600;
+    expect(await settlement.reviseLp(address("e"), {
+      minAmount: 80n, maxAmount: 100n, minShares: 90n, deadline,
+    })).toMatchObject({ revision: 5n });
+    expect(rpc.write).toHaveBeenCalledWith(address("e"), expect.anything(), "reviseLp",
+      [80n, 100n, 90n, BigInt(deadline), 5n, BigInt(deadline), "0x"]);
+    rpc.read.mockResolvedValueOnce(zero).mockResolvedValueOnce(address("b"));
+    await expect(settlement.cancelLp(address("e"))).rejects.toThrow("lp-payer-required");
+    expect(rpc.write).toHaveBeenCalledTimes(1);
+  });
+
   it("tracks shortfall", () => {
     expect(unconsumed({ received: 900n, applied: 900n, refunded: 0n })).toBe(0n);
   });

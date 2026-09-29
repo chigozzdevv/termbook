@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
+import {CodeInspection} from "../../shared/CodeInspection.sol";
 
 import {Types} from "../../shared/Types.sol";
 import {HealthMath} from "./HealthMath.sol";
-import {IHealthReader, IHealthSource, HealthReading} from "./IHealthSource.sol";
+import {IHealthReader, IHealthSource, ICashReader, HealthReading} from "./IHealthSource.sol";
 
 contract HealthSource is IHealthSource {
     struct Reader {
@@ -37,7 +38,7 @@ contract HealthSource is IHealthSource {
     function setReader(bytes32 bundleId, address reader, uint256 version, uint256 maxAge) external {
         if (
             msg.sender != governance || bundleId == bytes32(0) || reader.code.length == 0 || version == 0
-                || maxAge == 0
+                || maxAge == 0 || CodeInspection.delegates(reader)
         ) revert Invalid();
         if (readers[bundleId].impl != address(0)) revert Invalid();
         readers[bundleId] = Reader(reader, version, true, maxAge, reader.codehash);
@@ -90,5 +91,13 @@ contract HealthSource is IHealthSource {
             recovery,
             HealthMath.healthBps(recovery, reading.debt, reading.recoveryCosts)
         );
+    }
+
+    function freeCash(bytes32 creditId, bytes32 bundleId, uint256 revision) external view returns (uint256 cash) {
+        Reader memory config = readers[bundleId];
+        if (!config.active || config.impl.code.length == 0 || config.impl.codehash != config.codeHash) revert Invalid();
+        uint256 observedAt;
+        (cash, observedAt) = ICashReader(config.impl).readCash(creditId, revision);
+        if (observedAt == 0 || observedAt > block.timestamp || block.timestamp - observedAt > config.maxAge) revert Stale();
     }
 }

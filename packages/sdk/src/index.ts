@@ -39,3 +39,5 @@ export type { SettlementRegistration, RecoveryFunding, RecoveryOperation, Recove
 export { unconsumed } from "./settlement/receipt.js";
 export { Catalog } from "./catalog/catalog.js";
 export * from "./types/index.js";
+
+export * from "./credit/closure.js";

@@ -171,7 +171,7 @@ contract SolanaFundingTest is Test {
         core.configureSolanaWormhole(address(new MockSolanaFundingWormhole()));
         factory = new MockSolanaFundingFactory();
         settlement = new MockERC20();
-        vault = new HouseVault(address(settlement), address(core), address(this), address(0), address(0));
+        vault = HouseVault(deployCode("HouseVault.sol:HouseVault", abi.encode(address(settlement), address(core), address(this), address(0), address(0))));
         core.setSolanaMarket(SOURCE_CHAIN, bytes32(uint256(5)), bytes32(uint256(11)), keccak256("binary"));
         core.setRemoteSalePolicy(
             SOURCE_CHAIN,

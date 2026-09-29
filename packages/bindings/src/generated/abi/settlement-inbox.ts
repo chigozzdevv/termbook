@@ -93,6 +93,24 @@ export const settlementInboxAbi = [
   },
   {
     "type": "function",
+    "name": "configureLp",
+    "inputs": [
+      {
+        "name": "authorizer",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "minShares",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "creditId",
     "inputs": [],
     "outputs": [
@@ -113,6 +131,115 @@ export const settlementInboxAbi = [
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "factory",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "lpAuthorizer",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "lpMaxDeposit",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "lpMinShares",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "lpRevision",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "lpRevisionDigest",
+    "inputs": [
+      {
+        "name": "minimum",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maximum",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minShares",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "newDeadline",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "revision",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "authorizationDeadline",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ],
     "stateMutability": "view"
@@ -249,6 +376,49 @@ export const settlementInboxAbi = [
   },
   {
     "type": "function",
+    "name": "reviseLp",
+    "inputs": [
+      {
+        "name": "minimum",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maximum",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minShares",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "newDeadline",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "revision",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "authorizationDeadline",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "signature",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "settle",
     "inputs": [
       {
@@ -288,6 +458,19 @@ export const settlementInboxAbi = [
   },
   {
     "type": "event",
+    "name": "Cancelled",
+    "inputs": [
+      {
+        "name": "operationId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "InboxRefunded",
     "inputs": [
       {
@@ -317,6 +500,25 @@ export const settlementInboxAbi = [
       },
       {
         "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "LpAuthorizationRevised",
+    "inputs": [
+      {
+        "name": "operationId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "revision",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"

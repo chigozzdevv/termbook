@@ -8,7 +8,8 @@ import { CreditApp } from "../app/app.js";
 import { CreditAccount } from "../account/account.js";
 import { CreditCollateral } from "../collateral/collateral.js";
 import type { CollateralSetup } from "../collateral/setup.js";
-import { houseVaultAbi, termbookCoreAbi } from "@termbook/bindings";
+import { houseVaultAbi } from "@termbook/bindings";
+import { closeCredit, type CloseOptions } from "./closure.js";
 
 const facilities = [
   "reserved", "collateral_locking", "collateral_proving", "account_creating", "ready",
@@ -151,58 +152,7 @@ export class Credit {
     return { applied, remaining, status: remaining === 0n ? "applied" : "partial", tx };
   }
 
-  async close(): Promise<{ closed: boolean; tx?: `0x${string}` }> {
-    const before = await this.details();
-    const facility = Number(field(before, "facility", 0));
-    if (facility !== 4 && facility !== 5) throw new Error("recovery-blocked");
-    const vault = asAddress(field(before, "vault", 4));
-    const account = asAddress(field(before, "account", 5));
-    const debt = asBigInt(field(before, "debt", 11));
-    if (debt > 0n) {
-      if (!vault || !account) throw new Error("settle-failed");
-      const asset = await this.client.rpc.read<`0x${string}`>(vault, houseVaultAbi, "asset");
-      const balance = await this.client.rpc.creditAccountTokenBalance(account, asset);
-      if (balance < debt) throw new Error("settle-failed");
-      const repayTx = await this.client.rpc.coreWrite("repayFromAccount", [this.id, debt]);
-      await this.client.rpc.wait(repayTx);
-    }
-    if (facility === 4) {
-      const startTx = await this.client.rpc.coreWrite("startClosing", [this.id]);
-      await this.client.rpc.wait(startTx);
-    }
-    const current = await this.details();
-    const currentVault = asAddress(field(current, "vault", 4));
-    const currentAccount = asAddress(field(current, "account", 5));
-    if (currentVault && currentAccount) {
-      const asset = await this.client.rpc.read<`0x${string}`>(currentVault, houseVaultAbi, "asset");
-      const surplus = await this.client.rpc.creditAccountTokenBalance(currentAccount, asset);
-      if (surplus > 0n) {
-        const healthTx = await this.client.rpc.coreWrite("recordHealth", [this.id]);
-        await this.client.rpc.wait(healthTx);
-        const surplusTx = await this.client.rpc.coreWrite("withdraw", [this.id, asset, this.client.signer.address(), surplus]);
-        await this.client.rpc.wait(surplusTx);
-      }
-    }
-    const remote = await this.client.rpc.read<boolean>(this.client.config.core, termbookCoreAbi, "remoteCollateral", [this.id]);
-    const pendingRemote = remote ? await this.client.rpc.read<bigint>(this.client.config.core, termbookCoreAbi, "pendingRemoteReturn", [this.id]) : 0n;
-    const lock = field(current, "lockId", 22);
-    const collateralAmount = asBigInt(field(current, "collateralAmount", 9));
-    const collateralReturned = Boolean(field(current, "collateralReturned", 24));
-    if (typeof lock === "string" && /^0x[a-fA-F0-9]{64}$/.test(lock) && collateralAmount > 0n) {
-      if (remote && pendingRemote > 0n) return { closed: false };
-      const solana = remote && await this.client.rpc.read<boolean>(this.client.config.core,
-        [{ type: "function", name: "solanaCollateral", stateMutability: "view", inputs: [{ type: "bytes32" }], outputs: [{ type: "bool" }] }],
-        "solanaCollateral", [this.id]);
-      const returnTx = await this.client.rpc.coreWrite("authorizeReturn", [this.id, lock, collateralAmount],
-        solana ? await this.client.rpc.solanaWormholeFee()
-          : remote ? await this.client.rpc.ethereumWormholeFee() : undefined);
-      await this.client.rpc.wait(returnTx);
-      if (remote) return { closed: false, tx: returnTx };
-    } else if (!collateralReturned && typeof lock === "string" && /^0x[a-fA-F0-9]{64}$/.test(lock)) {
-      throw new Error("collateral-return-required");
-    }
-    const finishTx = await this.client.rpc.coreWrite("finishClose", [this.id]);
-    await this.client.rpc.wait(finishTx);
-    return { closed: true, tx: finishTx };
+  async close(options: CloseOptions = {}): Promise<{ closed: true; tx?: `0x${string}` }> {
+    return closeCredit(this.client, this.id, options);
   }
 }

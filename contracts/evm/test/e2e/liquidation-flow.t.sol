@@ -10,7 +10,7 @@ contract LiquidationFlowTest is Test {
     uint256 borrowerKey = 0xCAFE;
 
     function testLiquidationFlow() public {
-        TermbookCore core = new TermbookCore(address(this), address(this), address(0));
+        TermbookCore core = TermbookCore(deployCode("TermbookCore.sol:TermbookCore", abi.encode(address(this), address(this), address(0))));
         bytes32 id = keccak256("liq");
         bytes32 intentId = keccak256("il");
         address borrower = vm.addr(borrowerKey);

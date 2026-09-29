@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {IHealthReader, HealthReading} from "./IHealthSource.sol";
+import {IHealthReader, ICashReader, HealthReading} from "./IHealthSource.sol";
 import {TermbookCore} from "../credit/TermbookCore.sol";
 
 interface ICollateralPriceOracle {
@@ -17,7 +17,7 @@ interface ICollateralHouseVault {
     function asset() external view returns (address);
 }
 
-contract CollateralHealthReader is IHealthReader {
+contract CollateralHealthReader is IHealthReader, ICashReader {
     struct Market {
         bytes32 priceId;
         bytes32 settlementCodeHash;
@@ -160,5 +160,14 @@ contract CollateralHealthReader is IHealthReader {
             recoveryCosts: market.recoveryCosts,
             observedAt: updatedAt
         });
+    }
+
+    function readCash(bytes32 creditId, uint256 revision) external view returns (uint256 cash, uint256 observedAt) {
+        TermbookCore.Credit memory credit = core.creditDetails(creditId);
+        if (credit.revision != revision || revision == 0 || credit.account == address(0) || credit.vault == address(0)) {
+            revert InvalidCredit();
+        }
+        cash = ICollateralBalanceToken(ICollateralHouseVault(credit.vault).asset()).balanceOf(credit.account);
+        observedAt = block.timestamp;
     }
 }

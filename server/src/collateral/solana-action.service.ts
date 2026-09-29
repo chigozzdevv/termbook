@@ -80,7 +80,7 @@ type PlanInput = z.infer<typeof solanaActionPlanSchema>;
 type ConfirmationInput = z.infer<typeof solanaConfirmationPlanSchema>;
 const zeroAddress = "0x0000000000000000000000000000000000000000";
 
-export async function readSolanaAction(input: Pick<PlanInput, "creditId" | "kind">, requester: string) {
+export async function readSolanaAction(input: Pick<PlanInput, "creditId" | "kind">, requester?: string) {
   const chain = monadClient();
   if (await chain.getChainId() !== env.monadChainId) throw new Error("solana-monad-chain-mismatch");
   const at = (await chain.getBlock({ blockTag: "finalized" })).number;
@@ -105,10 +105,12 @@ export async function readSolanaAction(input: Pick<PlanInput, "creditId" | "kind
   if (!isSolana || sourceChain <= 0n || amount <= 0n || nonce <= 0n || revision <= 0n || deadline <= 0n
     || !word.test(pda) || BigInt(pda) === 0n || !word.test(actionHash) || BigInt(actionHash) === 0n
     || !word.test(credit.lockId) || BigInt(credit.lockId) === 0n) throw new Error("solana-action-unavailable");
-  const allowed = kind === 0 ? same(credit.borrower, requester)
-    : await chain.readContract({ address: core, abi: coreAbi, functionName: "recoveryKeepers",
-      args: [requester as Address], blockNumber: at });
-  if (!allowed) throw new Error("permission-denied");
+  if (requester) {
+    const allowed = kind === 0 ? same(credit.borrower, requester)
+      : await chain.readContract({ address: core, abi: coreAbi, functionName: "recoveryKeepers",
+        args: [requester as Address], blockNumber: at });
+    if (!allowed) throw new Error("permission-denied");
+  }
   const genesis = field(identity, "sourceGenesis", 0) as Hex;
   const programId = field(identity, "programId", 1) as Hex;
   const asset = field(identity, "sourceAsset", 2) as Hex;
@@ -149,7 +151,7 @@ export async function readSolanaAction(input: Pick<PlanInput, "creditId" | "kind
 }
 
 export const solanaActionService = {
-  async plan(input: PlanInput, requester: string) {
+  async plan(input: PlanInput, requester?: string) {
     const rpcUrl = process.env["SOLANA_RPC_URL"];
     if (!rpcUrl) throw new Error("solana-action-proof-unavailable");
     const { action, actionHash, programId } = await readSolanaAction(input, requester);
@@ -162,7 +164,7 @@ export const solanaActionService = {
         [key, typeof value === "bigint" ? value.toString() : value])),
     };
   },
-  async confirmationPlan(input: ConfirmationInput, requester: string) {
+  async confirmationPlan(input: ConfirmationInput, requester?: string) {
     const rpcUrl = process.env["SOLANA_RPC_URL"];
     const proofUrl = process.env["SOLANA_PROOF_URL"];
     if (!rpcUrl || !proofUrl) throw new Error("solana-action-proof-unavailable");
@@ -195,7 +197,7 @@ export const solanaActionService = {
       : action.kind === 0 ? "cancelExpiredRemoteReturn" : "cancelExpiredRemoteSeizure";
     const data = encodeFunctionData({ abi: coreAbi, functionName,
       args: [action.creditId, proof.header, proof.proof] });
-    await chain.call({ account: requester as Address, to: env.core as Address, data });
+    await chain.call({ account: requester as Address | undefined, to: env.core as Address, data });
     return { to: env.core, data, actionHash, sourceSlot: proof.slot, sourceBlockhash: proof.blockhash,
       kind: input.kind, mode: input.mode };
   },

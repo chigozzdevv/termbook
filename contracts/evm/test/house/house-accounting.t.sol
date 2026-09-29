@@ -12,7 +12,7 @@ contract HouseAccountingTest is Test {
     function setUp() public {
         token = new MockERC20();
         token.mint(address(this), 3e18);
-        vault = new HouseVault(address(token), address(this), address(this), address(0), address(0));
+        vault = HouseVault(deployCode("HouseVault.sol:HouseVault", abi.encode(address(token), address(this), address(this), address(0), address(0))));
         token.approve(address(vault), type(uint256).max);
     }
 
@@ -68,6 +68,7 @@ contract HouseAccountingTest is Test {
         vault.fundDraw(creditId, address(2), 0.5e18);
         vault.recordAccruedReceivable(creditId, 0.1e18);
         vault.setProtocolFee(address(9), 1_000);
+        uint256 priceBefore = vault.sharePrice();
         token.mint(address(vault), 0.6e18);
 
         vault.receiveRepay(creditId, 0.6e18, 0.5e18, 0.1e18, 0);
@@ -76,5 +77,18 @@ contract HouseAccountingTest is Test {
         assertEq(vault.protocolFeesPaid(), 0.01e18);
         assertEq(vault.freeCash(), 1.09e18);
         assertEq(vault.drawnPrincipal(), 0);
+        assertEq(vault.sharePrice(), priceBefore);
+    }
+
+    function testSplittingPaymentsCannotAvoidProtocolFees() public {
+        bytes32 creditId = bytes32(uint256(4));
+        vault.deposit(address(this), 1000);
+        vault.recordAccruedReceivable(creditId, 10);
+        vault.setProtocolFee(address(9), 1000);
+        token.mint(address(vault), 10);
+        uint256 priceBefore = vault.sharePrice();
+        for (uint256 i; i < 10; ++i) vault.receiveRepay(creditId, 1, 0, 1, 0);
+        assertEq(vault.protocolFeesPaid(), 1);
+        assertEq(vault.sharePrice(), priceBefore);
     }
 }

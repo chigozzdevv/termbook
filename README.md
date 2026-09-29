@@ -76,9 +76,16 @@ shown once and stored only as a hash. Publication uses a MongoDB transaction,
 so the database deployment must support transactions. The IntegrationVersion, health reader,
 exit verifier, recovery adapter, reviewed action and recovery calls, and their
 call validators must be active onchain. Core calls the validators on every app
-action and recovery step. Proxy source and implementation are pinned in server
-configuration; an external proxy upgrade remains a separate trust risk that
-must be resolved in the integration review before accepting House funds.
+action and recovery step. Registration pins targets and validators as bounded
+runtime dependencies. Delegating bytecode requires a pinned deployment guard
+before activation. `ImplementationGuard` checks the reviewed proxy getter and
+implementation code hash on every action and recovery step; an upgrade makes
+the version inactive. The reviewer must verify that the getter reads the actual
+delegation target. Proxies without an enforceable getter or reviewed custom
+guard cannot be admitted. Mutable configuration and indirect dependencies must
+also be pinned with `pinDependency` and a guard that checks the reviewed state.
+Health readers, exit verifiers, planners, and recovery adapters use direct,
+nondelegating contracts with pinned code hashes.
 `StaticCallValidator` covers fixed-width ABI calls with exact, account, range,
 and spend bounds. Calls with dynamic arguments or app-specific state checks need
 a reviewed validator implementing `IAppCallValidator`.
@@ -135,6 +142,33 @@ An application reader must implement `IAppStateReader` to enumerate at most
 reads that state at one finalized Monad block through the bundle's pinned
 `AppHealthReader`; an unavailable, stale, changed, or incomplete reader returns
 `application-state-unavailable` instead of an empty list.
+It must also implement `IAppCashReader.reservedCash` for settlement cash owed
+to pending orders or other application liabilities. Core reads free cash
+separately from price-dependent health, so oracle staleness alone does not block
+repayment. `IAppExitPlanner` supplies bounded, revision-bound unwind steps.
+`credit.close()` freezes the facility before unwinding, repays actual free cash,
+returns surplus, and waits for verified source return before resolving. Its
+checkpoint supports resumption after wallet or network interruption.
+
+House withdrawal requests retain shares until FIFO redemption and remain exposed
+to gains and losses. Share conversion includes bounded pending loan accrual net
+of protocol fees. Partial recovery retains the suspended commitment; full
+termination and maturity release it. House managers finalize exhausted local
+recovery through `HouseVault.finalizeRecovery`. Unpaid debt remains a contingent
+claim after write-off. `RecoveryReserve` escrows borrower/sponsor first loss,
+underwriter first loss, and House reserves outside LP NAV. Later recoveries first
+restore the affected LPs, then consumed reserves and first-loss funding. LP claim
+rights use economic share checkpoints, including queued shares, and survive
+withdrawal. New LPs do not receive recoveries for earlier write-offs. Conversions
+pause while a per-credit impairment awaits resolution.
+
+Workers require `CORE_DEPLOYMENT_BLOCK` from the deployed Core receipt. The
+finalized event index uses renewable leases and canonical block checkpoints,
+discovers Credits without a client tracking request, and advances only after
+durable event storage and projection refresh. RPC gaps are retried; a changed
+indexed finalized block halts that cursor for operator investigation. `/health`
+reports process liveness; `/ready` checks database access, chain identity, and
+recent index progress. Monitor `/ready` and worker error logs in deployment.
 
 `COLLATERAL_MARKETS` publishes the admitted source-wallet choices in the modal.
 It is a JSON array of EVM entries (`id`, `label`, `decimals`, `chainId`,

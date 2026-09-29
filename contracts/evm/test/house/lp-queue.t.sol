@@ -11,7 +11,7 @@ contract LpQueueTest is Test {
 
     function setUp() public {
         token = new MockERC20();
-        vault = new HouseVault(address(token), address(this), address(this), address(0), address(0));
+        vault = HouseVault(deployCode("HouseVault.sol:HouseVault", abi.encode(address(token), address(this), address(this), address(0), address(0))));
         token.mint(address(this), 1_000);
         token.approve(address(vault), 1_000);
         vault.deposit(address(this), 1_000);
@@ -35,5 +35,30 @@ contract LpQueueTest is Test {
         (uint256 id,) = vault.requestWithdrawQueued(500, address(2));
         vault.cancelWithdrawal(id);
         assertEq(vault.shares(address(this)), beforeShares);
+    }
+
+    function testQueuedSharesRemainExposedToLossUntilClaim() public {
+        (uint256 id,) = vault.requestWithdrawQueued(500, address(2));
+        vault.fundDraw(bytes32(uint256(1)), address(0xB), 900);
+        token.mint(address(vault), 700);
+        vault.receiveRepay(bytes32(uint256(1)), 700);
+        vault.writeOff(bytes32(uint256(1)), 200, 0);
+        assertEq(vault.queuedWithdrawalAssets(), 400);
+        assertEq(vault.claimWithdrawal(id), 400);
+        assertEq(vault.totalShares(), 500);
+        assertEq(vault.sharePrice(), 0.8e18);
+    }
+
+    function testClaimsFollowQueueAndCancellationRemovesHead() public {
+        (uint256 first,) = vault.requestWithdrawQueued(200, address(2));
+        (uint256 second,) = vault.requestWithdrawQueued(200, address(3));
+        vault.release(bytes32(uint256(1)), 900);
+        vm.expectRevert(HouseVault.Insufficient.selector);
+        vault.claimWithdrawal(second);
+        vault.cancelWithdrawal(first);
+        assertEq(vault.withdrawalHead(), second);
+        vault.claimWithdrawal(second);
+        assertEq(vault.withdrawalHead(), 0);
+        assertEq(vault.withdrawalTail(), 0);
     }
 }

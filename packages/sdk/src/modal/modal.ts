@@ -289,9 +289,16 @@ export class TermbookModal {
           this.showStatus(`Repayment ${result.status}; remaining debt ${result.remaining}.`);
           this.summary = await this.credit!.summary(); this.render();
         }));
-        actions.append(this.button("Close facility", async () => {
-          const result = await this.credit!.close();
-          this.showStatus(result.closed ? "Facility closed." : "Closure pending source confirmation.");
+      }
+      if (this.summary.facility === "ready" || this.summary.facility === "closing") {
+        actions.append(this.button(this.summary.facility === "closing" ? "Continue closure" : "Close facility", async () => {
+          await this.credit!.close({ onProgress: ({ stage }) => this.showStatus({
+            freezing: "Stopping new trades…", unwinding: "Closing positions…",
+            settlement_pending: "Waiting for the application to settle…", repaying: "Repaying the House…",
+            funding_required: "Add funds to repay the remaining debt, then continue closure.",
+            withdrawing_surplus: "Returning remaining account funds…", return_pending: "Waiting for collateral return confirmation…",
+            closed: "Facility closed.",
+          }[stage]) });
           this.summary = await this.credit!.summary(); this.render();
         }));
       }

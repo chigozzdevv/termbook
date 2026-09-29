@@ -27,19 +27,17 @@ describe("transaction confirmation", () => {
 
 describe("verified free cash", () => {
   const creditId = `0x${"1".repeat(64)}` as const;
-  const bundleId = `0x${"2".repeat(64)}` as const;
-  const source = `0x${"3".repeat(40)}` as const;
 
-  it("reads free cash from the bound health source", async () => {
+  it("reads free cash validated against actual custody by Core", async () => {
     const rpc = rpcWithReceipt("success");
-    const read = vi.spyOn(rpc, "read").mockResolvedValueOnce(source).mockResolvedValueOnce({ debt: 100n, cash: 25n });
-    expect(await rpc.creditFreeCash(creditId, bundleId, 5n, 100n)).toBe(25n);
-    expect(read).toHaveBeenLastCalledWith(source, expect.any(Array), "snapshot", [creditId, bundleId, 5n, 100n]);
+    const read = vi.spyOn(rpc, "read").mockResolvedValueOnce(25n);
+    expect(await rpc.creditFreeCash(creditId)).toBe(25n);
+    expect(read).toHaveBeenLastCalledWith(rpc.config.core, expect.any(Array), "creditFreeCash", [creditId]);
   });
 
-  it("rejects mismatched debt instead of using a token balance", async () => {
+  it("rejects unavailable cash instead of using a token balance", async () => {
     const rpc = rpcWithReceipt("success");
-    vi.spyOn(rpc, "read").mockResolvedValueOnce(source).mockResolvedValueOnce({ debt: 99n, cash: 25n });
-    await expect(rpc.creditFreeCash(creditId, bundleId, 5n, 100n)).rejects.toThrow("free-cash-unavailable");
+    vi.spyOn(rpc, "read").mockResolvedValueOnce(undefined);
+    await expect(rpc.creditFreeCash(creditId)).rejects.toThrow("free-cash-unavailable");
   });
 });

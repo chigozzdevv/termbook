@@ -47,7 +47,7 @@ export class CreditApp {
     const currentDebt = BigInt(String(field("debt", 11)));
     const originationFee = field("originationCharged", 37) ? 0n : BigInt(String(field("originationFee", 31) ?? 0));
     const revisionValue = BigInt(String(field("revision", 17)));
-    const freeAssets = await this.client.rpc.creditFreeCash(this.creditId, bundleId, revisionValue, currentDebt);
+    const freeAssets = await this.client.rpc.creditFreeCash(this.creditId);
     const amount = requiredDraw(requiredInput, freeAssets);
     const nonce = BigInt(String(field("nonce", 18))) + 1n;
     const registry = await this.client.rpc.read<`0x${string}`>(this.client.config.core, coreRegistryAbi, "integrationRegistry");

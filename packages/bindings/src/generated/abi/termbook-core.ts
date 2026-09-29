@@ -670,6 +670,24 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "advanceClose",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "expectedStepId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "appRecoveryAdapterCodeHash",
     "inputs": [
       {
@@ -1277,6 +1295,40 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "closeStep",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "stepId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "instruction",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "done",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "retryAt",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "collateralOwnerOf",
     "inputs": [
       {
@@ -1334,6 +1386,19 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "commitFullRecovery",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "commitmentFeeRemainder",
     "inputs": [
       {
@@ -1347,6 +1412,30 @@ export const termbookCoreAbi = [
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "completedExitSteps",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "stateMutability": "view"
@@ -1800,6 +1889,25 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "creditFreeCash",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "cash",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "creditRevision",
     "inputs": [
       {
@@ -2199,6 +2307,44 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "exitPlannerCodeHash",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "exitPlannerOfBundle",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "exitVerifierCodeHash",
     "inputs": [
       {
@@ -2286,6 +2432,25 @@ export const termbookCoreAbi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "fullTermination",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -3071,6 +3236,25 @@ export const termbookCoreAbi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "previewVaultAccrual",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -3972,6 +4156,25 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "repayAvailableCash",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "repayFromAccount",
     "inputs": [
       {
@@ -4374,6 +4577,24 @@ export const termbookCoreAbi = [
       },
       {
         "name": "returnRecipient",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setExitPlanner",
+    "inputs": [
+      {
+        "name": "bundleId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "planner",
         "type": "address",
         "internalType": "address"
       }
@@ -5979,6 +6200,19 @@ export const termbookCoreAbi = [
   },
   {
     "type": "event",
+    "name": "FullRecoveryCommitted",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "Liquidated",
     "inputs": [
       {
@@ -6093,6 +6327,25 @@ export const termbookCoreAbi = [
         "type": "address",
         "indexed": true,
         "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RecoveryFinalized",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "remainingDebt",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false

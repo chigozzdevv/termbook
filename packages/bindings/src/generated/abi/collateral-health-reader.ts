@@ -167,6 +167,35 @@ export const collateralHealthReaderAbi = [
   },
   {
     "type": "function",
+    "name": "readCash",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "revision",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "cash",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "observedAt",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "readHealth",
     "inputs": [
       {

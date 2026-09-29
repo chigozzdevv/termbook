@@ -23,6 +23,7 @@ export type SourceLockWallet = {
   observeLock: (binding: CollateralSetupBinding, lockId: TxHash, txId?: string) => Promise<SourceLockObservation>;
   submitLock: (binding: CollateralSetupBinding, lockId: TxHash, revision: bigint,
     wormhole?: { actionHash: TxHash; authorizationTxHash?: TxHash }) => Promise<{ txId: string }>;
+  submitAction?: (plan: unknown) => Promise<{ txId: string }>;
 };
 
 export type CollateralProofSource = {

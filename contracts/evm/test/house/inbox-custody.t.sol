@@ -33,8 +33,8 @@ contract InboxCustodyTest is Test {
 
     function setUp() public {
         token = new MockERC20();
-        factory = new InboxFactory(address(this));
-        vault = new HouseVault(address(token), address(this), address(this), address(factory), address(0));
+        factory = InboxFactory(deployCode("InboxFactory.sol:InboxFactory", abi.encode(address(this))));
+        vault = HouseVault(deployCode("HouseVault.sol:HouseVault", abi.encode(address(token), address(this), address(this), address(factory), address(0))));
         token.mint(lp, 1_000);
         vm.startPrank(lp);
         token.approve(address(vault), 1_000);
@@ -74,7 +74,7 @@ contract InboxCustodyTest is Test {
     }
 
     function testGuardianCanBeConfiguredForSeparateManagerAtDeployment() public {
-        HouseVault guarded = new HouseVault(address(token), address(this), lp, address(factory), address(factory));
+        HouseVault guarded = HouseVault(deployCode("HouseVault.sol:HouseVault", abi.encode(address(token), address(this), lp, address(factory), address(factory))));
         assertEq(guarded.pauseGuardian(), address(factory));
         vm.prank(address(factory));
         guarded.setPaused(true);

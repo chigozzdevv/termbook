@@ -9,6 +9,8 @@ const creditSchema = new mongoose.Schema(
     facility: { type: String, default: "reserved" },
     debt: { type: String, default: "0" },
     revision: { type: Number, default: 1 },
+    observedBlock: Number,
+    observedHash: String,
   },
   { timestamps: true },
 );

@@ -12,27 +12,33 @@ export const creditService = {
     if (!/^0x[a-fA-F0-9]{64}$/.test(creditId)) throw new Error("param-invalid");
     const id = creditId.toLowerCase();
     const chain = monadClient();
+    const block = await chain.getBlock({ blockTag: "finalized" });
+    const observedBlock = Number(block.number);
+    if (!Number.isSafeInteger(observedBlock)) throw new Error("credit-block-invalid");
     const details = await chain.readContract({ address: env.core as `0x${string}`, abi: termbookCoreAbi,
-      functionName: "creditDetails", args: [id as `0x${string}`], blockTag: "finalized" });
+      functionName: "creditDetails", args: [id as `0x${string}`], blockNumber: block.number });
     const revision = Number(details.revision);
     if (!Number.isSafeInteger(revision) || revision <= 0) throw new Error("credit-unavailable");
     return creditRepo.save({ creditId: id, borrower: details.borrower.toLowerCase(), house: details.house,
       bundleId: details.bundleId, facility: facilities[Number(details.facility)] ?? "unknown",
-      debt: details.debt.toString(), revision });
+      debt: details.debt.toString(), revision, observedBlock, observedHash: block.hash });
   },
   async track(input: Record<string, unknown>) {
     const id = String(input["creditId"]).toLowerCase();
     if (!/^0x[a-f0-9]{64}$/.test(id)) throw new Error("param-invalid");
     const chain = monadClient();
+    const block = await chain.getBlock({ blockTag: "finalized" });
+    const observedBlock = Number(block.number);
+    if (!Number.isSafeInteger(observedBlock)) throw new Error("credit-block-invalid");
     const details = await chain.readContract({ address: env.core as `0x${string}`, abi: termbookCoreAbi,
-      functionName: "creditDetails", args: [id as `0x${string}`], blockTag: "finalized" });
+      functionName: "creditDetails", args: [id as `0x${string}`], blockNumber: block.number });
     const revision = Number(details.revision);
     if (details.revision === 0n || details.borrower.toLowerCase() !== String(input["borrower"]).toLowerCase()
       || details.house.toLowerCase() !== String(input["house"]).toLowerCase()
       || !Number.isSafeInteger(revision)) throw new Error("credit-unavailable");
     const saved = await creditRepo.save({ creditId: id, borrower: details.borrower.toLowerCase(),
       house: details.house, bundleId: details.bundleId, facility: facilities[Number(details.facility)] ?? "unknown",
-      debt: details.debt.toString(), revision });
+      debt: details.debt.toString(), revision, observedBlock, observedHash: block.hash });
     await queue.push({ kind: "credit.tracked", payload: { creditId: id } });
     return saved;
   },

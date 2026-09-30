@@ -1,6 +1,8 @@
 export type RepayArgs = {
   amount: bigint | "max";
   from: "credit_account" | "wallet" | "aurora_intents";
+  maxPayment?: bigint;
+  deadline?: number;
   source?: {
     chainId: number;
     asset: `0x${string}`;
@@ -18,6 +20,8 @@ export type RepayResult = {
   remaining: bigint;
   status: "applied" | "partial" | "refunded" | "pending";
   tx?: `0x${string}`;
+  approvalCleanupTx?: `0x${string}`;
+  approvalCleanupRequired?: boolean;
   operationId?: `0x${string}`;
   inbox?: `0x${string}`;
   depositAddress?: string;

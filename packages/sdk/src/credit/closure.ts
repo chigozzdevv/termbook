@@ -1,19 +1,18 @@
-import { decodeFunctionData } from "viem";
 import { termbookCoreAbi, houseVaultAbi } from "@termbook/bindings";
 import type { TermbookClient } from "../client/client.js";
 import type { TxHash } from "../types/client.types.js";
-import { parseSolanaActionPlan } from "../collateral/solana-action.js";
-import { HttpClient } from "../transport/http.js";
 import { CreditApp } from "../app/app.js";
 
 export type ClosureStage = "freezing" | "unwinding" | "settlement_pending" | "repaying"
   | "funding_required" | "withdrawing_surplus" | "return_pending" | "closed";
 export type ClosureCheckpoint = {
   chainId: number; core: TxHash; creditId: TxHash; stage: ClosureStage;
+  mode?: "unwind" | "retain";
   authorizationTx?: TxHash; sourceTx?: string;
   actionHash?: TxHash; remoteScheduled?: boolean;
 };
 export type CloseOptions = {
+  mode?: "unwind" | "retain";
   checkpoint?: ClosureCheckpoint; timeoutMs?: number; pollIntervalMs?: number; signal?: AbortSignal;
   onProgress?: (checkpoint: ClosureCheckpoint) => void | Promise<void>;
 };
@@ -55,13 +54,16 @@ export async function closeCredit(client: TermbookClient, creditId: TxHash, opti
   if (!saved) {
     try { const value = storage()?.getItem(key); if (value) saved = JSON.parse(value) as ClosureCheckpoint; } catch { /* Use onchain state. */ }
   }
+  let mode = options.mode ?? saved?.mode ?? "unwind";
+  if (mode !== "unwind" && mode !== "retain") throw new Error("param-invalid");
   let checkpoint: ClosureCheckpoint = { chainId: client.config.chainId, core: client.config.core,
-    creditId, stage: "freezing" };
+    creditId, stage: "freezing", mode };
   if (saved) {
     if (saved.chainId !== checkpoint.chainId || saved.core?.toLowerCase() !== checkpoint.core.toLowerCase()
       || saved.creditId?.toLowerCase() !== creditId.toLowerCase()
+      || (saved.mode && saved.mode !== mode)
       || (saved.authorizationTx && !word.test(saved.authorizationTx))) throw new Error("close-checkpoint-invalid");
-    checkpoint = { ...saved };
+    checkpoint = { ...saved, mode };
   }
   const progress = async (stage: ClosureStage) => {
     checkpoint.stage = stage;
@@ -83,10 +85,13 @@ export async function closeCredit(client: TermbookClient, creditId: TxHash, opti
     if (facility === 6) { await progress("closed"); return { closed: true, tx: lastTx }; }
     if (facility === 4) {
       await progress("freezing");
-      lastTx = await write("startClosing");
+      lastTx = await write(mode === "retain" ? "startRetaining" : "startClosing");
       continue;
     }
     if (facility !== 5) throw new Error("recovery-blocked");
+    const retaining = await client.rpc.read<boolean>(client.config.core, termbookCoreAbi, "closingRetention", [creditId]);
+    if (!options.mode && !saved?.mode) { mode = retaining ? "retain" : "unwind"; checkpoint.mode = mode; }
+    if (retaining !== (mode === "retain")) throw new ClosurePendingError({ ...checkpoint }, "close-mode-mismatch");
     const reconciled = await new CreditApp(client, creditId).syncIfChanged(details);
     if (reconciled) { lastTx = reconciled.tx; continue; }
     const debt = await client.rpc.debt(creditId);
@@ -98,11 +103,15 @@ export async function closeCredit(client: TermbookClient, creditId: TxHash, opti
     const [stepId, , done, retryAt] = await client.rpc.read<readonly [TxHash, TxHash, boolean, bigint]>(
       client.config.core, termbookCoreAbi, "closeStep", [creditId]);
     if (!done) {
+      if (retaining && debt > 0n && retryAt > 0n) {
+        await progress("funding_required");
+        throw new ClosureFundingRequiredError({ ...checkpoint }, debt);
+      }
       if (retryAt > 0n) {
         await progress("settlement_pending");
         await pause(Math.min(interval, until - Date.now()), options.signal);
       } else {
-        await progress("unwinding");
+        await progress(retaining ? "settlement_pending" : "unwinding");
         lastTx = await write("advanceClose", [creditId, stepId]);
       }
       continue;
@@ -158,36 +167,6 @@ export async function closeCredit(client: TermbookClient, creditId: TxHash, opti
       await progress("return_pending");
     }
     try {
-      if (solana) {
-        if (!client.config.apiBase) throw new Error("api-required");
-        const http = new HttpClient(client.config.apiBase);
-        if (!checkpoint.sourceTx) {
-          const query = new URLSearchParams({ creditId, kind: "release", mode: "apply", authorizationTxHash: checkpoint.authorizationTx });
-          const plan = await http.get(`/collateral/solana/actions/plan?${query}`);
-          const parsed = parseSolanaActionPlan(plan);
-          const currentHash = await client.rpc.read<TxHash>(client.config.core, termbookCoreAbi, "remoteReturnActionHash", [creditId]);
-          if (parsed.actionHash.toLowerCase() !== currentHash.toLowerCase() || parsed.action.creditId.toLowerCase() !== creditId.toLowerCase()
-            || parsed.action.monadCore.toLowerCase() !== client.config.core.toLowerCase() || parsed.action.kind !== 0) {
-            throw new Error("solana-action-plan-invalid");
-          }
-          const sourceChain = await client.rpc.read<bigint>(client.config.core, termbookCoreAbi, "collateralSourceChainOf", [creditId]);
-          const market = (await client.catalog.collateralMarkets()).find((row) => row.kind === "solana" && row.chainId === Number(sourceChain));
-          if (!market) throw new Error("collateral-market-unavailable");
-          const wallet = await client.sourceWallet(market);
-          if (!wallet.submitAction) throw new Error("source-action-wallet-required");
-          checkpoint.sourceTx = (await wallet.submitAction(plan)).txId;
-          await progress("return_pending");
-        }
-        const query = new URLSearchParams({ creditId, kind: "release", mode: "apply", sourceTx: checkpoint.sourceTx });
-        const plan = await http.get<{ to: string; data: TxHash; actionHash: TxHash }>(
-          `/collateral/solana/actions/confirmation-plan?${query}`);
-        const decoded = decodeFunctionData({ abi: termbookCoreAbi, data: plan.data });
-        if (plan.to.toLowerCase() !== client.config.core.toLowerCase() || decoded.functionName !== "confirmRemoteReturn"
-          || decoded.args[0].toLowerCase() !== creditId.toLowerCase()
-          || plan.actionHash.toLowerCase() !== checkpoint.actionHash.toLowerCase()) throw new Error("solana-confirmation-plan-invalid");
-        lastTx = await write("confirmRemoteReturn", decoded.args);
-        continue;
-      }
       if (!checkpoint.remoteScheduled) {
         await client.authenticatedPost("/collateral/actions", {
           creditId, kind: "release", authorizationTxHash: checkpoint.authorizationTx,

@@ -42,6 +42,8 @@ const contracts = {
   CollateralHealthReader: "collateral-health-reader",
   AppHealthReader: "app-health-reader",
   AppExitVerifier: "app-exit-verifier",
+  AppRetentionVerifier: "app-retention-verifier",
+  IAppRetentionVerifier: "app-retention-verifier-interface",
   IAppCallValidator: "app-call-validator",
   StaticCallValidator: "static-call-validator",
   IAppStateReader: "app-state-reader",

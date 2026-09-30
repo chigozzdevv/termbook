@@ -1,15 +1,15 @@
 import type { TermbookClient } from "../client/client.js";
 import type { AppAction } from "../types/app.types.js";
 import type { ActivityCallback, Unsubscribe } from "../types/client.types.js";
-import type { CreditActivity, CreditSummary, ExecuteResult } from "../types/credit.types.js";
+import type { CreditActivity, CreditSummary, ExecuteResult, ExecuteOptions } from "../types/credit.types.js";
 import type { RepayArgs, RepayResult } from "../types/settlement.types.js";
 import { settlementNonce } from "../settlement/settlement.js";
 import { CreditApp } from "../app/app.js";
 import { CreditAccount } from "../account/account.js";
 import { CreditCollateral } from "../collateral/collateral.js";
 import type { CollateralSetup } from "../collateral/setup.js";
-import { houseVaultAbi } from "@termbook/bindings";
-import { decodeFunctionData, parseAbi } from "viem";
+import { houseVaultAbi, termbookCoreAbi } from "@termbook/bindings";
+import { decodeEventLog, decodeFunctionData, parseAbi } from "viem";
 import { closeCredit, type CloseOptions } from "./closure.js";
 const clearanceAbi = parseAbi(["function confirmRemoteRecoveryClearance(bytes32,bytes,bytes)"]);
 
@@ -63,7 +63,7 @@ export class Credit {
       facility: facilities[facility] ?? "unknown",
       payment: payments[payment] ?? "unknown",
       limit: asBigInt(field(details, "limit", 10)),
-      debt: asBigInt(field(details, "debt", 11)),
+      debt: await this.client.rpc.debt(this.id),
       revision: asBigInt(field(details, "revision", 17)),
       account: asAddress(field(details, "account", 5)),
       vault: asAddress(field(details, "vault", 4)),
@@ -100,8 +100,28 @@ export class Credit {
     };
   }
 
-  async execute(action: AppAction): Promise<ExecuteResult> {
-    return this.app.execute(action);
+  async execute(action: AppAction, options: ExecuteOptions = {}): Promise<ExecuteResult> {
+    return this.app.execute(action, undefined, undefined, options);
+  }
+
+  async closureSupport(): Promise<{ retention: boolean; retaining: boolean }> {
+    const details = await this.details();
+    const bundle = field(details, "bundleId", 20) as `0x${string}`;
+    const retention = await this.client.rpc.read<boolean>(this.client.config.core, termbookCoreAbi, "retentionSupported", [bundle]);
+    const retaining = await this.client.rpc.read<boolean>(this.client.config.core, termbookCoreAbi, "closingRetention", [this.id]);
+    return { retention: retention === true, retaining };
+  }
+
+  async reviewRepayment(args: RepayArgs): Promise<{ debt: bigint; cap: bigint; deadline: number }> {
+    await this.client.ready();
+    if (args.amount !== "max" && args.amount <= 0n || args.maxPayment !== undefined && args.maxPayment <= 0n) throw new Error("param-invalid");
+    const deadline = args.deadline ?? Math.floor(Date.now() / 1000) + 900;
+    if (!Number.isSafeInteger(deadline) || deadline <= Math.floor(Date.now() / 1000)) throw new Error("param-invalid");
+    const [debt, delayCap] = await this.client.rpc.read<readonly [bigint, bigint]>(this.client.config.core,
+      termbookCoreAbi, "repaymentQuote", [this.id, BigInt(deadline)]);
+    const cap = args.maxPayment ?? (args.amount === "max" ? delayCap : args.amount);
+    if (args.amount === "max" && cap < debt || args.amount !== "max" && cap > args.amount) throw new Error("repayment-cap-invalid");
+    return { debt, cap, deadline };
   }
 
   async repay(args: RepayArgs): Promise<RepayResult> {
@@ -110,10 +130,10 @@ export class Credit {
     const vault = asAddress(field(details, "vault", 4));
     if (!vault) throw new Error("credit-unavailable");
     const asset = await this.client.rpc.read<`0x${string}`>(vault, houseVaultAbi, "asset");
-    const debt = asBigInt(field(details, "debt", 11));
-    const requested = args.amount === "max" ? debt : args.amount;
-    const applied = requested > debt ? debt : requested;
-    if (applied === 0n) return { applied: 0n, remaining: debt, status: debt === 0n ? "applied" : "partial" };
+    const review = await this.reviewRepayment(args);
+    const { debt, deadline } = review;
+    let cap = review.cap;
+    if (debt === 0n) return { applied: 0n, remaining: 0n, status: "applied" };
     if (args.from === "aurora_intents") {
       if (!args.source || args.source.maxAmountIn <= 0n) throw new Error("settlement-route-required");
       const operation = await this.client.settlement.register({
@@ -129,29 +149,40 @@ export class Credit {
         vault,
         maxAmountIn: args.source.maxAmountIn,
         maxReceived: args.source.maxReceived,
-        minAmountOut: applied,
-        deadline: Math.floor(Date.now() / 1000) + 900,
+        minAmountOut: cap < debt ? cap : debt,
+        deadline,
         sourceRefund: args.source.sourceRefund,
         monadRefund: args.source.monadRefund,
       });
       return { applied: 0n, remaining: debt, status: "pending", registration: operation, ...operation };
     }
-    if (args.from === "credit_account") {
-      const account = asAddress(field(details, "account", 5));
-      if (!account) throw new Error("account-unavailable");
-      const balance = await this.client.rpc.creditAccountTokenBalance(account, asset);
-      if (balance < applied) throw new Error("settle-failed");
-      const tx = await this.client.rpc.coreWrite("repayFromAccount", [this.id, applied]);
-      await this.client.rpc.wait(tx);
-      const remaining = await this.client.rpc.debt(this.id);
-      return { applied, remaining, status: remaining === 0n ? "applied" : "partial", tx };
+    const fromAccount = args.from === "credit_account";
+    if (fromAccount) {
+      const cash = await this.client.rpc.creditFreeCash(this.id);
+      if (cash < debt && args.amount === "max" || cash === 0n) throw new Error("settle-failed");
+      if (cap > cash) cap = cash;
+    } else {
+      await this.client.rpc.wait(await this.client.rpc.approve(asset, this.client.config.core, cap));
     }
-    const approvalTx = await this.client.rpc.approve(asset, this.client.config.core, applied);
-    await this.client.rpc.wait(approvalTx);
-    const tx = await this.client.rpc.coreWrite("repay", [this.id, applied]);
-    await this.client.rpc.wait(tx);
+    const tx = await this.client.rpc.coreWrite("repayUpTo", [this.id, cap, BigInt(deadline), fromAccount, args.amount === "max"]);
+    const receipt = await this.client.rpc.wait(tx);
+    let applied = 0n;
+    for (const log of receipt.logs) {
+      if (log.address.toLowerCase() !== this.client.config.core.toLowerCase()) continue;
+      try {
+        const event = decodeEventLog({ abi: termbookCoreAbi, data: log.data, topics: log.topics });
+        if (event.eventName === "Repaid" && event.args.creditId.toLowerCase() === this.id.toLowerCase()) applied += event.args.amount;
+      } catch { /* Other receipt events do not account for repayment. */ }
+    }
     const remaining = await this.client.rpc.debt(this.id);
-    return { applied, remaining, status: remaining === 0n ? "applied" : "partial", tx };
+    const result: RepayResult = { applied, remaining, status: remaining === 0n ? "applied" : "partial", tx };
+    if (!fromAccount && applied < cap) {
+      try {
+        result.approvalCleanupTx = await this.client.rpc.approve(asset, this.client.config.core, 0n);
+        await this.client.rpc.wait(result.approvalCleanupTx);
+      } catch { result.approvalCleanupRequired = true; }
+    }
+    return result;
   }
 
   async close(options: CloseOptions = {}): Promise<{ closed: true; tx?: `0x${string}` }> {

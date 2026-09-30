@@ -1,8 +1,9 @@
 import type { TermbookClient } from "../client/client.js";
 import type { AppAction, ActionReview, AppPendingAction, AppPosition } from "../types/app.types.js";
-import type { ExecuteResult } from "../types/credit.types.js";
+import type { ExecuteResult, ExecuteOptions } from "../types/credit.types.js";
+import { completeExecution, savedExecution } from "./completion.js";
 import { requiredDraw } from "../credit/draw.js";
-import { decodeEventLog, encodeAbiParameters, keccak256, parseAbi, stringToHex } from "viem";
+import { encodeAbiParameters, keccak256, parseAbi, stringToHex } from "viem";
 import { HttpClient } from "../transport/http.js";
 import { buildAction } from "./action.js";
 import { CreditAccount } from "../account/account.js";
@@ -13,7 +14,6 @@ import type { Wallet } from "../types/client.types.js";
 
 const coreRegistryAbi = parseAbi(["function integrationRegistry() view returns (address)"]);
 const registryAbi = parseAbi(["function validateCall(bytes32,address,bytes,address,uint256) view returns (bool)"]);
-const pendingAbi = parseAbi(["event ActionPending(bytes32 indexed creditId,bytes32 indexed pendingId,bytes32 capability,bytes32 market)"]);
 const stateId = /^0x[a-fA-F0-9]{64}$/;
 
 export function slippageBound(refPrice: bigint, bps: number, isMax: boolean): bigint {
@@ -94,7 +94,11 @@ export class CreditApp {
     return (await this.prepare(action)).review;
   }
 
-  async execute(action: AppAction, reviewed?: ActionReview, sessionWallet?: Wallet): Promise<ExecuteResult> {
+  async execute(action: AppAction, reviewed?: ActionReview, sessionWallet?: Wallet, options: ExecuteOptions = {}): Promise<ExecuteResult> {
+    if (options.checkpoint) {
+      if (options.checkpoint.capability !== action.capability) throw new Error("action-checkpoint-invalid");
+      return this.resumeExecution(options);
+    }
     const { review, target, data, nonce, definition, plan, bundleId } = await this.prepare(action, reviewed?.price);
     if (reviewed && review.fingerprint !== reviewed.fingerprint) throw new Error("action-review-stale");
     if (!review.canExecute) throw new Error("action-health-insufficient");
@@ -118,16 +122,8 @@ export class CreditApp {
         [this.creditId, plan, authorization]);
       authorization.signature = await signer.signDigest(digest);
       const tx = await this.client.rpc.coreWrite("executePlan", [this.creditId, plan, authorization]);
-      const receipt = await this.client.rpc.wait(tx);
-      const pendingIds: `0x${string}`[] = [];
-      for (const log of receipt.logs) {
-        if (log.address.toLowerCase() !== manager.toLowerCase()) continue;
-        try {
-          const event = decodeEventLog({ abi: pendingAbi, data: log.data, topics: log.topics });
-          if (event.args.creditId.toLowerCase() === this.creditId.toLowerCase()) pendingIds.push(event.args.pendingId);
-        } catch { continue; }
-      }
-      return { status: pendingIds.length === 0 ? "settled" : "pending", pendingIds, draw: review.draw, tx };
+      return this.resumeExecution({ ...options, checkpoint: { chainId: this.client.config.chainId, core: this.client.config.core,
+        creditId: this.creditId, tx, capability: action.capability, stage: "submitted" } });
     }
     if (sessionWallet) throw new Error("session-unavailable");
     const digest = this.client.signer.fundedActionDigest(
@@ -147,6 +143,12 @@ export class CreditApp {
       review.draw, review.requiredInput, review.draw, nonce, BigInt(deadline), signature]);
     await this.client.rpc.wait(tx);
     return { status: definition.settlement === "atomic" ? "settled" : "pending", draw: review.draw, tx };
+  }
+
+  async resumeExecution(options: ExecuteOptions = {}): Promise<ExecuteResult> {
+    const checkpoint = options.checkpoint ?? savedExecution(this.client, this.creditId);
+    if (!checkpoint) throw new Error("action-checkpoint-unavailable");
+    return completeExecution(this.client, this.creditId, checkpoint, options, () => this.syncIfChanged());
   }
 
   async sync(): Promise<{ tx: `0x${string}` }> {

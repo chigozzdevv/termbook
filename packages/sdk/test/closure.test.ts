@@ -8,9 +8,9 @@ const core = `0x${"3".repeat(40)}` as const;
 const borrower = `0x${"4".repeat(40)}` as const;
 const asset = `0x${"5".repeat(40)}` as const;
 
-function fixture(remote = false) {
+function fixture(remote = false, solana = false) {
   const state = { facility: 4, debt: 200n, cash: 0n, positions: 200n,
-    pending: 0n, collateralReturned: false, delivery: false };
+    pending: 0n, collateralReturned: false, delivery: false, retaining: false, pendingOrders: 0 };
   const rpc = {
     creditDetails: vi.fn(async () => ({ facility: state.facility, debt: state.debt,
       vault: core, account: borrower, collateralAmount: state.collateralReturned ? 0n : 100n,
@@ -19,11 +19,13 @@ function fixture(remote = false) {
     creditFreeCash: vi.fn(async () => state.cash),
     wait: vi.fn(async () => ({ status: "success" })),
     ethereumWormholeFee: vi.fn(async () => 0n),
+    solanaWormholeFee: vi.fn(async () => 0n),
     read: vi.fn(async (_address: string, _abi: unknown, name: string) => {
       if (name === "managedBundle") return false;
-      if (name === "closeStep") return [word, "0x01", state.positions === 0n, 0n];
+      if (name === "closeStep") return [word, "0x01", state.retaining ? state.pendingOrders === 0 : state.positions === 0n, 0n];
+      if (name === "closingRetention") return state.retaining;
       if (name === "remoteCollateral") return remote;
-      if (name === "solanaCollateral") return false;
+      if (name === "solanaCollateral") return solana;
       if (name === "pendingRemoteReturn") return state.pending;
       if (name === "remoteReturnActionHash") return word;
       if (name === "asset") return asset;
@@ -31,7 +33,11 @@ function fixture(remote = false) {
     }),
     coreWrite: vi.fn(async (name: string, args: readonly unknown[]) => {
       if (name === "startClosing") state.facility = 5;
-      else if (name === "advanceClose") { state.positions = 0n; state.cash = 250n; }
+      else if (name === "startRetaining") { state.facility = 5; state.retaining = true; }
+      else if (name === "advanceClose") {
+        if (state.retaining) state.pendingOrders = 0;
+        else { state.positions = 0n; state.cash = 250n; }
+      }
       else if (name === "repayAvailableCash") {
         const payment = state.cash < state.debt ? state.cash : state.debt;
         state.cash -= payment; state.debt -= payment;
@@ -40,7 +46,7 @@ function fixture(remote = false) {
         if (remote) state.pending = 100n;
         else state.collateralReturned = true;
       } else if (name === "finishClose") {
-        if (!state.collateralReturned || state.debt !== 0n || state.positions !== 0n) throw new Error("unsafe-close");
+        if (!state.collateralReturned || state.debt !== 0n || !state.retaining && state.positions !== 0n) throw new Error("unsafe-close");
         state.facility = 6;
       } else throw new Error(name);
       return word;
@@ -102,10 +108,44 @@ describe("closure coordinator", () => {
     expect(rpc.coreWrite.mock.calls.filter(([name]) => name === "authorizeReturn")).toHaveLength(1);
   });
 
+  it("returns SOL through the configured relay without reconnecting a source wallet", async () => {
+    const { client, state } = fixture(true, true);
+    client.authenticatedPost = vi.fn(async () => { state.collateralReturned = true; state.pending = 0n; }) as never;
+    expect(await closeCredit(client, id, { pollIntervalMs: 1 })).toMatchObject({ closed: true });
+    expect(client.authenticatedPost).toHaveBeenCalledWith("/collateral/actions", expect.objectContaining({ creditId: id, kind: "release" }));
+  });
+
   it("rejects another credit's checkpoint before sending transactions", async () => {
     const { client, rpc } = fixture();
     await expect(closeCredit(client, id, { checkpoint: { chainId: 143, core, creditId: word,
       stage: "return_pending" } })).rejects.toThrow("close-checkpoint-invalid");
     expect(rpc.coreWrite).not.toHaveBeenCalled();
+  });
+
+  it("freezes a retention shortfall, then resumes without selling the position", async () => {
+    const { client, rpc, state } = fixture();
+    let checkpoint;
+    try { await closeCredit(client, id, { mode: "retain" }); }
+    catch (error) { if (error instanceof ClosureFundingRequiredError) checkpoint = error.checkpoint; else throw error; }
+    expect(checkpoint?.mode).toBe("retain");
+    expect(rpc.coreWrite.mock.calls.map(([name]) => name)).toEqual(["startRetaining"]);
+    state.debt = 0n;
+    expect(await closeCredit(client, id, { checkpoint })).toMatchObject({ closed: true });
+    expect(state.positions).toBe(200n);
+    expect(rpc.coreWrite.mock.calls.map(([name]) => name)).toEqual(["startRetaining", "authorizeReturn", "finishClose"]);
+  });
+
+  it("rejects attempts to switch an already frozen retention to selling", async () => {
+    const { client, rpc, state } = fixture(); state.facility = 5; state.retaining = true;
+    await expect(closeCredit(client, id, { mode: "unwind" })).rejects.toThrow("close-mode-mismatch");
+    expect(rpc.coreWrite).not.toHaveBeenCalled();
+  });
+
+  it("uses the selected retention plan to cancel orders before releasing ownership", async () => {
+    const { client, rpc, state } = fixture(); state.debt = 0n; state.pendingOrders = 1;
+    expect(await closeCredit(client, id, { mode: "retain" })).toMatchObject({ closed: true });
+    expect(rpc.coreWrite.mock.calls.map(([name]) => name)).toEqual(["startRetaining", "advanceClose", "authorizeReturn", "finishClose"]);
+    expect(state.positions).toBe(200n);
+    expect(state.pendingOrders).toBe(0);
   });
 });

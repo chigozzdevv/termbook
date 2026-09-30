@@ -5,6 +5,7 @@ export { Intent } from "./intent/intent.js";
 export { Credit } from "./credit/credit.js";
 export { requiredDraw } from "./credit/draw.js";
 export { CreditApp } from "./app/app.js";
+export { ExecutionPendingError } from "./app/completion.js";
 export { CreditAccount } from "./account/account.js";
 export { House } from "./house/house.js";
 export { CreditCollateral } from "./collateral/collateral.js";

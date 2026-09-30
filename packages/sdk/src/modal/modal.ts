@@ -7,7 +7,7 @@ import { CollateralSetupInterruptedError } from "../collateral/setup.js";
 import type { Offer } from "../intent/intent.js";
 import type { Intent } from "../intent/intent.js";
 import type { Credit } from "../credit/credit.js";
-import type { ExecuteResult } from "../types/credit.types.js";
+import type { ExecuteResult, ExecutionCheckpoint, ActionOutcome } from "../types/credit.types.js";
 import { HttpClient } from "../transport/http.js";
 
 export type OpenOptions = { action?: AppAction; tab?: "account" | "app"; creditId?: `0x${string}` };
@@ -64,6 +64,7 @@ export class TermbookModal {
   private readonly status: HTMLDivElement;
   private readonly previousFocus: Element | null;
   private readonly keyHandler: (event: KeyboardEvent) => void;
+  private readonly operationAbort = new AbortController();
   private readonly requestedTab?: "account" | "app";
   private tab: "account" | "app";
   private markets: CollateralMarket[] = [];
@@ -73,6 +74,8 @@ export class TermbookModal {
   private credit?: Credit;
   private summary?: Awaited<ReturnType<Credit["summary"]>>;
   private health?: Awaited<ReturnType<Credit["account"]["health"]>>;
+  private closureSupport?: Awaited<ReturnType<Credit["closureSupport"]>>;
+  private repaymentReview?: Awaited<ReturnType<Credit["reviewRepayment"]>>;
   private intent?: Intent;
   private offers: Offer[] = [];
   private offer?: Offer;
@@ -80,7 +83,7 @@ export class TermbookModal {
   private readonly preparedAction: boolean;
   private editingAction = false;
   private review?: ActionReview;
-  private recentAction?: { capability: string; status: ExecuteResult["status"]; tx?: `0x${string}` };
+  private recentAction?: { capability: string; status: ExecuteResult["status"]; tx?: `0x${string}`; checkpoint?: ExecutionCheckpoint };
   private amountText = "";
   private limitText = "";
   private durationDays = "30";
@@ -135,6 +138,7 @@ export class TermbookModal {
   close(): void {
     if (this.closed) return;
     this.closed = true;
+    this.operationAbort.abort();
     document.removeEventListener("keydown", this.keyHandler);
     this.host.remove();
     if (this.previousFocus instanceof HTMLElement) this.previousFocus.focus();
@@ -187,18 +191,26 @@ export class TermbookModal {
       const raw = localStorage.getItem(`${this.storageKey()}:action:${id}`);
       if (!raw) return;
       const value = JSON.parse(raw) as Record<string, unknown>;
-      if (typeof value["capability"] === "string" && ["settled", "pending", "failed", "cancelled", "expired"].includes(String(value["status"]))
+      if (typeof value["capability"] === "string" && ["settled", "partial", "pending", "failed", "cancelled", "expired"].includes(String(value["status"]))
         && (value["tx"] === undefined || typeof value["tx"] === "string" && /^0x[a-fA-F0-9]{64}$/.test(value["tx"]))) {
         this.recentAction = { capability: value["capability"], status: value["status"] as ExecuteResult["status"],
-          tx: value["tx"] as `0x${string}` | undefined };
+          tx: value["tx"] as `0x${string}` | undefined, checkpoint: value["checkpoint"] as ExecutionCheckpoint | undefined };
       }
     } catch { /* storage is optional */ }
   }
 
   private saveRecentAction(result: ExecuteResult): void {
-    if (!this.credit || !this.action) return;
-    this.recentAction = { capability: this.action.capability, status: result.status, tx: result.tx };
+    const capability = result.checkpoint?.capability ?? this.action?.capability ?? this.recentAction?.capability;
+    if (!this.credit || !capability) return;
+    this.recentAction = { capability, status: result.status, tx: result.tx, checkpoint: result.checkpoint };
     try { localStorage.setItem(`${this.storageKey()}:action:${this.credit.id}`, stringify(this.recentAction)); } catch { /* storage is optional */ }
+  }
+
+  private executionProgress(checkpoint: ExecutionCheckpoint, outcomes: ActionOutcome[]): void {
+    this.saveRecentAction({ status: "pending", tx: checkpoint.tx, draw: 0n, checkpoint });
+    const fills = outcomes.map((state) => `${state.status}: filled ${state.filled}, refunded ${state.refunded}, remaining ${state.remaining}`).join("; ");
+    this.showStatus(fills || "Waiting for finalized application settlement…");
+    this.render();
   }
 
   private async load(preferred?: `0x${string}`): Promise<void> {
@@ -227,6 +239,7 @@ export class TermbookModal {
     if (this.credit) {
       this.summary = await this.credit.summary();
       this.health = await this.credit.account.health().catch(() => undefined);
+      this.closureSupport = await this.credit.closureSupport().catch(() => undefined);
       this.loadRecentAction(this.credit.id);
     }
     if (!this.requestedTab && !this.action && this.summary?.facility === "ready") this.tab = "app";
@@ -257,6 +270,8 @@ export class TermbookModal {
         this.credit = this.credits.find((credit) => credit.id === select.value);
         this.summary = this.credit ? await this.credit.summary() : undefined;
         this.health = this.credit ? await this.credit.account.health().catch(() => undefined) : undefined;
+        this.closureSupport = this.credit ? await this.credit.closureSupport().catch(() => undefined) : undefined;
+        this.repaymentReview = undefined;
         if (this.credit) this.loadRecentAction(this.credit.id);
         else this.recentAction = undefined;
         this.review = undefined;
@@ -282,25 +297,34 @@ export class TermbookModal {
         ["Recovery health", this.summary.debt === 0n ? "No debt" : this.health?.value === null || !this.health ? "Unavailable" : `${this.health.value} bps (${this.health.state})`],
       ]) card.append(element("p", `${label}: ${value}`));
       const actions = element("div", undefined, "actions");
-      actions.append(this.button("Refresh", async () => { this.summary = await this.credit!.summary(); this.health = await this.credit!.account.health().catch(() => undefined); this.render(); }));
-      if (this.summary.facility === "ready") {
-        actions.append(this.button("Repay from wallet", async () => {
-          const result = await this.credit!.repay({ amount: "max", from: "wallet" });
-          this.showStatus(`Repayment ${result.status}; remaining debt ${result.remaining}.`);
-          this.summary = await this.credit!.summary(); this.render();
+      actions.append(this.button("Refresh", async () => {
+        this.summary = await this.credit!.summary(); this.health = await this.credit!.account.health().catch(() => undefined);
+        this.closureSupport = await this.credit!.closureSupport().catch(() => undefined); this.render();
+      }));
+      if (this.summary.facility === "ready" || this.summary.facility === "closing") {
+        actions.append(this.button("Review repayment", async () => {
+          this.repaymentReview = await this.credit!.reviewRepayment({ amount: "max", from: "wallet" });
+          this.render();
         }));
+      }
+      if (this.repaymentReview) {
+        const review = this.repaymentReview;
+        card.append(element("p", `Repay current debt ${review.debt}. Maximum wallet payment ${review.cap}, including interest until ${new Date(review.deadline * 1000).toLocaleTimeString()}. Only the debt due at settlement is transferred.`));
+        actions.append(this.button("Confirm repayment", async () => {
+          const result = await this.credit!.repay({ amount: "max", from: "wallet", maxPayment: review.cap, deadline: review.deadline });
+          this.repaymentReview = undefined;
+          this.showStatus(`Repayment ${result.status}; paid ${result.applied}; remaining debt ${result.remaining}.${result.approvalCleanupRequired ? " Clear the unused token approval in your wallet." : ""}`);
+          this.summary = await this.credit!.summary(); this.render();
+        }, true));
       }
       if (this.summary.facility === "ready" || this.summary.facility === "closing") {
         actions.append(this.button(this.summary.facility === "closing" ? "Continue closure" : "Close facility", async () => {
-          await this.credit!.close({ onProgress: ({ stage }) => this.showStatus({
-            freezing: "Stopping new trades…", unwinding: "Closing positions…",
-            settlement_pending: "Waiting for the application to settle…", repaying: "Repaying the House…",
-            funding_required: "Add funds to repay the remaining debt, then continue closure.",
-            withdrawing_surplus: "Returning remaining account funds…", return_pending: "Waiting for collateral return confirmation…",
-            closed: "Facility closed.",
-          }[stage]) });
-          this.summary = await this.credit!.summary(); this.render();
+          await this.closeFacility();
         }));
+        if (this.summary.facility === "ready" && this.closureSupport?.retention) {
+          card.append(element("p", "You can repay and keep the position. This freezes trading and requires full repayment before account ownership and collateral are released."));
+          actions.append(this.button("Repay and keep position", () => this.closeFacility("retain")));
+        }
       }
       if (["reserved", "collateral_locking", "collateral_proving", "account_creating"].includes(this.summary.facility)) {
         actions.append(this.button("Continue setup", () => this.resumeSetup()));
@@ -340,6 +364,22 @@ export class TermbookModal {
     form.append(controls);
     this.body.append(form);
     if (this.offers.length) this.renderOffers();
+  }
+
+  private async closeFacility(mode?: "unwind" | "retain"): Promise<void> {
+    try {
+      await this.credit!.close({ mode, signal: this.operationAbort.signal, onProgress: ({ stage }) => this.showStatus({
+        freezing: "Stopping new trades…", unwinding: "Closing positions…",
+        settlement_pending: "Waiting for the application to settle…", repaying: "Repaying the House…",
+        funding_required: "Repay the remaining debt, then continue closure.",
+        withdrawing_surplus: "Returning remaining account funds…", return_pending: "Waiting for collateral return confirmation…",
+        closed: "Facility closed.",
+      }[stage]) });
+    } finally {
+      this.summary = await this.credit!.summary();
+      this.closureSupport = await this.credit!.closureSupport().catch(() => undefined);
+      this.render();
+    }
   }
 
   private input(label: string, value: string, update: (value: string) => void, hint?: string): HTMLDivElement {
@@ -404,6 +444,7 @@ export class TermbookModal {
       terms.append(element("p", `House ${this.offer.house}`, "mono"));
       terms.append(element("p", `Collateral ${this.offer.collateralAmount} · Credit ${this.offer.limit} · APR ${this.offer.aprBps / 100}%`));
       terms.append(element("p", `Origination fee ${this.offer.originationFee} · Reservation bond ${this.offer.reservationBond}`));
+      terms.append(element("p", this.offer.retentionSupported ? "Exit options: unwind positions, or repay and keep positions after verified ownership release." : "Exit option: unwind positions and repay before closure."));
       if (this.offer.reservationTerms) {
         const reservation = this.offer.reservationTerms;
         terms.append(element("p", `Reservation rate ${reservation.annualRateBps / 100}% annually on the reserved limit until ready or the setup deadline.`));
@@ -449,6 +490,7 @@ export class TermbookModal {
     await this.trackCredit(this.credit, this.offer.house).catch(() => undefined);
     if (!this.credits.some((credit) => credit.id === this.credit!.id)) this.credits.push(this.credit);
     this.summary = await this.credit.summary();
+    this.closureSupport = await this.credit.closureSupport().catch(() => undefined);
     this.offers = []; this.offer = undefined;
     if (this.summary.facility === "ready" && this.action) this.tab = "app";
     this.render();
@@ -493,6 +535,13 @@ export class TermbookModal {
       const status = element("div", undefined, "card");
       status.append(element("h3", "Recent action"), element("p", `${this.recentAction.capability.replaceAll("_", " ")}: ${this.recentAction.status}`));
       if (this.recentAction.tx) status.append(element("p", this.recentAction.tx, "mono"));
+      if (this.recentAction.status === "pending" && this.credit) {
+        status.append(this.button("Resume action", async () => {
+          const result = await this.credit!.app.resumeExecution({ checkpoint: this.recentAction?.checkpoint,
+            signal: this.operationAbort.signal, onProgress: (checkpoint, outcomes) => this.executionProgress(checkpoint, outcomes) });
+          this.saveRecentAction(result); this.showStatus(`Action ${result.status}.`); this.render();
+        }));
+      }
       this.body.append(status);
     }
     if (!this.credit || !this.summary || this.summary.facility !== "ready") {
@@ -549,7 +598,9 @@ export class TermbookModal {
       review.append(element("small", `Settlement asset ${this.review.settlementAsset}. Amounts shown in smallest token units.`));
       if (this.review.canExecute) review.append(this.button("Confirm action", async () => {
         if (!this.review) throw new Error("action-review-required");
-        const result = await this.credit!.app.execute(this.action!, this.review);
+        const result = await this.credit!.app.execute(this.action!, this.review, undefined, {
+          signal: this.operationAbort.signal, onProgress: (checkpoint, outcomes) => this.executionProgress(checkpoint, outcomes),
+        });
         this.saveRecentAction(result);
         this.review = undefined;
         this.summary = await this.credit!.summary();

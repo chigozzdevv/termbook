@@ -24,6 +24,30 @@ import {IAppStateReader} from "../../src/monad/integration/IAppStateReader.sol";
 import {AppHealthReader} from "../../src/monad/risk/AppHealthReader.sol";
 import {IAppExitPlanner} from "../../src/monad/integration/IAppExitPlanner.sol";
 import {IAppCashReader} from "../../src/monad/integration/IAppCashReader.sol";
+import {IAppRetentionVerifier, IAppRetentionPlanner} from "../../src/monad/integration/IAppRetentionVerifier.sol";
+
+contract RetentionVerifierFixture is IAppRetentionVerifier {
+    bool public ready = true;
+    RealFlowTarget public target;
+    function watch(RealFlowTarget value) external { target = value; }
+    function setReady(bool value) external { ready = value; }
+    function canRetain(bytes32, address, address) external view returns (bool) {
+        return ready && (address(target) == address(0) || target.value() == 1);
+    }
+}
+
+contract RetentionPlannerFixture is IAppRetentionPlanner {
+    RealFlowTarget public immutable target;
+    bool public valid = true;
+    constructor(RealFlowTarget value) { target = value; }
+    function setValid(bool value) external { valid = value; }
+    function nextRetentionStep(bytes32, address, address) external view returns (bytes32, address, bytes memory, bytes32, uint256) {
+        return (keccak256("cancel-pending"), address(target), abi.encodeWithSelector(RealFlowTarget.setValue.selector, 1), bytes32(uint256(1)), 0);
+    }
+    function verifyRetentionStep(bytes32, address, address, bytes32 expected) external view returns (bool) {
+        return valid && bytes32(target.value()) == expected;
+    }
+}
 
 contract MockExitVerifier is IExitVerifier {
     bool public ready = true;
@@ -979,6 +1003,104 @@ contract RealFlowTest is Test {
         assertEq(uint256(core.creditFacility(id)), uint256(Types.Facility.Closed));
         assertEq(houseVault.totalAssets(), 10_000);
         assertEq(houseVault.activeCreditCount(), 0);
+    }
+
+    function testRetentionFreezesRepaysAndReleasesWithoutSellingPosition() public {
+        bytes32 id = keccak256("retained-close");
+        bytes32 bundle = keccak256("bundle");
+        FundedPositionTarget position = new FundedPositionTarget(token);
+        core.setAppRecoveryAdapter(bundle, address(new FundedPositionRecoveryAdapter(position)));
+        RetentionVerifierFixture verifier = new RetentionVerifierFixture();
+        core.setRetentionVerifier(bundle, address(verifier));
+        core.setHealthSource(address(new FundedPositionHealthSource(token, core, position)));
+        exitVerifier.watch(position);
+        core.setApprovedCall(address(position), FundedPositionTarget.deposit.selector, true);
+        (bytes32 lockId, address account) = _prepare(id);
+        bytes memory data = abi.encodeWithSelector(FundedPositionTarget.deposit.selector, 200);
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes32 digest = keccak256(abi.encode(core.domain(), id, keccak256(abi.encode(address(position), data)),
+            uint256(200), uint256(200), uint256(1), deadline, core.creditRevision(id)));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(borrowerKey, digest);
+        core.executeAction(id, address(position), data, 200, 200, 1, deadline, abi.encodePacked(r, s, v));
+        vm.prank(address(0xBAD));
+        vm.expectRevert(TermbookCore.BadState.selector);
+        core.startRetaining(id);
+        vm.startPrank(borrower);
+        core.startRetaining(id);
+        assertTrue(core.closingRetention(id));
+        assertEq(houseVault.creditCommitted(id), 0);
+        vm.expectRevert(TermbookCore.BadState.selector);
+        core.exitApp(id, abi.encode(uint256(200)));
+        vm.expectRevert(TermbookCore.Unauthorized.selector);
+        core.authorizeReturn(id, lockId, 500);
+        token.approve(address(core), 210);
+        assertEq(core.repayUpTo(id, 210, deadline, false, true), 200);
+        verifier.setReady(false);
+        vm.expectRevert(TermbookCore.BadState.selector);
+        core.authorizeReturn(id, lockId, 500);
+        verifier.setReady(true);
+        core.authorizeReturn(id, lockId, 500);
+        core.finishClose(id);
+        assertEq(position.positions(account), 200);
+        CreditAccount(payable(account)).execute(address(position), abi.encodeWithSelector(FundedPositionTarget.withdraw.selector, 200));
+        assertEq(token.balanceOf(account), 200);
+        vm.stopPrank();
+        assertEq(uint256(core.creditFacility(id)), uint256(Types.Facility.Closed));
+        assertEq(houseVault.totalAssets(), 10_000);
+    }
+
+    function testFullRepaymentCapAccruesUntilSettlementAndRejectsExpiredAuthorization() public {
+        bytes32 id = keccak256("capped-repayment");
+        (, address account) = _prepareTerms(id);
+        uint256 deadline = vm.getBlockTimestamp() + 1 hours;
+        bytes32 digest = keccak256(abi.encode(core.domain(), id, uint256(200), uint256(200), uint256(1),
+            deadline, core.creditRevision(id)));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(borrowerKey, digest);
+        core.draw(id, 200, 200, 1, deadline, abi.encodePacked(r, s, v));
+        (uint256 debt, uint256 cap) = core.repaymentQuote(id, deadline);
+        assertEq(debt, 210);
+        vm.warp(deadline);
+        vm.startPrank(borrower);
+        token.approve(address(core), cap);
+        uint256 beforeBalance = token.balanceOf(borrower);
+        uint256 paid = core.repayUpTo(id, cap, deadline, false, true);
+        assertEq(beforeBalance - token.balanceOf(borrower), paid);
+        assertEq(core.creditDebt(id), 0);
+        assertEq(token.balanceOf(account), 200);
+        vm.warp(deadline + 1);
+        vm.expectRevert(TermbookCore.InvalidTerms.selector);
+        core.repayUpTo(id, cap, deadline, false, true);
+        vm.stopPrank();
+    }
+
+    function testRetentionStepsRequirePinnedCallsAndVerifiedResultEvenWhenPaused() public {
+        bytes32 id = keccak256("retention-cancel"); bytes32 bundle = keccak256("bundle");
+        RetentionVerifierFixture verifier = new RetentionVerifierFixture(); verifier.watch(target);
+        RetentionPlannerFixture planner = new RetentionPlannerFixture(target);
+        core.setRetentionVerifier(bundle, address(verifier)); core.setRetentionPlanner(bundle, address(planner));
+        core.setAppRecoveryAdapter(bundle, address(new FundedPositionRecoveryAdapter(new FundedPositionTarget(token))));
+        IntegrationRegistry registry = new IntegrationRegistry(address(this)); core.setIntegrationRegistry(address(registry));
+        registry.approve(bundle, keccak256("retention-manifest"));
+        registry.registerCall(bundle, address(target), RealFlowTarget.setValue.selector, 36, type(uint8).max, type(uint8).max, 0);
+        registry.registerRecoveryCall(bundle, address(target), RealFlowTarget.setValue.selector, 36, type(uint8).max);
+        MockAppCallValidator validator = new MockAppCallValidator();
+        registry.setCallValidator(bundle, address(target), RealFlowTarget.setValue.selector, address(validator));
+        registry.setRecoveryCallValidator(bundle, address(target), RealFlowTarget.setValue.selector, address(validator));
+        registry.pinDependency(bundle, address(planner)); registry.pinDependency(bundle, address(verifier));
+        registry.activate(bundle); healthSource.setReaderActive(bundle, true);
+        (bytes32 lockId,) = _prepare(id);
+        vm.prank(borrower); core.startRetaining(id);
+        core.setPaused(true); registry.freeze(bundle);
+        (bytes32 step,, bool done,) = core.closeStep(id); assertFalse(done);
+        planner.setValid(false);
+        vm.prank(borrower); vm.expectRevert(TermbookCore.BadState.selector); core.advanceClose(id, step);
+        assertEq(target.value(), 0);
+        planner.setValid(true);
+        vm.startPrank(borrower);
+        core.advanceClose(id, step); assertEq(target.value(), 1);
+        core.authorizeReturn(id, lockId, 500); core.finishClose(id);
+        vm.stopPrank();
+        assertEq(uint256(core.creditFacility(id)), uint256(Types.Facility.Closed));
     }
 
     function testAppActionsCannotBorrowOrSpendAfterMaturity() public {

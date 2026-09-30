@@ -11,6 +11,7 @@ import {ITermbookCore} from "./ITermbookCore.sol";
 import {IExitVerifier} from "../integration/IExitVerifier.sol";
 import {IAppRecoveryAdapter} from "../integration/IAppRecoveryAdapter.sol";
 import {IAppExitPlanner} from "../integration/IAppExitPlanner.sol";
+import {IAppRetentionVerifier, IAppRetentionPlanner} from "../integration/IAppRetentionVerifier.sol";
 import {PriceProtection} from "../integration/PriceProtection.sol";
 import {ExecutionManager} from "../integration/ExecutionManager.sol";
 import {ReservationManager} from "../house/ReservationManager.sol";
@@ -453,6 +454,12 @@ contract TermbookCore is ITermbookCore {
     mapping(bytes32 => bytes32) public appRecoveryAdapterCodeHash;
     mapping(bytes32 => address) public exitPlannerOfBundle;
     mapping(bytes32 => bytes32) public exitPlannerCodeHash;
+    mapping(bytes32 => address) public retentionVerifierOfBundle;
+    mapping(bytes32 => bytes32) public retentionVerifierCodeHash;
+    mapping(bytes32 => bool) public closingRetention;
+    mapping(bytes32 => address) public retentionPlannerOfBundle;
+    mapping(bytes32 => bytes32) public retentionPlannerCodeHash;
+    event ClosureSelected(bytes32 indexed creditId, bool retain);
     mapping(bytes32 => mapping(bytes32 => bool)) public completedExitSteps;
     mapping(bytes32 => bool) public bundleEverUsed;
     mapping(bytes32 => bool) public fullTermination;
@@ -1065,6 +1072,25 @@ contract TermbookCore is ITermbookCore {
             || planner.code.length == 0 || CodeInspection.delegates(planner)) revert InvalidTerms();
         exitPlannerOfBundle[bundleId] = planner;
         exitPlannerCodeHash[bundleId] = planner.codehash;
+    }
+
+    function setRetentionVerifier(bytes32 bundleId, address verifier) external onlyGovernance {
+        if (bundleId == bytes32(0) || bundleEverUsed[bundleId] || retentionVerifierOfBundle[bundleId] != address(0)
+            || verifier.code.length == 0 || CodeInspection.delegates(verifier)) revert InvalidTerms();
+        retentionVerifierOfBundle[bundleId] = verifier;
+        retentionVerifierCodeHash[bundleId] = verifier.codehash;
+    }
+
+    function retentionSupported(bytes32 bundleId) external view returns (bool) {
+        address verifier = retentionVerifierOfBundle[bundleId];
+        return verifier.code.length != 0 && verifier.codehash == retentionVerifierCodeHash[bundleId];
+    }
+
+    function setRetentionPlanner(bytes32 bundleId, address planner) external onlyGovernance {
+        if (bundleId == bytes32(0) || bundleEverUsed[bundleId] || retentionPlannerOfBundle[bundleId] != address(0)
+            || planner.code.length == 0 || CodeInspection.delegates(planner)) revert InvalidTerms();
+        retentionPlannerOfBundle[bundleId] = planner;
+        retentionPlannerCodeHash[bundleId] = planner.codehash;
     }
 
     function configureExecutionPolicy(bytes32 bundleId, address policy, uint8 maxPositions, uint8 maxPending, uint32 maxAge)
@@ -2256,14 +2282,20 @@ contract TermbookCore is ITermbookCore {
         view
         returns (uint256 interest, uint256 commitmentFee)
     {
-        if (c.accruedAt == 0 || block.timestamp <= c.accruedAt) return (0, 0);
-        uint256 elapsed = block.timestamp - c.accruedAt;
+        return _previewAccrualAt(c, creditId, block.timestamp);
+    }
+
+    function _previewAccrualAt(Credit memory c, bytes32 creditId, uint256 at)
+        internal view returns (uint256 interest, uint256 commitmentFee)
+    {
+        if (c.accruedAt == 0 || at <= c.accruedAt) return (0, 0);
+        uint256 elapsed = at - c.accruedAt;
         if (c.principal > 0 && c.aprBps > 0) {
             interest = (c.principal * c.aprBps * elapsed + interestRemainder[creditId]) / (BPS * YEAR);
         }
         uint256 commitmentElapsed = elapsed;
         if (c.maturity > 0 && c.accruedAt >= c.maturity) commitmentElapsed = 0;
-        else if (c.maturity > 0 && block.timestamp > c.maturity) commitmentElapsed = c.maturity - c.accruedAt;
+        else if (c.maturity > 0 && at > c.maturity) commitmentElapsed = c.maturity - c.accruedAt;
         if (
             c.facility == Types.Facility.Ready && c.commitmentFeeBps > 0 && c.vault != address(0)
                 && commitmentElapsed > 0
@@ -3456,6 +3488,25 @@ contract TermbookCore is ITermbookCore {
         _repay(c, creditId, amount, true);
     }
 
+    function repaymentQuote(bytes32 creditId, uint256 deadline) external view returns (uint256 debt, uint256 cap) {
+        Credit memory c = _credits[creditId];
+        if (c.revision == 0 || deadline < block.timestamp || deadline > block.timestamp + 1 hours) revert InvalidTerms();
+        (uint256 interest, uint256 fees) = _previewAccrualAt(c, creditId, deadline);
+        return (_previewDebt(c, creditId), c.debt + interest + fees);
+    }
+
+    function repayUpTo(bytes32 creditId, uint256 maxAmount, uint256 deadline, bool fromAccount, bool requireFull)
+        external nonReentrant returns (uint256 paid)
+    {
+        Credit storage c = _credits[creditId];
+        if (msg.sender != c.borrower) revert Unauthorized();
+        if (maxAmount == 0 || deadline < block.timestamp || deadline > block.timestamp + 1 hours) revert InvalidTerms();
+        _accrue(c, creditId);
+        if (requireFull && c.debt > maxAmount) revert OverLimit();
+        paid = maxAmount < c.debt ? maxAmount : c.debt;
+        if (paid != 0) _repay(c, creditId, paid, fromAccount);
+    }
+
     function creditFreeCash(bytes32 creditId) public view returns (uint256 cash) {
         Credit storage c = _credits[creditId];
         if (healthSource == address(0) || c.account == address(0) || c.revision == 0) revert BadHealth();
@@ -3587,15 +3638,29 @@ contract TermbookCore is ITermbookCore {
     function startClosing(bytes32 creditId) external nonReentrant {
         Credit storage c = _credits[creditId];
         if (msg.sender != c.borrower || c.facility != Types.Facility.Ready) revert BadState();
+        _startClosing(c, creditId, false);
+    }
+
+    function startRetaining(bytes32 creditId) external nonReentrant {
+        Credit storage c = _credits[creditId];
+        if (msg.sender != c.borrower || c.facility != Types.Facility.Ready) revert BadState();
+        address verifier = retentionVerifierOfBundle[c.bundleId];
+        if (verifier.code.length == 0 || verifier.codehash != retentionVerifierCodeHash[c.bundleId]) revert BadState();
+        _startClosing(c, creditId, true);
+    }
+
+    function _startClosing(Credit storage c, bytes32 creditId, bool retain) internal {
         _accrue(c, creditId);
         if (c.vault != address(0)) {
             uint256 committed = IHouseVaultCore(c.vault).creditCommitted(creditId);
             if (committed > 0) IHouseVaultCore(c.vault).release(creditId, committed);
         }
         c.facility = Types.Facility.Closing;
+        closingRetention[creditId] = retain;
         fullTermination[creditId] = true;
         sessionGeneration[creditId] += 1;
         c.revision = RevisionLib.next(c.revision);
+        emit ClosureSelected(creditId, retain);
     }
 
     function closeStep(bytes32 creditId) public view
@@ -3610,6 +3675,21 @@ contract TermbookCore is ITermbookCore {
     {
         Credit storage c = _credits[creditId];
         if (c.facility != Types.Facility.Closing) revert BadState();
+        if (closingRetention[creditId]) {
+            if (_retentionReady(c, creditId)) return (bytes32(0), "", true, 0);
+            address retentionPlanner = retentionPlannerOfBundle[c.bundleId];
+            if (retentionPlanner == address(0)) return (bytes32(0), "", false, block.timestamp + 5);
+            if (retentionPlanner.code.length == 0 || retentionPlanner.codehash != retentionPlannerCodeHash[c.bundleId]) revert BadState();
+            address target; bytes memory data; bytes32 expected;
+            (stepId, target, data, expected, retryAt) = IAppRetentionPlanner(retentionPlanner).nextRetentionStep(creditId, c.account, c.borrower);
+            if (data.length == 0) {
+                if (target != address(0) || stepId != bytes32(0) || retryAt <= block.timestamp || retryAt > block.timestamp + 7 days) revert BadState();
+                return (bytes32(0), "", false, retryAt);
+            }
+            if (stepId == bytes32(0) || target == address(0) || data.length < 4 || data.length > 3900
+                || retryAt > block.timestamp || completedExitSteps[creditId][stepId]) revert BadState();
+            return (stepId, abi.encode(target, data, expected), false, 0);
+        }
         address verifier = exitVerifierOfBundle[c.bundleId];
         if (verifier.code.length == 0 || verifier.codehash != exitVerifierCodeHash[c.bundleId]) revert BadState();
         if (IExitVerifier(verifier).canExit(creditId, c.account)) return (bytes32(0), "", true, 0);
@@ -3632,7 +3712,8 @@ contract TermbookCore is ITermbookCore {
         if (done || retryAt != 0
             || keccak256(abi.encode(operationId, keccak256(instruction), c.revision)) != expectedStepId) revert BadState();
         completedExitSteps[creditId][operationId] = true;
-        _executeAppRecovery(c, creditId, instruction, true);
+        if (closingRetention[creditId]) _executeRetentionStep(c, creditId, instruction);
+        else _executeAppRecovery(c, creditId, instruction, true);
     }
 
     function finishClose(bytes32 creditId) external nonReentrant {
@@ -3660,6 +3741,10 @@ contract TermbookCore is ITermbookCore {
     }
 
     function _requireExitReady(Credit storage c, bytes32 creditId) internal view {
+        if (c.facility == Types.Facility.Closing && closingRetention[creditId]) {
+            _requireRetentionReady(c, creditId);
+            return;
+        }
         if (managedBundle[c.bundleId] && executionManager.pendingCount(creditId) != 0) revert Pending();
         address verifier = exitVerifierOfBundle[c.bundleId];
         if (verifier == address(0) || verifier.codehash != exitVerifierCodeHash[c.bundleId]) revert BadState();
@@ -3668,6 +3753,35 @@ contract TermbookCore is ITermbookCore {
         } catch {
             revert BadState();
         }
+    }
+
+    function _requireRetentionReady(Credit storage c, bytes32 creditId) internal view {
+        if (!_retentionReady(c, creditId)) revert BadState();
+    }
+
+    function _retentionReady(Credit storage c, bytes32 creditId) internal view returns (bool) {
+        if (c.debt != 0 || managedBundle[c.bundleId] && executionManager.pendingCount(creditId) != 0) return false;
+        if (integrationRegistry != address(0)
+            && !IIntegrationRegistryCore(integrationRegistry).dependenciesValid(c.bundleId)) return false;
+        address verifier = retentionVerifierOfBundle[c.bundleId];
+        if (verifier.code.length == 0 || verifier.codehash != retentionVerifierCodeHash[c.bundleId]) return false;
+        if (integrationRegistry != address(0) && !IIntegrationRegistryCore(integrationRegistry).dependencyValid(c.bundleId, verifier)) return false;
+        try IAppRetentionVerifier(verifier).canRetain(creditId, c.account, c.borrower) returns (bool ready) {
+            return ready;
+        } catch { return false; }
+    }
+
+    function _executeRetentionStep(Credit storage c, bytes32 creditId, bytes memory instruction) internal {
+        address planner = retentionPlannerOfBundle[c.bundleId];
+        (address target, bytes memory data, bytes32 expected) = abi.decode(instruction, (address, bytes, bytes32));
+        if (target == c.account || target.code.length == 0 || integrationRegistry == address(0)
+            || !IIntegrationRegistryCore(integrationRegistry).dependencyValid(c.bundleId, planner)
+            || !IIntegrationRegistryCore(integrationRegistry).validateRecoveryCall(c.bundleId, target, data, c.account)) revert Unauthorized();
+        ICreditAccountCore(c.account).execute(target, data);
+        if (!IAppRetentionPlanner(planner).verifyRetentionStep(creditId, c.account, c.borrower, expected)) revert BadState();
+        if (managedBundle[c.bundleId]) executionManager.sync(creditId, c.bundleId, c.account);
+        c.revision = RevisionLib.next(c.revision);
+        emit AppExitStep(creditId, planner, target, keccak256(data));
     }
 
     function startLiquidation(bytes32 creditId) external nonReentrant {
@@ -3753,6 +3867,7 @@ contract TermbookCore is ITermbookCore {
         Credit storage c = _credits[creditId];
         if (msg.sender != c.borrower) revert Unauthorized();
         if (c.facility != Types.Facility.Ready && c.facility != Types.Facility.Closing) revert BadState();
+        if (c.facility == Types.Facility.Closing && closingRetention[creditId]) revert BadState();
         _executeAppRecovery(c, creditId, instruction, true);
     }
 
@@ -4040,6 +4155,10 @@ contract TermbookCore is ITermbookCore {
 
     function creditAccount(bytes32 creditId) external view returns (address) {
         return _credits[creditId].account;
+    }
+
+    function creditBorrower(bytes32 creditId) external view returns (address) {
+        return _credits[creditId].borrower;
     }
 
     function creditDetails(bytes32 creditId) external view returns (Credit memory) {

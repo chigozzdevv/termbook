@@ -41,8 +41,8 @@ export class RpcClient {
     this.client = createPublicClient({ transport: http(config.rpcUrl) });
   }
 
-  async read<T>(address: `0x${string}`, abi: readonly unknown[], functionName: string, args: readonly unknown[] = []): Promise<T> {
-    return this.client.readContract({ address, abi, functionName, args } as never) as Promise<T>;
+  async read<T>(address: `0x${string}`, abi: readonly unknown[], functionName: string, args: readonly unknown[] = [], blockNumber?: bigint): Promise<T> {
+    return this.client.readContract({ address, abi, functionName, args, ...(blockNumber !== undefined ? { blockNumber } : {}) } as never) as Promise<T>;
   }
 
   async write(address: `0x${string}`, abi: readonly unknown[], functionName: string, args: readonly unknown[] = [], value?: bigint): Promise<TxHash> {

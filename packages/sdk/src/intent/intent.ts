@@ -58,6 +58,7 @@ export type Offer = {
   termsHash: `0x${string}`;
   signature: `0x${string}`;
   revolving: boolean;
+  retentionSupported?: boolean;
 };
 
 export type AcceptOptions = {
@@ -277,11 +278,14 @@ export class Intent {
     const base = this.client.config.apiBase;
     if (!base) throw new Error("api-required");
     const rows = await new HttpClient(base).get<Record<string, unknown>[]>(`/quotes?intentId=${intentId}`);
-    return rows
+    const offers = rows
       .map(parseOffer)
       .filter((offer) => offer.intentId === intentId && offer.borrower.toLowerCase() === this.client.signer.address().toLowerCase()
         && (!this.client.config.versionId || offer.bundleId.toLowerCase() === this.client.config.versionId.toLowerCase()))
       .slice(0, 5);
+    const abi = parseAbi(["function retentionSupported(bytes32) view returns (bool)"]);
+    return Promise.all(offers.map(async (offer) => ({ ...offer, retentionSupported:
+      await this.client.rpc.read<boolean>(this.client.config.core, abi, "retentionSupported", [offer.bundleId]) === true })));
   }
 
   private async fundReservation(offer: Offer, asset: `0x${string}`, options: AcceptOptions): Promise<void> {

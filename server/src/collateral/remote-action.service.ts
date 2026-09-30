@@ -7,6 +7,9 @@ import { appliedLogIndex } from "../chain/source-action-receipt.js";
 import { env } from "../config/env.js";
 import { queue } from "../queue/queue.client.js";
 import { remoteActionRepo } from "./remote-action.repo.js";
+import { solanaRelayConfig } from "./solana-relay.config.js";
+import { solanaRelayRepo } from "./solana-relay.repo.js";
+import { readSolanaAction } from "./solana-action.service.js";
 import { hashRemoteAction, parseStoredAction, readAuthorizedAction, serializeAction } from "./remote-action.js";
 import type { cancelRemoteActionSchema, remoteActionSchema, remoteActionSourceTxSchema } from "./remote-action.schema.js";
 import type { z } from "zod";
@@ -33,6 +36,17 @@ const zero = "0x0000000000000000000000000000000000000000";
 
 export const remoteActionService = {
   async schedule(input: Input, requester: Address) {
+    const chain = monadClient();
+    const finalized = await chain.getBlock({ blockTag: "finalized" });
+    if (await chain.readContract({ address: env.core as Address, abi: termbookCoreAbi,
+      functionName: "solanaCollateral", args: [input.creditId as Hex], blockNumber: finalized.number })) {
+      if (!await solanaRelayConfig()) throw new Error("remote-action-worker-unavailable");
+      const { actionHash, action } = await readSolanaAction({ creditId: input.creditId as Hex, kind: input.kind }, requester);
+      await verifyAuthorizationReceipt(input.creditId as Hex, actionHash, action.kind, input.authorizationTxHash as Hex);
+      await solanaRelayRepo.open({ _id: actionHash.toLowerCase(), creditId: input.creditId as Hex,
+        kind: action.kind, authorizationTxHash: input.authorizationTxHash as Hex });
+      return { actionHash, creditId: input.creditId, kind: action.kind, state: "pending" };
+    }
     if (!env.sourceRpcUrl || !(env.sourceBeaconApiUrl || (env.wormholeScanUrl && env.sourceWormholePublisherKey))
       || !env.sourceActionKeeperKey || !env.monadConfirmKeeperKey) {
       throw new Error("remote-action-worker-unavailable");

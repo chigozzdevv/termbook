@@ -20,10 +20,12 @@ export const executionCoreAbi = parseAbi([
   "function executionManager() view returns (address)",
   "function previewPlan(bytes32,ExecutionAction,uint256,uint256,ExecutionPrice)",
   "function executionDigest(bytes32,ExecutionAction,ExecutionAuthorization) view returns (bytes32)",
+  "function executePlan(bytes32,ExecutionAction,ExecutionAuthorization) returns (bytes[])",
   "error ActionPreview(uint256 healthBps,uint256 initialBps,uint256 debt,uint256 recoveryValue)",
 ]);
 const pendingState = "(bytes32 positionId,uint256 committed,uint256 filled,uint256 refunded,uint256 remaining,uint256 liability,uint256 maxLiability,uint256 deadline,uint256 observedAt,uint8 positionSlots,address refundRecipient,uint8 status)";
 export const executionManagerAbi = parseAbi([
+  "event ActionPending(bytes32 indexed creditId,bytes32 indexed pendingId,bytes32 capability,bytes32 market)",
   "function bundles(bytes32) view returns (address policy,address reader,bytes32 policyCodeHash,bytes32 readerCodeHash,bytes32 policyHash,uint8 maxPositions,uint8 maxPending,uint32 maxAge)",
   "function pendingCount(bytes32) view returns (uint256)",
   "function pendingAt(bytes32,uint256) view returns (bytes32)",

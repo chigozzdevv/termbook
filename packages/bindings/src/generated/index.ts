@@ -35,6 +35,8 @@ export * from "./abi/health-source.js";
 export * from "./abi/collateral-health-reader.js";
 export * from "./abi/app-health-reader.js";
 export * from "./abi/app-exit-verifier.js";
+export * from "./abi/app-retention-verifier.js";
+export * from "./abi/app-retention-verifier-interface.js";
 export * from "./abi/app-call-validator.js";
 export * from "./abi/static-call-validator.js";
 export * from "./abi/app-state-reader.js";

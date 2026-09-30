@@ -199,6 +199,13 @@ Scoped sessions bind capabilities, markets, individual and aggregate spending
 and exposure, expiry, and the Credit's session generation. The primary wallet
 configures or revokes them onchain. Execution reports pending IDs from receipt
 events, and closure reconciles changed pending state before unwinding.
+`credit.execute()` waits for finalized execution and reconciled pending outcomes.
+The SDK saves the transaction checkpoint before waiting, exposes fills, refunds,
+remaining exposure, and terminal status, and reports cancelled partial fills as
+`partial`. A timeout carries an `ExecutionPendingError` checkpoint;
+`credit.app.resumeExecution({ checkpoint })` resumes that transaction without
+another draw or action signature. Reconciliation transactions are bounded per
+run, and the modal persists progress and resumes pending actions after reopening.
 Each integration still needs a concrete reader and adapter for its deployed app.
 An application reader must implement `IAppStateReader` to enumerate at most
 32 current positions and 32 pending actions for a Credit Account. The server
@@ -212,6 +219,24 @@ repayment. `IAppExitPlanner` supplies bounded, revision-bound unwind steps.
 `credit.close()` freezes the facility before unwinding, repays actual free cash,
 returns surplus, and waits for verified source return before resolving. Its
 checkpoint supports resumption after wallet or network interruption.
+An integration can offer `credit.close({ mode: "retain" })` by registering an
+immutable `AppRetentionVerifier` before its first accepted Credit. The verifier
+requires no debt or pending orders, no reserved settlement cash, and a fresh
+ownership reader proving that positions stay account-owned, application control
+has been revoked, and remaining obligations cannot claim House assets.
+An optional pinned `IAppRetentionPlanner` supplies bounded cancellation, settlement,
+or ownership migration steps verified through the registered safe recovery calls.
+Retention freezes the facility and sessions, requests any repayment shortfall,
+and never invokes the unwind adapter. Core repeats verification before collateral
+return and account release. A retention request does not bypass liquidation exit
+checks. The modal discloses support with the offer and preserves the selected mode.
+
+`credit.reviewRepayment()` returns current debt, a bounded payment cap, and expiry.
+`repay({ amount: "max" })` recalculates debt when the transaction executes and
+requires the cap to cover it. Core transfers only the debt due; the SDK reports
+the actual repayment event and clears unused wallet approval. A delay or increased
+debt beyond the cap needs a fresh review. Account repayment uses verified free
+cash, excluding pending or senior application liabilities.
 Once closure completes, the Credit Account releases control to its borrower and
 Core can no longer execute from it. A fully repaid liquidated account can be
 released with `credit.account.release()` after custody and exit reconciliation.

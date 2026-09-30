@@ -14,9 +14,26 @@ export type CreditSummary = {
 export type CreditActivity = ActivityEvent;
 
 export type ExecuteResult = {
-  status: "settled" | "pending" | "failed" | "cancelled" | "expired";
+  status: "settled" | "partial" | "pending" | "failed" | "cancelled" | "expired";
   draw: bigint;
   tx?: `0x${string}`;
   error?: string;
   pendingIds?: `0x${string}`[];
+  outcomes?: ActionOutcome[];
+  checkpoint?: ExecutionCheckpoint;
+};
+
+export type ActionOutcome = {
+  pendingId: `0x${string}`; positionId: `0x${string}`;
+  status: "pending" | "cancel_requested" | "settled" | "cancelled" | "failed" | "expired";
+  committed: bigint; filled: bigint; refunded: bigint; remaining: bigint; liability: bigint;
+};
+export type ExecutionCheckpoint = {
+  chainId: number; core: `0x${string}`; creditId: `0x${string}`; tx: `0x${string}`;
+  capability: string; stage: "submitted" | "pending" | "complete";
+};
+export type ExecuteOptions = {
+  checkpoint?: ExecutionCheckpoint; timeoutMs?: number; pollIntervalMs?: number; signal?: AbortSignal;
+  maxReconciliations?: number;
+  onProgress?: (checkpoint: ExecutionCheckpoint, outcomes: ActionOutcome[]) => void | Promise<void>;
 };

@@ -385,6 +385,9 @@ uses local Monad testnet and Sepolia forks on ports `18545` and `18546`.
 resumable receipt journal in `.testnet/deployment.json`. It queues governance
 configuration for the existing two-day timelock; it does not activate markets
 or deposit LP funds. The local keys and journals are ignored by Git.
+Signed transactions are journaled before broadcast. Resuming a pending
+transaction can raise an outdated fee by at least 25 percent, preserving its
+nonce, call and gas limit; at most three replacements are permitted.
 After the recorded timelock expires, run
 `node scripts/deploy-testnet.mjs --broadcast --activate` to execute the queued
 configuration. It checks each onchain action and skips actions that are still

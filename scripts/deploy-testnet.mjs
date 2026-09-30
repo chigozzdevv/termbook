@@ -64,13 +64,15 @@ async function context(chainId, url) {
   report.addresses[chainId] ??= {};
   const addresses = report.addresses[chainId];
   const read = (name, address, functionName, args = []) => publicClient.readContract({ address, abi: abi(name), functionName, args });
-  async function receipt(hash) {
+  async function receipt(entry) {
     for (let attempt = 0; attempt < 120; attempt++) {
-      const value = await publicClient.getTransactionReceipt({ hash }).catch(() => null);
-      if (value) return value;
+      for (const candidate of [entry, ...(entry.replacements ?? [])]) {
+        const value = await publicClient.getTransactionReceipt({ hash: candidate.hash }).catch(() => null);
+        if (value) return { result: value, hash: candidate.hash, gasPrice: candidate.gasPrice };
+      }
       await delay(1000);
     }
-    throw new Error(`Receipt pending; resume using the journal: ${hash}`);
+    throw new Error(`Receipt pending; resume using the journal: ${entry.hash}`);
   }
   async function send(name, data, to) {
     const digest = keccak256(data);
@@ -83,6 +85,7 @@ async function context(chainId, url) {
       if (chainId === 10143 && estimate > gas) throw new Error(`${name} exceeds Monad transaction gas limit`);
       let gasPrice = await publicClient.getGasPrice();
       if (chainId === 10143 && gasPrice < 100_000_000_000n) gasPrice = 100_000_000_000n;
+      if (chainId === 11155111) gasPrice += gasPrice / 4n;
       const balance = await publicClient.getBalance({ address: account.address });
       if (balance < gas * gasPrice + 10_000_000_000_000_000n) throw new Error(`Insufficient ${chainId} gas balance for ${name}`);
       const nonce = await publicClient.getTransactionCount({ address: account.address, blockTag: "pending" });
@@ -92,11 +95,32 @@ async function context(chainId, url) {
       report.transactions.push(entry);
       persist();
     }
+    if (entry.status === "pending") {
+      const mined = (await Promise.all([entry, ...(entry.replacements ?? [])].map((candidate) =>
+        publicClient.getTransactionReceipt({ hash: candidate.hash }).catch(() => null)))).some(Boolean);
+      const currentPrice = mined ? 0n : await publicClient.getGasPrice();
+      if (!mined && currentPrice > BigInt(entry.gasPrice)) {
+        if ((entry.replacements?.length ?? 0) >= 3) throw new Error("Deployment fee replacement limit reached");
+        if (await publicClient.getTransactionCount({ address: account.address }) > entry.nonce) throw new Error("Deployment nonce consumed; reconcile the journal before replacing");
+        const gasPrice = currentPrice + currentPrice / 4n;
+        const minimum = BigInt(entry.gasPrice) * 5n / 4n + 1n;
+        const replacementPrice = gasPrice > minimum ? gasPrice : minimum;
+        const gas = BigInt(entry.gasLimit);
+        if (await publicClient.getBalance({ address: account.address }) < gas * replacementPrice + 10_000_000_000_000_000n) throw new Error("Insufficient deployment replacement balance");
+        const rawTransaction = await wallet.signTransaction({ chain: null, chainId, data, to, gas, gasPrice: replacementPrice, nonce: entry.nonce, type: "legacy" });
+        entry.replacements ??= [];
+        entry.replacements.push({ hash: entry.hash, gasPrice: entry.gasPrice });
+        Object.assign(entry, { hash: keccak256(rawTransaction), rawTransaction, gasPrice: replacementPrice.toString(), status: "prepared" });
+        persist();
+      }
+    }
     if (entry.status === "prepared") {
       try {
         await publicClient.sendRawTransaction({ serializedTransaction: entry.rawTransaction });
       } catch (error) {
-        if (!await publicClient.getTransaction({ hash: entry.hash }).catch(() => null)) {
+        const mined = (await Promise.all([entry, ...(entry.replacements ?? [])].map((candidate) =>
+          publicClient.getTransactionReceipt({ hash: candidate.hash }).catch(() => null)))).some(Boolean);
+        if (!mined && !await publicClient.getTransaction({ hash: entry.hash }).catch(() => null)) {
           throw new Error(`Broadcast failed; resume from the signed journal: ${entry.hash}. ${error.shortMessage ?? "RPC unavailable"}`, { cause: error });
         }
       }
@@ -104,8 +128,8 @@ async function context(chainId, url) {
       persist();
     }
     if (entry.status !== "success") {
-      const result = await receipt(entry.hash);
-      Object.assign(entry, { status: result.status, address: result.contractAddress,
+      const { result, hash, gasPrice } = await receipt(entry);
+      Object.assign(entry, { hash, gasPrice, status: result.status, address: result.contractAddress,
         gasUsed: result.gasUsed.toString(), block: result.blockNumber.toString(), blockHash: result.blockHash });
       persist();
       if (entry.status !== "success") throw new Error(`Transaction reverted: ${name}`);

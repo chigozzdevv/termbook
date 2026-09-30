@@ -19,6 +19,7 @@ export function validateActionCall(definition: CapabilityDefinition, action: Ter
   const args = call.arguments.map((argument) => {
     if (argument.source === "borrower") return borrower;
     if (argument.source === "credit_account") return `0x${"1".repeat(40)}`;
+    if (argument.source === "price_bound") return 1n;
     if (argument.source === "credit_id") return `0x${"1".repeat(64)}`;
     const value = atPath(action.params, argument.path!);
     return argument.choices && typeof value === "string" ? argument.choices[value] : value;

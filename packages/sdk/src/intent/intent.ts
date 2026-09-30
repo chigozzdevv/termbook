@@ -41,7 +41,7 @@ export type Offer = {
   commitmentFeeBps: number;
   estimatedTotalCost?: bigint;
   costAssumptions?: { draw: bigint; durationSeconds: number; interest: bigint; commitmentFee: bigint };
-  riskTerms?: { policyVersion: bigint; initialBps: bigint; maintenanceBps: bigint;
+  riskTerms?: { policyVersion: bigint; maxSlippageBps?: number; initialBps: bigint; maintenanceBps: bigint;
     watchBps: bigint; freezeBps: bigint; liquidationBps: bigint };
   reservationTerms?: { policyHash: `0x${string}`; minimumBond: bigint; maxSetupDuration: number;
     annualRateBps: number; readyFee: bigint; abandonFee: bigint; expiryFee: bigint; repeatPenalty: bigint; repeatCharge: bigint };
@@ -113,7 +113,7 @@ function parseOffer(raw: Record<string, unknown>): Offer {
     commitmentFee: BigInt(String(assumptions["commitmentFee"])) } : undefined;
   const risk = raw["riskTerms"] as Record<string, unknown> | undefined;
   const riskTerms = risk ? { policyVersion: BigInt(String(risk["policyVersion"])),
-    initialBps: BigInt(String(risk["initialBps"])), maintenanceBps: BigInt(String(risk["maintenanceBps"])),
+    maxSlippageBps: Number(risk["maxSlippageBps"] ?? 0), initialBps: BigInt(String(risk["initialBps"])), maintenanceBps: BigInt(String(risk["maintenanceBps"])),
     watchBps: BigInt(String(risk["watchBps"])), freezeBps: BigInt(String(risk["freezeBps"])),
     liquidationBps: BigInt(String(risk["liquidationBps"])) } : undefined;
   const reservation = raw["reservationTerms"] as Record<string, unknown> | undefined;
@@ -132,7 +132,7 @@ function parseOffer(raw: Record<string, unknown>): Offer {
   if (estimatedTotalCost !== undefined && estimatedTotalCost < 0n || costAssumptions &&
     (!Number.isSafeInteger(costAssumptions.durationSeconds) || costAssumptions.durationSeconds <= 0 ||
       costAssumptions.draw < 0n || costAssumptions.interest < 0n || costAssumptions.commitmentFee < 0n)) throw new Error("offer-invalid");
-  if (riskTerms && (riskTerms.policyVersion <= 0n || riskTerms.initialBps < riskTerms.maintenanceBps
+  if (riskTerms && (!Number.isInteger(riskTerms.maxSlippageBps) || riskTerms.maxSlippageBps < 0 || riskTerms.maxSlippageBps > 5000 || riskTerms.policyVersion <= 0n || riskTerms.initialBps < riskTerms.maintenanceBps
     || riskTerms.maintenanceBps <= riskTerms.watchBps || riskTerms.watchBps < riskTerms.freezeBps
     || riskTerms.freezeBps < riskTerms.liquidationBps || riskTerms.liquidationBps < 11_000n)) {
     throw new Error("offer-invalid");

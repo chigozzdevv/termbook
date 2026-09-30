@@ -63,7 +63,7 @@ contract HouseAdmissionTest is Test {
         registry.setPolicy(house, 1, 500, 1 days, 365 days, 10_000, 100, 1_000);
         registry.setRiskPolicy(house, 15_000, 13_000, 12_000, 11_500, 11_000);
         core.configureReservationPolicy(house, 1, ReservationManager.Policy(address(vault), 1 days, 100, 1, 10,
-            500, 5_000, 1, 2, 3, 1));
+            500, 5_000, 1, 2, 3, 1, 100));
         token.mint(borrower, 100);
         vm.prank(borrower);
         token.approve(address(vault), 100);

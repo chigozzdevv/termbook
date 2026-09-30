@@ -35,17 +35,21 @@ const candidateId = "1f3474c2-f4c2-461d-919d-143749012e28";
 const owner = address("1");
 const target = address("2");
 const sourceHash = word("3");
-const place = "function placeOrder(uint256 amount,address account)";
-const close = "function closePosition(uint256 id,address account)";
+const place = "function placeOrder(uint256 amount,address account,uint256 direction,uint256 bound,uint256 market)";
+const close = "function closePosition(uint256 id,address account,uint256 direction,uint256 bound,uint256 market)";
 const draft = { entries: [place, close].map((signature) => ({ target, signature,
   source: { sourceHash }, implementation: null, implementationSource: null })) };
+const priceArguments = [{ source: "input" as const, path: "direction", choices: { long: "1", short: "2" } },
+  { source: "price_bound" as const }, { source: "input" as const, path: "market" }];
+const price = { slippagePath: "slippage_bps", directionPath: "direction", maximumDirections: ["long"],
+  minimumDirections: ["short"], markets: [`0x${"a".repeat(64)}`] };
 const actions = [
   { capability: "place_order", label: "Place order", target, signature: place,
-    arguments: [{ source: "input" as const, path: "amount" }, { source: "credit_account" as const }],
-    fundingPath: "amount", settlement: "atomic" as const },
+    arguments: [{ source: "input" as const, path: "amount" }, { source: "credit_account" as const }, ...priceArguments],
+    marketPath: "market", price, fundingPath: "amount", settlement: "atomic" as const },
   { capability: "close_position", label: "Close position", target, signature: close,
-    arguments: [{ source: "input" as const, path: "id" }, { source: "credit_account" as const }],
-    settlement: "atomic" as const },
+    arguments: [{ source: "input" as const, path: "id" }, { source: "credit_account" as const }, ...priceArguments],
+    marketPath: "market", price, settlement: "atomic" as const },
 ];
 const mapping = { applicationId, category: "perps" as const, versionId: word("4"),
   codeHash: word("5"), settlementAsset: address("6"), actions,
@@ -66,6 +70,8 @@ describe("integration candidate lifecycle", () => {
   it("requires both placement and closure for a perps mapping", () => {
     expect(integrationMappingSchema.safeParse({ ...mapping, actions: [actions[0]] }).success).toBe(false);
     expect(integrationMappingSchema.safeParse(mapping).success).toBe(true);
+    expect(integrationMappingSchema.safeParse({ ...mapping,
+      actions: actions.map((action) => ({ ...action, price: undefined })) }).success).toBe(false);
   });
 
   it("stores only a draft after reading an application's own sample", async () => {

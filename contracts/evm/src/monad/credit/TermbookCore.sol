@@ -11,6 +11,7 @@ import {ITermbookCore} from "./ITermbookCore.sol";
 import {IExitVerifier} from "../integration/IExitVerifier.sol";
 import {IAppRecoveryAdapter} from "../integration/IAppRecoveryAdapter.sol";
 import {IAppExitPlanner} from "../integration/IAppExitPlanner.sol";
+import {PriceProtection} from "../integration/PriceProtection.sol";
 import {ExecutionManager} from "../integration/ExecutionManager.sol";
 import {ReservationManager} from "../house/ReservationManager.sol";
 import {ExecutionTypes} from "../integration/IExecutionPolicy.sol";
@@ -421,6 +422,7 @@ contract TermbookCore is ITermbookCore {
         uint256 revision;
         address signer;
         bytes signature;
+        PriceProtection.Quote price;
     }
 
     address public governance;
@@ -433,6 +435,7 @@ contract TermbookCore is ITermbookCore {
     bytes32 public immutable domain;
     ExecutionManager public immutable executionManager;
     ReservationManager public immutable reservationManager;
+    PriceProtection public immutable priceProtection;
     mapping(bytes32 => bytes32) public setupFailureEvidence;
     event SetupProtocolFailure(bytes32 indexed creditId, bytes32 evidenceHash);
     mapping(bytes32 => bool) public managedBundle;
@@ -623,6 +626,7 @@ contract TermbookCore is ITermbookCore {
         domain = keccak256(abi.encode("termbook-v1", block.chainid, address(this)));
         executionManager = new ExecutionManager(address(this));
         reservationManager = new ReservationManager(address(this));
+        priceProtection = new PriceProtection(address(this));
     }
 
     function setGovernance(address governance_) external onlyGovernance {
@@ -1070,6 +1074,12 @@ contract TermbookCore is ITermbookCore {
         managedBundle[bundleId] = true;
     }
 
+    function configureExecutionPrice(bytes32 bundleId, bytes32 capability, bytes32 market, PriceProtection.Rule calldata rule)
+        external onlyGovernance {
+        if (bundleEverUsed[bundleId] || !managedBundle[bundleId]) revert Frozen();
+        priceProtection.configure(bundleId, capability, market, rule);
+    }
+
     function configureReservationPolicy(address house, uint256 version, ReservationManager.Policy calldata policy)
         external onlyGovernance {
         if (houseRegistry == address(0) || !IHouseRegistryCore(houseRegistry).isActiveHouse(house, policy.vault)) revert InvalidVault();
@@ -1107,7 +1117,7 @@ contract TermbookCore is ITermbookCore {
         Credit storage c = _credits[creditId];
         return keccak256(abi.encode(domain, keccak256("Termbook execution v1"), creditId, c.bundleId, c.termsHash,
             executionManager.policyHash(c.bundleId), keccak256(abi.encode(action)), auth.drawAmount, auth.maxDraw,
-            auth.nonce, auth.deadline, auth.revision, auth.signer, sessionGeneration[creditId]));
+            auth.nonce, auth.deadline, auth.revision, auth.signer, sessionGeneration[creditId], keccak256(abi.encode(auth.price))));
     }
 
     function executePlan(bytes32 creditId, ExecutionTypes.Action calldata action, ExecutionAuthorization calldata auth)
@@ -1119,11 +1129,11 @@ contract TermbookCore is ITermbookCore {
         emit ActionExecuted(creditId, action.capability, keccak256(abi.encode(action)));
     }
 
-    function previewPlan(bytes32 creditId, ExecutionTypes.Action calldata action, uint256 drawAmount, uint256 nonce)
+    function previewPlan(bytes32 creditId, ExecutionTypes.Action calldata action, uint256 drawAmount, uint256 nonce, PriceProtection.Quote calldata price)
         external nonReentrant {
         Credit storage c = _credits[creditId];
         ExecutionAuthorization memory auth = ExecutionAuthorization(drawAmount, drawAmount, nonce,
-            block.timestamp, c.revision, c.borrower, "");
+            block.timestamp, c.revision, c.borrower, "", price);
         _executePlan(c, creditId, action, auth, true);
         Types.HealthSnapshot memory health = IHealthSourceCore(healthSource).snapshot(creditId, c.bundleId, c.revision, c.debt);
         revert ActionPreview(health.healthBps, IRiskCore(riskEngine).initialBps(creditId), c.debt, health.recoveryValue);
@@ -1139,6 +1149,7 @@ contract TermbookCore is ITermbookCore {
         Types.Risk beforeRisk = IRiskCore(riskEngine).riskState(creditId);
         if (c.debt != 0 && (beforeRisk == Types.Risk.Frozen || beforeRisk == Types.Risk.Liquidatable)) revert Frozen();
         _requireExecutionDependencies(c.bundleId);
+        priceProtection.validate(creditId, c.bundleId, action, auth.price);
         ExecutionManager.Reservation memory reservation = executionManager.prepare(creditId, c.bundleId, c.account, action);
         uint256 primaryNonce = c.nonce;
         uint256 nonceKey = auth.nonce;
@@ -1739,6 +1750,8 @@ contract TermbookCore is ITermbookCore {
         c.originationFee = p.originationFee;
         c.commitmentFeeBps = p.commitmentFeeBps;
         c.policyVersion = policyVersion;
+        priceProtection.bindCredit(p.creditId, p.bundleId, houseRegistry == address(0)
+            ? 0 : reservationManager.maxSlippage(p.house, policyVersion));
         c.accruedAt = block.timestamp;
         c.revision = 1;
         IHouseVaultCore(p.vault).registerCredit(p.creditId);

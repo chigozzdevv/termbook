@@ -4,6 +4,7 @@ import { capabilityCalls, type CapabilityDefinition } from "@termbook/schema";
 import { monadClient } from "../chain/monad.client.js";
 import { env } from "../config/env.js";
 import { integrationRepo } from "./integration.repo.js";
+import { admittedPrices } from "./integration.price.js";
 import { validateIntegrationAcceptance } from "./integration.builder.js";
 import { applicationService } from "./application.service.js";
 import { integrationAcceptanceSchema, integrationSchema } from "./integration.schema.js";
@@ -126,7 +127,7 @@ async function admitted(versionId: `0x${string}`, codeHash: string): Promise<boo
     && execution[6] <= 32 && execution[7] > 0 && pinnedPolicy && pinnedReader;
 }
 
-async function admittedActions(versionId: `0x${string}`, actions: CapabilityDefinition[]): Promise<boolean> {
+async function admittedActions(versionId: `0x${string}`, actions: CapabilityDefinition[], category?: string): Promise<boolean> {
   if (actions.length === 0) return false;
   const chain = monadClient();
   const block = await chain.getBlock({ blockTag: "finalized" });
@@ -138,7 +139,7 @@ async function admittedActions(versionId: `0x${string}`, actions: CapabilityDefi
     return chain.readContract({ address: registry, abi: callAbi, functionName: "isCallAllowed",
       args: [versionId, action.target as `0x${string}`, toFunctionSelector(item)], blockNumber: block.number });
   }));
-  return results.every(Boolean);
+  return results.every(Boolean) && await admittedPrices(versionId, actions, block.number, category);
 }
 
 export const integrationService = {
@@ -148,7 +149,7 @@ export const integrationService = {
     if (!addressPattern.test(input.settlementAsset) || /^0x0{40}$/i.test(input.settlementAsset)) {
       throw new Error("settlement-asset-unavailable");
     }
-    if (!await admitted(versionId, input.codeHash) || !await admittedActions(versionId, input.actions)) throw new Error("integration-not-admitted");
+    if (!await admitted(versionId, input.codeHash) || !await admittedActions(versionId, input.actions, input.category)) throw new Error("integration-not-admitted");
     await validateIntegrationAcceptance(versionId, input.settlementAsset as `0x${string}`, input.actions, input.acceptance);
     const sourcePins = await validateIntegrationSources(input.actions, input.verifiedSources);
     const appToken = `tbk_${randomBytes(32).toString("hex")}`;
@@ -184,7 +185,7 @@ export const integrationService = {
       || sourcePins.some((pin) => !actionTargets?.has(pin.target.toLowerCase()))
       || !addressPattern.test(String(row["settlementAsset"])) || /^0x0{40}$/i.test(String(row["settlementAsset"]))
       || !await admitted(String(row["versionId"]) as `0x${string}`, String(row["codeHash"]))
-      || !await admittedActions(String(row["versionId"]) as `0x${string}`, actions)
+      || !await admittedActions(String(row["versionId"]) as `0x${string}`, actions, String(row["category"]))
       || !await verifyIntegrationSourcePins(sourcePins)) {
       throw new Error("integration-not-found");
     }

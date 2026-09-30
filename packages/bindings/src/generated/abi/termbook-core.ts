@@ -1565,6 +1565,101 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "configureExecutionPrice",
+    "inputs": [
+      {
+        "name": "bundleId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "capability",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "market",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "rule",
+        "type": "tuple",
+        "internalType": "struct PriceProtection.Rule",
+        "components": [
+          {
+            "name": "oracle",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "feedId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "target",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "selector",
+            "type": "bytes4",
+            "internalType": "bytes4"
+          },
+          {
+            "name": "callIndex",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "priceDecimals",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "priceWord",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "directionWord",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "maxSlippageBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "maxDeviationBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "maxAuthorizationAge",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "maximumDirection",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "minimumDirection",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "configureExecutionSession",
     "inputs": [
       {
@@ -1696,6 +1791,11 @@ export const termbookCoreAbi = [
             "name": "repeatPenalty",
             "type": "uint256",
             "internalType": "uint256"
+          },
+          {
+            "name": "maxSlippageBps",
+            "type": "uint16",
+            "internalType": "uint16"
           }
         ]
       }
@@ -2662,6 +2762,48 @@ export const termbookCoreAbi = [
             "name": "signature",
             "type": "bytes",
             "internalType": "bytes"
+          },
+          {
+            "name": "price",
+            "type": "tuple",
+            "internalType": "struct PriceProtection.Quote",
+            "components": [
+              {
+                "name": "roundId",
+                "type": "uint80",
+                "internalType": "uint80"
+              },
+              {
+                "name": "referencePrice",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "updatedAt",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "authorizedAt",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "bound",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "slippageBps",
+                "type": "uint16",
+                "internalType": "uint16"
+              },
+              {
+                "name": "isMax",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ]
           }
         ]
       }
@@ -2777,6 +2919,48 @@ export const termbookCoreAbi = [
             "name": "signature",
             "type": "bytes",
             "internalType": "bytes"
+          },
+          {
+            "name": "price",
+            "type": "tuple",
+            "internalType": "struct PriceProtection.Quote",
+            "components": [
+              {
+                "name": "roundId",
+                "type": "uint80",
+                "internalType": "uint80"
+              },
+              {
+                "name": "referencePrice",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "updatedAt",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "authorizedAt",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "bound",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "slippageBps",
+                "type": "uint16",
+                "internalType": "uint16"
+              },
+              {
+                "name": "isMax",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ]
           }
         ]
       }
@@ -3947,6 +4131,48 @@ export const termbookCoreAbi = [
         "name": "nonce",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "price",
+        "type": "tuple",
+        "internalType": "struct PriceProtection.Quote",
+        "components": [
+          {
+            "name": "roundId",
+            "type": "uint80",
+            "internalType": "uint80"
+          },
+          {
+            "name": "referencePrice",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "updatedAt",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "authorizedAt",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "bound",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "slippageBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "isMax",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ]
       }
     ],
     "outputs": [],
@@ -3967,6 +4193,19 @@ export const termbookCoreAbi = [
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "priceProtection",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract PriceProtection"
       }
     ],
     "stateMutability": "view"

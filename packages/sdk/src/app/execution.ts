@@ -1,18 +1,25 @@
 import { capabilityCalls, type CapabilityDefinition } from "@termbook/schema";
 import { keccak256, padHex, parseAbi, stringToHex, toHex } from "viem";
-import { buildAction, buildCapabilityCall } from "./action.js";
+import { buildAction, buildCapabilityCall, type ActionContext } from "./action.js";
 import type { AppAction } from "../types/app.types.js";
 
 export type ExecutionCall = { target: `0x${string}`; spendToken: `0x${string}`; spendAmount: bigint; data: `0x${string}` };
 export type ExecutionAction = { capability: `0x${string}`; market: `0x${string}`; calls: ExecutionCall[];
   requiredInput: bigint; exposureLimit: bigint };
 export type ExecutionAuthorization = { drawAmount: bigint; maxDraw: bigint; nonce: bigint; deadline: bigint;
-  revision: bigint; signer: `0x${string}`; signature: `0x${string}` };
+  revision: bigint; signer: `0x${string}`; signature: `0x${string}`; price: ExecutionPrice };
+export type ExecutionPrice = { roundId: bigint; referencePrice: bigint; updatedAt: bigint; authorizedAt: bigint; bound: bigint; slippageBps: number; isMax: boolean };
+export const emptyExecutionPrice: ExecutionPrice = { roundId: 0n, referencePrice: 0n, updatedAt: 0n, authorizedAt: 0n, bound: 0n, slippageBps: 0, isMax: false };
+export const priceTuple = "(uint80 roundId,uint256 referencePrice,uint256 updatedAt,uint256 authorizedAt,uint256 bound,uint16 slippageBps,bool isMax)";
 export const executionCoreAbi = parseAbi([
+  "struct ExecutionCall { address target; address spendToken; uint256 spendAmount; bytes data; }",
+  "struct ExecutionAction { bytes32 capability; bytes32 market; ExecutionCall[] calls; uint256 requiredInput; uint256 exposureLimit; }",
+  "struct ExecutionPrice { uint80 roundId; uint256 referencePrice; uint256 updatedAt; uint256 authorizedAt; uint256 bound; uint16 slippageBps; bool isMax; }",
+  "struct ExecutionAuthorization { uint256 drawAmount; uint256 maxDraw; uint256 nonce; uint256 deadline; uint256 revision; address signer; bytes signature; ExecutionPrice price; }",
   "function managedBundle(bytes32) view returns (bool)",
   "function executionManager() view returns (address)",
-  "function previewPlan(bytes32,(bytes32 capability,bytes32 market,(address target,address spendToken,uint256 spendAmount,bytes data)[] calls,uint256 requiredInput,uint256 exposureLimit),uint256,uint256)",
-  "function executionDigest(bytes32,(bytes32 capability,bytes32 market,(address target,address spendToken,uint256 spendAmount,bytes data)[] calls,uint256 requiredInput,uint256 exposureLimit),(uint256 drawAmount,uint256 maxDraw,uint256 nonce,uint256 deadline,uint256 revision,address signer,bytes signature)) view returns (bytes32)",
+  "function previewPlan(bytes32,ExecutionAction,uint256,uint256,ExecutionPrice)",
+  "function executionDigest(bytes32,ExecutionAction,ExecutionAuthorization) view returns (bytes32)",
   "error ActionPreview(uint256 healthBps,uint256 initialBps,uint256 debt,uint256 recoveryValue)",
 ]);
 const pendingState = "(bytes32 positionId,uint256 committed,uint256 filled,uint256 refunded,uint256 remaining,uint256 liability,uint256 maxLiability,uint256 deadline,uint256 observedAt,uint8 positionSlots,address refundRecipient,uint8 status)";
@@ -53,7 +60,7 @@ export function executionMarket(value: unknown): `0x${string}` {
   return keccak256(stringToHex(value));
 }
 export function buildExecution(definition: CapabilityDefinition, action: AppAction,
-  context: { borrower: `0x${string}`; account: `0x${string}`; creditId: `0x${string}` },
+  context: ActionContext,
   settlementAsset: `0x${string}`): ExecutionAction {
   const { requiredInput } = buildAction(definition, action, context);
   if (capabilityCalls(definition).length > 8) throw new Error("action-definition-invalid");

@@ -1,9 +1,13 @@
 import { decodeFunctionData, parseAbi, type Hex } from "viem";
 
 export const coreActionAbi = parseAbi([
+  "struct ExecutionCall { address target; address spendToken; uint256 spendAmount; bytes data; }",
+  "struct ExecutionAction { bytes32 capability; bytes32 market; ExecutionCall[] calls; uint256 requiredInput; uint256 exposureLimit; }",
+  "struct ExecutionPrice { uint80 roundId; uint256 referencePrice; uint256 updatedAt; uint256 authorizedAt; uint256 bound; uint16 slippageBps; bool isMax; }",
+  "struct ExecutionAuthorization { uint256 drawAmount; uint256 maxDraw; uint256 nonce; uint256 deadline; uint256 revision; address signer; bytes signature; ExecutionPrice price; }",
   "function executeAction(bytes32 creditId,address target,bytes data,uint256 amount,uint256 maxBound,uint256 borrowerNonce,uint256 deadline,bytes borrowerSig)",
   "function executeFundedAction(bytes32 creditId,address target,bytes data,uint256 drawAmount,uint256 spendAmount,uint256 maxBound,uint256 borrowerNonce,uint256 deadline,bytes borrowerSig)",
-  "function executePlan(bytes32 creditId,(bytes32 capability,bytes32 market,(address target,address spendToken,uint256 spendAmount,bytes data)[] calls,uint256 requiredInput,uint256 exposureLimit) action,(uint256 drawAmount,uint256 maxDraw,uint256 nonce,uint256 deadline,uint256 revision,address signer,bytes signature) authorization)",
+  "function executePlan(bytes32 creditId,ExecutionAction action,ExecutionAuthorization authorization)",
 ]);
 
 export function decodeCoreAction(input: Hex) {

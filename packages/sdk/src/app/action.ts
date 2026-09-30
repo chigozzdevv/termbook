@@ -2,7 +2,7 @@ import { actionFunding, type CapabilityDefinition, type CapabilityCall } from "@
 import { encodeFunctionData, parseAbiItem, type AbiParameter } from "viem";
 import type { AppAction } from "../types/app.types.js";
 
-type Context = { borrower: `0x${string}`; account: `0x${string}`; creditId: `0x${string}` };
+export type ActionContext = { borrower: `0x${string}`; account: `0x${string}`; creditId: `0x${string}`; priceBound?: bigint };
 
 function atPath(value: Record<string, unknown>, path: string): unknown {
   let current: unknown = value;
@@ -62,7 +62,7 @@ function coerce(parameter: AbiParameter, value: unknown, depth = 0): unknown {
   throw new Error("action-type-unsupported");
 }
 
-export function buildAction(definition: CapabilityDefinition, action: AppAction, context: Context): {
+export function buildAction(definition: CapabilityDefinition, action: AppAction, context: ActionContext): {
   target: `0x${string}`; data: `0x${string}`; requiredInput: bigint;
 } {
   if (definition.capability !== action.capability || "target" in action || "data" in action
@@ -71,7 +71,7 @@ export function buildAction(definition: CapabilityDefinition, action: AppAction,
   return { ...buildCapabilityCall(definition, action, context), requiredInput };
 }
 
-export function buildCapabilityCall(definition: CapabilityCall, action: AppAction, context: Context): {
+export function buildCapabilityCall(definition: CapabilityCall, action: AppAction, context: ActionContext): {
   target: `0x${string}`; data: `0x${string}`;
 } {
   const item = parseAbiItem(definition.signature);
@@ -86,7 +86,11 @@ export function buildCapabilityCall(definition: CapabilityCall, action: AppActio
       }
     } else if (argument.source === "borrower") value = context.borrower;
     else if (argument.source === "credit_account") value = context.account;
-    else value = context.creditId;
+    else if (argument.source === "credit_id") value = context.creditId;
+    else {
+      if (context.priceBound === undefined) throw new Error("action-price-required");
+      value = context.priceBound;
+    }
     return coerce(item.inputs[index]!, value);
   });
   const data = encodeFunctionData({ abi: [item], functionName: item.name, args: values });

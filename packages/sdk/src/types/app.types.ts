@@ -8,6 +8,7 @@ export type AppPendingAction = { actionId: `0x${string}`; positionId: `0x${strin
   remainingLiability: bigint; deadline: bigint };
 
 export type ActionReview = {
+  price?: import("../app/execution.js").ExecutionPrice;
   capability: string;
   requiredInput: bigint;
   freeAssets: bigint;

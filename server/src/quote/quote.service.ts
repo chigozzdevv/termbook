@@ -25,7 +25,7 @@ const vaultAssetAbi = [{ type: "function", name: "asset", stateMutability: "view
 const reservationCoreAbi = parseAbi(["function reservationManager() view returns (address)"]);
 const reservationAbi = parseAbi([
   "function policyHashes(address,uint256) view returns (bytes32)",
-  "function policies(address,uint256) view returns (address vault,uint32 maxSetupDuration,uint16 annualRateBps,uint16 maxBorrowerCount,uint32 maxHouseCount,uint256 maxBorrowerLimit,uint256 maxHouseLimit,uint256 readyFee,uint256 abandonFee,uint256 expiryFee,uint256 repeatPenalty)",
+  "function policies(address,uint256) view returns (address vault,uint32 maxSetupDuration,uint16 annualRateBps,uint16 maxBorrowerCount,uint32 maxHouseCount,uint256 maxBorrowerLimit,uint256 maxHouseLimit,uint256 readyFee,uint256 abandonFee,uint256 expiryFee,uint256 repeatPenalty,uint16 maxSlippageBps)",
   "function minimumBond(address,uint256,address,uint256,uint256) view returns (uint256)",
   "function abandonments(address,address) view returns (uint256)",
 ]);
@@ -74,7 +74,7 @@ async function houseAdmission(quote: Record<string, unknown>) {
   ]);
   if (/^0x0{64}$/i.test(hash) || hash.toLowerCase() !== String(quote["reservationPolicyHash"]).toLowerCase()
     || reservation[0].toLowerCase() !== vault.toLowerCase() || BigInt(String(quote["reservationBond"] ?? 0)) < minimumBond) return null;
-  return { riskTerms: { policyVersion: policy[0].toString(), initialBps: policy[7].toString(),
+  return { riskTerms: { policyVersion: policy[0].toString(), maxSlippageBps: reservation[11], initialBps: policy[7].toString(),
     maintenanceBps: policy[8].toString(), watchBps: policy[9].toString(),
     freezeBps: policy[10].toString(), liquidationBps: policy[11].toString() },
     reservationTerms: { policyHash: hash, minimumBond: minimumBond.toString(),

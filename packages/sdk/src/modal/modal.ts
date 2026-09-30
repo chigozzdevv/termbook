@@ -541,6 +541,10 @@ export class TermbookModal {
       review.append(element("p", `Origination fee ${this.review.originationFee} · Current recovery health ${this.review.healthBps === null ? "unavailable" : `${this.review.healthBps} bps (${this.review.healthState})`}`));
       review.append(element("p", `Projected recovery health ${this.review.projectedHealthBps} bps · Required ${this.review.initialHealthBps} bps`));
       review.append(element("p", `Projected recoverable value ${this.review.projectedRecoveryValue}`));
+      if (this.review.price) {
+        review.append(element("p", `Slippage ${this.review.price.slippageBps} bps · ${this.review.price.isMax ? "Maximum" : "Minimum"} execution price ${this.review.price.bound}`));
+        review.append(element("small", "Execution price uses the application's price units. A changed bound requires a fresh review."));
+      }
       if (!this.review.canExecute) review.append(element("p", "This action is below the required recovery health.", "error"));
       review.append(element("small", `Settlement asset ${this.review.settlementAsset}. Amounts shown in smallest token units.`));
       if (this.review.canExecute) review.append(this.button("Confirm action", async () => {

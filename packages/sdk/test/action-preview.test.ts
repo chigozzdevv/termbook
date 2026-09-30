@@ -25,7 +25,7 @@ describe("action preview", () => {
     const plan = { capability: creditId, market: creditId, requiredInput: 100n, exposureLimit: 200n,
       calls: [{ target: address, spendToken: address, spendAmount: 100n, data: "0x12345678" as const }] };
     expect((await rpc.previewPlan(creditId, plan, 100n, 1n)).healthBps).toBe(20_000n);
-    expect(simulateContract).toHaveBeenCalledWith(expect.objectContaining({ functionName: "previewPlan", args: [creditId, plan, 100n, 1n] }));
+    expect(simulateContract).toHaveBeenCalledWith(expect.objectContaining({ functionName: "previewPlan", args: [creditId, plan, 100n, 1n, expect.objectContaining({ roundId: 0n })] }));
   });
   it("reads the contract simulated post action health", async () => {
     const data = encodeErrorResult({ abi: previewAbi, errorName: "ActionPreview",

@@ -22,6 +22,7 @@ const contracts = {
   ProtocolGovernance: "protocol-governance",
   Guardian: "guardian",
   HouseRegistry: "house-registry",
+  PriceProtection: "price-protection",
   ReservationManager: "reservation-manager",
   HousePolicyGovernor: "house-policy-governor",
   VerifierRegistry: "verifier-registry",

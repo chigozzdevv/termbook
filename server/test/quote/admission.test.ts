@@ -41,7 +41,7 @@ describe("offer admission", () => {
       if (functionName === "abandonments") return 0n;
       if (functionName === "isActiveHouse") return args?.[0] === second;
       if (functionName === "asset") return asset;
-      if (functionName === "policies" && args?.length === 2) return [vault, 86400, 100, 1, 10, 1000n, 10000n, 1n, 2n, 3n, 1n];
+      if (functionName === "policies" && args?.length === 2) return [vault, 86400, 100, 1, 10, 1000n, 10000n, 1n, 2n, 3n, 1n, 100];
       if (functionName === "policies") return [1n, 1_000n, 3600n, 86400n, 1_000n, 100n, 100n,
         15_000n, 13_000n, 12_000n, 11_500n, 11_000n, true, true];
       throw new Error("unexpected-read");

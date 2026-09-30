@@ -14,6 +14,7 @@ contract ReservationManager {
         uint256 abandonFee;
         uint256 expiryFee;
         uint256 repeatPenalty;
+        uint16 maxSlippageBps;
     }
     struct Authorization { bytes32 policyHash; address payer; address refundRecipient; }
     struct SponsorGrant {
@@ -64,7 +65,7 @@ contract ReservationManager {
             || policy.maxSetupDuration > 7 days || policy.annualRateBps < MINIMUM_ANNUAL_RATE_BPS
             || policy.annualRateBps > 10_000 || policy.maxBorrowerCount == 0
             || policy.maxHouseCount < policy.maxBorrowerCount || policy.maxBorrowerLimit == 0
-            || policy.maxHouseLimit < policy.maxBorrowerLimit) revert Invalid();
+            || policy.maxHouseLimit < policy.maxBorrowerLimit || policy.maxSlippageBps > 5_000) revert Invalid();
         policies[house][version] = policy;
         bytes32 hash = keccak256(abi.encode(block.chainid, core, house, version, policy));
         policyHashes[house][version] = hash;
@@ -143,6 +144,9 @@ contract ReservationManager {
         borrowerCount[reservation.house][reservation.borrower] -= 1;
         borrowerLimit[reservation.house][reservation.borrower] -= reservation.limit;
         emit ReservationSettled(creditId, outcome, charge, refund);
+    }
+    function maxSlippage(address house, uint256 version) external view returns (uint16) {
+        return policies[house][version].maxSlippageBps;
     }
     function active(bytes32 creditId) external view returns (bool) { return reservations[creditId].active; }
     function _rent(uint256 limit, uint256 rate, uint256 duration) private pure returns (uint256) {

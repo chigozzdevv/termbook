@@ -11,7 +11,7 @@ export const actionSchema = z.strictObject({
 const parameterPathSchema = z.string().regex(/^[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*){0,4}$/);
 
 export const capabilityArgumentSchema = z.strictObject({
-  source: z.enum(["input", "borrower", "credit_account", "credit_id"]),
+  source: z.enum(["input", "borrower", "credit_account", "credit_id", "price_bound"]),
   path: parameterPathSchema.optional(),
   label: z.string().min(1).max(80).optional(),
   min: z.string().regex(/^\d+$/).optional(),
@@ -42,6 +42,18 @@ export const capabilityDefinitionSchema = capabilityCallSchema.extend({
   steps: z.array(capabilityCallSchema).max(7).optional(),
   marketPath: parameterPathSchema.optional(),
   exposurePath: parameterPathSchema.optional(),
+  price: z.strictObject({
+    slippagePath: parameterPathSchema,
+    directionPath: parameterPathSchema,
+    maximumDirections: z.array(z.string().min(1).max(80)).min(1).max(16),
+    minimumDirections: z.array(z.string().min(1).max(80)).min(1).max(16),
+    markets: z.array(bytes32Schema).min(1).max(32),
+  }).superRefine((value, ctx) => {
+    const directions = [...value.maximumDirections, ...value.minimumDirections];
+    if (new Set(directions).size !== directions.length || new Set(value.markets.map((id) => id.toLowerCase())).size !== value.markets.length) {
+      ctx.addIssue({ code: "custom", message: "action-price-directions-invalid" });
+    }
+  }).optional(),
 });
 
 export type CapabilityDefinition = z.infer<typeof capabilityDefinitionSchema>;
@@ -65,7 +77,7 @@ export function actionFunding(definition: CapabilityDefinition, action: TermActi
   if (definition.capability !== action.capability) throw new Error("capability-denied");
   const calls = capabilityCalls(definition);
   const allowed = [...calls.flatMap((call) => call.arguments.filter((arg) => arg.source === "input").map((arg) => arg.path!)),
-    ...[definition.marketPath, definition.exposurePath].filter((path): path is string => !!path)];
+    ...[definition.marketPath, definition.exposurePath, definition.price?.slippagePath, definition.price?.directionPath].filter((path): path is string => !!path)];
   const inspect = (value: Record<string, unknown>, prefix = "") => {
     for (const [key, child] of Object.entries(value)) {
       const path = prefix ? `${prefix}.${key}` : key;
@@ -77,6 +89,14 @@ export function actionFunding(definition: CapabilityDefinition, action: TermActi
     }
   };
   inspect(action.params);
+  if (definition.price) {
+    const slippage = inputAt(action.params, definition.price.slippagePath);
+    const direction = inputAt(action.params, definition.price.directionPath);
+    if (!/^\d+$/.test(String(slippage)) || BigInt(String(slippage)) > 5_000n
+      || typeof direction !== "string" || ![...definition.price.maximumDirections, ...definition.price.minimumDirections].includes(direction)) {
+      throw new Error("action-price-invalid");
+    }
+  }
   for (const argument of calls.flatMap((call) => call.arguments)) {
     if (argument.source !== "input") continue;
     let value = inputAt(action.params, argument.path!);

@@ -60,6 +60,15 @@ export const integrationMappingSchema = z.strictObject({
   if (value.category === "perps" && (!names.has("place_order") || !names.has("close_position"))) {
     ctx.addIssue({ code: "custom", path: ["actions"], message: "perps-lifecycle-incomplete" });
   }
+  if (value.category === "perps" && value.actions.some((action) => ["place_order", "close_position", "reduce_position", "modify_order"].includes(action.capability) && !action.price)) {
+    ctx.addIssue({ code: "custom", path: ["actions"], message: "perps-price-protection-required" });
+  }
+  for (const [index, action] of value.actions.entries()) {
+    const bounds = capabilityCalls(action).flatMap((call) => call.arguments.filter((arg) => arg.source === "price_bound"));
+    if (action.price ? !action.marketPath || bounds.length !== 1 : bounds.length !== 0) {
+      ctx.addIssue({ code: "custom", path: ["actions", index], message: "capability-price-definition-invalid" });
+    }
+  }
   const targets = new Set(value.actions.flatMap(capabilityCalls).map((action) => action.target.toLowerCase()));
   const sources = value.verifiedSources.map((source) => source.target.toLowerCase());
   if (new Set(sources).size !== sources.length || sources.length !== targets.size

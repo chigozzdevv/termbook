@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 import {ExecutionPolicyFixture} from "./execution-manager.t.sol";
 import {TermbookCore} from "../../src/monad/credit/TermbookCore.sol";
+import {PriceProtection} from "../../src/monad/integration/PriceProtection.sol";
 import {ExecutionManager} from "../../src/monad/integration/ExecutionManager.sol";
 import {ExecutionTypes} from "../../src/monad/integration/IExecutionPolicy.sol";
 import {CreditAccount} from "../../src/monad/credit/CreditAccount.sol";
@@ -127,12 +128,20 @@ contract ExecutionCoreTest is Test {
     function _authorization(ExecutionTypes.Action memory action, uint256 key, uint256 nonce)
         internal view returns (TermbookCore.ExecutionAuthorization memory auth) {
         auth = TermbookCore.ExecutionAuthorization(100, 100, nonce, block.timestamp + 300,
-            core.creditRevision(credit), vm.addr(key), "");
+            core.creditRevision(credit), vm.addr(key), "", PriceProtection.Quote(0, 0, 0, 0, 0, 0, false));
         auth.signature = _sign(key, core.executionDigest(credit, action, auth));
     }
     function _execute() internal {
         ExecutionTypes.Action memory action = _action();
         core.executePlan(credit, action, _authorization(action, borrowerKey, 1));
+    }
+
+    function testExecutionSignatureBindsThePriceAuthorization() public {
+        ExecutionTypes.Action memory action = _action();
+        TermbookCore.ExecutionAuthorization memory auth = _authorization(action, borrowerKey, 1);
+        auth.price.bound = 1;
+        vm.expectRevert(TermbookCore.BadSig.selector);
+        core.executePlan(credit, action, auth);
     }
 
     function testMultiCallExecutesAsAccountAndRecordsPendingCustody() public {

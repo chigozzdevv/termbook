@@ -5,7 +5,7 @@ import { integrationService } from "../../src/integration/integration.service.js
 import { validateIntegrationAcceptance } from "../../src/integration/integration.builder.js";
 import { validateIntegrationSources, verifyIntegrationSourcePins } from "../../src/integration/integration.source.js";
 import { applicationService } from "../../src/integration/application.service.js";
-import { keccak256 } from "viem";
+import { keccak256, stringToHex, toFunctionSelector } from "viem";
 
 vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: vi.fn() }));
 vi.mock("../../src/integration/integration.repo.js", () => ({ integrationRepo: {
@@ -30,14 +30,18 @@ const versionId = `0x${"a".repeat(64)}`;
 const applicationId = "1f3474c2-f4c2-461d-919d-143749012e27";
 const codeHash = `0x${"b".repeat(64)}`;
 const settlementAsset = address("8");
+const priceArguments = [{ source: "input" as const, path: "direction", choices: { long: "1", short: "2" } },
+  { source: "price_bound" as const }, { source: "input" as const, path: "market" }];
+const price = { slippagePath: "slippage_bps", directionPath: "direction", maximumDirections: ["long"],
+  minimumDirections: ["short"], markets: [`0x${"a".repeat(64)}`] };
 const actions = [{ capability: "place_order", label: "Place order", target: address("7"),
-  signature: "function placeOrder(uint256 amount,address account)",
-  arguments: [{ source: "input" as const, path: "amount", label: "Amount" }, { source: "credit_account" as const }],
-  fundingPath: "amount", settlement: "atomic" as const },
+  signature: "function placeOrder(uint256 amount,address account,uint256 direction,uint256 bound,uint256 market)",
+  arguments: [{ source: "input" as const, path: "amount", label: "Amount" }, { source: "credit_account" as const }, ...priceArguments],
+  marketPath: "market", price, fundingPath: "amount", settlement: "atomic" as const },
   { capability: "close_position", label: "Close position", target: address("7"),
-    signature: "function closePosition(uint256 positionId,address account)",
+    signature: "function closePosition(uint256 positionId,address account,uint256 direction,uint256 bound,uint256 market)",
     arguments: [{ source: "input" as const, path: "position_id", label: "Position ID" },
-      { source: "credit_account" as const }], settlement: "atomic" as const }];
+      { source: "credit_account" as const }, ...priceArguments], marketPath: "market", price, settlement: "atomic" as const }];
 const acceptance = { evidenceHash: `0x${"e".repeat(64)}`,
   activeCreditId: `0x${"c".repeat(64)}`, recoveredCreditId: `0x${"d".repeat(64)}`,
   actionTransactions: { place_order: { creditId: `0x${"d".repeat(64)}`, txHash: `0x${"1".repeat(64)}` },
@@ -60,7 +64,14 @@ beforeEach(() => {
     getBlock: vi.fn(async () => ({ number: 100n })),
     getChainId: vi.fn(async () => 143),
     getBytecode: vi.fn(async () => "0x1234"),
-    readContract: vi.fn(async ({ functionName }: { functionName: string }) => {
+    readContract: vi.fn(async ({ functionName, args }: { functionName: string; args?: readonly unknown[] }) => {
+      if (functionName === "priceProtection") return address("e");
+      if (functionName === "ruleHashes") return codeHash;
+      if (functionName === "read") return [2000n * 10n ** 18n, 1000n, 1n];
+      if (functionName === "rule") return { oracle: address("f"), feedId: codeHash, target: address("7"),
+        selector: toFunctionSelector(args?.[1] === keccak256(stringToHex("place_order")) ? actions[0]!.signature : actions[1]!.signature),
+        callIndex: 0, priceDecimals: 8, priceWord: 3, directionWord: 2, maxSlippageBps: 100,
+        maxDeviationBps: 500, maxAuthorizationAge: 60, maximumDirection: 1n, minimumDirection: 2n };
       if (functionName === "integrationRegistry") return address("3");
       if (functionName === "healthSource") return address("4");
       if (functionName === "exitVerifierOfBundle") return address("5");
@@ -87,6 +98,18 @@ beforeEach(() => {
 });
 
 describe("integration app token", () => {
+  it("rejects perps publication without enforceable execution prices", async () => {
+    await expect(integrationService.approve({ applicationId, category: "perps", versionId, codeHash,
+      settlementAsset, actions: actions.map((action) => ({ ...action, price: undefined })), verifiedSources, acceptance }))
+      .rejects.toThrow("integration-not-admitted");
+    expect(integrationRepo.create).not.toHaveBeenCalled();
+    const chain = monadClient();
+    const actual = vi.mocked(chain.readContract).getMockImplementation()!;
+    vi.mocked(chain.readContract).mockImplementation(async (request) => request.functionName === "rule"
+      ? { ...(await actual(request) as object), priceWord: 99 } as never : actual(request));
+    await expect(integrationService.approve({ applicationId, category: "perps", versionId, codeHash,
+      settlementAsset, actions, verifiedSources, acceptance })).rejects.toThrow("integration-not-admitted");
+  });
   it("issues a token only for an admitted bundle and stores only its hash", async () => {
     const result = await integrationService.approve({ applicationId, category: "perps", versionId, codeHash, settlementAsset, actions,
       verifiedSources, acceptance });

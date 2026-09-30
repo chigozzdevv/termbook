@@ -6,7 +6,8 @@ import { decodeEventLog, encodeAbiParameters, keccak256, parseAbi, stringToHex }
 import { HttpClient } from "../transport/http.js";
 import { buildAction } from "./action.js";
 import { CreditAccount } from "../account/account.js";
-import { buildExecution, executionCoreAbi, executionManagerAbi, executionPolicyAbi, type ExecutionAuthorization } from "./execution.js";
+import { buildExecution, emptyExecutionPrice, priceTuple, executionCoreAbi, executionManagerAbi, executionPolicyAbi, type ExecutionAuthorization, type ExecutionPrice } from "./execution.js";
+import { executionPrice } from "./price.js";
 import { Signer } from "../wallet/signer.js";
 import type { Wallet } from "../types/client.types.js";
 
@@ -31,7 +32,7 @@ export class CreditApp {
     this.creditId = creditId;
   }
 
-  private async prepare(action: AppAction) {
+  private async prepare(action: AppAction, previousPrice?: ExecutionPrice) {
     await this.client.ready();
     const definition = this.client.config.actions?.find((entry) => entry.capability === action.capability);
     if (!definition) throw new Error("capability-denied");
@@ -46,7 +47,9 @@ export class CreditApp {
       || !this.client.config.versionId || bundleId?.toLowerCase() !== this.client.config.versionId.toLowerCase()) {
       throw new Error("credit-action-unavailable");
     }
-    const { target, data, requiredInput } = buildAction(definition, action, { borrower, account, creditId: this.creditId });
+    const price = await executionPrice(this.client, this.creditId, bundleId, definition, action, previousPrice);
+    const context = { borrower, account, creditId: this.creditId, ...(price ? { priceBound: price.bound } : {}) };
+    const { target, data, requiredInput } = buildAction(definition, action, context);
     const asset = await this.client.rpc.read<`0x${string}`>(vault, [{ type: "function", name: "asset", inputs: [], outputs: [{ type: "address" }], stateMutability: "view" }] as const, "asset");
     const currentDebt = BigInt(String(field("debt", 11)));
     const originationFee = field("originationCharged", 37) ? 0n : BigInt(String(field("originationFee", 31) ?? 0));
@@ -58,7 +61,7 @@ export class CreditApp {
     if (!managed && (definition.steps?.length || definition.settlement === "asynchronous")) {
       throw new Error("integration-execution-unavailable");
     }
-    const plan = managed ? buildExecution(definition, action, { borrower, account, creditId: this.creditId }, asset) : undefined;
+    const plan = managed ? buildExecution(definition, action, context, asset) : undefined;
     const registry = await this.client.rpc.read<`0x${string}`>(this.client.config.core, coreRegistryAbi, "integrationRegistry");
     if (!/^0x[a-fA-F0-9]{40}$/.test(registry) || /^0x0{40}$/i.test(registry)) throw new Error("capability-denied");
     for (const call of plan?.calls ?? [{ target, data, spendAmount: requiredInput }]) {
@@ -66,7 +69,7 @@ export class CreditApp {
         [bundleId, call.target, call.data, account, call.spendAmount])) throw new Error("capability-denied");
     }
     const health = await new CreditAccount(this.client, this.creditId).health();
-    const preview = plan ? await this.client.rpc.previewPlan(this.creditId, plan, amount, nonce)
+    const preview = plan ? await this.client.rpc.previewPlan(this.creditId, plan, amount, nonce, price ?? emptyExecutionPrice)
       : await this.client.rpc.previewAction(this.creditId, target, data, amount, nonce, requiredInput);
     const canExecute = preview.initialBps > 0n && preview.healthBps >= preview.initialBps;
     const fundingFingerprint = keccak256(encodeAbiParameters(
@@ -77,12 +80,13 @@ export class CreditApp {
         preview.healthBps, preview.initialBps, preview.debt, preview.recoveryValue],
     ));
     const planHash = plan ? keccak256(encodeAbiParameters(executionCoreAbi[2].inputs.slice(1, 2), [plan])) : keccak256(data);
-    const fingerprint = keccak256(encodeAbiParameters([{ type: "bytes32" }, { type: "bytes32" }], [fundingFingerprint, planHash]));
+    const priceHash = keccak256(encodeAbiParameters(parseAbi([`function quote(${priceTuple})`])[0].inputs, [price ?? emptyExecutionPrice]));
+    const fingerprint = keccak256(encodeAbiParameters([{ type: "bytes32" }, { type: "bytes32" }, { type: "bytes32" }], [fundingFingerprint, planHash, priceHash]));
     const review: ActionReview = { capability: action.capability, requiredInput, freeAssets, draw: amount,
       currentDebt, projectedDebt: preview.debt, originationFee,
       healthBps: health.value, healthState: health.state, projectedHealthBps: preview.healthBps,
       initialHealthBps: preview.initialBps, projectedRecoveryValue: preview.recoveryValue, canExecute,
-      settlementAsset: asset, revision: revisionValue, fingerprint };
+      settlementAsset: asset, revision: revisionValue, fingerprint, ...(price ? { price } : {}) };
     return { review, target, data, nonce, definition, plan, bundleId };
   }
 
@@ -91,7 +95,7 @@ export class CreditApp {
   }
 
   async execute(action: AppAction, reviewed?: ActionReview, sessionWallet?: Wallet): Promise<ExecuteResult> {
-    const { review, target, data, nonce, definition, plan, bundleId } = await this.prepare(action);
+    const { review, target, data, nonce, definition, plan, bundleId } = await this.prepare(action, reviewed?.price);
     if (reviewed && review.fingerprint !== reviewed.fingerprint) throw new Error("action-review-stale");
     if (!review.canExecute) throw new Error("action-health-insufficient");
     const deadline = Math.floor(Date.now() / 1000) + 900;
@@ -109,7 +113,7 @@ export class CreditApp {
         || BigInt(Math.floor(Date.now() / 1000)) >= BigInt(String(session[8])))) throw new Error("session-unavailable");
       const authorization: ExecutionAuthorization = { drawAmount: review.draw, maxDraw: review.draw,
         nonce: session ? BigInt(String(session[10])) : nonce, deadline: BigInt(deadline), revision: review.revision,
-        signer: signer.address(), signature: "0x" };
+        signer: signer.address(), signature: "0x", price: review.price ?? emptyExecutionPrice };
       const digest = await this.client.rpc.read<`0x${string}`>(this.client.config.core, executionCoreAbi, "executionDigest",
         [this.creditId, plan, authorization]);
       authorization.signature = await signer.signDigest(digest);

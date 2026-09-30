@@ -107,7 +107,17 @@ a reviewed validator implementing `IAppCallValidator`.
 `steps` defines up to seven preceding calls before the primary call. Every
 `fundingPath` contributes to the required settlement-token input, including
 separately funded execution fees. `marketPath` and `exposurePath` bind the market
-and exposure independently of margin. The server checks each target and selector against the
+and exposure independently of margin. Price-sensitive capabilities declare `price`
+with slippage and direction input paths, reviewed maximum/minimum directions, and
+market identifiers. Core's immutable `PriceProtection` rule pins the oracle feed,
+call target, selector, direction and price words, units, deviation and age bounds.
+The SDK derives the price argument from the reviewed oracle round; the signed
+authorization binds that round and the exact rounded bound. Execution checks the
+original round and current feed validity without recentering the bound. House
+slippage caps are part of the signed reservation policy. Perps placement and
+closure mappings require these rules before publication. Feeds used for execution
+need a pinned deployment guard that verifies their implementation and material
+configuration, including any feed-specific confidence checks. The server checks each target and selector against the
 finalized IntegrationRegistry policy before publishing the app token. The SDK
 builds calldata from this manifest; an app passes only a capability and typed
 parameters to `open({ action })`. For example:
@@ -117,17 +127,26 @@ parameters to `open({ action })`. For example:
   "capability": "place_order",
   "label": "Place order",
   "target": "0x0000000000000000000000000000000000000001",
-  "signature": "function placeOrder(string market,uint8 direction,uint8 orderType,uint256 margin,uint256 notional,uint16 slippageBps,address account)",
+  "signature": "function placeOrder(uint256 market,uint8 direction,uint8 orderType,uint256 margin,uint256 notional,uint256 priceBound,address account)",
   "arguments": [
-    { "source": "input", "path": "market_id", "label": "Market ID" },
+    { "source": "input", "path": "market_id", "label": "Market ID in base units" },
     { "source": "input", "path": "direction", "choices": { "long": "1", "short": "2" } },
     { "source": "input", "path": "order_type", "choices": { "market": "1", "limit": "2" } },
     { "source": "input", "path": "amount.margin", "label": "Margin in base units", "min": "1" },
     { "source": "input", "path": "amount.notional", "label": "Notional in base units", "min": "1" },
-    { "source": "input", "path": "slippage_bps", "label": "Slippage in bps", "max": "10000" },
+    { "source": "price_bound" },
     { "source": "credit_account" }
   ],
   "fundingPath": "amount.margin",
+  "marketPath": "market_id",
+  "exposurePath": "amount.notional",
+  "price": {
+    "slippagePath": "slippage_bps",
+    "directionPath": "direction",
+    "maximumDirections": ["long"],
+    "minimumDirections": ["short"],
+    "markets": ["0x0000000000000000000000000000000000000000000000000000000000000001"]
+  },
   "settlement": "asynchronous"
 }
 ```

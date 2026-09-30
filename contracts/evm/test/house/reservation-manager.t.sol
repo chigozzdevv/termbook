@@ -19,7 +19,7 @@ contract ReservationManagerTest is Test {
         manager = new ReservationManager(address(this));
         vault = address(new MockERC20());
         manager.configure(house, 1, ReservationManager.Policy(vault, 1 days, 100, 1, 2,
-            2_000_000_000, 4_000_000_000, 10_000, 20_000, 30_000, 10_000));
+            2_000_000_000, 4_000_000_000, 10_000, 20_000, 30_000, 10_000, 100));
         policyHash = manager.policyHashes(house, 1);
     }
     function _reserve(bytes32 id) internal returns (uint256 bond) {

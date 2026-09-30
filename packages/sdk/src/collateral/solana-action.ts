@@ -2,7 +2,7 @@ import { encodeAbiParameters, hexToBytes, keccak256, stringToHex } from "viem";
 import { solanaPubkeyBase58 } from "./solana.js";
 import { solanaPubkeyBytes } from "./solana.js";
 import { decodeSolanaLockRecord, type SolanaInstruction, type SolanaRpcPort, type SolanaWalletPort } from "./solana-source.js";
-import { prepareSolanaWormhole } from "./solana-wormhole.js";
+import { prepareSolanaWormhole, submitSolanaLockCheckpoint } from "./solana-wormhole.js";
 
 const domain = keccak256(stringToHex("Termbook Solana action v1"));
 const word = /^0x[0-9a-fA-F]{64}$/;
@@ -160,11 +160,15 @@ export async function submitSolanaAction(planValue: unknown, wallet: SolanaWalle
     || record.program !== plan.programId || record.vault !== action.sourceVault
     || record.creditId !== action.creditId || record.lockId !== action.lockId
     || record.asset !== action.asset || record.verifierVersion !== action.verifierVersion
-    || record.lastNonce >= action.nonce || record.lastRevision >= action.revision
-    || record.remainingAmount < action.amountLamports
     || (action.kind === 0 ? record.returnRecipient : record.recoveryVault) !== action.recipient) {
     throw new Error("solana-action-source-mismatch");
   }
+  if (plan.mode === "apply" && record.lastNonce === action.nonce && record.lastRevision === action.revision
+    && record.lastActionHash.toLowerCase() === plan.actionHash.toLowerCase()) {
+    return submitSolanaLockCheckpoint(wallet, programId, solanaPubkeyBase58(action.sourceVault));
+  }
+  if (record.lastNonce >= action.nonce || record.lastRevision >= action.revision
+    || record.remainingAmount < action.amountLamports) throw new Error("solana-action-source-mismatch");
   const keys = await prepareSolanaWormhole(wallet, rpc, programId, action.monadCore,
     plan.actionHash, plan.authorizationTxHash);
   const signature = await wallet.sendInstruction(solanaActionInstruction(plan, keys));

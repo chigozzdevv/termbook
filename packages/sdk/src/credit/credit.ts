@@ -9,7 +9,9 @@ import { CreditAccount } from "../account/account.js";
 import { CreditCollateral } from "../collateral/collateral.js";
 import type { CollateralSetup } from "../collateral/setup.js";
 import { houseVaultAbi } from "@termbook/bindings";
+import { decodeFunctionData, parseAbi } from "viem";
 import { closeCredit, type CloseOptions } from "./closure.js";
+const clearanceAbi = parseAbi(["function confirmRemoteRecoveryClearance(bytes32,bytes,bytes)"]);
 
 const facilities = [
   "reserved", "collateral_locking", "collateral_proving", "account_creating", "ready",
@@ -154,5 +156,18 @@ export class Credit {
 
   async close(options: CloseOptions = {}): Promise<{ closed: true; tx?: `0x${string}` }> {
     return closeCredit(this.client, this.id, options);
+  }
+
+  async confirmRecoveryClearance(sourceTx?: string): Promise<{ tx: `0x${string}` }> {
+    const plan = await this.client.authenticatedPost<{ to: string; data: `0x${string}`; chainId: number }>(
+      "/recovery/clearance/plan", { creditId: this.id, ...(sourceTx ? { sourceTx } : {}) });
+    const decoded = decodeFunctionData({ abi: clearanceAbi, data: plan.data });
+    if (plan.to.toLowerCase() !== this.client.config.core.toLowerCase() || plan.chainId !== this.client.config.chainId
+      || decoded.functionName !== "confirmRemoteRecoveryClearance" || decoded.args[0].toLowerCase() !== this.id.toLowerCase()) {
+      throw new Error("recovery-clearance-plan-invalid");
+    }
+    const tx = await this.client.rpc.coreWrite(decoded.functionName, decoded.args);
+    await this.client.rpc.wait(tx);
+    return { tx };
   }
 }

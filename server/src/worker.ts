@@ -15,12 +15,19 @@ import { logger } from "./logging/logger.js";
 import { assertRuntimeConfig, assertSettlementWorkerConfig } from "./config/env.js";
 import mongoose from "mongoose";
 import { indexerStart, runIndexerWorker } from "./chain/indexer.worker.js";
+import { runRiskWorker } from "./risk/risk.worker.js";
+import { riskKeeper } from "./risk/risk.config.js";
+import { runRecoveryRelayWorker } from "./recovery/relay.worker.js";
+import { recoveryRelayConfig } from "./recovery/relay.config.js";
+import { runKeeperWorker } from "./chain/keeper.worker.js";
 
 async function main(): Promise<void> {
   assertRuntimeConfig();
   assertSettlementWorkerConfig();
   assertRecoveryWorkerConfig();
   indexerStart();
+  riskKeeper();
+  recoveryRelayConfig();
   solanaProofConfig();
   await connectDb();
   await startWorkers();
@@ -34,6 +41,7 @@ async function main(): Promise<void> {
       runEthereumBeaconWorker(),
       runSettlementWorker(),
       runRecoveryWorker(),
+      runRecoveryRelayWorker(),
       runRecoveryRefundWorker(),
     ]);
     const counts = results.map((result, index) => {
@@ -46,17 +54,39 @@ async function main(): Promise<void> {
   let stopping = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let active: Promise<void> | undefined;
+  let riskTimer: ReturnType<typeof setTimeout> | undefined;
+  let riskActive: Promise<void> | undefined;
+  let keeperTimer: ReturnType<typeof setTimeout> | undefined;
+  let keeperActive: Promise<void> | undefined;
   const schedule = (): void => {
     if (stopping) return;
     active = tick().finally(() => {
       if (!stopping) timer = setTimeout(schedule, 15_000);
     });
   };
+  const scheduleRisk = (): void => {
+    if (stopping) return;
+    riskActive = runRiskWorker().then(() => undefined).catch((error: unknown) => {
+      logger.error("risk-monitor-failed", { reason: error instanceof Error ? error.message : "unknown" });
+    }).finally(() => {
+      if (!stopping) riskTimer = setTimeout(scheduleRisk, 5_000);
+    });
+  };
+  const scheduleKeepers = (): void => {
+    if (stopping) return;
+    keeperActive = runKeeperWorker().then(() => undefined).catch((error: unknown) => {
+      logger.error("keeper-reconciliation-failed", { reason: error instanceof Error ? error.message : "unknown" });
+    }).finally(() => {
+      if (!stopping) keeperTimer = setTimeout(scheduleKeepers, 5_000);
+    });
+  };
   const shutdown = async (): Promise<void> => {
     if (stopping) return;
     stopping = true;
     clearTimeout(timer);
-    await active;
+    clearTimeout(riskTimer);
+    clearTimeout(keeperTimer);
+    await Promise.all([active, riskActive, keeperActive]);
     await stopWorkers();
     await closeRedis();
     await mongoose.disconnect();
@@ -65,6 +95,8 @@ async function main(): Promise<void> {
   process.on("SIGINT", () => void shutdown());
   process.on("SIGTERM", () => void shutdown());
   schedule();
+  scheduleRisk();
+  scheduleKeepers();
 }
 
 void main();

@@ -14,5 +14,6 @@ const creditSchema = new mongoose.Schema(
   },
   { timestamps: true },
 );
+creditSchema.index({ facility: 1, creditId: 1 });
 
 export const CreditModel = mongoose.models["Credit"] ?? mongoose.model("Credit", creditSchema);

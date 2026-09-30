@@ -1295,6 +1295,34 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "cancelRefundedRecoveryOperation",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "operationId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "header",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "proof",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "closeStep",
     "inputs": [
       {
@@ -1522,6 +1550,29 @@ export const termbookCoreAbi = [
         "name": "wormhole",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "confirmRemoteRecoveryClearance",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "header",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "proof",
+        "type": "bytes",
+        "internalType": "bytes"
       }
     ],
     "outputs": [],
@@ -2717,6 +2768,25 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "lastRemoteSeizureHash",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "localCollateralVaultCodeHash",
     "inputs": [
       {
@@ -3236,6 +3306,72 @@ export const termbookCoreAbi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "previewHealth",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct Types.HealthSnapshot",
+        "components": [
+          {
+            "name": "debt",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "cash",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "sourceValue",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "appValue",
+            "type": "int256",
+            "internalType": "int256"
+          },
+          {
+            "name": "retainedSource",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "retainedApp",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "recoveryCosts",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "recoveryValue",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "healthBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -3793,6 +3929,25 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "recoveryPaidAtStart",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "recoveryRefundRecipientOf",
     "inputs": [
       {
@@ -3809,6 +3964,19 @@ export const termbookCoreAbi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "releaseLiquidatedAccount",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -3832,6 +4000,25 @@ export const termbookCoreAbi = [
   {
     "type": "function",
     "name": "remoteCollateral",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "remoteRecoveryCleared",
     "inputs": [
       {
         "name": "",
@@ -4226,6 +4413,24 @@ export const termbookCoreAbi = [
     ],
     "outputs": [],
     "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "retireRefundedSolanaRecoveryOperation",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "operationId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -5589,6 +5794,44 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "solanaRecoveryOperationAmount",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "solanaRecoveryOperationConfirmed",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "solanaRecoveryOperationFunded",
     "inputs": [
       {
@@ -5609,6 +5852,25 @@ export const termbookCoreAbi = [
   {
     "type": "function",
     "name": "solanaRecoveryRefunded",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "solanaRecoveryRetiredRefunds",
     "inputs": [
       {
         "name": "",
@@ -5896,6 +6158,25 @@ export const termbookCoreAbi = [
         "name": "",
         "type": "bool",
         "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "verifiedRecoveryPaid",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -6726,6 +7007,31 @@ export const termbookCoreAbi = [
         "type": "address",
         "indexed": true,
         "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SolanaRecoveryOperationRetired",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "operationId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "refundAmount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false

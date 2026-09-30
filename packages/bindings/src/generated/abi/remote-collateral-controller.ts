@@ -159,6 +159,25 @@ export const remoteCollateralControllerAbi = [
   },
   {
     "type": "function",
+    "name": "lastSeizureHash",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "monadChain",
     "inputs": [],
     "outputs": [

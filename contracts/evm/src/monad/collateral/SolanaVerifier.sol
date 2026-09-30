@@ -233,6 +233,19 @@ contract SolanaVerifier is LightClientVerifier {
         return _verifiedAccount(header, proof);
     }
 
+    function verifySolanaRecoveryClearance(bytes calldata header, bytes calldata proof,
+        bytes32 genesis, bytes32 program, bytes32 programDataHash, bytes32 lockPda,
+        bytes32 recoveryPda, bytes32 creditId, bytes32 seizureHash, uint256 allocated, uint256 refunded)
+        external view returns (bool) {
+        if (!_market(genesis, program, programDataHash) || seizureHash == bytes32(0)
+            || allocated > type(uint64).max || refunded > type(uint64).max) return false;
+        try this.verifiedRecoveryRecord(header, proof) returns (bytes32 account, uint64 lamports, bytes memory data) {
+            return account == recoveryPda && _validRecovery(account, lamports, data, creditId, lockPda)
+                && _u64(data, 130) == 0 && _word(data, 138) == seizureHash
+                && _u64(data, 218) <= allocated && _u64(data, 274) == refunded;
+        } catch { return false; }
+    }
+
     function verifiedRecoveryRecord(bytes calldata header, bytes calldata proof)
         external view returns (bytes32 account, uint64 lamports, bytes memory data)
     {

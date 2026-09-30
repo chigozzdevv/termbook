@@ -432,6 +432,19 @@ export const settlementInboxAbi = [
   },
   {
     "type": "function",
+    "name": "settleUntracked",
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "token",
     "inputs": [],
     "outputs": [
@@ -439,6 +452,19 @@ export const settlementInboxAbi = [
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "untrackedApplied",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -529,6 +555,25 @@ export const settlementInboxAbi = [
   {
     "type": "event",
     "name": "UntrackedRefunded",
+    "inputs": [
+      {
+        "name": "operationId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "UntrackedSettled",
     "inputs": [
       {
         "name": "operationId",

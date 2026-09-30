@@ -14,6 +14,8 @@ export function registerErrors(app: FastifyInstance): void {
       || message === "integration-source-unavailable" || message === "integration-config-unavailable") {
       return reply.status(503).send({ error: message });
     }
+    if (["remote-action-authorization-unfinalized", "solana-proof-unavailable", "solana-wormhole-authorization-unavailable",
+      "solana-action-unavailable", "remote-action-unavailable"].includes(message)) return reply.status(503).send({ error: message });
     if (message.endsWith("-not-found")) return reply.status(404).send({ error: message });
     if (message.startsWith("offer-") || message.startsWith("operation-") || message.startsWith("param-")
       || message.startsWith("quote-") || message.startsWith("integration-")

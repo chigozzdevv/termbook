@@ -11,6 +11,8 @@ import {HouseVault} from "../../src/monad/house/HouseVault.sol";
 import {RiskEngine} from "../../src/monad/risk/RiskEngine.sol";
 import {VerifierRegistry} from "../../src/monad/collateral/VerifierRegistry.sol";
 import {Types} from "../../src/shared/Types.sol";
+import {InboxFactory} from "../../src/monad/routing/InboxFactory.sol";
+import {IExitVerifier} from "../../src/monad/integration/IExitVerifier.sol";
 import {WormholeTermbookMessages as WormholeMessages} from "../../src/shared/collateral/WormholeTermbookMessages.sol";
 
 contract MockEthereumAuthorizationWormhole {
@@ -35,6 +37,11 @@ contract MockUnconsumedVerifier {
     address public immutable sourceVault;
     address public immutable sourceController;
     bool public unconsumed;
+    bytes32 public clearanceHash;
+    function setClearance(bytes32 hash) external { clearanceHash = hash; }
+    function verifyAppliedAction(bytes calldata, bytes calldata, address, bytes32) external pure returns (bool) { return true; }
+    function verifyRecoveryClearance(bytes calldata, bytes calldata, bytes32, address, bytes32 hash)
+        external view returns (bool) { return hash == clearanceHash && hash != bytes32(0); }
 
     constructor(address vault, address controller) {
         sourceVault = vault;
@@ -84,6 +91,10 @@ contract MockUnconsumedVerifier {
     }
 }
 
+contract RemoteRecoveryExitVerifier is IExitVerifier {
+    function canExit(bytes32, address) external pure returns (bool) { return true; }
+}
+
 contract RemoteSeizureCancelTest is Test {
     MockERC20 private settlement;
     MockHealthSource private healthSource;
@@ -101,7 +112,9 @@ contract RemoteSeizureCancelTest is Test {
         settlement = new MockERC20();
         healthSource = new MockHealthSource();
         core = TermbookCore(deployCode("TermbookCore.sol:TermbookCore", abi.encode(address(this), address(this), address(0))));
-        vault = HouseVault(deployCode("HouseVault.sol:HouseVault", abi.encode(address(settlement), address(core), address(this), address(0), address(0))));
+        InboxFactory factory = InboxFactory(deployCode("InboxFactory.sol:InboxFactory", abi.encode(address(this))));
+        vault = HouseVault(deployCode("HouseVault.sol:HouseVault", abi.encode(address(settlement), address(core), address(this), address(factory), address(0))));
+        core.setExitVerifier(keccak256("bundle"), address(new RemoteRecoveryExitVerifier()));
         verifier = new MockUnconsumedVerifier(sourceVault, sourceController);
         VerifierRegistry registry = new VerifierRegistry(address(this));
         core.setVerifierRegistry(address(registry));
@@ -201,6 +214,27 @@ contract RemoteSeizureCancelTest is Test {
         core.cancelExpiredRemoteSeizure(creditId, hex"01", hex"02");
         core.authorizeRemoteSeizure(creditId, 10e18, block.timestamp + 1 hours);
         assertTrue(core.remoteSeizureActionHash(creditId) != actionHash);
+    }
+
+    function testRemoteRecoveryFinalizesOnlyAfterVerifiedSourceClearance() public {
+        bytes32 id = _credit();
+        core.authorizeRemoteSeizure(id, 100e18, block.timestamp + 1 hours);
+        bytes32 hash = core.remoteSeizureActionHash(id);
+        core.confirmRemoteSeizure(id, hex"01", hex"02");
+        address borrower = vm.addr(borrowerKey);
+        settlement.mint(borrower, 50e18);
+        vm.startPrank(borrower);
+        settlement.approve(address(core), 50e18);
+        core.repay(id, 50e18);
+        vm.stopPrank();
+        vm.expectRevert(TermbookCore.RecoveryIncomplete.selector);
+        vault.finalizeRecovery(id);
+        vm.expectRevert(TermbookCore.InvalidCollateral.selector);
+        core.confirmRemoteRecoveryClearance(id, hex"01", hex"02");
+        verifier.setClearance(hash);
+        core.confirmRemoteRecoveryClearance(id, hex"01", hex"02");
+        vault.finalizeRecovery(id);
+        assertEq(uint256(core.creditFacility(id)), uint256(Types.Facility.Liquidated));
     }
 
     function testEthereumSeizurePublishesAndRepublishesExactAuthorization() public {

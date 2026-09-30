@@ -37,6 +37,12 @@ beforeEach(() => {
 });
 
 describe("durable finalized Core index", () => {
+  it("refreshes readiness when a caught-up chain has no new blocks", async () => {
+    vi.mocked(indexerRepo.claim).mockResolvedValue({ nextBlock: "3", lease: "lease", lastBlockHash: word("b") });
+    expect(await runIndexerWorker(1n)).toBe(0);
+    expect(indexerRepo.advance).toHaveBeenCalledWith(expect.any(String), "lease", 3n, word("b"));
+    expect(getLogs).not.toHaveBeenCalled();
+  });
   it("checkpoints only after canonical events, credit state, and durable refresh jobs", async () => {
     expect(await runIndexerWorker(1n)).toBe(1);
     expect(calls).toEqual(["record", "refresh", "queue", "advance"]);
@@ -69,5 +75,19 @@ describe("durable finalized Core index", () => {
     getBlock.mockResolvedValue({ number: 2n, hash: word("e") });
     await expect(runIndexerWorker(1n)).rejects.toThrow("indexer-log-not-canonical");
     expect(indexerRepo.record).not.toHaveBeenCalled();
+  });
+
+  it("durably schedules a current Ethereum recovery authorization after indexing its finalized event", async () => {
+    const authorization = parseAbi(["event RemoteActionAuthorized(bytes32 indexed creditId,bytes32 indexed actionHash,uint8 kind)"]);
+    getLogs.mockResolvedValue([{ blockNumber: 2n, blockHash: word("b"), transactionHash: word("c"), logIndex: 0,
+      removed: false, data: encodeAbiParameters([{ type: "uint8" }], [1]),
+      topics: encodeEventTopics({ abi: authorization, eventName: "RemoteActionAuthorized", args: { creditId, actionHash: word("d") } }) }]);
+    vi.mocked(monadClient).mockReturnValue({ getChainId: async () => 143, getBlock, getLogs,
+      readContract: async ({ functionName }: { functionName: string }) => functionName === "solanaCollateral" ? false : word("d"),
+    } as never);
+    await runIndexerWorker(1n);
+    expect(queue.push).toHaveBeenCalledWith(expect.objectContaining({ kind: "collateral.remote-authorized",
+      payload: { creditId, actionHash: word("d"), kind: 1, authorizationTxHash: word("c") } }));
+    expect(calls.at(-1)).toBe("advance");
   });
 });

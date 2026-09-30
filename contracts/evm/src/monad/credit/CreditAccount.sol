@@ -15,6 +15,9 @@ contract CreditAccount is ICreditAccount {
     address public immutable borrower;
     address public immutable core;
     mapping(address => mapping(address => uint256)) public allowances;
+    uint256 public activeAllowances;
+    bool public released;
+    event ControlReleased(address indexed borrower);
 
     error Unauthorized();
     error BadTarget();
@@ -30,7 +33,7 @@ contract CreditAccount is ICreditAccount {
     }
 
     modifier onlyCore() {
-        if (msg.sender != core) revert Unauthorized();
+        if (msg.sender != (released ? borrower : core)) revert Unauthorized();
         _;
     }
 
@@ -49,6 +52,9 @@ contract CreditAccount is ICreditAccount {
 
     function approveSpend(address token, address spender, uint256 amount) external onlyCore {
         if (token.code.length == 0 || spender == address(0)) revert InvalidToken();
+        uint256 previous = allowances[token][spender];
+        if (previous == 0 && amount != 0) activeAllowances += 1;
+        if (previous != 0 && amount == 0) activeAllowances -= 1;
         token.safeApprove(spender, amount);
         allowances[token][spender] = amount;
     }
@@ -68,5 +74,11 @@ contract CreditAccount is ICreditAccount {
 
     function tokenBalance(address token) external view returns (uint256) {
         return IERC20Account(token).balanceOf(address(this));
+    }
+
+    function releaseControl() external {
+        if (msg.sender != core || released || activeAllowances != 0) revert Unauthorized();
+        released = true;
+        emit ControlReleased(borrower);
     }
 }

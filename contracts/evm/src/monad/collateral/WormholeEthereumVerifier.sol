@@ -88,4 +88,16 @@ contract WormholeEthereumVerifier is LightClientVerifier {
             return false;
         }
     }
+
+    function verifyRecoveryClearance(bytes calldata vaa, bytes calldata proof,
+        bytes32 creditId, address recoveryVault, bytes32 seizureHash) external view returns (bool) {
+        return creditId != bytes32(0) && recoveryVault != address(0) && seizureHash != bytes32(0)
+            && proof.length == 0 && _snapshot(vaa, Messages.RECOVERY_CLEAR,
+                keccak256(abi.encode(creditId, recoveryVault, seizureHash)), 0);
+    }
+
+    function verifyRecoveryRefunded(bytes calldata vaa, bytes calldata proof, bytes32 digest)
+        external view returns (bool) {
+        return digest != bytes32(0) && proof.length == 0 && _snapshot(vaa, Messages.RECOVERY_REFUNDED, digest, 0);
+    }
 }

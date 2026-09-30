@@ -32,4 +32,9 @@ contract MockRecoveryOperationVerifier {
         return valid && header.length != 0 && proof.length != 0 && factory == expectedFactory
             && digest == expectedDigest;
     }
+
+    function verifyRecoverySettlement(bytes calldata header, bytes calldata proof, address factory, bytes32 digest)
+        external view returns (bool) {
+        return valid && header.length != 0 && proof.length != 0 && factory == expectedFactory && digest == expectedDigest;
+    }
 }

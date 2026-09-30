@@ -21,3 +21,8 @@ export const returnHeldPrepareSchema = z.object({
   creditId: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
   authorizationTxHash: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
 });
+
+export const recoveryClearanceSchema = z.object({
+  creditId: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
+  sourceTx: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{80,90}$/).optional(),
+});

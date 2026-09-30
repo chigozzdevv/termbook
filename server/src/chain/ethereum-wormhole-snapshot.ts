@@ -1,11 +1,12 @@
 import {
-  createPublicClient, createWalletClient, encodeAbiParameters, http, keccak256, parseAbi,
+  createPublicClient, encodeAbiParameters, encodeFunctionData, http, keccak256, parseAbi,
   stringToHex, type Address, type Hex,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { env } from "../config/env.js";
 import { collateralRepo } from "../collateral/collateral.repo.js";
 import { fetchWormholeVaaById } from "./wormhole-vaa.js";
+import { keeperTransaction } from "./keeper.js";
 
 const verifierAbi = parseAbi([
   "function wormholeMode() pure returns (bool)",
@@ -24,6 +25,8 @@ const publisherAbi = parseAbi([
   "function publishLock(bytes32) payable returns (uint64)",
   "function publishApplied(bytes32) payable returns (uint64)",
   "function publishUnconsumed(bytes32,uint256) payable returns (uint64)",
+  "function publishRecoveryClearance(bytes32) payable returns (uint64)",
+  "function publishRecoveryRefund(bytes32) payable returns (uint64)",
 ]);
 const wormholeAbi = parseAbi(["function messageFee() view returns (uint256)"]);
 const snapshotDomain = keccak256(stringToHex("Termbook Wormhole Ethereum snapshot v1"));
@@ -42,10 +45,12 @@ export async function fetchEthereumSnapshot(input: {
   verifier: Address;
   vault: Address;
   controller?: Address;
-  kind: 1 | 2 | 3;
+  kind: 1 | 2 | 3 | 4 | 5;
   digest: Hex;
   deadline?: bigint;
   lockId?: Hex;
+  creditId?: Hex;
+  operationId?: Hex;
 }) {
   if (!env.sourceRpcUrl || !env.sourceWormholePublisherKey || !env.wormholeScanUrl) {
     throw new Error("ethereum-wormhole-unconfigured");
@@ -100,24 +105,22 @@ export async function fetchEthereumSnapshot(input: {
       throw new Error("ethereum-wormhole-signer-busy");
     }
     try {
-      const wallet = createWalletClient({ account, transport: http(env.sourceRpcUrl) });
       const fee = await source.readContract({ address: wormhole, abi: wormholeAbi, functionName: "messageFee" });
       const functionName = input.kind === 1 ? "publishLock"
-        : input.kind === 2 ? "publishApplied" : "publishUnconsumed";
+        : input.kind === 2 ? "publishApplied" : input.kind === 3 ? "publishUnconsumed"
+          : input.kind === 4 ? "publishRecoveryClearance" : "publishRecoveryRefund";
       if (input.kind === 1 && !input.lockId) throw new Error("ethereum-wormhole-lock-missing");
+      if (input.kind === 4 && !input.creditId) throw new Error("ethereum-wormhole-credit-missing");
+      if (input.kind === 5 && !input.operationId) throw new Error("ethereum-wormhole-operation-missing");
       const args = input.kind === 1 ? [input.lockId!] as const
-        : input.kind === 2 ? [input.digest] as const : [input.digest, deadline] as const;
-      const hash = await wallet.writeContract({
-        address: publisher, abi: publisherAbi, functionName, args, value: fee, chain: null,
-      });
-      const receipt = await source.waitForTransactionReceipt({ hash, timeout: 60_000 });
-      if (receipt.status !== "success") throw new Error("ethereum-wormhole-publish-reverted");
+        : input.kind === 2 ? [input.digest] as const : input.kind === 3 ? [input.digest, deadline] as const
+          : input.kind === 4 ? [input.creditId!] as const : [input.operationId!] as const;
+      const result = await keeperTransaction({ client: source, rpcUrl: env.sourceRpcUrl, chainId: 1,
+        account, operation: `snapshot:${key}:${publishedAt}`, to: publisher,
+        data: encodeFunctionData({ abi: publisherAbi, functionName, args }), value: fee });
+      if (result === "reverted") throw new Error("ethereum-wormhole-publish-reverted");
+      if (result !== "success") throw new Error("ethereum-wormhole-not-finalized");
       finalized = await source.getBlock({ blockTag: "finalized" });
-      if (receipt.blockNumber > finalized.number) throw new Error("ethereum-wormhole-not-finalized");
-      const canonical = await source.getBlock({ blockNumber: receipt.blockNumber });
-      if (canonical.hash.toLowerCase() !== receipt.blockHash.toLowerCase()) {
-        throw new Error("ethereum-wormhole-reorg");
-      }
       const confirmed = await source.readContract({
         address: publisher, abi: publisherAbi, functionName: "published", args: [key], blockNumber: finalized.number,
       });

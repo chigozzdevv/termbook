@@ -12,6 +12,7 @@ import {IExitVerifier} from "../integration/IExitVerifier.sol";
 import {IAppRecoveryAdapter} from "../integration/IAppRecoveryAdapter.sol";
 import {IAppExitPlanner} from "../integration/IAppExitPlanner.sol";
 import {InboxFactory} from "../routing/InboxFactory.sol";
+import {SettlementInbox} from "../routing/SettlementInbox.sol";
 import {IWormholeCore} from "../../shared/collateral/IWormholeCore.sol";
 import {CodeInspection} from "../../shared/CodeInspection.sol";
 import {WormholeTermbookMessages as WormholeMessages} from "../../shared/collateral/WormholeTermbookMessages.sol";
@@ -48,6 +49,25 @@ interface IHouseVaultCore {
     function registerCredit(bytes32 creditId) external;
     function unregisterCredit(bytes32 creditId) external;
     function writeOff(bytes32 creditId, uint256 principal, uint256 receivables) external;
+    function inboxFactory() external view returns (address);
+}
+
+interface IRecoveryClearanceVerifier {
+    function verifyRecoveryClearance(bytes calldata header, bytes calldata proof,
+        bytes32 creditId, address recoveryVault, bytes32 seizureHash) external view returns (bool);
+    function verifyRecoveryRefunded(bytes calldata header, bytes calldata proof, bytes32 digest)
+        external view returns (bool);
+}
+
+interface IRecoveryInboxIdentity {
+    function creditId() external view returns (bytes32);
+}
+
+interface ISolanaRecoveryClearanceVerifier {
+    function verifySolanaRecoveryClearance(bytes calldata header, bytes calldata proof,
+        bytes32 genesis, bytes32 program, bytes32 programDataHash, bytes32 lockPda,
+        bytes32 recoveryPda, bytes32 creditId, bytes32 seizureHash, uint256 allocated, uint256 refunded)
+        external view returns (bool);
 }
 
 interface ICollateralVaultCore {
@@ -71,6 +91,7 @@ interface ICreditAccountCore {
     function approveSpend(address token, address spender, uint256 amount) external;
     function transferToken(address token, address to, uint256 amount) external;
     function tokenBalance(address token) external view returns (uint256);
+    function releaseControl() external;
 }
 
 interface IRiskCore {
@@ -444,9 +465,16 @@ contract TermbookCore is ITermbookCore {
     mapping(bytes32 => uint256) public sourceRecoveryReturnDeadlineOf;
     mapping(bytes32 => bytes32) public sourceRecoveryReturnCreditOf;
     mapping(bytes32 => bool) public remoteSeizureConfirmed;
+    mapping(bytes32 => uint256) public verifiedRecoveryPaid;
+    mapping(bytes32 => uint256) public recoveryPaidAtStart;
+    mapping(bytes32 => bytes32) public lastRemoteSeizureHash;
+    mapping(bytes32 => bool) public remoteRecoveryCleared;
     mapping(bytes32 => uint256) public solanaSeizedAmount;
     mapping(bytes32 => uint256) public solanaRecoveryAllocated;
     mapping(bytes32 => uint256) public solanaRecoveryRefunded;
+    mapping(bytes32 => uint256) public solanaRecoveryRetiredRefunds;
+    mapping(bytes32 => uint256) public solanaRecoveryOperationAmount;
+    mapping(bytes32 => bool) public solanaRecoveryOperationConfirmed;
     mapping(bytes32 => bool) public solanaRecoveryOperationFunded;
     mapping(bytes32 => bytes32) public pendingSolanaFundingHash;
     mapping(bytes32 => bytes32) public pendingSolanaFundingOperation;
@@ -506,6 +534,7 @@ contract TermbookCore is ITermbookCore {
     event SolanaRecoveryPayoutConfirmed(bytes32 indexed creditId, bytes32 indexed actionHash);
     event SolanaRecoveryPayoutCancelled(bytes32 indexed creditId, bytes32 indexed actionHash);
     event SolanaRecoveryRefundReconciled(bytes32 indexed creditId, uint256 cumulativeRefunded);
+    event SolanaRecoveryOperationRetired(bytes32 indexed creditId, bytes32 indexed operationId, uint256 refundAmount);
     event LocalSalePolicySet(bytes32 indexed marketId, address indexed collateralAsset, address indexed settlementAsset);
     event LocalSalePolicyDisabled(bytes32 indexed marketId);
     event LocalCollateralVaultSet(address indexed vault, address indexed asset, bytes32 codeHash);
@@ -2233,6 +2262,7 @@ contract TermbookCore is ITermbookCore {
                 c, creditId, RemoteAction.SEIZE, destination, amount, nonce, deadline
             ));
         pendingRemoteSeizure[creditId] = amount;
+        remoteRecoveryCleared[creditId] = false;
         remoteSeizureActionHash[creditId] = actionHash;
         remoteSeizureRevision[creditId] = revision;
         remoteSeizureRecipient[creditId] = destination;
@@ -2289,6 +2319,8 @@ contract TermbookCore is ITermbookCore {
         remoteSeizureRecipient[creditId] = address(0);
         remoteSeizureDeadline[creditId] = 0;
         remoteSeizureConfirmed[creditId] = true;
+        lastRemoteSeizureHash[creditId] = actionHash;
+        remoteRecoveryCleared[creditId] = false;
         if (solanaCollateral[creditId]) solanaSeizedAmount[creditId] += amount;
         c.collateralAmount -= amount;
         c.facility = Types.Facility.RecoveryPending;
@@ -2549,7 +2581,9 @@ contract TermbookCore is ITermbookCore {
         ) revert BadSig();
         remoteActionNonce[funding.creditId] = nonce;
         solanaRecoveryAllocated[funding.creditId] += funding.amount;
+        remoteRecoveryCleared[funding.creditId] = false;
         solanaRecoveryOperationFunded[funding.operationId] = true;
+        solanaRecoveryOperationAmount[funding.operationId] = funding.amount;
         pendingSolanaFundingHash[funding.creditId] = actionHash;
         pendingSolanaFundingOperation[funding.creditId] = funding.operationId;
         pendingSolanaFundingAmount[funding.creditId] = funding.amount;
@@ -2581,6 +2615,7 @@ contract TermbookCore is ITermbookCore {
         uint256 revision = RevisionLib.next(c.revision);
         actionHash = solanaRecoveryReturnHash(creditId, amount, nonce, revision, deadline);
         solanaRecoveryAllocated[creditId] += amount;
+        remoteRecoveryCleared[creditId] = false;
         pendingSolanaPayoutHash[creditId] = actionHash;
         pendingSolanaPayoutAmount[creditId] = amount;
         pendingSolanaPayoutNonce[creditId] = nonce;
@@ -2600,6 +2635,7 @@ contract TermbookCore is ITermbookCore {
         if (actionHash == bytes32(0)) revert Pending();
         _verifySolanaFunding(creditId, header, proof, false);
         bytes32 operationId = pendingSolanaFundingOperation[creditId];
+        solanaRecoveryOperationConfirmed[operationId] = true;
         _clearPendingSolanaFunding(creditId);
         emit SolanaRecoveryFundConfirmed(creditId, operationId, actionHash);
     }
@@ -2615,6 +2651,7 @@ contract TermbookCore is ITermbookCore {
         solanaRecoveryAllocated[creditId] -= pendingSolanaFundingAmount[creditId];
         _clearPendingSolanaFunding(creditId);
         _credits[creditId].revision = RevisionLib.next(_credits[creditId].revision);
+        InboxFactory(solanaRecoveryFactory).cancelRecoveryOperation(operationId);
         emit SolanaRecoveryFundCancelled(creditId, operationId, actionHash);
     }
 
@@ -2748,14 +2785,94 @@ contract TermbookCore is ITermbookCore {
         }
         if (!verified) revert InvalidCollateral();
         solanaRecoveryRefunded[creditId] = cumulativeRefunded;
+        remoteRecoveryCleared[creditId] = false;
         c.revision = RevisionLib.next(c.revision);
         emit SolanaRecoveryRefundReconciled(creditId, cumulativeRefunded);
+    }
+
+    function retireRefundedSolanaRecoveryOperation(bytes32 creditId, bytes32 operationId) external nonReentrant {
+        Credit storage c = _credits[creditId];
+        if (!solanaCollateral[creditId] || solanaRecoveryFactory.code.length == 0
+            || solanaRecoveryFactory.codehash != solanaRecoveryFactoryCodeHash) revert InvalidCollateral();
+        InboxFactory factory = InboxFactory(solanaRecoveryFactory);
+        address inboxAddress = factory.inboxOf(operationId);
+        uint256 amount = solanaRecoveryOperationAmount[operationId];
+        if (!solanaRecoveryOperationConfirmed[operationId] || amount == 0
+            || inboxAddress == address(0) || IRecoveryInboxIdentity(inboxAddress).creditId() != creditId
+            || factory.recoverySourceChain(operationId) != collateralSourceChainOf[creditId]
+            || block.timestamp <= factory.recoveryOperationDeadlineOf(operationId)
+            || SettlementInbox(inboxAddress).available() != 0
+            || SettlementInbox(inboxAddress).token().balanceOf(inboxAddress) != 0
+            || amount > solanaRecoveryRefunded[creditId] - solanaRecoveryRetiredRefunds[creditId]) revert RecoveryIncomplete();
+        solanaRecoveryRetiredRefunds[creditId] += amount;
+        factory.cancelRecoveryOperation(operationId);
+        remoteRecoveryCleared[creditId] = false;
+        c.revision = RevisionLib.next(c.revision);
+        emit SolanaRecoveryOperationRetired(creditId, operationId, amount);
     }
 
     function _availableSolanaRecovery(bytes32 creditId) internal view returns (uint256) {
         uint256 gross = solanaSeizedAmount[creditId] + solanaRecoveryRefunded[creditId];
         uint256 allocated = solanaRecoveryAllocated[creditId];
         return gross > allocated ? gross - allocated : 0;
+    }
+
+    function confirmRemoteRecoveryClearance(bytes32 creditId, bytes calldata header, bytes calldata proof)
+        external nonReentrant {
+        Credit storage c = _credits[creditId];
+        if (!remoteSeizureConfirmed[creditId] || pendingRemoteSeizure[creditId] != 0
+            || pendingSolanaFundingHash[creditId] != bytes32(0)
+            || pendingSolanaPayoutHash[creditId] != bytes32(0)) revert Pending();
+        bool verified;
+        if (solanaCollateral[creditId]) {
+            SolanaIdentity storage identity = solanaIdentityOf[creditId];
+            verified = ISolanaRecoveryClearanceVerifier(_pinnedSolanaVerifier(c, creditId)).verifySolanaRecoveryClearance(
+                header, proof, identity.sourceGenesis, identity.programId,
+                solanaMarkets[collateralSourceChainOf[creditId]].programDataHash, solanaLockPdaOf[creditId],
+                identity.recoveryVault, creditId, lastRemoteSeizureHash[creditId],
+                solanaRecoveryAllocated[creditId], solanaRecoveryRefunded[creditId]);
+        } else {
+            verified = IRecoveryClearanceVerifier(_pinnedRecoveryVerifier(c, creditId)).verifyRecoveryClearance(
+                header, proof, creditId, remoteRecoveryVaultOf[creditId], lastRemoteSeizureHash[creditId]);
+        }
+        if (!verified) revert InvalidCollateral();
+        remoteRecoveryCleared[creditId] = true;
+        c.revision = RevisionLib.next(c.revision);
+    }
+
+    function cancelRefundedRecoveryOperation(bytes32 creditId, bytes32 operationId,
+        bytes calldata header, bytes calldata proof) external nonReentrant {
+        Credit storage c = _credits[creditId];
+        if (!remoteCollateral[creditId] || solanaCollateral[creditId]) revert InvalidCollateral();
+        InboxFactory factory = InboxFactory(IHouseVaultCore(c.vault).inboxFactory());
+        address inbox = factory.inboxOf(operationId);
+        if (inbox == address(0) || IRecoveryInboxIdentity(inbox).creditId() != creditId
+            || factory.recoverySourceChain(operationId) != collateralSourceChainOf[creditId]) revert InvalidCollateral();
+        bytes32 delivered = keccak256(abi.encode(operationId, factory.operationDigestOf(operationId), inbox));
+        bytes32 digest = keccak256(abi.encode(creditId, remoteRecoveryVaultOf[creditId], operationId, delivered));
+        if (!IRecoveryClearanceVerifier(_pinnedRecoveryVerifier(c, creditId)).verifyRecoveryRefunded(header, proof, digest)) {
+            revert InvalidCollateral();
+        }
+        factory.cancelRecoveryOperation(operationId);
+        remoteRecoveryCleared[creditId] = false;
+        c.revision = RevisionLib.next(c.revision);
+    }
+
+    function _pinnedRecoveryVerifier(Credit storage c, bytes32 creditId) internal view returns (address impl) {
+        uint256 version;
+        bool active;
+        bytes32 codeHash;
+        (impl, version, active,, codeHash) = IVerifierRegistryCore(verifierRegistry).verifiers(collateralSourceChainOf[creditId]);
+        if (!active || c.verifierVersion == 0 || version != c.verifierVersion
+            || codeHash != c.verifierCodeHash || impl.codehash != c.verifierCodeHash) revert InvalidCollateral();
+    }
+
+    function _remoteRecoveryComplete(Credit storage c, bytes32 creditId) internal view returns (bool) {
+        if (!remoteSeizureConfirmed[creditId]) return true;
+        address factory = IHouseVaultCore(c.vault).inboxFactory();
+        return remoteRecoveryCleared[creditId] && factory.code.length != 0
+            && pendingSolanaFundingHash[creditId] == bytes32(0) && pendingSolanaPayoutHash[creditId] == bytes32(0)
+            && InboxFactory(factory).pendingRecoveryCount(creditId) == 0;
     }
 
     function _verifyRemoteEvent(
@@ -3134,6 +3251,8 @@ contract TermbookCore is ITermbookCore {
     function creditFreeCash(bytes32 creditId) public view returns (uint256 cash) {
         Credit storage c = _credits[creditId];
         if (healthSource == address(0) || c.account == address(0) || c.revision == 0) revert BadHealth();
+        if (integrationRegistry != address(0)
+            && !IIntegrationRegistryCore(integrationRegistry).dependenciesValid(c.bundleId)) revert BadHealth();
         cash = IHealthSourceCore(healthSource).freeCash(creditId, c.bundleId, c.revision);
         if (cash > ICreditAccountCore(c.account).tokenBalance(IHouseVaultCore(c.vault).asset())) revert BadHealth();
     }
@@ -3170,6 +3289,7 @@ contract TermbookCore is ITermbookCore {
                 || c.facility == Types.Facility.Liquidated
         ) {
             c.recovery += amount;
+            verifiedRecoveryPaid[creditId] += amount;
             if (c.facility != Types.Facility.Liquidated) c.facility = Types.Facility.RecoveryPending;
         }
         c.debt -= amount;
@@ -3192,6 +3312,7 @@ contract TermbookCore is ITermbookCore {
                 || c.facility == Types.Facility.Liquidated
         ) {
             c.recovery += amount;
+            verifiedRecoveryPaid[creditId] += amount;
             if (c.facility != Types.Facility.Liquidated) c.facility = Types.Facility.RecoveryPending;
         }
         c.revision = RevisionLib.next(c.revision);
@@ -3215,7 +3336,8 @@ contract TermbookCore is ITermbookCore {
         uint256 cashAfter;
         if (c.debt == 0) {
             if (amount > creditFreeCash(creditId)) revert OverLimit();
-        } else if (riskEngine != address(0)) {
+        } else {
+            if (riskEngine == address(0)) revert BadHealth();
             if (paused || (integrationRegistry != address(0)
                 && !IIntegrationRegistryCore(integrationRegistry).isActive(c.bundleId))) revert BadHealth();
             Types.HealthSnapshot memory snapshot = _requireFreshHealth(c, creditId);
@@ -3312,7 +3434,20 @@ contract TermbookCore is ITermbookCore {
         if (ICreditAccountCore(c.account).tokenBalance(IHouseVaultCore(c.vault).asset()) != 0) revert BadState();
         c.facility = Types.Facility.Closed;
         IHouseVaultCore(c.vault).unregisterCredit(creditId);
+        ICreditAccountCore(c.account).releaseControl();
+        c.revision = RevisionLib.next(c.revision);
         emit Events.Closed(creditId);
+    }
+
+    function releaseLiquidatedAccount(bytes32 creditId) external nonReentrant {
+        Credit storage c = _credits[creditId];
+        _accrue(c, creditId);
+        if (msg.sender != c.borrower || c.facility != Types.Facility.Liquidated || !c.recoveryFinalized
+            || c.debt != 0 || c.collateralAmount != 0 || pendingRemoteReturn[creditId] != 0
+            || pendingRemoteSeizure[creditId] != 0 || !_remoteRecoveryComplete(c, creditId)) revert BadState();
+        _requireExitReady(c, creditId);
+        ICreditAccountCore(c.account).releaseControl();
+        c.revision = RevisionLib.next(c.revision);
     }
 
     function _requireExitReady(Credit storage c, bytes32 creditId) internal view {
@@ -3337,6 +3472,7 @@ contract TermbookCore is ITermbookCore {
             fullTermination[creditId] = true;
         }
         c.facility = Types.Facility.Liquidating;
+        recoveryPaidAtStart[creditId] = verifiedRecoveryPaid[creditId];
         sessionGeneration[creditId] += 1;
         c.revision = RevisionLib.next(c.revision);
         if (fullTermination[creditId]) _releaseCommitment(c, creditId);
@@ -3386,7 +3522,21 @@ contract TermbookCore is ITermbookCore {
         if (c.facility != Types.Facility.Liquidating && c.facility != Types.Facility.RecoveryPending) {
             revert BadState();
         }
-        _executeAppRecovery(c, creditId, instruction, false);
+        if (fullTermination[creditId]) {
+            _executeAppRecovery(c, creditId, instruction, false);
+        } else {
+            _accrue(c, creditId);
+            Types.HealthSnapshot memory before_ = _requireFreshHealth(c, creditId);
+            _executeAppRecovery(c, creditId, instruction, false);
+            uint256 cash = creditFreeCash(creditId);
+            if (cash <= before_.cash) revert RecoveryIncomplete();
+            uint256 amount = cash - before_.cash;
+            if (amount > c.debt) amount = c.debt;
+            if (amount == 0) revert RecoveryIncomplete();
+            _repay(c, creditId, amount, true);
+            Types.HealthSnapshot memory after_ = _requireFreshHealth(c, creditId);
+            if (after_.healthBps <= before_.healthBps) revert BadHealth();
+        }
     }
 
     function exitApp(bytes32 creditId, bytes calldata instruction) external nonReentrant {
@@ -3488,6 +3638,7 @@ contract TermbookCore is ITermbookCore {
         c.debt -= settlementAmount;
         c.collateralAmount -= collateralAmount;
         c.recovery += settlementAmount;
+        verifiedRecoveryPaid[creditId] += settlementAmount;
         c.facility = Types.Facility.RecoveryPending;
         c.revision = RevisionLib.next(c.revision);
         if (c.debt == 0) c.payment = Types.Payment.Repaid;
@@ -3499,8 +3650,9 @@ contract TermbookCore is ITermbookCore {
         if (c.facility != Types.Facility.RecoveryPending && c.facility != Types.Facility.Liquidating) revert BadState();
         if (
             block.timestamp >= c.maturity || c.payment == Types.Payment.Defaulted || c.recoveryFinalized || fullTermination[creditId]
+                || verifiedRecoveryPaid[creditId] <= recoveryPaidAtStart[creditId]
                 || pendingRemoteSeizure[creditId] != 0 || pendingRemoteReturn[creditId] != 0
-                || remoteSeizureConfirmed[creditId]
+                || !_remoteRecoveryComplete(c, creditId)
         ) {
             revert BadState();
         }
@@ -3542,7 +3694,7 @@ contract TermbookCore is ITermbookCore {
         _requireExitReady(c, creditId);
         if ((c.debt != 0 && (ICreditAccountCore(c.account).tokenBalance(IHouseVaultCore(c.vault).asset()) != 0
                 || c.collateralAmount != 0))
-            || remoteSeizureConfirmed[creditId]) revert RecoveryIncomplete();
+            || !_remoteRecoveryComplete(c, creditId)) revert RecoveryIncomplete();
         IHouseVaultCore(c.vault).writeOff(creditId, c.principal, c.accruedInterest + c.accruedFees);
         c.facility = Types.Facility.RecoveryPending;
         c.recoveryFinalized = true;
@@ -3641,6 +3793,13 @@ contract TermbookCore is ITermbookCore {
 
     function creditDebt(bytes32 creditId) external view returns (uint256) {
         return _previewDebt(_credits[creditId], creditId);
+    }
+
+    function previewHealth(bytes32 creditId) external view returns (Types.HealthSnapshot memory) {
+        Credit storage c = _credits[creditId];
+        if (c.revision == 0 || healthSource == address(0)) revert BadHealth();
+        _requireHealthIntegrity(c, creditId);
+        return IHealthSourceCore(healthSource).snapshot(creditId, c.bundleId, c.revision, _previewDebt(c, creditId));
     }
 
     function creditVault(bytes32 creditId) external view returns (address) {

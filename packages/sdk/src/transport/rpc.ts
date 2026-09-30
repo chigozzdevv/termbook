@@ -1,5 +1,6 @@
 import { BaseError, ContractFunctionRevertedError, createPublicClient, http, parseAbi, type PublicClient, type TransactionReceipt } from "viem";
 import type { ActivityEvent, ResolvedClientConfig, ContractWriteRequest, TxHash } from "../types/client.types.js";
+import type { HealthView } from "../types/account.types.js";
 import {
   collateralVaultAbi,
   creditAccountAbi,
@@ -22,6 +23,11 @@ const wormholeAbi = parseAbi(["function messageFee() view returns (uint256)"]);
 const solanaCoreAbi = parseAbi(["function solanaWormholeCore() view returns (address)"]);
 const ethereumCoreAbi = parseAbi(["function ethereumWormholeCore() view returns (address)"]);
 const ethereumFactoryAbi = parseAbi(["function ethereumWormholeCore() view returns (address)"]);
+const healthPreviewAbi = parseAbi([
+  "function creditDebt(bytes32) view returns (uint256)",
+  "function riskEngine() view returns (address)",
+  "function previewHealth(bytes32) view returns ((uint256 debt,uint256 cash,uint256 sourceValue,int256 appValue,uint16 retainedSource,uint16 retainedApp,uint128 recoveryCosts,uint256 recoveryValue,uint256 healthBps))",
+]);
 
 export type ActionPreview = { healthBps: bigint; initialBps: bigint; debt: bigint; recoveryValue: bigint };
 
@@ -84,6 +90,26 @@ export class RpcClient {
 
   async coreWrite(functionName: string, args: readonly unknown[] = [], value?: bigint): Promise<TxHash> {
     return this.write(this.config.core, termbookCoreAbi, functionName, args, value);
+  }
+
+  async currentHealth(creditId: TxHash): Promise<HealthView> {
+    if (await this.client.getChainId() !== this.config.chainId) throw new Error("chain-mismatch");
+    const blockNumber = (await this.client.getBlock({ blockTag: "finalized" })).number;
+    const debt = await this.client.readContract({ address: this.config.core, abi: healthPreviewAbi,
+      functionName: "creditDebt", args: [creditId], blockNumber });
+    if (debt === 0n) return { value: null, debt, state: "healthy" };
+    const risk = await this.client.readContract({ address: this.config.core, abi: healthPreviewAbi,
+      functionName: "riskEngine", blockNumber });
+    const [health, liquidation, freeze, watch] = await Promise.all([
+      this.client.readContract({ address: this.config.core, abi: healthPreviewAbi, functionName: "previewHealth", args: [creditId], blockNumber }),
+      this.client.readContract({ address: risk, abi: riskEngineAbi, functionName: "liquidationBps", args: [creditId], blockNumber }),
+      this.client.readContract({ address: risk, abi: riskEngineAbi, functionName: "freezeBps", args: [creditId], blockNumber }),
+      this.client.readContract({ address: risk, abi: riskEngineAbi, functionName: "watchBps", args: [creditId], blockNumber }),
+    ]);
+    if (health.debt !== debt || liquidation === 0n || freeze < liquidation || watch < freeze) throw new Error("health-unavailable");
+    const value = health.healthBps;
+    const state = value <= liquidation ? "liquidatable" : value <= freeze ? "frozen" : value <= watch ? "watch" : "healthy";
+    return { value, debt, state };
   }
 
   async solanaWormholeFee(): Promise<bigint> {

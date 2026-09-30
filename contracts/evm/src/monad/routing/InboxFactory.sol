@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {SettlementInbox} from "./SettlementInbox.sol";
 import {AuthLib} from "../../shared/AuthLib.sol";
+import {SafeTransferLib} from "../../shared/SafeTransferLib.sol";
 import {IWormholeCore} from "../../shared/collateral/IWormholeCore.sol";
 import {WormholeTermbookMessages as WormholeMessages} from "../../shared/collateral/WormholeTermbookMessages.sol";
 
@@ -32,6 +33,7 @@ interface IRouteCreditCore {
 }
 
 contract InboxFactory {
+    using SafeTransferLib for address;
     address public immutable governance;
     address public registrar;
     address public routeRegistry;
@@ -43,6 +45,12 @@ contract InboxFactory {
     mapping(bytes32 => uint256) public recoveryOperationDeadlineOf;
     mapping(bytes32 => bool) public recoveryVaaPublished;
     mapping(bytes32 => uint64) public recoveryVaaSequenceOf;
+    mapping(bytes32 => uint256) public pendingRecoveryCount;
+    mapping(bytes32 => bool) public recoverySettled;
+    mapping(bytes32 => bool) public recoveryCancelled;
+    mapping(bytes32 => uint256) public recoverySourceChain;
+    mapping(bytes32 => uint64) public recoverySettlementSequence;
+    mapping(bytes32 => uint256) public recoverySettlementPublishedAt;
     bytes32 public constant OPERATION_TYPEHASH = keccak256(
         "SettlementOperation(bytes32 operationId,uint8 kind,address payer,uint256 sourceChain,address sourceAsset,address vault,address token,bytes32 creditId,uint256 maxAmountIn,uint256 minOut,uint256 maxReceived,address sourceRefund,address refundRecipient,uint256 deadline,bytes32 routeId,bytes32 routeVersion,address lpRecipient,uint256 minShares)"
     );
@@ -72,6 +80,7 @@ contract InboxFactory {
 
     event InboxCreated(bytes32 indexed operationId, address inbox);
     event RecoveryOperationCreated(bytes32 indexed operationId, bytes32 indexed operationDigest, address indexed inbox);
+    event RecoveryOperationSettled(bytes32 indexed operationId, bytes32 indexed creditId);
     event RegistrarSet(address indexed registrar);
     event RouteRegistrySet(address indexed registry);
     event EthereumWormholeConfigured(address indexed wormhole);
@@ -163,9 +172,12 @@ contract InboxFactory {
         operationDigestOf[op.operationId] = digest;
         if (op.kind == 2) SettlementInbox(inbox).configureLp(op.payer, op.minShares);
         IHouseInboxRegistration(op.vault).registerInboxFromFactory(inbox, op.kind, op.lpRecipient, op.minShares);
-        if (op.kind == 1 && op.sourceChain == 1) {
+        if (op.kind == 1) {
+            if (pendingRecoveryCount[op.creditId] >= 32) revert Invalid();
+            pendingRecoveryCount[op.creditId] += 1;
             recoveryOperation[op.operationId] = true;
             recoveryOperationDeadlineOf[op.operationId] = op.deadline;
+            recoverySourceChain[op.operationId] = op.sourceChain;
         }
         if (op.kind == 1 && op.sourceChain == 1 && ethereumWormholeCore != address(0)) {
             address wormhole = ethereumWormholeCore;
@@ -190,7 +202,8 @@ contract InboxFactory {
         address inbox = inboxOf[operationId];
         if (
             wormhole == address(0) || wormhole.codehash != ethereumWormholeCodeHash
-                || !recoveryOperation[operationId] || block.timestamp > recoveryOperationDeadlineOf[operationId]
+                || !recoveryOperation[operationId] || recoverySettled[operationId]
+                || block.timestamp > recoveryOperationDeadlineOf[operationId]
                 || digest == bytes32(0) || inbox == address(0)
                 || msg.value != IWormholeCore(wormhole).messageFee()
         ) revert Invalid();
@@ -199,6 +212,41 @@ contract InboxFactory {
         );
         recoveryVaaPublished[operationId] = true;
         recoveryVaaSequenceOf[operationId] = sequence;
+    }
+
+    function settleRecoveryOperation(bytes32 operationId) public {
+        SettlementInbox inbox = SettlementInbox(inboxOf[operationId]);
+        if (!recoveryOperation[operationId] || recoverySettled[operationId]
+            || inbox.available() != 0 || inbox.token().balanceOf(address(inbox)) != 0
+            || inbox.applied() + inbox.refunded() < inbox.minOut()) revert Invalid();
+        recoverySettled[operationId] = true;
+        pendingRecoveryCount[inbox.creditId()] -= 1;
+        emit RecoveryOperationSettled(operationId, inbox.creditId());
+    }
+
+    function cancelRecoveryOperation(bytes32 operationId) external {
+        SettlementInbox inbox = SettlementInbox(inboxOf[operationId]);
+        if (!recoveryOperation[operationId] || recoverySettled[operationId]
+            || msg.sender != IHouseInboxRegistration(inbox.vault()).core()) revert Unauthorized();
+        recoverySettled[operationId] = true;
+        recoveryCancelled[operationId] = true;
+        pendingRecoveryCount[inbox.creditId()] -= 1;
+        emit RecoveryOperationSettled(operationId, inbox.creditId());
+    }
+
+    function publishEthereumRecoverySettlement(bytes32 operationId) external payable {
+        address wormhole = ethereumWormholeCore;
+        if (wormhole == address(0) || wormhole.codehash != ethereumWormholeCodeHash
+            || recoverySourceChain[operationId] != 1
+            || recoveryCancelled[operationId]
+            || (recoverySettlementPublishedAt[operationId] != 0
+                && block.timestamp < recoverySettlementPublishedAt[operationId] + 1 hours)
+            || msg.value != IWormholeCore(wormhole).messageFee()) revert Invalid();
+        if (!recoverySettled[operationId]) settleRecoveryOperation(operationId);
+        bytes32 digest = keccak256(abi.encode(operationId, operationDigestOf[operationId], inboxOf[operationId]));
+        recoverySettlementSequence[operationId] = IWormholeCore(wormhole).publishMessage{value: msg.value}(
+            0, abi.encode(WormholeMessages.RECOVERY_SETTLED, digest), 0);
+        recoverySettlementPublishedAt[operationId] = block.timestamp;
     }
 
     function create(

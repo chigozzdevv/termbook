@@ -841,6 +841,75 @@ export const solanaVerifierAbi = [
   },
   {
     "type": "function",
+    "name": "verifySolanaRecoveryClearance",
+    "inputs": [
+      {
+        "name": "header",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "proof",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "genesis",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "program",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "programDataHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "lockPda",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "recoveryPda",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "seizureHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "allocated",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "refunded",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "verifySolanaRefund",
     "inputs": [
       {

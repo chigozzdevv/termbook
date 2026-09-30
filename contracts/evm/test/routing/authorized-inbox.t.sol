@@ -32,6 +32,7 @@ contract MockRouteCore {
     address public vault;
     address public keeper;
     address public sourceAsset;
+    uint256 public debt = 500;
 
     function set(address vault_, address keeper_, address sourceAsset_) external {
         vault = vault_;
@@ -43,8 +44,14 @@ contract MockRouteCore {
         return vault;
     }
 
-    function creditDebt(bytes32) external pure returns (uint256) {
-        return 500;
+    function creditDebt(bytes32) external view returns (uint256) {
+        return debt;
+    }
+
+    function applySettlement(bytes32 id, address inbox, uint256 amount) external {
+        require(msg.sender == vault);
+        HouseVault(vault).applyRepaymentSettlement(id, inbox, amount, amount, 0, 0);
+        debt -= amount;
     }
 
     function creditFacility(bytes32) external pure returns (uint8) {
@@ -136,6 +143,69 @@ contract AuthorizedInboxTest is Test {
             assertTrue(house.settlementInboxes(inbox));
             assertEq(SettlementInbox(inbox).creditId(), op.creditId);
         }
+    }
+
+    function testRecoveryCompletionRequiresAllocatedProceedsAndPreservesLateReceipts() public {
+        InboxFactory.Operation memory op = _operation(1);
+        SettlementInbox inbox = SettlementInbox(factory.createAuthorized(op, _signature(op)));
+        assertEq(factory.pendingRecoveryCount(op.creditId), 1);
+        vm.expectRevert(InboxFactory.Invalid.selector);
+        factory.settleRecoveryOperation(op.operationId);
+        token.mint(address(this), 500);
+        token.approve(address(house), 500);
+        house.deposit(address(this), 500);
+        vm.startPrank(address(core));
+        house.reserve(op.creditId, 500);
+        house.fundDraw(op.creditId, payer, 500);
+        vm.stopPrank();
+        token.mint(address(inbox), 400);
+        inbox.notifyAll();
+        vm.expectRevert(InboxFactory.Invalid.selector);
+        factory.settleRecoveryOperation(op.operationId);
+        inbox.settle(400);
+        factory.settleRecoveryOperation(op.operationId);
+        assertEq(factory.pendingRecoveryCount(op.creditId), 0);
+        assertEq(house.drawnPrincipal(), 100);
+        assertEq(core.debt(), 100);
+        vm.expectRevert(InboxFactory.Invalid.selector);
+        factory.settleRecoveryOperation(op.operationId);
+        token.mint(address(inbox), 100);
+        inbox.notifyAll();
+        inbox.settle(100);
+        assertEq(core.debt(), 0);
+        assertEq(inbox.received(), inbox.applied() + inbox.refunded() + inbox.available());
+        assertEq(token.balanceOf(address(house)), 500);
+    }
+
+    function testOverflowRecoveryReducesDebtBeforeRouteCompletion() public {
+        InboxFactory.Operation memory op = _operation(1);
+        op.maxReceived = 400;
+        SettlementInbox inbox = SettlementInbox(factory.createAuthorized(op, _signature(op)));
+        token.mint(address(this), 500);
+        token.approve(address(house), 500);
+        house.deposit(address(this), 500);
+        vm.startPrank(address(core));
+        house.reserve(op.creditId, 500);
+        house.fundDraw(op.creditId, payer, 500);
+        vm.stopPrank();
+        token.mint(address(inbox), 501);
+        inbox.notifyReceipt(400);
+        inbox.settle(400);
+        vm.expectRevert(InboxFactory.Invalid.selector);
+        factory.settleRecoveryOperation(op.operationId);
+        vm.expectRevert(SettlementInbox.Nothing.selector);
+        inbox.settleUntracked(101);
+        inbox.settleUntracked(100);
+        assertEq(core.debt(), 0);
+        assertEq(inbox.untrackedApplied(), 100);
+        assertEq(inbox.received(), 400);
+        assertEq(inbox.applied(), 400);
+        vm.warp(op.deadline + 1);
+        inbox.refundUntracked(1);
+        factory.settleRecoveryOperation(op.operationId);
+        assertEq(factory.pendingRecoveryCount(op.creditId), 0);
+        assertEq(token.balanceOf(address(house)), 500);
+        assertEq(token.balanceOf(address(inbox)), 0);
     }
 
     function testEthereumRecoveryRegistrationPublishesAndRepublishesOperation() public {

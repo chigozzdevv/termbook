@@ -402,6 +402,40 @@ export const wormholeMonadVerifierAbi = [
   },
   {
     "type": "function",
+    "name": "verifyRecoverySettlement",
+    "inputs": [
+      {
+        "name": "vaa",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "proof",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "emitter",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "digest",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "wormholeMode",
     "inputs": [],
     "outputs": [

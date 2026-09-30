@@ -37,7 +37,12 @@ export async function runIndexerWorker(start: bigint = indexerStart()): Promise<
       }
     }
     const finalized = await chain.getBlock({ blockTag: "finalized" });
-    if (from > finalized.number) return 0;
+    if (from > finalized.number) {
+      if (from === finalized.number + 1n && !leaseLost) {
+        await indexerRepo.advance(key, cursor.lease, from, finalized.hash);
+      }
+      return 0;
+    }
     const to = from + 499n < finalized.number ? from + 499n : finalized.number;
     const boundary = await chain.getBlock({ blockNumber: to });
     const logs = await chain.getLogs({ address: env.core as Address, fromBlock: from, toBlock: to });
@@ -61,6 +66,19 @@ export async function runIndexerWorker(start: bigint = indexerStart()): Promise<
         block: log.blockNumber.toString(), blockHash: log.blockHash, txHash: log.transactionHash,
         logIndex: log.logIndex, event: decoded.eventName, creditId,
         data: JSON.parse(canonicalJson(args)) as Record<string, unknown> });
+      if (decoded.eventName === "RemoteActionAuthorized" && typeof creditId === "string") {
+        const solana = await chain.readContract({ address: env.core as Address, abi: termbookCoreAbi,
+          functionName: "solanaCollateral", args: [creditId as `0x${string}`], blockNumber: to });
+        const actionKind = Number(args["kind"]);
+        if (!solana && (actionKind === 0 || actionKind === 1)) {
+          const actionHash = args["actionHash"];
+          const current = await chain.readContract({ address: env.core as Address, abi: termbookCoreAbi,
+            functionName: actionKind === 0 ? "remoteReturnActionHash" : "remoteSeizureActionHash",
+            args: [creditId as `0x${string}`], blockNumber: to });
+          if (current === actionHash) await queue.push({ kind: "collateral.remote-authorized",
+            payload: { creditId, actionHash, kind: actionKind, authorizationTxHash: log.transactionHash } });
+        }
+      }
     }
     const ids = [...credits];
     for (let i = 0; i < ids.length; i += 8) {

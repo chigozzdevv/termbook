@@ -193,6 +193,11 @@ contract MockEvmWormhole is IWormholeCore {
             bytes memory auth = _vaa(48, CORE, 0, abi.encode(Messages.AUTH, digest), true);
             bytes memory recovery = _vaa(48, FACTORY, 0, abi.encode(Messages.RECOVERY, digest), true);
             assertTrue(verifier.verifyEvent(auth, "", CORE, digest));
+            assertFalse(verifier.verifyRecoverySettlement(recovery, "", FACTORY, digest));
+            bytes memory settled = _vaa(48, FACTORY, 0, abi.encode(Messages.RECOVERY_SETTLED, digest), true);
+            assertTrue(verifier.verifyRecoverySettlement(settled, "", FACTORY, digest));
+            assertFalse(verifier.verifyRecoveryOperation(settled, "", FACTORY, digest));
+            assertFalse(verifier.verifyRecoverySettlement(settled, "", CORE, digest));
             assertFalse(verifier.verifyEvent(recovery, "", CORE, digest));
             assertTrue(verifier.verifyRecoveryOperation(recovery, "", FACTORY, digest));
             assertFalse(verifier.verifyRecoveryOperation(auth, "", FACTORY, digest));

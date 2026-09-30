@@ -148,6 +148,28 @@ contract SolanaVerifierTest is Test {
         ));
     }
 
+    function testRecoveryClearanceRequiresEmptyPinnedCustodyAndMatchingSeizure() public {
+        bytes memory data = _recoveryRecord(1, keccak256("funded"));
+        bytes memory recoveryProof = abi.encode(RECOVERY, hex"01", hex"02");
+        client.setRecord(data);
+        assertFalse(verifier.verifySolanaRecoveryClearance(header, recoveryProof,
+            GENESIS, PROGRAM, HASH, VAULT, RECOVERY, CREDIT_ID, keccak256("seized"), 500, 0));
+        _setU64(data, 130, 0);
+        client.setRecord(data);
+        assertTrue(verifier.verifySolanaRecoveryClearance(header, recoveryProof,
+            GENESIS, PROGRAM, HASH, VAULT, RECOVERY, CREDIT_ID, keccak256("seized"), 500, 0));
+        assertFalse(verifier.verifySolanaRecoveryClearance(header, recoveryProof,
+            GENESIS, PROGRAM, HASH, VAULT, RECOVERY, CREDIT_ID, keccak256("other"), 500, 0));
+        assertFalse(verifier.verifySolanaRecoveryClearance(header, recoveryProof,
+            GENESIS, PROGRAM, HASH, VAULT, RECOVERY, CREDIT_ID, keccak256("seized"), 499, 0));
+        _setU64(data, 274, 100);
+        client.setRecord(data);
+        assertFalse(verifier.verifySolanaRecoveryClearance(header, recoveryProof,
+            GENESIS, PROGRAM, HASH, VAULT, RECOVERY, CREDIT_ID, keccak256("seized"), 500, 0));
+        assertTrue(verifier.verifySolanaRecoveryClearance(header, recoveryProof,
+            GENESIS, PROGRAM, HASH, VAULT, RECOVERY, CREDIT_ID, keccak256("seized"), 500, 100));
+    }
+
     function testPayoutProofAndPostDeadlineAbsenceUseRecoveryRecord() public {
         bytes32 payoutHash = keccak256("paid");
         bytes memory recoveryProof = abi.encode(RECOVERY, hex"01", hex"02");

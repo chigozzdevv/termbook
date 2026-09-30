@@ -1,4 +1,4 @@
-import { createPublicClient, encodeFunctionData, http, keccak256, parseAbi, type Address, type Hex } from "viem";
+import { createPublicClient, decodeEventLog, encodeFunctionData, http, keccak256, parseAbi, type Address, type Hex } from "viem";
 import { termbookCoreAbi, verifierRegistryAbi } from "@termbook/bindings";
 import { monadClient } from "../chain/monad.client.js";
 import { fetchConsumedActionProof, fetchUnconsumedActionProof } from "../chain/source.client.js";
@@ -39,6 +39,7 @@ export const remoteActionService = {
     }
     const kind = input.kind === "release" ? 0 : 1;
     const { action, actionHash } = await readAuthorizedAction(input.creditId as Hex, kind, requester);
+    await verifyAuthorizationReceipt(input.creditId as Hex, actionHash, kind, input.authorizationTxHash as Hex);
     if (hashRemoteAction(action).toLowerCase() !== actionHash.toLowerCase()) throw new Error("remote-action-mismatch");
     const saved = await remoteActionRepo.open({
       actionHash: actionHash.toLowerCase(), creditId: input.creditId, kind,
@@ -193,3 +194,36 @@ export const remoteActionService = {
     };
   },
 };
+
+async function verifyAuthorizationReceipt(creditId: Hex, actionHash: Hex, kind: 0 | 1, hash: Hex): Promise<void> {
+  const chain = monadClient();
+  const receipt = await chain.getTransactionReceipt({ hash });
+  const finalized = await chain.getBlock({ blockTag: "finalized" });
+  if (receipt.status !== "success" || receipt.blockNumber > finalized.number) throw new Error("remote-action-authorization-unfinalized");
+  const block = await chain.getBlock({ blockNumber: receipt.blockNumber });
+  if (block.hash !== receipt.blockHash || block.transactions[receipt.transactionIndex] !== hash) {
+    throw new Error("remote-action-authorization-noncanonical");
+  }
+  const matches = receipt.logs.filter((log) => {
+    if (log.address.toLowerCase() !== env.core.toLowerCase()) return false;
+    try {
+      const decoded = decodeEventLog({ abi: termbookCoreAbi, topics: log.topics, data: log.data, strict: true });
+      return decoded.eventName === "RemoteActionAuthorized" && decoded.args.creditId.toLowerCase() === creditId.toLowerCase()
+        && decoded.args.actionHash.toLowerCase() === actionHash.toLowerCase() && decoded.args.kind === kind;
+    } catch { return false; }
+  });
+  if (matches.length !== 1) throw new Error("remote-action-authorization-mismatch");
+}
+
+export async function scheduleFinalizedAction(input: { creditId: Hex; actionHash: Hex; kind: 0 | 1; authorizationTxHash: Hex }) {
+  const chain = monadClient();
+  const at = (await chain.getBlock({ blockTag: "finalized" })).number;
+  const current = await chain.readContract({ address: env.core as Address, abi: termbookCoreAbi,
+    functionName: input.kind === 0 ? "remoteReturnActionHash" : "remoteSeizureActionHash", args: [input.creditId], blockNumber: at });
+  if (current.toLowerCase() !== input.actionHash.toLowerCase()) return;
+  await verifyAuthorizationReceipt(input.creditId, input.actionHash, input.kind, input.authorizationTxHash);
+  const { action, actionHash } = await readAuthorizedAction(input.creditId, input.kind);
+  await remoteActionRepo.open({ actionHash: actionHash.toLowerCase(), creditId: input.creditId,
+    kind: input.kind, authorizationTxHash: input.authorizationTxHash, action: serializeAction(action) });
+  await queue.push({ kind: "collateral.remote-action", payload: { actionHash: actionHash.toLowerCase() } });
+}

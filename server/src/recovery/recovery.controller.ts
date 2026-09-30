@@ -3,8 +3,16 @@ import { recoveryRiskApprovalPlanSchema, recoveryRiskApprovalSchema, recoveryRef
 import { recoveryService } from "./recovery.service.js";
 import { prepareHeldReturn } from "./return-held.service.js";
 import { refundService } from "./refund.service.js";
+import { recoveryClearanceSchema } from "./recovery.schema.js";
+import { recoveryClearancePlan } from "./clearance.service.js";
 
 export const recoveryController = {
+  async clearancePlan(req: FastifyRequest) {
+    const wallet = (req as FastifyRequest & { user?: { wallet: string } }).user?.wallet;
+    if (!wallet) throw new Error("permission-denied");
+    const input = recoveryClearanceSchema.parse(req.body);
+    return recoveryClearancePlan({ ...input, creditId: input.creditId as `0x${string}` }, wallet as `0x${string}`);
+  },
   async riskApprovalPlan(req: FastifyRequest) {
     return recoveryService.riskApprovalPlan(recoveryRiskApprovalPlanSchema.parse(req.query));
   },

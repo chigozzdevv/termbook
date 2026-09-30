@@ -5,6 +5,8 @@ const settlementSchema = new mongoose.Schema(
     operationId: { type: String, required: true, unique: true },
     registrationTxHash: String,
     kind: String,
+    relayCheckedAt: Date,
+    settlementCheckedAt: Date,
     payer: String,
     nonce: String,
     sourceChain: Number,

@@ -1,0 +1,42 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { privateKeyToAccount } from "viem/accounts";
+import { env } from "../../src/config/env.js";
+import { reconcileKeeperWallet } from "../../src/chain/keeper.js";
+import { runKeeperWorker } from "../../src/chain/keeper.worker.js";
+
+const clients = vi.hoisted(() => ({ monad: { name: "monad" }, ethereum: { name: "ethereum" } }));
+vi.mock("viem", async (load) => ({ ...await load<typeof import("viem")>(), createPublicClient: () => clients.ethereum }));
+vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: () => clients.monad }));
+vi.mock("../../src/config/env.js", () => ({ env: {
+  monadChainId: 143, rpcUrl: "http://monad", sourceRpcUrl: "http://ethereum",
+  settlementKeeperKey: "", sourceWormholePublisherKey: "",
+} }));
+vi.mock("../../src/chain/keeper.js", () => ({ reconcileKeeperWallet: vi.fn() }));
+vi.mock("../../src/logging/logger.js", () => ({ logger: { warn: vi.fn() } }));
+
+beforeEach(() => {
+  vi.resetAllMocks();
+  env.settlementKeeperKey = "";
+  env.sourceWormholePublisherKey = "";
+  for (const name of ["RISK_KEEPER_KEY", "RECOVERY_RELAY_KEY", "SOURCE_RECOVERY_RELAY_KEY"]) vi.stubEnv(name, "");
+});
+afterEach(() => vi.unstubAllEnvs());
+
+describe("keeper reconciliation loop", () => {
+  it("does nothing when no durable keeper wallet is configured", async () => {
+    expect(await runKeeperWorker()).toBe(0);
+    expect(reconcileKeeperWallet).not.toHaveBeenCalled();
+  });
+
+  it("uses each wallet's chain and isolates an RPC failure from other pending transactions", async () => {
+    const monadKey = `0x${"1".repeat(64)}` as const;
+    const ethereumKey = `0x${"2".repeat(64)}` as const;
+    env.settlementKeeperKey = monadKey;
+    env.sourceWormholePublisherKey = ethereumKey;
+    vi.mocked(reconcileKeeperWallet).mockRejectedValueOnce(new Error("rpc-unavailable"))
+      .mockResolvedValueOnce("success");
+    expect(await runKeeperWorker()).toBe(1);
+    expect(reconcileKeeperWallet).toHaveBeenNthCalledWith(1, clients.monad, 143, privateKeyToAccount(monadKey).address);
+    expect(reconcileKeeperWallet).toHaveBeenNthCalledWith(2, clients.ethereum, 1, privateKeyToAccount(ethereumKey).address);
+  });
+});

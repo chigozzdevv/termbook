@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 import {TermbookCore} from "../../src/monad/credit/TermbookCore.sol";
 import {InboxFactory} from "../../src/monad/routing/InboxFactory.sol";
+import {SettlementInbox} from "../../src/monad/routing/SettlementInbox.sol";
 import {HouseVault} from "../../src/monad/house/HouseVault.sol";
 import {MockRemoteSaleOracle} from "../MockRemoteSaleOracle.sol";
 import {MockERC20} from "../MockERC20.sol";
@@ -50,6 +51,11 @@ contract SolanaFundingHarness is TermbookCore {
 contract MockSolanaFundingFactory {
     mapping(bytes32 => address) public inboxOf;
     mapping(bytes32 => bytes32) public operationDigestOf;
+    mapping(bytes32 => bool) public cancelled;
+    mapping(bytes32 => uint256) public recoveryOperationDeadlineOf;
+    function recoverySourceChain(bytes32) external pure returns (uint256) { return 99; }
+    function cancelRecoveryOperation(bytes32 id) external { require(!cancelled[id]); cancelled[id] = true; }
+    function setDeadline(bytes32 id, uint256 deadline) external { recoveryOperationDeadlineOf[id] = deadline; }
 
     function operationDigest(InboxFactory.Operation calldata operation) external pure returns (bytes32) {
         return keccak256(abi.encode(operation));
@@ -308,6 +314,55 @@ contract SolanaFundingTest is Test {
         vm.prank(borrower);
         core.authorizeSolanaRecoveryReturn(CREDIT_ID, 600_000_000, block.timestamp + 1 days);
         assertEq(core.solanaRecoveryAllocated(CREDIT_ID), 1_100_000_000);
+    }
+
+    function testRefundBudgetRetiresOnlyConfirmedExpiredOperationsOnce() public {
+        MockSolanaFundingProofVerifier verifier = _configureVerifier();
+        (TermbookCore.SolanaRecoveryFunding memory funding, InboxFactory.Operation memory operation) = _operation();
+        SettlementInbox inbox = new SettlementInbox(OPERATION_ID, address(vault), address(settlement), CREDIT_ID,
+            operation.minOut, operation.maxReceived, borrower, operation.deadline);
+        funding.inbox = address(inbox);
+        factory.register(OPERATION_ID, funding.inbox, factory.operationDigest(operation));
+        factory.setDeadline(OPERATION_ID, operation.deadline);
+        bytes32 actionHash = core.solanaRecoveryFundHash(funding, factory.operationDigest(operation), 1, 4);
+        core.authorizeSolanaRecoveryFund(funding, operation, _sign(0xBEEF, actionHash), _sign(0xCAFE, actionHash));
+        verifier.setRefundTotal(AMOUNT);
+        core.reconcileSolanaRecoveryRefund(CREDIT_ID, AMOUNT, hex"01", hex"02");
+        vm.expectRevert(TermbookCore.RecoveryIncomplete.selector);
+        core.retireRefundedSolanaRecoveryOperation(CREDIT_ID, OPERATION_ID);
+        verifier.setResults(true, false);
+        core.confirmSolanaRecoveryFund(CREDIT_ID, hex"01", hex"02");
+        vm.expectRevert(TermbookCore.RecoveryIncomplete.selector);
+        core.retireRefundedSolanaRecoveryOperation(CREDIT_ID, OPERATION_ID);
+        vm.warp(operation.deadline + 1);
+        core.retireRefundedSolanaRecoveryOperation(CREDIT_ID, OPERATION_ID);
+        assertTrue(factory.cancelled(OPERATION_ID));
+        assertEq(core.solanaRecoveryRetiredRefunds(CREDIT_ID), AMOUNT);
+        assertEq(core.solanaRecoveryAllocated(CREDIT_ID), AMOUNT);
+        assertFalse(core.remoteRecoveryCleared(CREDIT_ID));
+        vm.expectRevert(TermbookCore.RecoveryIncomplete.selector);
+        core.retireRefundedSolanaRecoveryOperation(CREDIT_ID, OPERATION_ID);
+    }
+
+    function testRefundBudgetCannotRetireAnInboxStillHoldingProceeds() public {
+        MockSolanaFundingProofVerifier verifier = _configureVerifier();
+        (TermbookCore.SolanaRecoveryFunding memory funding, InboxFactory.Operation memory operation) = _operation();
+        SettlementInbox inbox = new SettlementInbox(OPERATION_ID, address(vault), address(settlement), CREDIT_ID,
+            operation.minOut, operation.maxReceived, borrower, operation.deadline);
+        funding.inbox = address(inbox);
+        factory.register(OPERATION_ID, funding.inbox, factory.operationDigest(operation));
+        factory.setDeadline(OPERATION_ID, operation.deadline);
+        bytes32 actionHash = core.solanaRecoveryFundHash(funding, factory.operationDigest(operation), 1, 4);
+        core.authorizeSolanaRecoveryFund(funding, operation, _sign(0xBEEF, actionHash), _sign(0xCAFE, actionHash));
+        verifier.setResults(true, false);
+        core.confirmSolanaRecoveryFund(CREDIT_ID, hex"01", hex"02");
+        verifier.setRefundTotal(AMOUNT);
+        core.reconcileSolanaRecoveryRefund(CREDIT_ID, AMOUNT, hex"01", hex"02");
+        vm.warp(operation.deadline + 1);
+        settlement.mint(address(inbox), 1);
+        vm.expectRevert(TermbookCore.RecoveryIncomplete.selector);
+        core.retireRefundedSolanaRecoveryOperation(CREDIT_ID, OPERATION_ID);
+        assertEq(core.solanaRecoveryRetiredRefunds(CREDIT_ID), 0);
     }
 
     function _configureVerifier() private returns (MockSolanaFundingProofVerifier verifier) {

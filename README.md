@@ -149,6 +149,11 @@ repayment. `IAppExitPlanner` supplies bounded, revision-bound unwind steps.
 `credit.close()` freezes the facility before unwinding, repays actual free cash,
 returns surplus, and waits for verified source return before resolving. Its
 checkpoint supports resumption after wallet or network interruption.
+Once closure completes, the Credit Account releases control to its borrower and
+Core can no longer execute from it. A fully repaid liquidated account can be
+released with `credit.account.release()` after custody and exit reconciliation.
+The SDK reads current health at a single finalized block rather than displaying
+the last stored risk snapshot.
 
 House withdrawal requests retain shares until FIFO redemption and remain exposed
 to gains and losses. Share conversion includes bounded pending loan accrual net
@@ -169,6 +174,43 @@ durable event storage and projection refresh. RPC gaps are retried; a changed
 indexed finalized block halts that cursor for operator investigation. `/health`
 reports process liveness; `/ready` checks database access, chain identity, and
 recent index progress. Monitor `/ready` and worker error logs in deployment.
+
+The risk worker scans up to 64 active Credits per pass, independently of proof
+relays. It uses finalized debt, authoritative health and onchain thresholds;
+simulates each mutation; and advances default, app exit, free-cash repayment and
+remote seizure through the existing plugin interfaces. `RISK_KEEPER_KEY` must
+belong to an approved recovery keeper. Without that key the monitor is read only.
+Nonsettlement local collateral requires a buyer through the reviewed sale policy.
+House managers retain authority to finalize losses.
+
+`RECOVERY_RELAY_KEY` on Monad and `SOURCE_RECOVERY_RELAY_KEY` on Ethereum relay
+destination settlement VAAs to source recovery custody. They must use distinct
+wallets from other workers on the same chain. Route registration and destination
+settlement have separate proof domains. Source clearance binds the latest
+seizure, empty held custody and completed routes before finalization. Funded SOL
+routes clear after destination allocation; an expired fully refunded route can
+consume its original funding amount from the verified cumulative refund budget
+once. This accounting does not identify a particular provider refund transfer.
+Late deliveries and source refunds remain controlled claims, and above-cap
+inbox proceeds can repay debt without increasing the receipt authorization cap.
+Borrowers can submit a clearance proof through `credit.confirmRecoveryClearance`;
+SOL requires the source snapshot transaction signature.
+
+Risk, settlement, recovery-delivery and Ethereum snapshot transactions persist
+their signed payload before broadcast and reconcile canonical finality. An
+independent loop resumes persisted transactions after a restart, even when the
+original action is no longer eligible. A stuck transaction can be replaced with
+a separately signed fee bump:
+
+```sh
+cd server
+node --import tsx scripts/replace-keeper-tx.ts 143 <keeper-wallet> <signed-transaction-file>
+```
+
+The replacement must preserve its sender, chain, nonce, call, value, gas and
+authorization fields. Both fee components must rise by at least 20 percent.
+The worker retains at most four replacements and accepts whichever candidate
+finalizes. Raw signed transactions and private keys are not command output.
 
 `COLLATERAL_MARKETS` publishes the admitted source-wallet choices in the modal.
 It is a JSON array of EVM entries (`id`, `label`, `decimals`, `chainId`,

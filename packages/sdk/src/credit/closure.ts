@@ -194,7 +194,7 @@ export async function closeCredit(client: TermbookClient, creditId: TxHash, opti
       }
     } catch (error) {
       if (!(error instanceof Error) || !["solana-proof-unavailable", "solana-wormhole-authorization-unavailable",
-        "remote-action-unavailable", "solana-action-unavailable"].includes(error.message)) throw error;
+        "remote-action-unavailable", "remote-action-authorization-unfinalized", "solana-action-unavailable"].includes(error.message)) throw error;
     }
     await pause(Math.max(1, Math.min(interval, until - Date.now())), options.signal);
   }

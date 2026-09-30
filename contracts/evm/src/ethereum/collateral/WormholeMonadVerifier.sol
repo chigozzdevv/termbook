@@ -56,6 +56,12 @@ contract WormholeMonadVerifier is LightClientVerifier {
         return false;
     }
 
+    function verifyRecoverySettlement(bytes calldata vaa, bytes calldata proof, address emitter, bytes32 digest)
+        external view returns (bool) {
+        return emitter == monadFactory && digest != bytes32(0) && proof.length == 0
+            && _message(recoveryClient, recoveryClientCodeHash, vaa, Messages.RECOVERY_SETTLED, digest);
+    }
+
     function _message(address client, bytes32 codeHash, bytes calldata vaa, bytes32 domain, bytes32 digest)
         private
         view

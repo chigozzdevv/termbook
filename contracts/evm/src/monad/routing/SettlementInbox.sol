@@ -37,6 +37,7 @@ contract SettlementInbox is ISettlementInbox {
     uint256 public received;
     uint256 public applied;
     uint256 public refunded;
+    uint256 public untrackedApplied;
     bool public cancelled;
     bool private entered;
 
@@ -50,6 +51,7 @@ contract SettlementInbox is ISettlementInbox {
     error ReceiverFailed();
 
     event UntrackedRefunded(bytes32 indexed operationId, uint256 amount);
+    event UntrackedSettled(bytes32 indexed operationId, uint256 amount);
     event LpAuthorizationRevised(bytes32 indexed operationId, uint256 revision);
     event Cancelled(bytes32 indexed operationId);
 
@@ -192,6 +194,22 @@ contract SettlementInbox is ISettlementInbox {
         token.safeTransfer(refundRecipient, amount);
         if (_balanceOf(refundRecipient) - recipientBalance != amount) revert BadToken();
         emit UntrackedRefunded(operationId, amount);
+    }
+
+    function settleUntracked(uint256 amount) external guard {
+        if (creditId == bytes32(0)) revert Nothing();
+        uint256 debt = ICreditDebt(ISettlementDebt(vault).core()).creditDebt(creditId);
+        uint256 balance = _balance();
+        uint256 outstanding = available();
+        if (amount == 0 || amount > debt || balance < outstanding || amount > balance - outstanding) revert Nothing();
+        untrackedApplied += amount;
+        uint256 vaultBalance = _balanceOf(vault);
+        token.safeTransfer(vault, amount);
+        if (_balanceOf(vault) - vaultBalance != amount) revert BadToken();
+        try ISettlementReceiver(vault).onSettlement(operationId, creditId, token, amount) {} catch {
+            revert ReceiverFailed();
+        }
+        emit UntrackedSettled(operationId, amount);
     }
 
     function _balance() internal view returns (uint256 value) {

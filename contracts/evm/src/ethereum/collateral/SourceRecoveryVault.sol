@@ -13,6 +13,8 @@ interface IRecoveryOperationVerifier is IVerifierAdmission {
         returns (bool);
     function verifyEvent(bytes calldata header, bytes calldata proof, address emitter, bytes32 eventDigest)
         external view returns (bool);
+    function verifyRecoverySettlement(bytes calldata header, bytes calldata proof, address emitter, bytes32 eventDigest)
+        external view returns (bool);
 }
 
 interface IRemoteRecoveryControllerIdentity {
@@ -70,6 +72,9 @@ contract SourceRecoveryVault {
     uint256 public totalHeld;
     mapping(bytes32 => uint256) public held;
     mapping(bytes32 => InFlight) public inFlight;
+    mapping(bytes32 => uint256) public pendingCount;
+    mapping(bytes32 => bool) public operationPending;
+    mapping(bytes32 => bytes32) public deliveryDigest;
     mapping(bytes32 => bool) public usedOperation;
     mapping(bytes32 => bool) public usedRefund;
     mapping(bytes32 => bool) public usedRefundTxHash;
@@ -86,6 +91,7 @@ contract SourceRecoveryVault {
     event RouteFunded(bytes32 indexed creditId, bytes32 indexed operationId, address inbox, uint256 amount);
     event SourceRefundRecorded(bytes32 indexed creditId, bytes32 indexed operationId, uint256 amount);
     event HeldCollateralReturned(bytes32 indexed creditId, bytes32 indexed actionHash, address indexed recipient, uint256 amount);
+    event DeliveryConfirmed(bytes32 indexed creditId, bytes32 indexed operationId);
 
     constructor(
         address asset_,
@@ -200,6 +206,9 @@ contract SourceRecoveryVault {
         held[funding.creditId] -= funding.amount;
         totalHeld -= funding.amount;
         inFlight[funding.operationId] = InFlight(funding.creditId, funding.amount);
+        operationPending[funding.operationId] = true;
+        pendingCount[funding.creditId] += 1;
+        deliveryDigest[funding.operationId] = keccak256(abi.encode(op.operationId, operationDigest(op), funding.inbox));
         uint256 beforeBalance = asset.balanceOf(funding.depositAddress);
         asset.safeTransfer(funding.depositAddress, funding.amount);
         if (asset.balanceOf(funding.depositAddress) - beforeBalance != funding.amount) revert Invalid();
@@ -236,9 +245,25 @@ contract SourceRecoveryVault {
         usedRefund[refundId] = true;
         usedRefundTxHash[refundTxHash] = true;
         operation.amount -= amount;
+        if (operation.amount == 0) _completeOperation(operationId, operation.creditId);
         held[operation.creditId] += amount;
         totalHeld += amount;
         emit SourceRefundRecorded(operation.creditId, operationId, amount);
+    }
+
+    function confirmDelivery(bytes32 operationId, bytes calldata header, bytes calldata proof) external {
+        InFlight memory operation = inFlight[operationId];
+        if (!operationPending[operationId] || !verifier.verifyRecoverySettlement(
+            header, proof, monadFactory, deliveryDigest[operationId])) revert Invalid();
+        _completeOperation(operationId, operation.creditId);
+        emit DeliveryConfirmed(operation.creditId, operationId);
+    }
+
+    function _completeOperation(bytes32 operationId, bytes32 creditId) internal {
+        if (operationPending[operationId]) {
+            operationPending[operationId] = false;
+            pendingCount[creditId] -= 1;
+        }
     }
 
     function returnHeldHash(bytes32 creditId, address recipient, uint256 amount, uint256 nonce, uint256 deadline)

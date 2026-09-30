@@ -197,6 +197,9 @@ contract FundedPositionHealthSource is IHealthSource {
     FundedPositionTarget public immutable target;
     bool public unavailable;
     uint256 public reservedCash;
+    uint256 public sourceValue = 100;
+    uint16 public retainedApp = 10_000;
+    function setBacking(uint256 source_, uint16 retained_) external { sourceValue = source_; retainedApp = retained_; }
 
     function setReservedCash(uint256 amount) external {
         reservedCash = amount;
@@ -225,9 +228,9 @@ contract FundedPositionHealthSource is IHealthSource {
         address account = core.creditAccount(creditId);
         uint256 cash = token.balanceOf(account) - reservedCash;
         uint256 position = target.positions(account);
-        uint256 recovery = cash + 100 + position;
+        uint256 recovery = cash + sourceValue + position * retainedApp / 10_000;
         return Types.HealthSnapshot(
-            debt, cash, 100, int256(position), 10_000, 10_000, 0, recovery,
+            debt, cash, sourceValue, int256(position), 10_000, retainedApp, 0, recovery,
             HealthMath.healthBps(recovery, debt, 0)
         );
     }
@@ -768,6 +771,60 @@ contract RealFlowTest is Test {
         assertEq(core.creditDebt(creditId), 0);
         assertEq(token.balanceOf(account), 0);
         assertEq(houseVault.drawnPrincipal(), 0);
+    }
+
+    function testPartialAppRecoveryRepaysAndImprovesHealthBeforeCure() public {
+        bytes32 id = keccak256("partial-app-recovery");
+        FundedPositionTarget position = new FundedPositionTarget(token);
+        FundedPositionHealthSource source = new FundedPositionHealthSource(token, core, position);
+        core.setHealthSource(address(source));
+        core.setAppRecoveryAdapter(keccak256("bundle"), address(new FundedPositionRecoveryAdapter(position)));
+        core.setApprovedCall(address(position), FundedPositionTarget.deposit.selector, true);
+        core.setRecoveryKeeper(address(this), true);
+        (, address account) = _prepare(id);
+        bytes memory data = abi.encodeWithSelector(FundedPositionTarget.deposit.selector, 200);
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes32 digest = keccak256(abi.encode(core.domain(), id, keccak256(abi.encode(address(position), data)),
+            uint256(200), uint256(200), uint256(1), deadline, core.creditRevision(id)));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(borrowerKey, digest);
+        core.executeAction(id, address(position), data, 200, 200, 1, deadline, abi.encodePacked(r, s, v));
+        source.setBacking(50, 5_000);
+        core.startLiquidation(id);
+        source.setBacking(100, 10_000);
+        vm.expectRevert(TermbookCore.BadState.selector);
+        core.cure(id);
+        source.setBacking(50, 5_000);
+        core.recoverApp(id, abi.encode(uint256(150)));
+        assertEq(core.creditDebt(id), 50);
+        assertEq(core.verifiedRecoveryPaid(id), 150);
+        assertEq(position.positions(account), 50);
+        assertEq(token.balanceOf(account), 0);
+        core.cure(id);
+        assertEq(uint256(core.creditFacility(id)), uint256(Types.Facility.Ready));
+    }
+
+    function testPartialAppRecoveryRollsBackIfHealthDoesNotImprove() public {
+        bytes32 id = keccak256("partial-no-improvement");
+        FundedPositionTarget position = new FundedPositionTarget(token);
+        FundedPositionHealthSource source = new FundedPositionHealthSource(token, core, position);
+        core.setHealthSource(address(source));
+        core.setAppRecoveryAdapter(keccak256("bundle"), address(new FundedPositionRecoveryAdapter(position)));
+        core.setApprovedCall(address(position), FundedPositionTarget.deposit.selector, true);
+        core.setRecoveryKeeper(address(this), true);
+        (, address account) = _prepare(id);
+        bytes memory data = abi.encodeWithSelector(FundedPositionTarget.deposit.selector, 200);
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes32 digest = keccak256(abi.encode(core.domain(), id, keccak256(abi.encode(address(position), data)),
+            uint256(200), uint256(200), uint256(1), deadline, core.creditRevision(id)));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(borrowerKey, digest);
+        core.executeAction(id, address(position), data, 200, 200, 1, deadline, abi.encodePacked(r, s, v));
+        source.setBacking(0, 10_000);
+        core.startLiquidation(id);
+        vm.expectRevert(TermbookCore.BadHealth.selector);
+        core.recoverApp(id, abi.encode(uint256(100)));
+        assertEq(core.creditDebt(id), 200);
+        assertEq(position.positions(account), 200);
+        assertEq(core.verifiedRecoveryPaid(id), 0);
     }
 
     function testFundedActionCannotSpendReservedCash() public {

@@ -129,7 +129,7 @@ export async function verifyRegisteredRecoveryOperation(operation: Operation, di
     context[0] !== BigInt(operation.sourceChain) || !equal(context[1], operation.sourceAsset)
       || !equal(context[2], operation.sourceRefundRecipient) || debt === 0n
       || !equal(creditVault, vault) || !equal(owner, operation.refundRecipient)
-      || !keeper || ![9, 10].includes(facility) || pending !== 0n
+      || !keeper || ![8, 9, 10].includes(facility) || pending !== 0n
       || BigInt(operation.minAmountOut) < minimumProceeds
   ) throw new Error("recovery-credit-mismatch");
 }

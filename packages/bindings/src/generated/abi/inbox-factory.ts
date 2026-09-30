@@ -25,6 +25,19 @@ export const inboxFactoryAbi = [
   },
   {
     "type": "function",
+    "name": "cancelRecoveryOperation",
+    "inputs": [
+      {
+        "name": "operationId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "configureEthereumWormhole",
     "inputs": [
       {
@@ -396,6 +409,57 @@ export const inboxFactoryAbi = [
   },
   {
     "type": "function",
+    "name": "pendingRecoveryCount",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "publishEthereumRecoverySettlement",
+    "inputs": [
+      {
+        "name": "operationId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "recoveryCancelled",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "recoveryOperation",
     "inputs": [
       {
@@ -416,6 +480,82 @@ export const inboxFactoryAbi = [
   {
     "type": "function",
     "name": "recoveryOperationDeadlineOf",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "recoverySettled",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "recoverySettlementPublishedAt",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "recoverySettlementSequence",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "recoverySourceChain",
     "inputs": [
       {
         "name": "",
@@ -536,6 +676,19 @@ export const inboxFactoryAbi = [
     "stateMutability": "nonpayable"
   },
   {
+    "type": "function",
+    "name": "settleRecoveryOperation",
+    "inputs": [
+      {
+        "name": "operationId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
     "type": "event",
     "name": "EthereumWormholeConfigured",
     "inputs": [
@@ -594,6 +747,25 @@ export const inboxFactoryAbi = [
   },
   {
     "type": "event",
+    "name": "RecoveryOperationSettled",
+    "inputs": [
+      {
+        "name": "operationId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "RegistrarSet",
     "inputs": [
       {
@@ -621,6 +793,11 @@ export const inboxFactoryAbi = [
   {
     "type": "error",
     "name": "Invalid",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidToken",
     "inputs": []
   },
   {

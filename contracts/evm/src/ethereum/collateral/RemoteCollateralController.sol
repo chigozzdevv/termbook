@@ -19,6 +19,7 @@ contract RemoteCollateralController {
     address public immutable recoveryVault;
     IVerifier public immutable verifier;
     mapping(bytes32 => bool) public consumed;
+    mapping(bytes32 => bytes32) public lastSeizureHash;
     address public immutable governance;
     address public pauseGuardian;
     bool public paused;
@@ -107,6 +108,7 @@ contract RemoteCollateralController {
         } else {
             vault.seizeAuthorized(action.lockId, recoveryVault, action.amount, actionHash);
             ISourceRecoveryVault(recoveryVault).recordSeizure(action.creditId, action.amount);
+            lastSeizureHash[action.creditId] = actionHash;
         }
         emit ActionExecuted(actionHash, action.creditId, action.kind, action.amount);
     }

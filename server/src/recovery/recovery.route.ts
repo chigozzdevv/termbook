@@ -9,4 +9,5 @@ export function recoveryRoute(app: FastifyInstance): void {
   app.get("/recovery/refunds", recoveryController.listRefunds);
   app.get("/recovery", recoveryController.list);
   app.post("/recovery/return-held/prepare", recoveryController.prepareHeldReturn);
+  app.post("/recovery/clearance/plan", recoveryController.clearancePlan);
 }

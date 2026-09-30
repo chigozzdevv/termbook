@@ -13,6 +13,7 @@ import { env } from "../config/env.js";
 import { logger } from "../logging/logger.js";
 import { drainQueue, registerHandler } from "../queue/queue.worker.js";
 import { remoteActionRepo } from "./remote-action.repo.js";
+import { scheduleFinalizedAction } from "./remote-action.service.js";
 import { hashRemoteAction, parseStoredAction, readAuthorizedAction, serializeAction, type RemoteAction } from "./remote-action.js";
 
 const vaultAbi = parseAbi([
@@ -315,6 +316,17 @@ async function confirmSourceAction(action: RemoteAction, actionHash: Hex): Promi
 }
 
 export async function handleRemoteActionJob(job: { kind: string; payload: Record<string, unknown> }): Promise<void> {
+  if (job.kind === "collateral.remote-authorized") {
+    if (!configured()) throw new Error("remote-action-worker-unavailable");
+    const { creditId, actionHash, kind, authorizationTxHash } = job.payload;
+    if (typeof creditId !== "string" || !word.test(creditId) || typeof actionHash !== "string" || !word.test(actionHash)
+      || typeof authorizationTxHash !== "string" || !word.test(authorizationTxHash) || (kind !== 0 && kind !== 1)) {
+      throw new Error("remote-action-invalid");
+    }
+    await scheduleFinalizedAction({ creditId: creditId as Hex, actionHash: actionHash as Hex,
+      kind, authorizationTxHash: authorizationTxHash as Hex });
+    return;
+  }
   if (job.kind !== "collateral.remote-action") return;
   if (!configured()) throw new Error("remote-action-worker-unavailable");
   const actionHash = job.payload["actionHash"];
@@ -446,7 +458,7 @@ export async function handleRemoteActionJob(job: { kind: string; payload: Record
   await confirmSourceAction(action, actionHash as Hex);
 }
 
-if (configured()) registerHandler(["collateral.remote-action"], handleRemoteActionJob);
+if (configured()) registerHandler(["collateral.remote-action", "collateral.remote-authorized"], handleRemoteActionJob);
 
 let running = false;
 export async function runRemoteActionWorker(): Promise<number> {
@@ -461,7 +473,7 @@ export async function runRemoteActionWorker(): Promise<number> {
         logger.warn("remote-action-retry", { actionHash: record.actionHash, reason: error instanceof Error ? error.message : "unknown" });
       }
     }
-    return drainQueue(handleRemoteActionJob, ["collateral.remote-action"]);
+    return drainQueue(handleRemoteActionJob, ["collateral.remote-action", "collateral.remote-authorized"]);
   } finally {
     running = false;
   }

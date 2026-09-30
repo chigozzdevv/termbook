@@ -118,6 +118,32 @@ contract SourceRecoveryVaultTest is Test {
         assertEq(inFlightAfter, 200);
     }
 
+    function testDeliveryCompletionPreservesLateRefundClaims() public {
+        SourceRecoveryVault.Funding memory funding = _funding();
+        InboxFactory.Operation memory op = _operation(funding);
+        _admit(op, funding.inbox);
+        _fund(funding, op);
+        assertEq(recovery.pendingCount(creditId), 1);
+        verifier.setValid(false);
+        vm.expectRevert(SourceRecoveryVault.Invalid.selector);
+        recovery.confirmDelivery(operationId, hex"01", hex"01");
+        verifier.setValid(true);
+        recovery.confirmDelivery(operationId, hex"01", hex"01");
+        assertEq(recovery.pendingCount(creditId), 0);
+        vm.expectRevert(SourceRecoveryVault.Invalid.selector);
+        recovery.confirmDelivery(operationId, hex"01", hex"01");
+        token.mint(address(recovery), 100);
+        bytes32 refundTx = keccak256("late-refund");
+        uint256 deadline = block.timestamp + 1 days;
+        bytes32 digest = recovery.refundDigest(operationId, refundTx, 100, 1, deadline);
+        recovery.recordSourceRefund(operationId, refundTx, 100, 1, deadline,
+            _signature(signerKey, digest), _signature(riskKey, digest));
+        assertEq(recovery.held(creditId), 300);
+        assertEq(recovery.pendingCount(creditId), 0);
+        (, uint256 refundable) = recovery.inFlight(operationId);
+        assertEq(refundable, 200);
+    }
+
     function testSignatureBindsDestinationAndPreventReplay() public {
         SourceRecoveryVault.Funding memory funding = _funding();
         InboxFactory.Operation memory op = _operation(funding);

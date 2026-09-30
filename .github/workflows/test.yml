@@ -40,6 +40,7 @@ jobs:
         with:
           version: v1.5.1
       - run: FOUNDRY_VIA_IR=true forge test --root contracts/evm -j 1
+      - run: sh scripts/check-contracts.sh
   solana:
     runs-on: ubuntu-latest
     steps:

@@ -5,6 +5,7 @@ import {CollateralVault} from "../../shared/collateral/CollateralVault.sol";
 import {RemoteCollateralController} from "./RemoteCollateralController.sol";
 import {IWormholeCore} from "../../shared/collateral/IWormholeCore.sol";
 import {WormholeTermbookMessages as Messages} from "../../shared/collateral/WormholeTermbookMessages.sol";
+import {SourceRecoveryVault} from "./SourceRecoveryVault.sol";
 
 contract WormholeEthereumPublisher {
     CollateralVault public immutable vault;
@@ -50,6 +51,23 @@ contract WormholeEthereumPublisher {
         if (actionHash == bytes32(0) || deadline == 0 || block.timestamp <= deadline || controller.consumed(actionHash))
         revert Invalid();
         return _publish(Messages.UNCONSUMED, actionHash, deadline);
+    }
+
+    function publishRecoveryClearance(bytes32 creditId) external payable returns (uint64) {
+        SourceRecoveryVault recovery = SourceRecoveryVault(controller.recoveryVault());
+        bytes32 actionHash = controller.lastSeizureHash(creditId);
+        if (creditId == bytes32(0) || actionHash == bytes32(0) || recovery.held(creditId) != 0
+            || recovery.pendingCount(creditId) != 0 || recovery.controller() != address(controller)) revert Invalid();
+        return _publish(Messages.RECOVERY_CLEAR, keccak256(abi.encode(creditId, address(recovery), actionHash)), 0);
+    }
+
+    function publishRecoveryRefund(bytes32 operationId) external payable returns (uint64) {
+        SourceRecoveryVault recovery = SourceRecoveryVault(controller.recoveryVault());
+        (bytes32 creditId, uint256 amount) = recovery.inFlight(operationId);
+        if (creditId == bytes32(0) || !recovery.usedOperation(operationId)
+            || amount != 0 || recovery.operationPending(operationId)) revert Invalid();
+        return _publish(Messages.RECOVERY_REFUNDED, keccak256(abi.encode(
+            creditId, address(recovery), operationId, recovery.deliveryDigest(operationId))), 0);
     }
 
     function _publish(uint8 kind, bytes32 digest, uint256 deadline) private returns (uint64) {

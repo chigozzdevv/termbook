@@ -3,7 +3,7 @@ import { hexToBytes, bytesToHex } from "viem";
 import type { TxHash } from "../types/client.types.js";
 import { collateralSetupHash, type SourceLockObservation, type SourceLockWallet } from "./setup.js";
 import { solanaPubkeyBase58, solanaPubkeyBytes } from "./solana.js";
-import { prepareSolanaWormhole, type SolanaWormholeContext } from "./solana-wormhole.js";
+import { prepareSolanaWormhole, type WormholeNetwork, type SolanaWormholeContext } from "./solana-wormhole.js";
 
 const systemProgram = "11111111111111111111111111111111";
 const upgradeableLoader = "BPFLoaderUpgradeab1e11111111111111111111111";
@@ -19,6 +19,7 @@ export type SolanaInstruction = {
 };
 
 export type SolanaWalletPort = {
+  wormholeNetwork?: WormholeNetwork;
   publicKey: string;
   sendInstruction(instruction: SolanaInstruction): Promise<string>;
   prepareWormholeAuthorization?(input: {

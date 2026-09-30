@@ -1,3 +1,4 @@
+import { ethereumSourceChain } from "../chain/networks.js";
 import { createPublicClient, encodeAbiParameters, encodeFunctionData, http, keccak256, parseAbi, type Address, type Hex } from "viem";
 import { termbookCoreAbi, verifierRegistryAbi } from "@termbook/bindings";
 import { z } from "zod";
@@ -39,7 +40,7 @@ async function verifierBinding(creditId: Hex) {
     functionName: "verifierRegistry", blockNumber: at });
   if (registry === zero) throw new Error("source-verifier-unavailable");
   const [verifier, version, active, , hash] = await chain.readContract({ address: registry, abi: verifierRegistryAbi,
-    functionName: "verifiers", args: [1n], blockNumber: at });
+    functionName: "verifiers", args: [BigInt(ethereumSourceChain())], blockNumber: at });
   const code = await chain.getCode({ address: verifier, blockNumber: at });
   if (!active || version !== credit.verifierVersion || !equal(hash, credit.verifierCodeHash)
     || !code || !equal(keccak256(code), hash)) throw new Error("source-verifier-mismatch");
@@ -58,7 +59,7 @@ export const topUpService = {
     await verifyAuthorizationReceipt(input.creditId, actionHash, 2, input.authorizationTxHash);
     const { chain, controller, verifier: pinnedVerifier } = await verifierBinding(input.creditId);
     const source = createPublicClient({ transport: http(env.sourceRpcUrl) });
-    if (await source.getChainId() !== 1) throw new Error("source-action-chain-mismatch");
+    if (await source.getChainId() !== ethereumSourceChain()) throw new Error("source-action-chain-mismatch");
     const pinnedHash = await chain.readContract({ address: pinnedVerifier, abi: sourceAbi, functionName: "sourceControllerCodeHash" });
     const code = await source.getCode({ address: controller, blockTag: "finalized" });
     if (!code || !equal(keccak256(code), pinnedHash)) throw new Error("source-controller-code-mismatch");
@@ -74,7 +75,7 @@ export const topUpService = {
       source.readContract({ address: controller, abi: sourceAbi, functionName: "verifier", blockNumber: at }),
     ]);
     if (!equal(core, controller) || !equal(vault, action.sourceVault) || !equal(asset, action.asset)
-      || sourceChain !== 1n || !equal(monadCore, action.monadCore) || monadChain !== action.monadChain
+      || sourceChain !== BigInt(ethereumSourceChain()) || !equal(monadCore, action.monadCore) || monadChain !== action.monadChain
       || !await source.readContract({ address: verifier, abi: sourceAbi, functionName: "wormholeMode", blockNumber: at })) {
       throw new Error("source-controller-mismatch");
     }
@@ -94,7 +95,7 @@ export const topUpService = {
     const { chain, verifier, controller } = await verifierBinding(input.creditId);
     if (input.mode === "apply") {
       const source = createPublicClient({ transport: http(env.sourceRpcUrl) });
-      if (await source.getChainId() !== 1) throw new Error("source-action-chain-mismatch");
+      if (await source.getChainId() !== ethereumSourceChain()) throw new Error("source-action-chain-mismatch");
       if (!await source.readContract({ address: controller, abi: sourceAbi, functionName: "consumed", args: [actionHash], blockTag: "finalized" })) throw new Error("source-action-not-applied");
       if (input.sourceTx) {
       const receipt = await source.getTransactionReceipt({ hash: input.sourceTx });

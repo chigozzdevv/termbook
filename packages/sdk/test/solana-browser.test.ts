@@ -1,12 +1,23 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
 import { SolanaBrowserWallet } from "../src/collateral/solana-browser.js";
-import { SOLANA_WORMHOLE_CORE } from "../src/collateral/solana-wormhole.js";
+import { SOLANA_WORMHOLE_CORE, SOLANA_TESTNET_WORMHOLE_CORE } from "../src/collateral/solana-wormhole.js";
 import { solanaSignature } from "../src/collateral/solana-rpc.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+it("derives devnet snapshot accounts from the devnet bridge", async () => {
+  const owner = Keypair.generate();
+  vi.stubGlobal("solana", { publicKey: owner.publicKey, connect: vi.fn(async () => undefined),
+    signTransaction: vi.fn(async (transaction: Transaction) => transaction) });
+  const wallet = await SolanaBrowserWallet.connect("https://api.devnet.solana.com", { network: "Testnet" });
+  const metas = await wallet.prepareWormholeSnapshot(Keypair.generate().publicKey.toBase58());
+  const core = new PublicKey(SOLANA_TESTNET_WORMHOLE_CORE);
+  expect(metas[8]?.pubkey).toBe(core.toBase58());
+  expect(metas[1]?.pubkey).toBe(PublicKey.findProgramAddressSync([new TextEncoder().encode("Bridge")], core)[0].toBase58());
 });
 
 it("connects the Solana wallet and prepares Wormhole snapshot accounts", async () => {

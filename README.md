@@ -358,10 +358,37 @@ modal.
 `ethereum-beacon-client`, `ethereum-verifier`, `ethereum-wormhole-verifier`, `native-collateral`,
 `collateral-health-reader`, and `app-health-reader` require
 Foundry 1.8 or newer, the Monad RPC, and `MONAD_CHAIN_ID`. The wrapper selects
-Monad execution. `source` and `source-wormhole` require the Ethereum mainnet RPC,
-`SOURCE_CHAIN_ID=1`, and `MONAD_CHAIN_ID=143`. The Ethereum verifier stage
-also requires Monad mainnet. Every stage checks the connected chain before
-broadcasting.
+Monad execution. `source-wormhole` and `ethereum-wormhole-verifier` use paired
+networks: Monad mainnet (`143`) with Ethereum mainnet (`1`), or Monad testnet
+(`10143`) with Sepolia (`11155111`). Their Wormhole chain IDs are `48`/`2`
+and `10009`/`10002`, respectively. Native Beacon stages require mainnet.
+Every stage checks the connected chain before broadcasting.
+
+Core's execution, reservation, and price helpers deploy in separate transactions
+and bind to the predicted Core address. Core validates those immutable bindings
+at construction. Keep the deployer nonce sequence intact between these stages.
+The Monad wrapper uses a 100 percent gas estimate multiplier to avoid exceeding
+the transaction cap with Foundry's default margin.
+
+For Solana devnet, build a separate binary with:
+
+```sh
+cargo build-sbf --manifest-path contracts/solana/Cargo.toml --offline \
+  --features testnet --sbf-out-dir contracts/solana/target/testnet/deploy
+```
+
+The default build retains mainnet Wormhole identities. The devnet build pins the
+Solana devnet Core and accepts Monad testnet VAAs. Deploy it immutably before
+admitting its program hash on Monad. `scripts/deploy-testnet.mjs --simulate`
+uses local Monad testnet and Sepolia forks on ports `18545` and `18546`.
+`--broadcast` uses the dedicated wallet in `.testnet/evm.json` and preserves a
+resumable receipt journal in `.testnet/deployment.json`. It queues governance
+configuration for the existing two-day timelock; it does not activate markets
+or deposit LP funds. The local keys and journals are ignored by Git.
+After the recorded timelock expires, run
+`node scripts/deploy-testnet.mjs --broadcast --activate` to execute the queued
+configuration. It checks each onchain action and skips actions that are still
+timelocked or already executed.
 
 Recompute reviewed runtime code hashes when rebuilding from this layout;
 Solidity source paths and remappings affect bytecode metadata.

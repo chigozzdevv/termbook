@@ -1,3 +1,4 @@
+import { ethereumSourceChain, monadWormholeChain } from "../chain/networks.js";
 import { createPublicClient, encodeAbiParameters, encodeFunctionData, http, keccak256,
   parseAbi, stringToHex, type Address, type Hex } from "viem";
 import { monadClient } from "../chain/monad.client.js";
@@ -48,11 +49,11 @@ export async function runRecoveryRelayWorker(): Promise<number> {
   try {
     const monad = monadClient();
     const source = createPublicClient({ transport: http(env.sourceRpcUrl) });
-    if (await monad.getChainId() !== env.monadChainId || await source.getChainId() !== 1) {
+    if (await monad.getChainId() !== env.monadChainId || await source.getChainId() !== ethereumSourceChain()) {
       throw new Error("recovery-relay-chain-mismatch");
     }
     const factory = env.settlementFactory as Address;
-    const operations = await SettlementModel.find({ kind: "recovery", sourceChain: 1,
+    const operations = await SettlementModel.find({ kind: "recovery", sourceChain: ethereumSourceChain(),
       inbox: { $exists: true } }).sort({ relayCheckedAt: 1 }).limit(10).lean();
     let processed = 0;
     for (const doc of operations) {
@@ -88,7 +89,7 @@ export async function runRecoveryRelayWorker(): Promise<number> {
           const registryAbi = parseAbi(["function verifierRegistry() view returns (address)"]);
           const registry = await monad.readContract({ address: core, abi: registryAbi, functionName: "verifierRegistry", blockNumber: at });
           const sourceVerifier = (await monad.readContract({ address: registry, abi: parseAbi([
-            "function verifiers(uint256) view returns (address,uint256,bool,uint256,bytes32)"]), functionName: "verifiers", args: [1n], blockNumber: at }))[0];
+            "function verifiers(uint256) view returns (address,uint256,bool,uint256,bytes32)"]), functionName: "verifiers", args: [BigInt(ethereumSourceChain())], blockNumber: at }))[0];
           const sourceVault = await monad.readContract({ address: sourceVerifier,
             abi: parseAbi(["function sourceVault() view returns (address)"]), functionName: "sourceVault", blockNumber: at });
           const snapshot = keccak256(encodeAbiParameters([{ type: "bytes32" }, { type: "address" }, { type: "bytes32" }, { type: "bytes32" }],
@@ -125,12 +126,12 @@ export async function runRecoveryRelayWorker(): Promise<number> {
         }
         const sequence = await monad.readContract({ address: factory, abi: factoryAbi,
           functionName: "recoverySettlementSequence", args: [op.operationId], blockNumber: at });
-        const proof = await fetchWormholeVaaById({ chain: 48, emitter: factory, sequence,
+        const proof = await fetchWormholeVaaById({ chain: monadWormholeChain(), emitter: factory, sequence,
           payload: encodeAbiParameters([{ type: "bytes32" }, { type: "bytes32" }], [settlementDomain, delivered]) });
         const data = encodeFunctionData({ abi: sourceAbi, functionName: "confirmDelivery",
           args: [op.operationId, proof.header, proof.proof] });
         await source.call({ to: op.sourceRefundRecipient, data, account: config.ethereum.address });
-        await keeperTransaction({ client: source, rpcUrl: env.sourceRpcUrl, chainId: 1, account: config.ethereum,
+        await keeperTransaction({ client: source, rpcUrl: env.sourceRpcUrl, chainId: ethereumSourceChain(), account: config.ethereum,
           operation: `${op.operationId}:delivered`, to: op.sourceRefundRecipient, data });
         processed++;
       } catch (error) {

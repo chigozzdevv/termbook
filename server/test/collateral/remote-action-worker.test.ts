@@ -30,7 +30,7 @@ import { handleRemoteActionJob } from "../../src/collateral/remote-action.worker
 
 const action: RemoteAction = {
   monadChain: 10143n, monadCore: `0x${"11".repeat(20)}`,
-  sourceChain: 1n, sourceVault: `0x${"22".repeat(20)}`,
+  sourceChain: 11155111n, sourceVault: `0x${"22".repeat(20)}`,
   creditId: `0x${"33".repeat(32)}`, lockId: `0x${"44".repeat(32)}`,
   asset: `0x${"55".repeat(20)}`, kind: 0, recipient: `0x${"66".repeat(20)}`,
   amount: 100n, nonce: 1n, deadline: (2n ** 256n) - 1n,
@@ -61,10 +61,10 @@ function fakeMonad() {
 
 function fakeSource() {
   return {
-    getChainId: vi.fn().mockResolvedValue(1),
+    getChainId: vi.fn().mockResolvedValue(11155111),
     getBlock: vi.fn().mockResolvedValue({ number: 100n, timestamp: 1_000_000n }),
     readContract: vi.fn().mockImplementation(async ({ functionName }: { functionName: string }) => ({
-      core: controller, asset: action.asset, chainId_: 1n, remoteMode: true,
+      core: controller, asset: action.asset, chainId_: 11155111n, remoteMode: true,
       vault: action.sourceVault, monadCore: action.monadCore, monadChain: action.monadChain,
       recoveryVault: `0x${"99".repeat(20)}`, verifier, consumed: false,
       admission: [action.monadChain, 1n, `0x${"aa".repeat(32)}`], verifyEvent: true,
@@ -125,7 +125,7 @@ describe("remote action relay", () => {
   it("rejects an unaccepted Monad receipt proof before reserving or signing", async () => {
     const source = fakeSource();
     source.readContract.mockImplementation(async ({ functionName }: { functionName: string }) => ({
-      core: controller, asset: action.asset, chainId_: 1n, remoteMode: true,
+      core: controller, asset: action.asset, chainId_: 11155111n, remoteMode: true,
       vault: action.sourceVault, monadCore: action.monadCore, monadChain: action.monadChain,
       recoveryVault: `0x${"99".repeat(20)}`, verifier, consumed: false,
       admission: [action.monadChain, 1n, `0x${"aa".repeat(32)}`], verifyEvent: false,

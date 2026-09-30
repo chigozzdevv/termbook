@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Test} from "forge-std/Test.sol";
+import {CoreFixture} from "../CoreFixture.sol";
 import {TermbookCore} from "../../src/monad/credit/TermbookCore.sol";
 import {InboxFactory} from "../../src/monad/routing/InboxFactory.sol";
 import {SettlementInbox} from "../../src/monad/routing/SettlementInbox.sol";
@@ -12,7 +12,8 @@ import {Types} from "../../src/shared/Types.sol";
 import {VerifierRegistry} from "../../src/monad/collateral/VerifierRegistry.sol";
 
 contract SolanaFundingHarness is TermbookCore {
-    constructor(address governance_) TermbookCore(governance_, governance_, address(0)) {}
+    constructor(address governance_, address guardian_, address risk_, address execution_, address reservations_, address prices_)
+        TermbookCore(governance_, guardian_, risk_, execution_, reservations_, prices_) {}
 
     function seedRecovery(bytes32 creditId, address borrower, address vault, uint256 sourceChain, uint256 seized) external {
         bytes32 genesis = bytes32(uint256(5));
@@ -154,7 +155,7 @@ contract MockSolanaFundingProofVerifier {
     }
 }
 
-contract SolanaFundingTest is Test {
+contract SolanaFundingTest is CoreFixture {
     uint256 private constant SOURCE_CHAIN = 99;
     bytes32 private constant CREDIT_ID = keccak256("solana-funded-credit");
     bytes32 private constant OPERATION_ID = keccak256("solana-sale-operation");
@@ -173,7 +174,7 @@ contract SolanaFundingTest is Test {
         borrower = vm.addr(0xA11CE);
         routeSigner = vm.addr(0xBEEF);
         riskSigner = vm.addr(0xCAFE);
-        core = new SolanaFundingHarness(address(this));
+        core = SolanaFundingHarness(_deployCoreArtifact("solana-funding.t.sol:SolanaFundingHarness", address(this), address(this), address(0)));
         core.configureSolanaWormhole(address(new MockSolanaFundingWormhole()));
         factory = new MockSolanaFundingFactory();
         settlement = new MockERC20();

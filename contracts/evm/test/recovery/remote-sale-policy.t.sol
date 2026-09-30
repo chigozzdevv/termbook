@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Test} from "forge-std/Test.sol";
+import {CoreFixture} from "../CoreFixture.sol";
 import {MockERC20} from "../MockERC20.sol";
 import {TermbookCore} from "../../src/monad/credit/TermbookCore.sol";
 import {HouseVault} from "../../src/monad/house/HouseVault.sol";
@@ -52,7 +52,7 @@ contract RemoteReturnExitVerifier {
     function canExit(bytes32, address) external pure returns (bool) { return true; }
 }
 
-contract RemoteSalePolicyTest is Test {
+contract RemoteSalePolicyTest is CoreFixture {
     MockERC20 private settlement;
     MockRemoteSaleOracle private oracle;
     TermbookCore private core;
@@ -66,7 +66,7 @@ contract RemoteSalePolicyTest is Test {
     function setUp() public {
         settlement = new MockERC20();
         oracle = new MockRemoteSaleOracle();
-        core = TermbookCore(deployCode("TermbookCore.sol:TermbookCore", abi.encode(address(this), address(this), address(0))));
+        core = _deployCore(address(this), address(this), address(0));
         vault = HouseVault(deployCode("HouseVault.sol:HouseVault", abi.encode(address(settlement), address(core), address(this), address(0), address(0))));
         registry = new VerifierRegistry(address(this));
         core.setVerifierRegistry(address(registry));

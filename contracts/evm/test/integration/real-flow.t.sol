@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Test} from "forge-std/Test.sol";
+import {CoreFixture} from "../CoreFixture.sol";
 import {MockERC20} from "../MockERC20.sol";
 import {TermbookCore} from "../../src/monad/credit/TermbookCore.sol";
 import {AccountFactory} from "../../src/monad/credit/AccountFactory.sol";
@@ -264,7 +264,7 @@ contract FundedPositionHealthSource is IHealthSource {
     }
 }
 
-contract RealFlowTest is Test {
+contract RealFlowTest is CoreFixture {
     MockERC20 token;
     TermbookCore core;
     HouseVault houseVault;
@@ -284,7 +284,7 @@ contract RealFlowTest is Test {
         house = vm.addr(houseKey);
         borrower = vm.addr(borrowerKey);
         token = new MockERC20();
-        core = TermbookCore(deployCode("TermbookCore.sol:TermbookCore", abi.encode(address(this), address(this), address(0))));
+        core = _deployCore(address(this), address(this), address(0));
         risk = new RiskEngine(address(core));
         healthSource = new MockHealthSource();
         exitVerifier = new MockExitVerifier();

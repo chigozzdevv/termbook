@@ -16,6 +16,21 @@ export const termbookCoreAbi = [
         "name": "risk_",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "execution_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "reservations_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "prices_",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "nonpayable"

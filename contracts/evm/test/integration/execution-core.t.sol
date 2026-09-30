@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Test} from "forge-std/Test.sol";
+import {CoreFixture} from "../CoreFixture.sol";
 import {ExecutionPolicyFixture} from "./execution-manager.t.sol";
 import {TermbookCore} from "../../src/monad/credit/TermbookCore.sol";
 import {PriceProtection} from "../../src/monad/integration/PriceProtection.sol";
@@ -41,7 +41,7 @@ contract ExecutionHealthFixture is IHealthSource {
     }
 }
 
-contract ExecutionCoreTest is Test {
+contract ExecutionCoreTest is CoreFixture {
     TermbookCore core;
     ExecutionManager manager;
     ExecutionPolicyFixture policy;
@@ -61,7 +61,7 @@ contract ExecutionCoreTest is Test {
         vm.warp(1_000);
         borrower = vm.addr(borrowerKey);
         token = new MockERC20();
-        core = TermbookCore(deployCode("TermbookCore.sol:TermbookCore", abi.encode(address(this), address(this), address(0))));
+        core = _deployCore(address(this), address(this), address(0));
         manager = core.executionManager();
         risk = new RiskEngine(address(core));
         core.setRisk(address(risk));

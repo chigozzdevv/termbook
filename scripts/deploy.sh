@@ -43,7 +43,20 @@ check_monad_deployment() {
 : "${DEPLOYER_PRIVATE_KEY:?DEPLOYER_PRIVATE_KEY is required}"
 : "${MONAD_CHAIN_ID:?MONAD_CHAIN_ID is required}"
 case "$MONAD_CHAIN_ID" in
-  143|10143) ;;
+  143)
+    ethereum_chain_id=1
+    ethereum_wormhole_id=2
+    monad_wormhole_id=48
+    ethereum_wormhole_core=0x98f3c9e6E3fAce36bAAd05FE09d375Ef1464288B
+    monad_wormhole_core=0x194B123c5E96B9b2E49763619985790Dc241CAC0
+    ;;
+  10143)
+    ethereum_chain_id=11155111
+    ethereum_wormhole_id=10002
+    monad_wormhole_id=10009
+    ethereum_wormhole_core=0x4a8bc80Ed5a4067f1CCf107057b8270E0cC11A78
+    monad_wormhole_core=0xaBf89de706B583424328B54dD05a8fC986750Da8
+    ;;
   *) echo "Monad mainnet or testnet chain ID required" >&2; exit 1 ;;
 esac
 
@@ -57,12 +70,12 @@ case "$1" in
     ;;
   source|source-wormhole)
     : "${SOURCE_CHAIN_ID:?SOURCE_CHAIN_ID is required}"
-    [ "$SOURCE_CHAIN_ID" = 1 ] || { echo "Ethereum mainnet source required" >&2; exit 1; }
+    [ "$SOURCE_CHAIN_ID" = "$ethereum_chain_id" ] || { echo "Ethereum source network mismatch" >&2; exit 1; }
     ;;
   *) usage ;;
 esac
 
-if [ "$1" = source ] || [ "$1" = source-wormhole ] || [ "$1" = ethereum-beacon-client ] || [ "$1" = ethereum-verifier ] || [ "$1" = ethereum-wormhole-verifier ]; then
+if [ "$1" = source ] || [ "$1" = ethereum-beacon-client ] || [ "$1" = ethereum-verifier ]; then
   [ "$MONAD_CHAIN_ID" = 143 ] || { echo "Monad mainnet is required for Ethereum mainnet collateral" >&2; exit 1; }
 fi
 
@@ -89,7 +102,7 @@ if [ "$1" = ethereum-verifier ] || [ "$1" = ethereum-wormhole-verifier ]; then
   : "${SOURCE_RECOVERY_VAULT_ADDRESS:?SOURCE_RECOVERY_VAULT_ADDRESS is required}"
   : "${COLLATERAL_ASSET:?COLLATERAL_ASSET is required}"
   : "${MONAD_CORE_ADDRESS:?MONAD_CORE_ADDRESS is required}"
-  [ "$(cast chain-id --rpc-url "$SOURCE_RPC_URL")" = 1 ] || { echo "Ethereum source RPC required" >&2; exit 1; }
+  [ "$(cast chain-id --rpc-url "$SOURCE_RPC_URL")" = "$ethereum_chain_id" ] || { echo "Ethereum source RPC required" >&2; exit 1; }
   same "$(cast codehash "$SOURCE_VAULT_ADDRESS" --block finalized --rpc-url "$SOURCE_RPC_URL")" "$SOURCE_VAULT_CODE_HASH" || { echo "source vault code hash mismatch" >&2; exit 1; }
   same "$(cast codehash "$SOURCE_CONTROLLER_ADDRESS" --block finalized --rpc-url "$SOURCE_RPC_URL")" "$SOURCE_CONTROLLER_CODE_HASH" || { echo "source controller code hash mismatch" >&2; exit 1; }
   same "$(cast call "$SOURCE_CONTROLLER_ADDRESS" 'vault()(address)' --block finalized --rpc-url "$SOURCE_RPC_URL")" "$SOURCE_VAULT_ADDRESS" || { echo "source vault binding mismatch" >&2; exit 1; }
@@ -105,24 +118,23 @@ fi
 
 if [ "$1" = source-wormhole ]; then
   : "${ETHEREUM_WORMHOLE_CORE:?ETHEREUM_WORMHOLE_CORE is required}"
-  same "$ETHEREUM_WORMHOLE_CORE" 0x98f3c9e6E3fAce36bAAd05FE09d375Ef1464288B || fail "canonical Ethereum Wormhole Core required"
-  [ "$(cast to-dec "$(cast call "$ETHEREUM_WORMHOLE_CORE" 'chainId()(uint16)' --rpc-url "$RPC_URL")")" = 2 ] || fail "Ethereum Wormhole Core mismatch"
+  same "$ETHEREUM_WORMHOLE_CORE" "$ethereum_wormhole_core" || fail "canonical Ethereum Wormhole Core required"
+  [ "$(cast to-dec "$(cast call "$ETHEREUM_WORMHOLE_CORE" 'chainId()(uint16)' --rpc-url "$RPC_URL")")" = "$ethereum_wormhole_id" ] || fail "Ethereum Wormhole Core mismatch"
 fi
 
 if [ "$1" = ethereum-wormhole-verifier ]; then
   : "${MONAD_WORMHOLE_CORE:?MONAD_WORMHOLE_CORE is required}"
   : "${SOURCE_PUBLISHER_ADDRESS:?SOURCE_PUBLISHER_ADDRESS is required}"
   : "${SOURCE_PUBLISHER_CODE_HASH:?SOURCE_PUBLISHER_CODE_HASH is required}"
-  same "$MONAD_WORMHOLE_CORE" 0x194B123c5E96B9b2E49763619985790Dc241CAC0 || fail "canonical Monad Wormhole Core required"
-  [ "$(cast to-dec "$(cast call "$MONAD_WORMHOLE_CORE" 'chainId()(uint16)' --rpc-url "$RPC_URL")")" = 48 ] || fail "Monad Wormhole Core mismatch"
+  same "$MONAD_WORMHOLE_CORE" "$monad_wormhole_core" || fail "canonical Monad Wormhole Core required"
+  [ "$(cast to-dec "$(cast call "$MONAD_WORMHOLE_CORE" 'chainId()(uint16)' --rpc-url "$RPC_URL")")" = "$monad_wormhole_id" ] || fail "Monad Wormhole Core mismatch"
   same "$(cast codehash "$SOURCE_PUBLISHER_ADDRESS" --block finalized --rpc-url "$SOURCE_RPC_URL")" "$SOURCE_PUBLISHER_CODE_HASH" || fail "source publisher code hash mismatch"
   same "$(cast call "$SOURCE_PUBLISHER_ADDRESS" 'vault()(address)' --block finalized --rpc-url "$SOURCE_RPC_URL")" "$SOURCE_VAULT_ADDRESS" || fail "source publisher vault mismatch"
   same "$(cast call "$SOURCE_PUBLISHER_ADDRESS" 'controller()(address)' --block finalized --rpc-url "$SOURCE_RPC_URL")" "$SOURCE_CONTROLLER_ADDRESS" || fail "source publisher controller mismatch"
-  same "$(cast call "$SOURCE_PUBLISHER_ADDRESS" 'wormhole()(address)' --block finalized --rpc-url "$SOURCE_RPC_URL")" 0x98f3c9e6E3fAce36bAAd05FE09d375Ef1464288B || fail "source publisher Wormhole mismatch"
+  same "$(cast call "$SOURCE_PUBLISHER_ADDRESS" 'wormhole()(address)' --block finalized --rpc-url "$SOURCE_RPC_URL")" "$ethereum_wormhole_core" || fail "source publisher Wormhole mismatch"
 fi
 
 if [ "$1" = solana-wormhole ]; then
-  [ "$MONAD_CHAIN_ID" = 143 ] || fail "Monad mainnet is required for Solana mainnet collateral"
   check_monad_deployment "$RPC_URL"
   : "${WORMHOLE_CORE_ADDRESS:?WORMHOLE_CORE_ADDRESS is required}"
   : "${SOLANA_RPC_URL:?SOLANA_RPC_URL is required}"
@@ -130,10 +142,10 @@ if [ "$1" = solana-wormhole ]; then
   : "${SOLANA_GENESIS:?SOLANA_GENESIS is required}"
   : "${SOLANA_EMITTER:?SOLANA_EMITTER is required}"
   : "${SOLANA_PROGRAM_DATA_HASH:?SOLANA_PROGRAM_DATA_HASH is required}"
-  same "$WORMHOLE_CORE_ADDRESS" 0x194B123c5E96B9b2E49763619985790Dc241CAC0 || fail "canonical Monad Wormhole Core required"
-  [ "$(cast to-dec "$(cast call "$WORMHOLE_CORE_ADDRESS" 'chainId()(uint16)' --rpc-url "$RPC_URL")")" = 48 ] || fail "Monad Wormhole Core mismatch"
+  same "$WORMHOLE_CORE_ADDRESS" "$monad_wormhole_core" || fail "canonical Monad Wormhole Core required"
+  [ "$(cast to-dec "$(cast call "$WORMHOLE_CORE_ADDRESS" 'chainId()(uint16)' --rpc-url "$RPC_URL")")" = "$monad_wormhole_id" ] || fail "Monad Wormhole Core mismatch"
   solana_program_base58=$(node --input-type=module -e 'import { solanaPubkeyBase58 } from "@termbook/sdk"; process.stdout.write(solanaPubkeyBase58(process.env.SOLANA_PROGRAM_ID));')
-  solana_check=$(node --import tsx server/scripts/verify-solana-program.ts "$SOLANA_RPC_URL" "$solana_program_base58" "$SOLANA_GENESIS" "$SOLANA_PROGRAM_DATA_HASH")
+  solana_check=$(node --import tsx server/scripts/verify-solana-program.ts "$SOLANA_RPC_URL" "$solana_program_base58" "$SOLANA_GENESIS" "$SOLANA_PROGRAM_DATA_HASH" "$MONAD_CHAIN_ID")
   node --input-type=module -e 'const report = JSON.parse(process.argv[1]); if (report.emitterHex.toLowerCase() !== process.env.SOLANA_EMITTER.toLowerCase()) throw new Error("solana-emitter-mismatch");' "$solana_check"
 fi
 
@@ -156,5 +168,5 @@ esac
 if [ "$1" = source ] || [ "$1" = source-wormhole ]; then
   forge script "script/$script" --root contracts/evm --rpc-url "$RPC_URL" --broadcast
 else
-  forge script "script/$script" --root contracts/evm --rpc-url "$RPC_URL" --network monad --broadcast
+  forge script "script/$script" --root contracts/evm --rpc-url "$RPC_URL" --network monad --gas-estimate-multiplier 100 --broadcast
 fi

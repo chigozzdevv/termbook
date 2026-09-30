@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Test} from "forge-std/Test.sol";
+import {CoreFixture} from "../CoreFixture.sol";
 import {MockERC20} from "../MockERC20.sol";
 import {TermbookCore} from "../../src/monad/credit/TermbookCore.sol";
 import {RiskEngine} from "../../src/monad/risk/RiskEngine.sol";
@@ -18,7 +18,7 @@ contract LocalRecoveryExitVerifier is IExitVerifier {
     function canExit(bytes32, address) external pure returns (bool) { return true; }
 }
 
-contract LocalRecoveryTest is Test {
+contract LocalRecoveryTest is CoreFixture {
     MockERC20 token;
     TermbookCore core;
     RiskEngine risk;
@@ -34,7 +34,7 @@ contract LocalRecoveryTest is Test {
 
     function setUp() public {
         token = new MockERC20();
-        core = TermbookCore(deployCode("TermbookCore.sol:TermbookCore", abi.encode(address(this), address(this), address(0))));
+        core = _deployCore(address(this), address(this), address(0));
         risk = new RiskEngine(address(core));
         healthSource = new MockHealthSource();
         inboxFactory = InboxFactory(deployCode("InboxFactory.sol:InboxFactory", abi.encode(address(this))));

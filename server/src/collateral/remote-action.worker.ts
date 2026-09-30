@@ -1,3 +1,4 @@
+import { ethereumSourceChain } from "../chain/networks.js";
 import {
   createPublicClient, createWalletClient, encodeAbiParameters, encodeFunctionData, http, keccak256, parseAbi,
   type Address, type Hex, type PublicClient,
@@ -72,7 +73,7 @@ function equal(a: string, b: string): boolean {
 }
 
 async function readSourceBinding(source: PublicClient, action: RemoteAction, actionHash: Hex) {
-  if (await source.getChainId() !== 1 || action.sourceChain !== 1n) throw new Error("remote-action-source-chain-mismatch");
+  if (await source.getChainId() !== ethereumSourceChain() || action.sourceChain !== BigInt(ethereumSourceChain())) throw new Error("remote-action-source-chain-mismatch");
   const finalized = await source.getBlock({ blockTag: "finalized" });
   const at = finalized.number;
   const [controller, asset, chainId, remoteMode] = await Promise.all([
@@ -81,7 +82,7 @@ async function readSourceBinding(source: PublicClient, action: RemoteAction, act
     source.readContract({ address: action.sourceVault, abi: vaultAbi, functionName: "chainId_", blockNumber: at }),
     source.readContract({ address: action.sourceVault, abi: vaultAbi, functionName: "remoteMode", blockNumber: at }),
   ]);
-  if (controller === zero || !equal(asset, action.asset) || chainId !== 1n || !remoteMode) {
+  if (controller === zero || !equal(asset, action.asset) || chainId !== BigInt(ethereumSourceChain()) || !remoteMode) {
     throw new Error("remote-action-source-vault-mismatch");
   }
   const [vault, monadCore, monadChain, recoveryVault, verifier, consumed] = await Promise.all([
@@ -242,7 +243,7 @@ async function confirmSourceAction(action: RemoteAction, actionHash: Hex): Promi
     if (registry === zero) throw new Error("remote-action-confirm-verifier-unavailable");
     const [verifier, version, active, , codeHash] = await chain.readContract({
       address: registry, abi: verifierRegistryAbi, functionName: "verifiers",
-      args: [1n], blockNumber: current.finalized.number,
+      args: [action.sourceChain], blockNumber: current.finalized.number,
     });
     if (!active || verifier === zero || version !== credit.verifierVersion
       || !equal(codeHash, credit.verifierCodeHash)) throw new Error("remote-action-confirm-verifier-mismatch");

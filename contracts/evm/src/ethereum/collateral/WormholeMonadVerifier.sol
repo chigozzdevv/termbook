@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {WormholeNetworks} from "../../shared/collateral/WormholeNetworks.sol";
+
 import {LightClientVerifier} from "../../shared/collateral/LightClientVerifier.sol";
 import {WormholeEvmMessageClient} from "../../shared/collateral/WormholeEvmMessageClient.sol";
 import {WormholeTermbookMessages as Messages} from "../../shared/collateral/WormholeTermbookMessages.sol";
@@ -15,11 +17,11 @@ contract WormholeMonadVerifier is LightClientVerifier {
         LightClientVerifier(authorizationClient_)
     {
         if (
-            sourceChainId == block.chainid || sourceChainId == 0 || core_ == address(0) || factory_ == address(0)
+            sourceChainId != WormholeNetworks.monadChain(block.chainid) || core_ == address(0) || factory_ == address(0)
                 || recoveryClient_.code.length == 0
-                || WormholeEvmMessageClient(authorizationClient_).sourceWormholeChain() != 48
+                || WormholeEvmMessageClient(authorizationClient_).sourceWormholeChain() != WormholeNetworks.monadWormholeChain(block.chainid)
                 || WormholeEvmMessageClient(authorizationClient_).sourceEmitter() != bytes32(uint256(uint160(core_)))
-                || WormholeEvmMessageClient(recoveryClient_).sourceWormholeChain() != 48
+                || WormholeEvmMessageClient(recoveryClient_).sourceWormholeChain() != WormholeNetworks.monadWormholeChain(block.chainid)
                 || WormholeEvmMessageClient(recoveryClient_).sourceEmitter() != bytes32(uint256(uint160(factory_)))
                 || WormholeEvmMessageClient(recoveryClient_).chainId() != sourceChainId
         ) revert InvalidLightClient();

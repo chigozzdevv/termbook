@@ -1,3 +1,4 @@
+import { ethereumSourceChain } from "../chain/networks.js";
 import {
   createPublicClient, decodeAbiParameters, encodeAbiParameters, encodeFunctionData, http, keccak256, padHex, parseAbi,
   stringToHex, type Address, type Hex, type TransactionReceipt,
@@ -83,13 +84,13 @@ export async function prepareHeldReturn(input: { creditId: Hex; authorizationTxH
     monad.readContract({ address: core, abi: coreAbi, functionName: "sourceRecoveryReturnHash",
       args: [input.creditId, authorized.amount, authorized.nonce, authorized.deadline], blockNumber: at }),
   ]);
-  if (sourceChain !== 1n || !confirmed || credit.debt !== 0n || vault === zeroAddress
+  if (sourceChain !== BigInt(ethereumSourceChain()) || !confirmed || credit.debt !== 0n || vault === zeroAddress
     || !equal(owner, authorized.owner) || !equal(actionHash, authorized.actionHash)
     || (wallet.toLowerCase() !== owner.toLowerCase() && wallet.toLowerCase() !== credit.borrower.toLowerCase())) {
     throw new HttpError(409, "return-held-core-binding-mismatch");
   }
   const source = createPublicClient({ transport: http(env.sourceRpcUrl) });
-  if (await source.getChainId() !== 1) throw new HttpError(503, "return-held-source-chain-mismatch");
+  if (await source.getChainId() !== ethereumSourceChain()) throw new HttpError(503, "return-held-source-chain-mismatch");
   const sourceFinalized = await source.getBlock({ blockTag: "finalized" });
   const [sourceAsset, controller, monadChain, held, sourceHash] = await Promise.all([
     source.readContract({ address: vault, abi: sourceAbi, functionName: "asset", blockNumber: sourceFinalized.number }),
@@ -155,7 +156,7 @@ export async function prepareHeldReturn(input: { creditId: Hex; authorizationTxH
     throw new HttpError(409, "return-held-preflight-failed");
   }
   return {
-    chainId: 1,
+    chainId: ethereumSourceChain(),
     to: vault,
     data: encodeFunctionData({ abi: sourceAbi, functionName: "returnHeld", args }),
     creditId: input.creditId,

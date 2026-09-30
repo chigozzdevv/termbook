@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {WormholeNetworks} from "../../shared/collateral/WormholeNetworks.sol";
+
 import {LightClientVerifier} from "../../shared/collateral/LightClientVerifier.sol";
 import {WormholeEvmMessageClient} from "../../shared/collateral/WormholeEvmMessageClient.sol";
 import {WormholeTermbookMessages as Messages} from "../../shared/collateral/WormholeTermbookMessages.sol";
@@ -23,9 +25,9 @@ contract WormholeEthereumVerifier is LightClientVerifier {
         bytes32 controllerCodeHash_
     ) LightClientVerifier(client_) {
         if (
-            sourceChainId != 1 || publisher_ == address(0) || publisherCodeHash_ == bytes32(0) || vault_ == address(0)
+            sourceChainId != WormholeNetworks.ethereumChain(block.chainid) || publisher_ == address(0) || publisherCodeHash_ == bytes32(0) || vault_ == address(0)
                 || vaultCodeHash_ == bytes32(0) || controller_ == address(0) || controllerCodeHash_ == bytes32(0)
-                || WormholeEvmMessageClient(client_).sourceWormholeChain() != 2
+                || WormholeEvmMessageClient(client_).sourceWormholeChain() != WormholeNetworks.ethereumWormholeChain(block.chainid)
                 || WormholeEvmMessageClient(client_).sourceEmitter() != bytes32(uint256(uint160(publisher_)))
         ) revert InvalidLightClient();
         if (vault_ == controller_) revert InvalidLightClient();

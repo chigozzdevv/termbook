@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {WormholeNetworks} from "../src/shared/collateral/WormholeNetworks.sol";
 import {Script} from "forge-std/Script.sol";
 import {WormholeEvmMessageClient} from "../src/shared/collateral/WormholeEvmMessageClient.sol";
 import {WormholeMonadVerifier} from "../src/ethereum/collateral/WormholeMonadVerifier.sol";
@@ -30,17 +31,20 @@ contract DeploySourceWormhole is Script {
         uint256 version = vm.envUint("MONAD_WORMHOLE_VERIFIER_VERSION");
         uint256 maxAge = vm.envUint("MONAD_WORMHOLE_PROOF_MAX_AGE");
         require(maxAge >= 2 hours, "proof-age-too-short");
-        require(block.chainid == 1 && vm.envUint("SOURCE_CHAIN_ID") == 1, "invalid-source-chain");
-        require(vm.envUint("MONAD_CHAIN_ID") == 143, "invalid-monad-chain");
+        require((block.chainid == 1 || block.chainid == 11155111) && vm.envUint("SOURCE_CHAIN_ID") == block.chainid, "invalid-source-chain");
+        uint256 monadChain = WormholeNetworks.monadChain(block.chainid);
+        uint16 monadWormholeChain = WormholeNetworks.monadWormholeChain(block.chainid);
+        uint16 ethereumWormholeChain = WormholeNetworks.ethereumWormholeChain(block.chainid);
+        require(vm.envUint("MONAD_CHAIN_ID") == monadChain, "invalid-monad-chain");
         vm.startBroadcast(key);
         WormholeEvmMessageClient coreClient =
-            new WormholeEvmMessageClient(wormhole, 2, 48, 143, version, bytes32(uint256(uint160(core))), maxAge);
+            new WormholeEvmMessageClient(wormhole, ethereumWormholeChain, monadWormholeChain, monadChain, version, bytes32(uint256(uint160(core))), maxAge);
         WormholeEvmMessageClient factoryClient =
-            new WormholeEvmMessageClient(wormhole, 2, 48, 143, version, bytes32(uint256(uint160(factory))), maxAge);
+            new WormholeEvmMessageClient(wormhole, ethereumWormholeChain, monadWormholeChain, monadChain, version, bytes32(uint256(uint160(factory))), maxAge);
         verifier = new WormholeMonadVerifier(address(coreClient), address(factoryClient), core, factory);
-        recovery = new SourceRecoveryVault(asset, 143, factory, address(verifier), governance, routeSigner, riskSigner);
+        recovery = new SourceRecoveryVault(asset, monadChain, factory, address(verifier), governance, routeSigner, riskSigner);
         controller = new RemoteCollateralController(
-            asset, 143, core, address(recovery), address(verifier), governance, pauseGuardian
+            asset, monadChain, core, address(recovery), address(verifier), governance, pauseGuardian
         );
         publisher = new WormholeEthereumPublisher(address(controller.vault()), address(controller), wormhole);
         vm.stopBroadcast();

@@ -57,6 +57,7 @@ export async function processSolanaRelay(input: RelayAction, lease: string, conf
       } };
     const wallet = new SolanaRpcWallet(provider, connection, config.signer.publicKey.toBase58(), {
       wormholeScanUrl: config.wormholeScanUrl, authorizationAttempts: 1,
+      network: env.monadChainId === 10143 ? "Testnet" : "Mainnet",
       sendSigned: (tx) => sendSolanaRelay(connection, input._id, lease, tx, config.maxTransactions),
     });
     sourceTx = await submitSolanaAction(plan, wallet, sourceRpc);

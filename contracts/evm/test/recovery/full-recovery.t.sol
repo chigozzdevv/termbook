@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Test} from "forge-std/Test.sol";
+import {CoreFixture} from "../CoreFixture.sol";
 import {TermbookCore} from "../../src/monad/credit/TermbookCore.sol";
 import {Types} from "../../src/shared/Types.sol";
 
-contract FullRecoveryTest is Test {
+contract FullRecoveryTest is CoreFixture {
     TermbookCore core;
     uint256 houseKey = 0xBEEF;
     uint256 borrowerKey = 0xCAFE;
 
     function setUp() public {
-        core = TermbookCore(deployCode("TermbookCore.sol:TermbookCore", abi.encode(address(this), address(this), address(0))));
+        core = _deployCore(address(this), address(this), address(0));
     }
 
     function _accept(bytes32 id, bytes32 intentId) internal {

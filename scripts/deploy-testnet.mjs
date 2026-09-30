@@ -1,0 +1,270 @@
+import fs from "node:fs";
+import process from "node:process";
+import { Buffer } from "node:buffer";
+import { log } from "node:console";
+import { URL } from "node:url";
+import { setTimeout } from "node:timers";
+import path from "node:path";
+import { createRequire } from "node:module";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const require = createRequire(path.join(root, "packages/sdk/package.json"));
+const { createPublicClient, createWalletClient, http, encodeDeployData, encodeFunctionData,
+  getContractAddress, keccak256, padHex, zeroAddress, formatEther } = require("viem");
+const { privateKeyToAccount, generatePrivateKey } = require("viem/accounts");
+const { Connection, Keypair, PublicKey } = require("@solana/web3.js");
+const broadcast = process.argv.includes("--broadcast");
+const simulate = process.argv.includes("--simulate");
+const activate = process.argv.includes("--activate");
+if (process.argv.slice(2).some((argument) => !["--broadcast", "--simulate", "--activate"].includes(argument))) throw new Error("Unknown deployment argument");
+if (broadcast === simulate) throw new Error("Use --simulate or --broadcast");
+const directory = path.join(root, ".testnet");
+fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+const reportFile = path.join(directory, simulate ? "simulation.json" : "deployment.json");
+const report = fs.existsSync(reportFile) ? JSON.parse(fs.readFileSync(reportFile, "utf8"))
+  : { network: "testnet", transactions: [], addresses: {}, pendingGovernance: [] };
+if (activate && !report.transactions.length) throw new Error("Deploy before activating governance actions");
+const persist = () => fs.writeFileSync(reportFile, JSON.stringify(report, null, 2), { mode: 0o600 });
+function publishManifest() {
+  if (!broadcast || !report.completedAt) return;
+  const output = path.join(root, "deployments");
+  fs.mkdirSync(output, { recursive: true });
+  const manifest = {
+    network: report.network, sourceCommit: report.sourceCommit, deployedAt: report.completedAt, deployer: report.deployer,
+    recoveryRiskSigner: report.recoveryRiskSigner, addresses: report.addresses,
+    tokens: report.tokens, solana: report.solana, verification: report.verification,
+    transactions: report.transactions.map((transaction) => Object.fromEntries(Object.entries(transaction).filter(([key]) => key !== "rawTransaction"))),
+    governance: report.pendingGovernance,
+  };
+  fs.writeFileSync(path.join(output, "testnet.json"), JSON.stringify(manifest, null, 2) + "\n");
+}
+const account = privateKeyToAccount(simulate ? `0x${"1".padStart(64, "0")}`
+  : JSON.parse(fs.readFileSync(path.join(directory, "evm.json"), "utf8")).privateKey);
+if (report.deployer && report.deployer.toLowerCase() !== account.address.toLowerCase()) throw new Error("Deployment wallet mismatch");
+const riskFile = path.join(directory, "recovery-risk.json");
+if (!activate && !fs.existsSync(riskFile)) fs.writeFileSync(riskFile, JSON.stringify({ privateKey: generatePrivateKey() }), { mode: 0o600 });
+const riskSigner = activate ? report.recoveryRiskSigner : privateKeyToAccount(JSON.parse(fs.readFileSync(riskFile, "utf8")).privateKey).address;
+if (report.recoveryRiskSigner && report.recoveryRiskSigner.toLowerCase() !== riskSigner.toLowerCase()) throw new Error("Recovery signer mismatch");
+report.deployer = account.address;
+report.recoveryRiskSigner = riskSigner;
+report.sourceCommit ??= execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+const abi = (name) => artifact(name).abi;
+const artifact = (name) => JSON.parse(fs.readFileSync(path.join(root, `contracts/evm/out/${name}.sol/${name}.json`), "utf8"));
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function context(chainId, url) {
+  const parsed = new URL(url);
+  if (simulate && parsed.hostname !== "127.0.0.1") throw new Error("Simulation requires local forks");
+  const publicClient = createPublicClient({ transport: http(url, { timeout: 60_000 }) });
+  if (await publicClient.getChainId() !== chainId) throw new Error(`Wrong chain: ${chainId}`);
+  const wallet = createWalletClient({ account, transport: http(url, { timeout: 60_000 }) });
+  if (simulate) await publicClient.request({ method: "anvil_setBalance", params: [account.address, "0x204fce5e3e25026110000000"] });
+  report.addresses[chainId] ??= {};
+  const addresses = report.addresses[chainId];
+  const read = (name, address, functionName, args = []) => publicClient.readContract({ address, abi: abi(name), functionName, args });
+  async function receipt(hash) {
+    for (let attempt = 0; attempt < 120; attempt++) {
+      const value = await publicClient.getTransactionReceipt({ hash }).catch(() => null);
+      if (value) return value;
+      await delay(1000);
+    }
+    throw new Error(`Receipt pending; resume using the journal: ${hash}`);
+  }
+  async function send(name, data, to) {
+    const digest = keccak256(data);
+    let entry = report.transactions.find((transaction) => transaction.chainId === chainId && transaction.name === name);
+    if (entry && (entry.inputHash !== digest || entry.to !== to)) throw new Error(`Deployment inputs changed: ${name}`);
+    if (!entry) {
+      const estimate = await publicClient.estimateGas({ account: account.address, data, to });
+      const margin = estimate + estimate / 50n + 10_000n;
+      const gas = chainId === 10143 && margin > 30_000_000n ? 30_000_000n : margin;
+      if (chainId === 10143 && estimate > gas) throw new Error(`${name} exceeds Monad transaction gas limit`);
+      let gasPrice = await publicClient.getGasPrice();
+      if (chainId === 10143 && gasPrice < 100_000_000_000n) gasPrice = 100_000_000_000n;
+      const balance = await publicClient.getBalance({ address: account.address });
+      if (balance < gas * gasPrice + 10_000_000_000_000_000n) throw new Error(`Insufficient ${chainId} gas balance for ${name}`);
+      const nonce = await publicClient.getTransactionCount({ address: account.address, blockTag: "pending" });
+      const rawTransaction = await wallet.signTransaction({ chain: null, chainId, data, to, gas, gasPrice, nonce, type: "legacy" });
+      const hash = keccak256(rawTransaction);
+      entry = { chainId, name, inputHash: digest, to, hash, nonce, gasLimit: gas.toString(), gasPrice: gasPrice.toString(), rawTransaction, status: "prepared" };
+      report.transactions.push(entry);
+      persist();
+    }
+    if (entry.status === "prepared") {
+      try {
+        await publicClient.sendRawTransaction({ serializedTransaction: entry.rawTransaction });
+      } catch (error) {
+        if (!await publicClient.getTransaction({ hash: entry.hash }).catch(() => null)) {
+          throw new Error(`Broadcast failed; resume from the signed journal: ${entry.hash}. ${error.shortMessage ?? "RPC unavailable"}`, { cause: error });
+        }
+      }
+      entry.status = "pending";
+      persist();
+    }
+    if (entry.status !== "success") {
+      const result = await receipt(entry.hash);
+      Object.assign(entry, { status: result.status, address: result.contractAddress,
+        gasUsed: result.gasUsed.toString(), block: result.blockNumber.toString(), blockHash: result.blockHash });
+      persist();
+      if (entry.status !== "success") throw new Error(`Transaction reverted: ${name}`);
+      log(JSON.stringify({ chainId, name, address: entry.address, hash: entry.hash, gasUsed: entry.gasUsed }));
+    }
+    return entry;
+  }
+  async function deploy(name, args = [], label = name) {
+    const contract = artifact(name);
+    const entry = await send(label, encodeDeployData({ abi: contract.abi, bytecode: contract.bytecode.object, args }));
+    if (!entry.address) throw new Error(`Missing deployed address: ${label}`);
+    const code = await publicClient.getCode({ address: entry.address });
+    if (!code || code === "0x") throw new Error(`Missing deployed code: ${label}`);
+    const hash = keccak256(code);
+    if (entry.codeHash && entry.codeHash !== hash) throw new Error(`Deployed code changed: ${label}`);
+    entry.codeHash = hash;
+    addresses[label] = entry.address;
+    persist();
+    return entry.address;
+  }
+  const call = (name, address, functionName, args = [], label = `${name}.${functionName}`) =>
+    send(label, encodeFunctionData({ abi: abi(name), functionName, args }), address);
+  async function queue(governance, target, name, functionName, args = []) {
+    const data = encodeFunctionData({ abi: abi(name), functionName, args });
+    const salt = keccak256(data);
+    const label = `queue:${name}.${functionName}:${salt}`;
+    await call("ProtocolGovernance", governance, "queue", [target, 0n, data, salt], label);
+    const id = await read("ProtocolGovernance", governance, "actionId", [target, 0n, data, salt]);
+    const eta = await read("ProtocolGovernance", governance, "queuedAt", [id]);
+    if (!report.pendingGovernance.some((action) => action.chainId === chainId && action.id === id)) {
+      report.pendingGovernance.push({ chainId, governance, target, name, functionName, data, salt, id, eta: eta.toString() });
+      persist();
+    }
+  }
+  return { publicClient, addresses, read, deploy, call, queue };
+}
+
+const monad = await context(10143, simulate ? "http://127.0.0.1:18545" : "https://testnet-rpc.monad.xyz");
+const ethereum = await context(11155111, simulate ? "http://127.0.0.1:18546" : "https://ethereum-sepolia-rpc.publicnode.com");
+if (activate) {
+  for (const action of report.pendingGovernance) {
+    const context = action.chainId === 10143 ? monad : action.chainId === 11155111 ? ethereum : null;
+    if (!context) throw new Error("Governance network mismatch");
+    const id = await context.read("ProtocolGovernance", action.governance, "actionId", [action.target, 0n, action.data, action.salt]);
+    if (id !== action.id) throw new Error("Governance action mismatch");
+    if (await context.read("ProtocolGovernance", action.governance, "executed", [id])) {
+      action.status = "executed";
+      persist();
+      continue;
+    }
+    const eta = await context.read("ProtocolGovernance", action.governance, "queuedAt", [id]);
+    if (eta === 0n || eta.toString() !== action.eta) throw new Error("Governance action changed or cancelled");
+    if ((await context.publicClient.getBlock()).timestamp < eta) {
+      log(JSON.stringify({ chainId: action.chainId, name: action.name, status: "timelocked", readyAt: new Date(Number(eta) * 1000).toISOString() }));
+      continue;
+    }
+    await context.call("ProtocolGovernance", action.governance, "execute", [action.target, 0n, action.data, action.salt], `execute:${id}`);
+    if (!await context.read("ProtocolGovernance", action.governance, "executed", [id])) throw new Error("Governance execution unavailable");
+    action.status = "executed";
+    persist();
+  }
+  log(JSON.stringify({ executed: report.pendingGovernance.filter((action) => action.status === "executed").length, total: report.pendingGovernance.length }));
+  publishManifest();
+  process.exit(0);
+}
+const monadWormhole = "0xaBf89de706B583424328B54dD05a8fC986750Da8";
+const ethereumWormhole = "0x4a8bc80Ed5a4067f1CCf107057b8270E0cC11A78";
+const usdc = "0x534b2f3A21130d7a60830c2Df862319e593943A3";
+const wrappedMon = "0xFb8bf4c1CC7a94c73D209a149eA2AbEa852BC541";
+const weth = "0xfff9976782d46cc05630d1f6ebab18b2324d6b14";
+for (const [context, wormhole, expected] of [[monad, monadWormhole, 10009], [ethereum, ethereumWormhole, 10002]]) {
+  if (await context.read("IWormholeCore", wormhole, "chainId") !== expected) throw new Error("Wormhole network mismatch");
+}
+for (const [context, token] of [[monad, usdc], [monad, wrappedMon], [ethereum, weth]]) {
+  const code = await context.publicClient.getCode({ address: token });
+  if (!code || code === "0x") throw new Error(`Token contract unavailable: ${token}`);
+}
+const governance = await monad.deploy("ProtocolGovernance", [account.address]);
+const guardian = await monad.deploy("Guardian", [account.address, account.address]);
+const houses = await monad.deploy("HouseRegistry", [governance]);
+const verifiers = await monad.deploy("VerifierRegistry", [governance]);
+if (!report.predictedCore) {
+  const nonce = await monad.publicClient.getTransactionCount({ address: account.address, blockTag: "pending" });
+  report.predictedCore = getContractAddress({ from: account.address, nonce: BigInt(nonce + 3) });
+  persist();
+}
+const execution = await monad.deploy("FlowExecutor", [report.predictedCore]);
+const reservations = await monad.deploy("ReservationManager", [report.predictedCore]);
+const prices = await monad.deploy("PriceProtection", [report.predictedCore]);
+const core = await monad.deploy("TermbookCore", [account.address, guardian, zeroAddress, execution, reservations, prices]);
+if (core.toLowerCase() !== report.predictedCore.toLowerCase()) throw new Error("Core nonce mismatch");
+for (const [name, helper] of [["FlowExecutor", execution], ["ReservationManager", reservations], ["PriceProtection", prices]]) {
+  if ((await monad.read(name, helper, "core")).toLowerCase() !== core.toLowerCase()) throw new Error("Core helper binding mismatch");
+}
+const risk = await monad.deploy("RiskEngine", [core]);
+await monad.deploy("AccountFactory");
+const integrations = await monad.deploy("IntegrationRegistry", [governance]);
+const factory = await monad.deploy("InboxFactory", [governance]);
+const oracles = await monad.deploy("OracleRegistry", [governance]);
+const health = await monad.deploy("HealthSource", [governance, oracles]);
+await monad.call("TermbookCore", core, "setRisk", [risk]);
+await monad.call("TermbookCore", core, "setIntegrationRegistry", [integrations]);
+await monad.call("TermbookCore", core, "setHouseRegistry", [houses]);
+await monad.call("TermbookCore", core, "setVerifierRegistry", [verifiers]);
+await monad.call("TermbookCore", core, "setHealthSource", [health]);
+await monad.call("TermbookCore", core, "setGovernance", [governance]);
+const house = await monad.deploy("HouseVault", [usdc, core, account.address, factory, guardian]);
+const routes = await monad.deploy("RouteRegistry", [governance]);
+await monad.deploy("NativeCollateralVault", [wrappedMon, 10143n, core]);
+await monad.deploy("CollateralHealthReader", [core, governance, oracles]);
+const sourceGovernance = await ethereum.deploy("ProtocolGovernance", [account.address]);
+const authorization = await ethereum.deploy("WormholeEvmMessageClient", [ethereumWormhole, 10002, 10009, 10143n, 1n, padHex(core, { size: 32 }), 7200n], "AuthorizationClient");
+const recoveryClient = await ethereum.deploy("WormholeEvmMessageClient", [ethereumWormhole, 10002, 10009, 10143n, 1n, padHex(factory, { size: 32 }), 7200n], "RecoveryClient");
+const monadVerifier = await ethereum.deploy("WormholeMonadVerifier", [authorization, recoveryClient, core, factory]);
+const recovery = await ethereum.deploy("SourceRecoveryVault", [weth, 10143n, factory, monadVerifier, sourceGovernance, account.address, riskSigner]);
+const controller = await ethereum.deploy("RemoteCollateralController", [weth, 10143n, core, recovery, monadVerifier, sourceGovernance, account.address]);
+const vault = await ethereum.read("RemoteCollateralController", controller, "vault");
+ethereum.addresses.CollateralVault = vault;
+const publisher = await ethereum.deploy("WormholeEthereumPublisher", [vault, controller, ethereumWormhole]);
+const ethereumClient = await monad.deploy("WormholeEvmMessageClient", [monadWormhole, 10009, 10002, 11155111n, 1n, padHex(publisher, { size: 32 }), 7200n]);
+const sourceHash = async (address) => keccak256(await ethereum.publicClient.getCode({ address }));
+const ethereumVerifier = await monad.deploy("WormholeEthereumVerifier", [ethereumClient, publisher, await sourceHash(publisher), vault, await sourceHash(vault), controller, await sourceHash(controller)]);
+const program = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(path.join(root, "contracts/solana/target/deploy/sol_collateral-keypair.json"), "utf8")))).publicKey;
+const solanaHex = (bytes) => `0x${Buffer.from(bytes).toString("hex")}`;
+const genesis = solanaHex(new PublicKey("EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG").toBytes());
+const programId = solanaHex(program.toBytes());
+const emitter = solanaHex(PublicKey.findProgramAddressSync([Buffer.from("emitter")], program)[0].toBytes());
+const programHash = keccak256(solanaHex(fs.readFileSync(path.join(root, "contracts/solana/target/testnet/deploy/sol_collateral.so"))));
+if (broadcast) {
+  const solana = new Connection("https://api.devnet.solana.com", "finalized");
+  if (await solana.getGenesisHash() !== "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG") throw new Error("Solana network mismatch");
+  const deployed = await solana.getAccountInfo(program);
+  const loader = "BPFLoaderUpgradeab1e11111111111111111111111";
+  if (!deployed?.executable || deployed.owner.toBase58() !== loader || deployed.data.length !== 36 || deployed.data.readUInt32LE(0) !== 2) throw new Error("Solana program unavailable");
+  const programData = await solana.getAccountInfo(new PublicKey(deployed.data.subarray(4, 36)));
+  if (!programData || programData.owner.toBase58() !== loader || programData.data.readUInt32LE(0) !== 3
+    || programData.data[12] !== 0 || keccak256(solanaHex(programData.data.subarray(45))) !== programHash) throw new Error("Solana immutable binary mismatch");
+  report.solana = { network: "devnet", genesis: "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
+    programId: program.toBase58(), programDataAddress: new PublicKey(deployed.data.subarray(4, 36)).toBase58(),
+    programDataHash: programHash, emitter: PublicKey.findProgramAddressSync([Buffer.from("emitter")], program)[0].toBase58(),
+    immutable: true };
+}
+const solanaClient = await monad.deploy("WormholeSolanaAccountClient", [monadWormhole, 501n, 1n, genesis, programId, emitter, programHash, 7200n]);
+const solanaVerifier = await monad.deploy("SolanaVerifier", [solanaClient, genesis, programId, programHash]);
+await monad.call("ProtocolGovernance", governance, "addCore", [core]);
+await ethereum.queue(sourceGovernance, recovery, "SourceRecoveryVault", "setController", [controller]);
+await monad.queue(governance, factory, "InboxFactory", "setRouteRegistry", [routes]);
+await monad.queue(governance, factory, "InboxFactory", "configureEthereumWormhole", [monadWormhole]);
+await monad.queue(governance, core, "TermbookCore", "configureEthereumWormhole", [monadWormhole]);
+await monad.queue(governance, core, "TermbookCore", "configureSolanaWormhole", [monadWormhole]);
+await monad.queue(governance, verifiers, "VerifierRegistry", "setVerifier", [11155111n, ethereumVerifier, 1n, 7200n]);
+await monad.queue(governance, verifiers, "VerifierRegistry", "setVerifier", [501n, solanaVerifier, 1n, 7200n]);
+await monad.queue(governance, houses, "HouseRegistry", "register", [account.address, house, usdc, account.address]);
+report.completedAt = new Date().toISOString();
+report.tokens = { "10143": { USDC: usdc, WMON: wrappedMon }, "11155111": { WETH: weth } };
+for (const chainId of [10143, 11155111]) {
+  const entries = report.transactions.filter((transaction) => transaction.chainId === chainId);
+  log(JSON.stringify({ chainId, transactions: entries.length, gasBudget: entries.reduce((sum, transaction) => sum + BigInt(transaction.gasLimit), 0n).toString(),
+    nativeCost: formatEther(entries.reduce((sum, transaction) => sum + BigInt(transaction.gasLimit) * BigInt(transaction.gasPrice), 0n)) }));
+}
+persist();
+publishManifest();

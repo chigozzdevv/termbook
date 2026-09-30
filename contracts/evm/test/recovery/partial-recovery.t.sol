@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Test} from "forge-std/Test.sol";
+import {CoreFixture} from "../CoreFixture.sol";
 import {TermbookCore} from "../../src/monad/credit/TermbookCore.sol";
 import {RiskEngine} from "../../src/monad/risk/RiskEngine.sol";
 import {Types} from "../../src/shared/Types.sol";
 
-contract PartialRecoveryTest is Test {
+contract PartialRecoveryTest is CoreFixture {
     TermbookCore core;
     RiskEngine engine;
     uint256 houseKey = 0xBEEF;
@@ -14,7 +14,7 @@ contract PartialRecoveryTest is Test {
 
     function setUp() public {
         engine = new RiskEngine(address(this));
-        core = TermbookCore(deployCode("TermbookCore.sol:TermbookCore", abi.encode(address(this), address(this), address(engine))));
+        core = _deployCore(address(this), address(this), address(engine));
         engine = RiskEngine(address(engine));
     }
 

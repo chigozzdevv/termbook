@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Test} from "forge-std/Test.sol";
+import {CoreFixture} from "../CoreFixture.sol";
 import {MockERC20} from "../MockERC20.sol";
 import {TermbookCore} from "../../src/monad/credit/TermbookCore.sol";
 import {HouseRegistry} from "../../src/monad/house/HouseRegistry.sol";
@@ -17,7 +17,7 @@ import {MockAppCallValidator} from "../MockAppCallValidator.sol";
 import {MockHealthSource} from "../MockHealthSource.sol";
 import {MockExitVerifier, FundedPositionRecoveryAdapter, FundedPositionTarget} from "../integration/real-flow.t.sol";
 
-contract HouseAdmissionTest is Test {
+contract HouseAdmissionTest is CoreFixture {
     MockERC20 token;
     TermbookCore core;
     HouseRegistry registry;
@@ -31,7 +31,7 @@ contract HouseAdmissionTest is Test {
 
     function setUp() public {
         token = new MockERC20();
-        core = TermbookCore(deployCode("TermbookCore.sol:TermbookCore", abi.encode(address(this), address(this), address(0))));
+        core = _deployCore(address(this), address(this), address(0));
         registry = new HouseRegistry(address(this));
         vault = HouseVault(deployCode("HouseVault.sol:HouseVault", abi.encode(address(token), address(core), address(this), address(0), address(0))));
         risk = new RiskEngine(address(core));

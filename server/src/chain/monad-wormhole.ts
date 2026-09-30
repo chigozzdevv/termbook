@@ -1,3 +1,4 @@
+import { monadWormholeChain } from "./networks.js";
 import {
   createWalletClient, encodeAbiParameters, http, keccak256, parseAbi, stringToHex,
   type Address, type Hex,
@@ -68,7 +69,7 @@ async function current(target: Address, id: Hex, kind: "authorization" | "recove
     functionName: kind === "authorization" ? "ethereumAuthorizationSequenceOf" : "recoveryVaaSequenceOf",
     args: [id], blockNumber: finalized.number,
   });
-  return fetchWormholeVaaById({ chain: 48, emitter: target, sequence, payload });
+  return fetchWormholeVaaById({ chain: monadWormholeChain(), emitter: target, sequence, payload });
 }
 
 export async function currentEthereumAuthorization(input: {

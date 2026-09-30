@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Test} from "forge-std/Test.sol";
+import {CoreFixture} from "../CoreFixture.sol";
 import {MockERC20} from "../MockERC20.sol";
 import {MockHealthSource} from "../MockHealthSource.sol";
 import {MockRemoteSaleOracle} from "../MockRemoteSaleOracle.sol";
@@ -95,7 +95,7 @@ contract RemoteRecoveryExitVerifier is IExitVerifier {
     function canExit(bytes32, address) external pure returns (bool) { return true; }
 }
 
-contract RemoteSeizureCancelTest is Test {
+contract RemoteSeizureCancelTest is CoreFixture {
     MockERC20 private settlement;
     MockHealthSource private healthSource;
     TermbookCore private core;
@@ -111,7 +111,7 @@ contract RemoteSeizureCancelTest is Test {
     function setUp() public {
         settlement = new MockERC20();
         healthSource = new MockHealthSource();
-        core = TermbookCore(deployCode("TermbookCore.sol:TermbookCore", abi.encode(address(this), address(this), address(0))));
+        core = _deployCore(address(this), address(this), address(0));
         InboxFactory factory = InboxFactory(deployCode("InboxFactory.sol:InboxFactory", abi.encode(address(this))));
         vault = HouseVault(deployCode("HouseVault.sol:HouseVault", abi.encode(address(settlement), address(core), address(this), address(factory), address(0))));
         core.setExitVerifier(keccak256("bundle"), address(new RemoteRecoveryExitVerifier()));

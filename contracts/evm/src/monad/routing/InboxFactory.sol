@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {WormholeNetworks} from "../../shared/collateral/WormholeNetworks.sol";
+
 import {SettlementInbox} from "./SettlementInbox.sol";
 import {AuthLib} from "../../shared/AuthLib.sol";
 import {SafeTransferLib} from "../../shared/SafeTransferLib.sol";
@@ -109,7 +111,7 @@ contract InboxFactory {
     function configureEthereumWormhole(address wormhole) external {
         if (
             msg.sender != governance || ethereumWormholeCore != address(0)
-                || wormhole.code.length == 0 || IWormholeCore(wormhole).chainId() != 48
+                || wormhole.code.length == 0 || IWormholeCore(wormhole).chainId() != WormholeNetworks.monadWormholeChain(block.chainid)
         ) revert Invalid();
         ethereumWormholeCore = wormhole;
         ethereumWormholeCodeHash = wormhole.codehash;
@@ -183,7 +185,7 @@ contract InboxFactory {
             recoveryOperationDeadlineOf[op.operationId] = op.deadline;
             recoverySourceChain[op.operationId] = op.sourceChain;
         }
-        if (op.kind == 1 && op.sourceChain == 1 && ethereumWormholeCore != address(0)) {
+        if (op.kind == 1 && op.sourceChain == WormholeNetworks.ethereumChain(block.chainid) && ethereumWormholeCore != address(0)) {
             address wormhole = ethereumWormholeCore;
             if (wormhole.codehash != ethereumWormholeCodeHash || msg.value != IWormholeCore(wormhole).messageFee()) {
                 revert Invalid();
@@ -255,7 +257,7 @@ contract InboxFactory {
     function publishEthereumRecoverySettlement(bytes32 operationId) external payable {
         address wormhole = ethereumWormholeCore;
         if (wormhole == address(0) || wormhole.codehash != ethereumWormholeCodeHash
-            || recoverySourceChain[operationId] != 1
+            || recoverySourceChain[operationId] != WormholeNetworks.ethereumChain(block.chainid)
             || recoveryCancelled[operationId]
             || (recoverySettlementPublishedAt[operationId] != 0
                 && block.timestamp < recoverySettlementPublishedAt[operationId] + 1 hours)

@@ -8,6 +8,25 @@ import { wormholeFixture } from "./solana-wormhole.fixture.js";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("Monad Wormhole authorization lookup", () => {
+  it("accepts testnet authorizations only in the testnet network", async () => {
+    const core = `0x${"12".repeat(20)}` as `0x${string}`;
+    const action = `0x${"34".repeat(32)}` as `0x${string}`;
+    const tx = `0x${"56".repeat(32)}` as `0x${string}`;
+    const raw = new Uint8Array(6 + 66 + 51 + 64);
+    raw[0] = 1;
+    raw[5] = 1;
+    new DataView(raw.buffer).setUint16(80, 10009, false);
+    raw.set(hexToBytes(core), 94);
+    raw.set(hexToBytes(keccak256(stringToHex("Termbook Monad authorization v1"))), 123);
+    raw.set(hexToBytes(action), 155);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ data: [
+      { emitterChain: 10009, vaa: btoa(String.fromCharCode(...raw)) },
+    ] }))));
+    expect(await fetchMonadAuthorizationVaa("https://scan.example", tx, core, action, "Testnet")).toEqual(raw);
+    await expect(fetchMonadAuthorizationVaa("https://scan.example", tx, core, action, "Mainnet"))
+      .rejects.toThrow("solana-wormhole-authorization-unavailable");
+  });
+
   it("emits a fresh lock snapshot for a delayed proof", async () => {
     const programId = solanaPubkeyBase58(`0x${"11".repeat(32)}`);
     const lockPda = solanaPubkeyBase58(`0x${"22".repeat(32)}`);

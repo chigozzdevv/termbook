@@ -23,7 +23,7 @@ describe("finalized remote return authorization", () => {
   it("uses Core's bounded return deadline in the source action hash", async () => {
     const deadline = BigInt(Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60);
     const action: RemoteAction = {
-      monadChain: 10143n, monadCore: core, sourceChain: 1n, sourceVault,
+      monadChain: 10143n, monadCore: core, sourceChain: 11155111n, sourceVault,
       creditId, lockId, asset, kind: 0, recipient: borrower,
       amount: 100n, nonce: 1n, deadline,
     };
@@ -34,7 +34,7 @@ describe("finalized remote return authorization", () => {
       readContract: vi.fn().mockImplementation(async ({ functionName }: { functionName: string }) => ({
         creditDetails: { borrower, lockId, collateralVault: sourceVault, collateralAsset: asset,
           collateralAmount: 100n, returnRecipient: borrower },
-        collateralSourceChainOf: 1n, remoteCollateral: true, solanaCollateral: false,
+        collateralSourceChainOf: 11155111n, remoteCollateral: true, solanaCollateral: false,
         remoteActionNonce: 1n, pendingRemoteReturn: 100n,
         remoteReturnActionHash: hash, remoteReturnDeadline: deadline,
         remoteRecoveryVaultOf: recoveryVault,
@@ -47,12 +47,12 @@ describe("finalized remote return authorization", () => {
   });
   it("accepts a reserved return greater than remaining unreserved backing", async () => {
     const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
-    const action: RemoteAction = { monadChain: 10143n, monadCore: core, sourceChain: 1n, sourceVault,
+    const action: RemoteAction = { monadChain: 10143n, monadCore: core, sourceChain: 11155111n, sourceVault,
       creditId, lockId, asset, kind: 0, recipient: borrower, amount: 70n, nonce: 1n, deadline };
     vi.mocked(monadClient).mockReturnValue({ getChainId: async () => 10143, getBlock: async () => ({ number: 100n }),
       readContract: async ({ functionName }: { functionName: string }) => ({
         creditDetails: { borrower, lockId, collateralVault: sourceVault, collateralAsset: asset, collateralAmount: 30n, returnRecipient: borrower },
-        remoteReturnDeducted: true, collateralSourceChainOf: 1n, remoteCollateral: true, solanaCollateral: false,
+        remoteReturnDeducted: true, collateralSourceChainOf: 11155111n, remoteCollateral: true, solanaCollateral: false,
         remoteActionNonce: 1n, pendingRemoteReturn: 70n, remoteReturnActionHash: hashRemoteAction(action),
         remoteReturnDeadline: deadline, remoteRecoveryVaultOf: recoveryVault,
       })[functionName] } as never);

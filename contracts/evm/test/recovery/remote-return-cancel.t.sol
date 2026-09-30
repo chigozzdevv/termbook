@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Test} from "forge-std/Test.sol";
+import {CoreFixture} from "../CoreFixture.sol";
 import {MockERC20} from "../MockERC20.sol";
 import {MockRemoteSaleOracle} from "../MockRemoteSaleOracle.sol";
 import {TermbookCore} from "../../src/monad/credit/TermbookCore.sol";
@@ -15,19 +15,20 @@ contract MockReturnCancelVerifier {
     bool public unconsumed;
     address public immutable sourceVault;
     address public immutable sourceController;
+    uint256 public immutable chainId;
 
     constructor(address vault, address controller) {
         sourceVault = vault;
         sourceController = controller;
+        chainId = block.chainid == 10143 ? 11155111 : 1;
     }
 
-    function admission() external pure returns (uint256, uint256, bytes32) {
-        return (1, 1, keccak256("ethereum-bootstrap"));
+    function admission() external view returns (uint256, uint256, bytes32) {
+        return (chainId, 1, keccak256("ethereum-bootstrap"));
     }
 
     function lightClient() external view returns (address) { return address(this); }
     function proofMaxAge() external pure returns (uint256) { return 1 days; }
-    function chainId() external pure returns (uint256) { return 1; }
     function consensusVersion() external pure returns (uint256) { return 1; }
     function bootstrapHash() external pure returns (bytes32) { return keccak256("ethereum-bootstrap"); }
     function verifyLock(bytes calldata, bytes calldata, address vault, bytes32 digest) external view returns (bool) {
@@ -47,7 +48,7 @@ contract MockReturnCancelVerifier {
     }
 }
 
-contract RemoteReturnCancelTest is Test {
+contract RemoteReturnCancelTest is CoreFixture {
     MockERC20 private settlement;
     TermbookCore private core;
     HouseVault private vault;
@@ -58,20 +59,22 @@ contract RemoteReturnCancelTest is Test {
     address private sourceVault = address(0x4567);
     address private sourceRecoveryVault = address(0x789A);
     address private sourceController = address(0xABCD);
+    uint256 private sourceChain;
 
-    function setUp() public {
+    function setUp() public virtual {
+        sourceChain = block.chainid == 10143 ? 11155111 : 1;
         settlement = new MockERC20();
-        core = TermbookCore(deployCode("TermbookCore.sol:TermbookCore", abi.encode(address(this), address(this), address(0))));
+        core = _deployCore(address(this), address(this), address(0));
         vault = HouseVault(deployCode("HouseVault.sol:HouseVault", abi.encode(address(settlement), address(core), address(this), address(0), address(0))));
         verifier = new MockReturnCancelVerifier(sourceVault, sourceController);
         VerifierRegistry registry = new VerifierRegistry(address(this));
         core.setExitVerifier(keccak256("bundle"), address(new MockExitVerifier()));
         core.setVerifierRegistry(address(registry));
-        registry.setVerifier(1, address(verifier), 1, 1 days);
-        core.setSourceCollateralVault(1, sourceAsset, sourceVault);
-        core.setSourceRecoveryVault(1, sourceAsset, sourceRecoveryVault);
+        registry.setVerifier(sourceChain, address(verifier), 1, 1 days);
+        core.setSourceCollateralVault(sourceChain, sourceAsset, sourceVault);
+        core.setSourceRecoveryVault(sourceChain, sourceAsset, sourceRecoveryVault);
         core.setRemoteSalePolicy(
-            1, sourceAsset, address(settlement), address(new MockRemoteSaleOracle()),
+            sourceChain, sourceAsset, address(settlement), address(new MockRemoteSaleOracle()),
             keccak256("ETH/settlement"), 18, 9_000, 1_000e18
         );
         settlement.mint(address(this), 1_000e18);
@@ -88,7 +91,7 @@ contract RemoteReturnCancelTest is Test {
         quote.intentId = keccak256("remote-return-cancel-intent");
         quote.house = house;
         quote.vault = address(vault);
-        quote.sourceChain = 1;
+        quote.sourceChain = sourceChain;
         quote.collateralVault = sourceVault;
         quote.collateralAsset = sourceAsset;
         quote.collateralAmount = 100e18;
@@ -109,7 +112,7 @@ contract RemoteReturnCancelTest is Test {
         lockId = keccak256("remote-lock");
         vm.prank(borrower);
         core.bindRemoteCollateral(creditId, lockId);
-        core.proveCollateral(creditId, 1, hex"01", hex"02");
+        core.proveCollateral(creditId, sourceChain, hex"01", hex"02");
         if (abortSetup) {
             vm.warp(quote.setupDeadline + 1);
             core.expireSetup(creditId);
@@ -194,7 +197,7 @@ contract RemoteReturnCancelTest is Test {
         vm.expectRevert(TermbookCore.Pending.selector);
         core.confirmCollateralTopUp(id, hex"01", abi.encode(hash));
         vm.expectRevert(TermbookCore.InvalidCollateral.selector);
-        core.proveCollateral(id, 1, hex"01", hex"02");
+        core.proveCollateral(id, sourceChain, hex"01", hex"02");
     }
 
     function testTopUpLateConfirmationCannotOrphanFundsDuringClosure() public {
@@ -230,4 +233,11 @@ contract RemoteReturnCancelTest is Test {
         assertEq(core.creditDetails(id).collateralAmount, 30e18);
     }
 
+}
+
+contract TestnetRemoteReturnCancelTest is RemoteReturnCancelTest {
+    function setUp() public override {
+        vm.chainId(10143);
+        super.setUp();
+    }
 }

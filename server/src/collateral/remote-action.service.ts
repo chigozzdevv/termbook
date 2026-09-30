@@ -1,3 +1,4 @@
+import { ethereumSourceChain } from "../chain/networks.js";
 import { createPublicClient, decodeEventLog, encodeFunctionData, http, keccak256, parseAbi, type Address, type Hex } from "viem";
 import { termbookCoreAbi, verifierRegistryAbi } from "@termbook/bindings";
 import { monadClient } from "../chain/monad.client.js";
@@ -89,7 +90,7 @@ export const remoteActionService = {
     const current = await readAuthorizedAction(action.creditId, action.kind, requester);
     if (current.actionHash.toLowerCase() !== input.actionHash) throw new Error("remote-action-stale");
     const source = createPublicClient({ transport: http(env.sourceRpcUrl) });
-    if (await source.getChainId() !== 1) throw new Error("source-action-chain-mismatch");
+    if (await source.getChainId() !== ethereumSourceChain()) throw new Error("source-action-chain-mismatch");
     const receipt = await source.getTransactionReceipt({ hash: input.sourceTxHash as Hex });
     const sourceFinalized = await source.getBlock({ blockTag: "finalized" });
     if (receipt.blockNumber > sourceFinalized.number) throw new Error("source-action-not-finalized");
@@ -109,7 +110,7 @@ export const remoteActionService = {
       functionName: "verifierRegistry", blockNumber: finalized.number });
     if (registry === zero) throw new Error("source-verifier-unavailable");
     const [verifier, version, active, , codeHash] = await chain.readContract({
-      address: registry, abi: verifierRegistryAbi, functionName: "verifiers", args: [1n], blockNumber: finalized.number,
+      address: registry, abi: verifierRegistryAbi, functionName: "verifiers", args: [action.sourceChain], blockNumber: finalized.number,
     });
     if (!active || verifier === zero || version !== credit.verifierVersion
       || codeHash.toLowerCase() !== credit.verifierCodeHash.toLowerCase()) throw new Error("source-verifier-mismatch");
@@ -164,7 +165,7 @@ export const remoteActionService = {
       functionName: "verifierRegistry", blockNumber: finalized.number });
     if (registry === zero) throw new Error("source-verifier-unavailable");
     const [verifier, version, active, , codeHash] = await chain.readContract({
-      address: registry, abi: verifierRegistryAbi, functionName: "verifiers", args: [1n], blockNumber: finalized.number,
+      address: registry, abi: verifierRegistryAbi, functionName: "verifiers", args: [action.sourceChain], blockNumber: finalized.number,
     });
     if (!active || verifier === zero || version !== credit.verifierVersion
       || codeHash.toLowerCase() !== credit.verifierCodeHash.toLowerCase()) {

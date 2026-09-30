@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Test} from "forge-std/Test.sol";
+import {CoreFixture} from "../CoreFixture.sol";
 import {TermbookCore} from "../../src/monad/credit/TermbookCore.sol";
 import {Types} from "../../src/shared/Types.sol";
 
-contract LiquidationFlowTest is Test {
+contract LiquidationFlowTest is CoreFixture {
     uint256 houseKey = 0xBEEF;
     uint256 borrowerKey = 0xCAFE;
 
     function testLiquidationFlow() public {
-        TermbookCore core = TermbookCore(deployCode("TermbookCore.sol:TermbookCore", abi.encode(address(this), address(this), address(0))));
+        TermbookCore core = _deployCore(address(this), address(this), address(0));
         bytes32 id = keccak256("liq");
         bytes32 intentId = keccak256("il");
         address borrower = vm.addr(borrowerKey);

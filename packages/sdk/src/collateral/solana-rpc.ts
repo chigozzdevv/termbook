@@ -1,12 +1,11 @@
 import { Connection, PublicKey, SYSVAR_CLOCK_PUBKEY, SystemProgram, Transaction,
   TransactionInstruction, VersionedTransaction, type Keypair } from "@solana/web3.js";
 import { Buffer } from "buffer";
-import { fetchMonadAuthorizationVaa, SOLANA_WORMHOLE_CORE } from "./solana-wormhole.js";
+import { fetchMonadAuthorizationVaa, solanaWormholeCore, type WormholeNetwork } from "./solana-wormhole.js";
 
 import type { SolanaInstruction, SolanaWalletPort } from "./solana-source.js";
 
 const shim = new PublicKey("EtZMZM22ViKMo4r5y4Anovs3wKQ2owUmDpjygnMMcdEX");
-const core = new PublicKey(SOLANA_WORMHOLE_CORE);
 const encoder = new TextEncoder();
 
 export type SolanaProvider = {
@@ -20,7 +19,7 @@ function pda(seeds: Uint8Array[], program: PublicKey): PublicKey {
 }
 
 export type SolanaSignedTransaction = { raw: Uint8Array; signature: string; blockhash: string; lastValidBlockHeight: number };
-export type SolanaRpcOptions = { wormholeScanUrl?: string; authorizationAttempts?: number;
+export type SolanaRpcOptions = { network?: WormholeNetwork; wormholeScanUrl?: string; authorizationAttempts?: number;
   sendSigned?: (transaction: SolanaSignedTransaction) => Promise<string> };
 export function solanaSignature(bytes: Uint8Array): string {
   if (bytes.length !== 64) throw new Error("solana-signature-invalid");
@@ -43,6 +42,8 @@ export class SolanaRpcWallet implements SolanaWalletPort {
     this.connection = connection;
     this.publicKey = publicKey;
   }
+
+  get wormholeNetwork(): WormholeNetwork { return this.options.network ?? "Mainnet"; }
 
   private async send(transaction: Transaction | VersionedTransaction, signers: Keypair[] = []): Promise<string> {
     if (this.provider.publicKey?.toBase58() !== this.publicKey) throw new Error("solana-wallet-changed");
@@ -80,6 +81,7 @@ export class SolanaRpcWallet implements SolanaWalletPort {
   }
 
   async prepareWormholeSnapshot(programId: string): Promise<SolanaInstruction["keys"]> {
+    const core = new PublicKey(solanaWormholeCore(this.wormholeNetwork));
     const emitter = pda([encoder.encode("emitter")], new PublicKey(programId));
     const bridge = pda([encoder.encode("Bridge")], core);
     const message = pda([emitter.toBytes()], shim);
@@ -105,8 +107,8 @@ export class SolanaRpcWallet implements SolanaWalletPort {
     if (!Number.isInteger(attempts) || attempts < 1 || attempts > 30) throw new Error("solana-wallet-config-invalid");
     for (let attempt = 0; attempt < attempts; attempt++) {
       try {
-        raw = await fetchMonadAuthorizationVaa(this.options.wormholeScanUrl ?? "https://api.wormholescan.io",
-          input.authorizationTxHash, input.monadCore, input.actionHash);
+        raw = await fetchMonadAuthorizationVaa(this.options.wormholeScanUrl ?? (this.wormholeNetwork === "Testnet" ? "https://api.testnet.wormholescan.io" : "https://api.wormholescan.io"),
+          input.authorizationTxHash, input.monadCore, input.actionHash, this.wormholeNetwork);
         break;
       } catch (error) {
         if (attempt === attempts - 1 || !(error instanceof Error)
@@ -122,8 +124,9 @@ export class SolanaRpcWallet implements SolanaWalletPort {
       import("@wormhole-foundation/sdk-solana-core"),
     ]);
     const vaa = deserialize("Uint8Array", raw);
-    const wormhole = new SolanaWormholeCore("Mainnet", "Solana", this.connection,
-      { coreBridge: SOLANA_WORMHOLE_CORE });
+    const core = new PublicKey(solanaWormholeCore(this.wormholeNetwork));
+    const wormhole = new SolanaWormholeCore(this.wormholeNetwork, "Solana", this.connection,
+      { coreBridge: core.toBase58() });
     for await (const step of wormhole.postVaa(this.publicKey, vaa)) {
       await this.send(step.transaction.transaction, step.transaction.signers);
     }

@@ -1,3 +1,4 @@
+import { ethereumSourceChain, ethereumWormholeChain } from "./networks.js";
 import {
   createPublicClient, encodeAbiParameters, encodeFunctionData, http, keccak256, parseAbi,
   stringToHex, type Address, type Hex,
@@ -56,7 +57,7 @@ export async function fetchEthereumSnapshot(input: {
     throw new Error("ethereum-wormhole-unconfigured");
   }
   const source = createPublicClient({ transport: http(env.sourceRpcUrl) });
-  if (await source.getChainId() !== 1) throw new Error("ethereum-wormhole-chain-mismatch");
+  if (await source.getChainId() !== ethereumSourceChain()) throw new Error("ethereum-wormhole-chain-mismatch");
   const monad = createPublicClient({ transport: http(env.rpcUrl) });
   const [publisher, expectedCodeHash] = await Promise.all([
     monad.readContract({ address: input.verifier, abi: verifierAbi, functionName: "publisher" }),
@@ -101,7 +102,7 @@ export async function fetchEthereumSnapshot(input: {
       throw new Error("ethereum-wormhole-not-finalized");
     }
     const account = privateKeyToAccount(env.sourceWormholePublisherKey as Hex);
-    if (!await collateralRepo.acquireSigner(1, account.address, key)) {
+    if (!await collateralRepo.acquireSigner(ethereumSourceChain(), account.address, key)) {
       throw new Error("ethereum-wormhole-signer-busy");
     }
     try {
@@ -115,7 +116,7 @@ export async function fetchEthereumSnapshot(input: {
       const args = input.kind === 1 ? [input.lockId!] as const
         : input.kind === 2 ? [input.digest] as const : input.kind === 3 ? [input.digest, deadline] as const
           : input.kind === 4 ? [input.creditId!] as const : [input.operationId!] as const;
-      const result = await keeperTransaction({ client: source, rpcUrl: env.sourceRpcUrl, chainId: 1,
+      const result = await keeperTransaction({ client: source, rpcUrl: env.sourceRpcUrl, chainId: ethereumSourceChain(),
         account, operation: `snapshot:${key}:${publishedAt}`, to: publisher,
         data: encodeFunctionData({ abi: publisherAbi, functionName, args }), value: fee });
       if (result === "reverted") throw new Error("ethereum-wormhole-publish-reverted");
@@ -126,7 +127,7 @@ export async function fetchEthereumSnapshot(input: {
       });
       if (!confirmed) throw new Error("ethereum-wormhole-publish-missing");
     } finally {
-      await collateralRepo.releaseSigner(1, account.address, key);
+      await collateralRepo.releaseSigner(ethereumSourceChain(), account.address, key);
     }
   }
   const sequence = await source.readContract({
@@ -136,6 +137,6 @@ export async function fetchEthereumSnapshot(input: {
     [{ type: "bytes32" }, { type: "uint8" }, { type: "bytes32" }, { type: "uint256" }],
     [snapshotDomain, input.kind, input.digest, deadline],
   );
-  const vaa = await fetchWormholeVaaById({ chain: 2, emitter: publisher, sequence, payload });
+  const vaa = await fetchWormholeVaaById({ chain: ethereumWormholeChain(), emitter: publisher, sequence, payload });
   return { ...vaa, blockHash: finalized.hash };
 }

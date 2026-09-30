@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Test} from "forge-std/Test.sol";
+import {CoreFixture} from "../CoreFixture.sol";
 import {MockERC20} from "../MockERC20.sol";
 import {TermbookCore} from "../../src/monad/credit/TermbookCore.sol";
 import {HouseVault} from "../../src/monad/house/HouseVault.sol";
@@ -93,7 +93,8 @@ contract MockSolanaProofVerifier {
 }
 
 contract SolanaActionHashHarness is TermbookCore {
-    constructor() TermbookCore(address(this), address(this), address(0)) {}
+    constructor(address governance_, address guardian_, address risk_, address execution_, address reservations_, address prices_)
+        TermbookCore(governance_, guardian_, risk_, execution_, reservations_, prices_) {}
 
     function seed(bytes32 creditId) external {
         _credits[creditId].lockId = bytes32(uint256(0x0101010101010101010101010101010101010101010101010101010101010101));
@@ -131,7 +132,7 @@ contract SolanaActionHashHarness is TermbookCore {
     }
 }
 
-contract SolanaQuoteTest is Test {
+contract SolanaQuoteTest is CoreFixture {
     uint256 private constant SOURCE_CHAIN = 99;
     bytes32 private constant GENESIS = keccak256("solana-genesis");
     bytes32 private constant PROGRAM = keccak256("solana-program");
@@ -154,7 +155,7 @@ contract SolanaQuoteTest is Test {
 
     function setUp() public {
         settlement = new MockERC20();
-        core = TermbookCore(deployCode("TermbookCore.sol:TermbookCore", abi.encode(address(this), address(this), address(0))));
+        core = _deployCore(address(this), address(this), address(0));
         vault = HouseVault(deployCode("HouseVault.sol:HouseVault", abi.encode(address(settlement), address(core), address(this), address(0), address(0))));
         registry = new VerifierRegistry(address(this));
         verifier = new MockSolanaProofVerifier();
@@ -299,7 +300,7 @@ contract SolanaQuoteTest is Test {
 
     function testSolanaActionHashMatchesSourceProgram() public {
         vm.chainId(143);
-        SolanaActionHashHarness implementation = new SolanaActionHashHarness();
+        SolanaActionHashHarness implementation = SolanaActionHashHarness(_deployCoreArtifact("solana-quote.t.sol:SolanaActionHashHarness", address(this), address(this), address(0)));
         address harnessAddress = address(uint160(0x0303030303030303030303030303030303030303));
         vm.etch(harnessAddress, address(implementation).code);
         SolanaActionHashHarness harness = SolanaActionHashHarness(harnessAddress);
@@ -313,7 +314,7 @@ contract SolanaQuoteTest is Test {
 
     function testSolanaRecoveryReturnHashMatchesSourceProgram() public {
         vm.chainId(143);
-        SolanaActionHashHarness implementation = new SolanaActionHashHarness();
+        SolanaActionHashHarness implementation = SolanaActionHashHarness(_deployCoreArtifact("solana-quote.t.sol:SolanaActionHashHarness", address(this), address(this), address(0)));
         address harnessAddress = address(uint160(0x0303030303030303030303030303030303030303));
         vm.etch(harnessAddress, address(implementation).code);
         SolanaActionHashHarness harness = SolanaActionHashHarness(harnessAddress);
@@ -327,7 +328,7 @@ contract SolanaQuoteTest is Test {
 
     function testSolanaRecoveryFundHashMatchesSourceProgram() public {
         vm.chainId(143);
-        SolanaActionHashHarness implementation = new SolanaActionHashHarness();
+        SolanaActionHashHarness implementation = SolanaActionHashHarness(_deployCoreArtifact("solana-quote.t.sol:SolanaActionHashHarness", address(this), address(this), address(0)));
         address harnessAddress = address(uint160(0x0303030303030303030303030303030303030303));
         vm.etch(harnessAddress, address(implementation).code);
         SolanaActionHashHarness harness = SolanaActionHashHarness(harnessAddress);
@@ -354,7 +355,7 @@ contract SolanaQuoteTest is Test {
     }
 
     function testExpiredSolanaReturnNeedsFinalizedCancellationProof() public {
-        SolanaActionHashHarness harness = new SolanaActionHashHarness();
+        SolanaActionHashHarness harness = SolanaActionHashHarness(_deployCoreArtifact("solana-quote.t.sol:SolanaActionHashHarness", address(this), address(this), address(0)));
         VerifierRegistry sourceRegistry = new VerifierRegistry(address(this));
         MockSolanaProofVerifier sourceVerifier = new MockSolanaProofVerifier();
         sourceRegistry.setVerifier(SOURCE_CHAIN, address(sourceVerifier), 1, 1 days);

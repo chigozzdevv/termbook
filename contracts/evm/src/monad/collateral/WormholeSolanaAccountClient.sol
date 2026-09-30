@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {WormholeNetworks} from "../../shared/collateral/WormholeNetworks.sol";
+
 import {IWormholeCore} from "../../shared/collateral/IWormholeCore.sol";
 
 contract WormholeSolanaAccountClient {
@@ -33,7 +35,7 @@ contract WormholeSolanaAccountClient {
         uint256 maxAge_
     ) {
         if (
-            wormhole_.code.length == 0 || IWormholeCore(wormhole_).chainId() != 48
+            wormhole_.code.length == 0 || IWormholeCore(wormhole_).chainId() != WormholeNetworks.monadWormholeChain(block.chainid)
                 || sourceChain_ == 0 || version_ == 0 || genesis_ == bytes32(0)
                 || program_ == bytes32(0) || emitter_ == bytes32(0)
                 || programDataHash_ == bytes32(0) || maxAge_ == 0

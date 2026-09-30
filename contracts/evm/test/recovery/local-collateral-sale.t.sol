@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Test} from "forge-std/Test.sol";
+import {CoreFixture} from "../CoreFixture.sol";
 import {MockERC20} from "../MockERC20.sol";
 import {MockHealthSource} from "../MockHealthSource.sol";
 import {TermbookCore} from "../../src/monad/credit/TermbookCore.sol";
@@ -92,7 +92,7 @@ contract MockSaleWrappedMon {
     }
 }
 
-contract LocalCollateralSaleTest is Test {
+contract LocalCollateralSaleTest is CoreFixture {
     MockSaleUsdc usdc;
     MockERC20 mon;
     TermbookCore core;
@@ -113,7 +113,7 @@ contract LocalCollateralSaleTest is Test {
     function setUp() public {
         usdc = new MockSaleUsdc();
         mon = new MockERC20();
-        core = TermbookCore(deployCode("TermbookCore.sol:TermbookCore", abi.encode(address(this), address(this), address(0))));
+        core = _deployCore(address(this), address(this), address(0));
         risk = new RiskEngine(address(core));
         healthSource = new MockHealthSource();
         oracle = new OracleRegistry(address(this));

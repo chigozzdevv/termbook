@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {WormholeNetworks} from "../src/shared/collateral/WormholeNetworks.sol";
 import {Script} from "forge-std/Script.sol";
 import {WormholeSolanaAccountClient} from "../src/monad/collateral/WormholeSolanaAccountClient.sol";
 import {SolanaVerifier} from "../src/monad/collateral/SolanaVerifier.sol";
@@ -8,7 +9,7 @@ import {SolanaVerifier} from "../src/monad/collateral/SolanaVerifier.sol";
 contract DeploySolanaWormhole is Script {
     function run() external returns (WormholeSolanaAccountClient client, SolanaVerifier verifier) {
         uint256 key = vm.envUint("DEPLOYER_PRIVATE_KEY");
-        require(block.chainid == 143 && block.chainid == vm.envUint("MONAD_CHAIN_ID"), "invalid-chain");
+        require((block.chainid == 143 || block.chainid == 10143) && block.chainid == vm.envUint("MONAD_CHAIN_ID"), "invalid-chain");
         address wormhole = vm.envAddress("WORMHOLE_CORE_ADDRESS");
         uint256 sourceChain = vm.envUint("SOLANA_SOURCE_CHAIN");
         uint256 version = vm.envUint("SOLANA_VERIFIER_VERSION");

@@ -1,3 +1,4 @@
+import { ethereumSourceChain } from "../chain/networks.js";
 import { createWalletClient, encodeAbiParameters, encodeFunctionData, http, keccak256, parseAbi, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { termbookCoreAbi, verifierRegistryAbi } from "@termbook/bindings";
@@ -76,7 +77,7 @@ export async function handleCollateralJob(job: { kind: string; payload: Record<s
     chain.readContract({ address: env.core as Address, abi: termbookCoreAbi, functionName: "remoteRecoveryVaultOf", args: [creditId], blockNumber: at }),
     chain.readContract({ address: env.core as Address, abi: termbookCoreAbi, functionName: "collateralProven", args: [creditId], blockNumber: at }),
   ]);
-  if (!remote || !credit.collateralBound || sourceChain !== 1n
+  if (!remote || !credit.collateralBound || sourceChain !== BigInt(ethereumSourceChain())
     || credit.lockId.toLowerCase() !== lockId.toLowerCase()
     || owner.toLowerCase() !== tracked.owner.toLowerCase()
     || recoveryVault.toLowerCase() === zeroAddress || credit.collateralVault.toLowerCase() === zeroAddress) {
@@ -91,13 +92,13 @@ export async function handleCollateralJob(job: { kind: string; payload: Record<s
   }
   const configuredVault = await chain.readContract({
     address: env.core as Address, abi: termbookCoreAbi, functionName: "sourceCollateralVault",
-    args: [1n, credit.collateralAsset], blockNumber: at,
+    args: [sourceChain, credit.collateralAsset], blockNumber: at,
   });
   if (configuredVault.toLowerCase() !== credit.collateralVault.toLowerCase()) throw new Error("collateral-vault-unadmitted");
   const registry = await chain.readContract({ address: env.core as Address, abi: termbookCoreAbi, functionName: "verifierRegistry", blockNumber: at });
   if (registry.toLowerCase() === zeroAddress) throw new Error("collateral-verifier-unavailable");
   const [verifier, version, active, , codeHash] = await chain.readContract({
-    address: registry, abi: verifierRegistryAbi, functionName: "verifiers", args: [1n], blockNumber: at,
+    address: registry, abi: verifierRegistryAbi, functionName: "verifiers", args: [sourceChain], blockNumber: at,
   });
   if (!active || verifier.toLowerCase() === zeroAddress
     || version !== credit.verifierVersion || codeHash.toLowerCase() !== credit.verifierCodeHash.toLowerCase()) {
@@ -133,7 +134,7 @@ export async function handleCollateralJob(job: { kind: string; payload: Record<s
   });
   if (!accepted) throw new Error("collateral-proof-rejected");
   const data = encodeFunctionData({
-    abi: termbookCoreAbi, functionName: "proveCollateral", args: [creditId, 1n, proof.header, proof.proof],
+    abi: termbookCoreAbi, functionName: "proveCollateral", args: [creditId, sourceChain, proof.header, proof.proof],
   });
   await chain.call({ account: account.address, to: env.core as Address, data });
   if (!await collateralRepo.acquireSigner(env.monadChainId, account.address, lockId)) {

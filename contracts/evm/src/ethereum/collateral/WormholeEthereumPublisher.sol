@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {WormholeNetworks} from "../../shared/collateral/WormholeNetworks.sol";
+
 import {CollateralVault} from "../../shared/collateral/CollateralVault.sol";
 import {RemoteCollateralController} from "./RemoteCollateralController.sol";
 import {IWormholeCore} from "../../shared/collateral/IWormholeCore.sol";
@@ -22,8 +24,8 @@ contract WormholeEthereumPublisher {
 
     constructor(address vault_, address controller_, address wormhole_) {
         if (
-            block.chainid != 1 || vault_.code.length == 0 || controller_.code.length == 0 || wormhole_.code.length == 0
-                || IWormholeCore(wormhole_).chainId() != 2
+            (block.chainid != 1 && block.chainid != 11155111) || vault_.code.length == 0 || controller_.code.length == 0 || wormhole_.code.length == 0
+                || IWormholeCore(wormhole_).chainId() != WormholeNetworks.ethereumWormholeChain(block.chainid)
                 || address(RemoteCollateralController(controller_).vault()) != vault_
                 || CollateralVault(vault_).core() != controller_
         ) revert Invalid();

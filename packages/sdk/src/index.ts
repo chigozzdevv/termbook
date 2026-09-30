@@ -16,6 +16,8 @@ export async function connectSolanaBrowserWallet(rpcUrl: string) {
   const { SolanaBrowserWallet } = await import("./collateral/solana-browser.js");
   return SolanaBrowserWallet.connect(rpcUrl);
 }
+export { SolanaRpcWallet, solanaSignature } from "./collateral/solana-rpc.js";
+export type { SolanaProvider, SolanaSignedTransaction, SolanaRpcOptions } from "./collateral/solana-rpc.js";
 export type { SolanaInstruction, SolanaWalletPort, SolanaRpcPort, SolanaSourceWalletConfig } from "./collateral/solana-source.js";
 export { SOLANA_WORMHOLE_CORE, fetchMonadAuthorizationVaa, prepareSolanaSnapshot, prepareSolanaWormhole,
   submitSolanaLockCheckpoint } from "./collateral/solana-wormhole.js";

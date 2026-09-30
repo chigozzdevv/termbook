@@ -21,6 +21,8 @@ import { runRecoveryRelayWorker } from "./recovery/relay.worker.js";
 import { recoveryRelayConfig } from "./recovery/relay.config.js";
 import { runKeeperWorker } from "./chain/keeper.worker.js";
 import { runExecutionWorker } from "./integration/execution.worker.js";
+import { runSolanaRelayWorker } from "./collateral/solana-relay.worker.js";
+import { solanaRelayConfig } from "./collateral/solana-relay.config.js";
 
 async function main(): Promise<void> {
   assertRuntimeConfig();
@@ -30,6 +32,7 @@ async function main(): Promise<void> {
   riskKeeper();
   recoveryRelayConfig();
   solanaProofConfig();
+  await solanaRelayConfig();
   await connectDb();
   await startWorkers();
   const tick = async (): Promise<void> => {
@@ -61,6 +64,8 @@ async function main(): Promise<void> {
   let actionActive: Promise<void> | undefined;
   let keeperTimer: ReturnType<typeof setTimeout> | undefined;
   let keeperActive: Promise<void> | undefined;
+  let solanaTimer: ReturnType<typeof setTimeout> | undefined;
+  let solanaActive: Promise<void> | undefined;
   const schedule = (): void => {
     if (stopping) return;
     active = tick().finally(() => {
@@ -98,7 +103,8 @@ async function main(): Promise<void> {
     clearTimeout(riskTimer);
     clearTimeout(keeperTimer);
     clearTimeout(actionTimer);
-    await Promise.all([active, riskActive, keeperActive, actionActive]);
+    clearTimeout(solanaTimer);
+    await Promise.all([active, riskActive, keeperActive, actionActive, solanaActive]);
     await stopWorkers();
     await closeRedis();
     await mongoose.disconnect();
@@ -110,6 +116,13 @@ async function main(): Promise<void> {
   scheduleRisk();
   scheduleKeepers();
   scheduleActions();
+  const scheduleSolana = (): void => {
+    if (stopping) return;
+    solanaActive = runSolanaRelayWorker().then(() => undefined).catch(() => {
+      logger.error("solana-source-relay-unavailable");
+    }).finally(() => { if (!stopping) solanaTimer = setTimeout(scheduleSolana, 5_000); });
+  };
+  scheduleSolana();
 }
 
 void main();

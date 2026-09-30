@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
 import { SolanaBrowserWallet } from "../src/collateral/solana-browser.js";
 import { SOLANA_WORMHOLE_CORE } from "../src/collateral/solana-wormhole.js";
+import { solanaSignature } from "../src/collateral/solana-rpc.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -41,7 +42,7 @@ it("serializes, signs, and finalizes a source instruction", async () => {
     blockhash: Keypair.generate().publicKey.toBase58(), lastValidBlockHeight: 100,
   });
   const sent = vi.spyOn(Connection.prototype, "sendRawTransaction")
-    .mockResolvedValue("1".repeat(88));
+    .mockImplementation(async (raw) => solanaSignature(Transaction.from(raw).signature!));
   vi.spyOn(Connection.prototype, "confirmTransaction").mockResolvedValue({
     context: { slot: 1 }, value: { err: null },
   });

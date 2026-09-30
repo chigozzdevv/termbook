@@ -10,7 +10,7 @@ const key = (byte: number) => `0x${byte.toString(16).padStart(2, "0").repeat(32)
 const address = (byte: number) => `0x${byte.toString(16).padStart(2, "0").repeat(20)}` as `0x${string}`;
 
 function lockRecord(action: SolanaRemoteAuthorization, programId: `0x${string}`, lastNonce = 0n,
-  lastRevision = 0n, lastHash = key(0)) {
+  lastRevision = 0n, lastHash = key(0), canceledNonce = 0n, canceledHash = key(0)) {
   const data = new Uint8Array(490);
   const view = new DataView(data.buffer);
   let cursor = 0;
@@ -25,7 +25,7 @@ function lockRecord(action: SolanaRemoteAuthorization, programId: `0x${string}`,
   u64(action.amountLamports); u64(action.amountLamports);
   view.setBigInt64(cursor, action.deadline, true); cursor += 8;
   u64(action.verifierVersion); u64(lastNonce); u64(lastRevision);
-  put(lastHash); u64(0n); put(key(0));
+  put(lastHash); u64(canceledNonce); put(canceledHash);
   expect(cursor).toBe(490);
   return data;
 }
@@ -75,13 +75,15 @@ describe("Solana source action instruction", () => {
     let lastNonce = 0n;
     let lastRevision = 0n;
     let lastHash = key(0);
+    let canceledNonce = 0n;
+    let canceledHash = key(0);
     const rpc: SolanaRpcPort = {
       getGenesisHash: async () => solanaPubkeyBase58(action.sourceGenesis),
       getAccountInfo: async (pubkey) => pubkey === solanaPubkeyBase58(programId)
         ? { owner: solanaPubkeyBase58(programId), executable: true, lamports: 1n, data: new Uint8Array() }
         : pubkey === wormhole.postedVaa ? wormhole.postedAccount
         : { owner: solanaPubkeyBase58(programId), executable: false, lamports: 500_000_100n,
-          data: lockRecord(action, programId, lastNonce, lastRevision, lastHash) },
+          data: lockRecord(action, programId, lastNonce, lastRevision, lastHash, canceledNonce, canceledHash) },
       getMinimumBalanceForRentExemption: async () => 100n,
       getSignatureStatus: async () => null,
     };
@@ -99,5 +101,9 @@ describe("Solana source action instruction", () => {
     expect(await submitSolanaAction(json, wallet, rpc)).toBe("2".repeat(88));
     expect(sendInstruction).toHaveBeenCalledTimes(2);
     expect(sendInstruction.mock.calls[1]?.[0]).toMatchObject({ data: new Uint8Array([7]) });
+    lastNonce = 0n; lastRevision = 0n; lastHash = key(0);
+    canceledNonce = action.nonce; canceledHash = json.actionHash;
+    expect(await submitSolanaAction({ ...json, mode: "expire" }, wallet, rpc)).toBe("2".repeat(88));
+    expect(sendInstruction.mock.calls[2]?.[0]).toMatchObject({ data: new Uint8Array([7]) });
   });
 });

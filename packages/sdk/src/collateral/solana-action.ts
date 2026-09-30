@@ -167,6 +167,10 @@ export async function submitSolanaAction(planValue: unknown, wallet: SolanaWalle
     && record.lastActionHash.toLowerCase() === plan.actionHash.toLowerCase()) {
     return submitSolanaLockCheckpoint(wallet, programId, solanaPubkeyBase58(action.sourceVault));
   }
+  if (plan.mode === "expire" && record.lastCanceledNonce === action.nonce
+    && record.lastCanceledActionHash.toLowerCase() === plan.actionHash.toLowerCase()) {
+    return submitSolanaLockCheckpoint(wallet, programId, solanaPubkeyBase58(action.sourceVault));
+  }
   if (record.lastNonce >= action.nonce || record.lastRevision >= action.revision
     || record.remainingAmount < action.amountLamports) throw new Error("solana-action-source-mismatch");
   const keys = await prepareSolanaWormhole(wallet, rpc, programId, action.monadCore,

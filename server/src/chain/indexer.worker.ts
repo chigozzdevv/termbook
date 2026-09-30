@@ -70,12 +70,12 @@ export async function runIndexerWorker(start: bigint = indexerStart()): Promise<
         const solana = await chain.readContract({ address: env.core as Address, abi: termbookCoreAbi,
           functionName: "solanaCollateral", args: [creditId as `0x${string}`], blockNumber: to });
         const actionKind = Number(args["kind"]);
-        if (!solana && (actionKind === 0 || actionKind === 1)) {
+        if (actionKind === 0 || actionKind === 1) {
           const actionHash = args["actionHash"];
           const current = await chain.readContract({ address: env.core as Address, abi: termbookCoreAbi,
             functionName: actionKind === 0 ? "remoteReturnActionHash" : "remoteSeizureActionHash",
             args: [creditId as `0x${string}`], blockNumber: to });
-          if (current === actionHash) await queue.push({ kind: "collateral.remote-authorized",
+          if (current === actionHash) await queue.push({ kind: solana ? "collateral.solana-authorized" : "collateral.remote-authorized",
             payload: { creditId, actionHash, kind: actionKind, authorizationTxHash: log.transactionHash } });
         }
       }

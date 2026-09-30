@@ -89,5 +89,12 @@ describe("durable finalized Core index", () => {
     expect(queue.push).toHaveBeenCalledWith(expect.objectContaining({ kind: "collateral.remote-authorized",
       payload: { creditId, actionHash: word("d"), kind: 1, authorizationTxHash: word("c") } }));
     expect(calls.at(-1)).toBe("advance");
+    calls = [];
+    vi.mocked(monadClient).mockReturnValue({ getChainId: async () => 143, getBlock, getLogs,
+      readContract: async ({ functionName }: { functionName: string }) => functionName === "solanaCollateral" ? true : word("d"),
+    } as never);
+    await runIndexerWorker(1n);
+    expect(queue.push).toHaveBeenCalledWith(expect.objectContaining({ kind: "collateral.solana-authorized",
+      payload: { creditId, actionHash: word("d"), kind: 1, authorizationTxHash: word("c") } }));
   });
 });

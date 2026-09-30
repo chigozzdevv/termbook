@@ -84,6 +84,12 @@ importers:
 
   server:
     dependencies:
+      '@solana/web3.js':
+        specifier: 1.99.0
+        version: 1.99.0(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)
+      '@termbook/sdk':
+        specifier: workspace:^
+        version: link:../packages/sdk
       '@defuse-protocol/one-click-sdk-typescript':
         specifier: 0.1.26
         version: 0.1.26

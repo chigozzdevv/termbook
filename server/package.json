@@ -16,6 +16,8 @@
     "@noble/curves": "1.9.1",
     "@termbook/bindings": "workspace:^",
     "@termbook/schema": "workspace:^",
+    "@termbook/sdk": "workspace:^",
+    "@solana/web3.js": "1.99.0",
     "bullmq": "^6.3.4",
     "dotenv": "^17.4.2",
     "fastify": "^5.12.4",

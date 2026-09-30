@@ -195,7 +195,7 @@ export const remoteActionService = {
   },
 };
 
-async function verifyAuthorizationReceipt(creditId: Hex, actionHash: Hex, kind: 0 | 1, hash: Hex): Promise<void> {
+export async function verifyAuthorizationReceipt(creditId: Hex, actionHash: Hex, kind: 0 | 1, hash: Hex): Promise<void> {
   const chain = monadClient();
   const receipt = await chain.getTransactionReceipt({ hash });
   const finalized = await chain.getBlock({ blockTag: "finalized" });

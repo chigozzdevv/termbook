@@ -404,6 +404,16 @@ original Solana recipient. The SDK builds `RecoveryPayout`; the separate
 `payout-confirmation-plan` proves execution or expiry to clear Core's pending
 payout state.
 
+The worker relays finalized SOL return and seizure authorizations without the
+borrower's wallet. Configure `SOLANA_SOURCE_KEEPER_KEY_FILE` with the fee payer's
+64-byte keypair JSON, `SOLANA_RPC_URL`, `SOLANA_PROOF_URL`,
+`SOLANA_COLLATERAL_KEEPER_KEY` for Monad confirmation, and `WORMHOLE_SCAN_URL`.
+`SOLANA_SOURCE_MAX_TRANSACTIONS` bounds each authorization's transaction budget
+(default 64). The relay checks the finalized network and immutable program hash,
+journals signed transactions before broadcast, reconciles them after restart,
+and confirms the signed custody snapshot on Monad. Expired authorizations use
+verified cancellation snapshots; a timeout alone does not release collateral.
+
 The Solana program pins Wormhole Core and the emission shim. `Lock` checks its
 executing program and ProgramData accounts and rejects an active upgrade
 authority. The shim accounts are payer, bridge, message, emitter, sequence, fee

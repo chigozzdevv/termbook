@@ -5,6 +5,7 @@ cache/
 lib/
 .env
 .env.local
+.testnet/
 *.log
 .DS_Store
 contracts/evm/out/

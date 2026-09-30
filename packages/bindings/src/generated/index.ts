@@ -41,5 +41,7 @@ export * from "./abi/app-exit-planner.js";
 export * from "./abi/app-deployment-guard.js";
 export * from "./abi/implementation-guard.js";
 export * from "./abi/flow-executor.js";
+export * from "./abi/execution-manager.js";
+export * from "./abi/execution-policy.js";
 export * from "./contracts.js";
 export * from "./deployments.js";

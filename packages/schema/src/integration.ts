@@ -27,17 +27,28 @@ export const capabilityArgumentSchema = z.strictObject({
   }
 });
 
-export const capabilityDefinitionSchema = z.strictObject({
-  capability: capabilitySchema,
-  label: z.string().min(1).max(80),
+export const capabilityCallSchema = z.strictObject({
   target: addressSchema,
   signature: z.string().min(10).max(500),
   arguments: z.array(capabilityArgumentSchema).max(24),
   fundingPath: parameterPathSchema.optional(),
+  spendToken: addressSchema.optional(),
+});
+
+export const capabilityDefinitionSchema = capabilityCallSchema.extend({
+  capability: capabilitySchema,
+  label: z.string().min(1).max(80),
   settlement: z.enum(["atomic", "asynchronous"]),
+  steps: z.array(capabilityCallSchema).max(7).optional(),
+  marketPath: parameterPathSchema.optional(),
+  exposurePath: parameterPathSchema.optional(),
 });
 
 export type CapabilityDefinition = z.infer<typeof capabilityDefinitionSchema>;
+export type CapabilityCall = z.infer<typeof capabilityCallSchema>;
+export function capabilityCalls(definition: CapabilityDefinition): CapabilityCall[] {
+  return [...definition.steps ?? [], definition];
+}
 
 function inputAt(params: Record<string, unknown>, path: string): unknown {
   let value: unknown = params;
@@ -52,7 +63,9 @@ function inputAt(params: Record<string, unknown>, path: string): unknown {
 
 export function actionFunding(definition: CapabilityDefinition, action: TermAction): bigint {
   if (definition.capability !== action.capability) throw new Error("capability-denied");
-  const allowed = definition.arguments.filter((arg) => arg.source === "input").map((arg) => arg.path!);
+  const calls = capabilityCalls(definition);
+  const allowed = [...calls.flatMap((call) => call.arguments.filter((arg) => arg.source === "input").map((arg) => arg.path!)),
+    ...[definition.marketPath, definition.exposurePath].filter((path): path is string => !!path)];
   const inspect = (value: Record<string, unknown>, prefix = "") => {
     for (const [key, child] of Object.entries(value)) {
       const path = prefix ? `${prefix}.${key}` : key;
@@ -64,7 +77,7 @@ export function actionFunding(definition: CapabilityDefinition, action: TermActi
     }
   };
   inspect(action.params);
-  for (const argument of definition.arguments) {
+  for (const argument of calls.flatMap((call) => call.arguments)) {
     if (argument.source !== "input") continue;
     let value = inputAt(action.params, argument.path!);
     if (argument.choices) {
@@ -80,14 +93,19 @@ export function actionFunding(definition: CapabilityDefinition, action: TermActi
         || argument.max !== undefined && number > BigInt(argument.max)) throw new Error("action-input-invalid");
     }
   }
-  if (!definition.fundingPath) return 0n;
-  const value = inputAt(action.params, definition.fundingPath);
-  if ((typeof value !== "bigint" && typeof value !== "number" && typeof value !== "string")
-    || typeof value === "number" && !Number.isSafeInteger(value)
-    || !/^\d+$/.test(String(value))) throw new Error("action-funding-invalid");
-  const amount = BigInt(value);
-  if (amount <= 0n) throw new Error("action-funding-invalid");
-  return amount;
+  let required = 0n;
+  for (const call of calls) {
+    if (!call.fundingPath) continue;
+    const value = inputAt(action.params, call.fundingPath);
+    if ((typeof value !== "bigint" && typeof value !== "number" && typeof value !== "string")
+      || typeof value === "number" && !Number.isSafeInteger(value)
+      || !/^\d+$/.test(String(value))) throw new Error("action-funding-invalid");
+    const amount = BigInt(value);
+    if (amount <= 0n) throw new Error("action-funding-invalid");
+    required += amount;
+  }
+  if (required >= 2n ** 256n) throw new Error("action-input-invalid");
+  return required;
 }
 
 export const bundleSchema = z.object({

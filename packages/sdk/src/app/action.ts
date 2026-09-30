@@ -1,4 +1,4 @@
-import { actionFunding, type CapabilityDefinition } from "@termbook/schema";
+import { actionFunding, type CapabilityDefinition, type CapabilityCall } from "@termbook/schema";
 import { encodeFunctionData, parseAbiItem, type AbiParameter } from "viem";
 import type { AppAction } from "../types/app.types.js";
 
@@ -67,6 +67,13 @@ export function buildAction(definition: CapabilityDefinition, action: AppAction,
 } {
   if (definition.capability !== action.capability || "target" in action || "data" in action
     || "encoded_params" in action.params || "encodedParams" in action.params) throw new Error("capability-denied");
+  const requiredInput = actionFunding(definition, action);
+  return { ...buildCapabilityCall(definition, action, context), requiredInput };
+}
+
+export function buildCapabilityCall(definition: CapabilityCall, action: AppAction, context: Context): {
+  target: `0x${string}`; data: `0x${string}`;
+} {
   const item = parseAbiItem(definition.signature);
   if (item.type !== "function" || item.inputs.length !== definition.arguments.length) throw new Error("action-definition-invalid");
   const values = definition.arguments.map((argument, index) => {
@@ -82,7 +89,6 @@ export function buildAction(definition: CapabilityDefinition, action: AppAction,
     else value = context.creditId;
     return coerce(item.inputs[index]!, value);
   });
-  const requiredInput = actionFunding(definition, action);
   const data = encodeFunctionData({ abi: [item], functionName: item.name, args: values });
-  return { target: definition.target as `0x${string}`, data, requiredInput };
+  return { target: definition.target as `0x${string}`, data };
 }

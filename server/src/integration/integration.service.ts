@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
-import { keccak256, parseAbiItem, toFunctionSelector } from "viem";
-import type { CapabilityDefinition } from "@termbook/schema";
+import { keccak256, parseAbi, parseAbiItem, toFunctionSelector } from "viem";
+import { capabilityCalls, type CapabilityDefinition } from "@termbook/schema";
 import { monadClient } from "../chain/monad.client.js";
 import { env } from "../config/env.js";
 import { integrationRepo } from "./integration.repo.js";
@@ -40,6 +40,12 @@ const appHealthAbi = [
 ] as const;
 const callAbi = [{ type: "function", name: "isCallAllowed", stateMutability: "view",
   inputs: [{ type: "bytes32" }, { type: "address" }, { type: "bytes4" }], outputs: [{ type: "bool" }] }] as const;
+const executionAbi = parseAbi([
+  "function managedBundle(bytes32) view returns (bool)",
+  "function executionManager() view returns (address)",
+  "function bundles(bytes32) view returns (address policy,address reader,bytes32 policyCodeHash,bytes32 readerCodeHash,bytes32 policyHash,uint8 maxPositions,uint8 maxPending,uint32 maxAge)",
+  "function dependencyValid(bytes32,address) view returns (bool)",
+]);
 
 function publicUrl(value: string): string {
   let url: URL;
@@ -101,7 +107,23 @@ async function admitted(versionId: `0x${string}`, codeHash: string): Promise<boo
     || readerAdapter.toLowerCase() !== recoveryAdapter.toLowerCase()
     || !addressPattern.test(appReader) || /^0x0{40}$/i.test(appReader)) return false;
   const appReaderCode = await chain.getBytecode({ address: appReader, blockNumber: block.number });
-  return !!appReaderCode && appReaderCode !== "0x" && keccak256(appReaderCode) === appReaderHash;
+  if (!appReaderCode || appReaderCode === "0x" || keccak256(appReaderCode) !== appReaderHash) return false;
+  const [managed, manager] = await Promise.all([
+    chain.readContract({ address: core, abi: executionAbi, functionName: "managedBundle", args: [versionId], blockNumber: block.number }),
+    chain.readContract({ address: core, abi: executionAbi, functionName: "executionManager", blockNumber: block.number }),
+  ]);
+  if (!managed || !addressPattern.test(manager) || /^0x0{40}$/i.test(manager)) return false;
+  const execution = await chain.readContract({ address: manager, abi: executionAbi, functionName: "bundles",
+    args: [versionId], blockNumber: block.number });
+  const [policyCode, pinnedPolicy, pinnedReader] = await Promise.all([
+    chain.getBytecode({ address: execution[0], blockNumber: block.number }),
+    chain.readContract({ address: registry, abi: executionAbi, functionName: "dependencyValid", args: [versionId, execution[0]], blockNumber: block.number }),
+    chain.readContract({ address: registry, abi: executionAbi, functionName: "dependencyValid", args: [versionId, appReader], blockNumber: block.number }),
+  ]);
+  return !!policyCode && policyCode !== "0x" && keccak256(policyCode) === execution[2]
+    && execution[1].toLowerCase() === appReader.toLowerCase() && execution[3] === appReaderHash
+    && execution[4] !== `0x${"0".repeat(64)}` && execution[5] > 0 && execution[5] <= 32
+    && execution[6] <= 32 && execution[7] > 0 && pinnedPolicy && pinnedReader;
 }
 
 async function admittedActions(versionId: `0x${string}`, actions: CapabilityDefinition[]): Promise<boolean> {
@@ -110,7 +132,7 @@ async function admittedActions(versionId: `0x${string}`, actions: CapabilityDefi
   const block = await chain.getBlock({ blockTag: "finalized" });
   const registry = await chain.readContract({ address: env.core as `0x${string}`, abi: coreAbi,
     functionName: "integrationRegistry", blockNumber: block.number });
-  const results = await Promise.all(actions.map(async (action) => {
+  const results = await Promise.all(actions.flatMap(capabilityCalls).map(async (action) => {
     const item = parseAbiItem(action.signature);
     if (item.type !== "function") return false;
     return chain.readContract({ address: registry, abi: callAbi, functionName: "isCallAllowed",
@@ -153,7 +175,7 @@ export const integrationService = {
     const row = await integrationRepo.byTokenHash(tokenHash(appToken));
     const actions = row?.["actions"] as CapabilityDefinition[] | undefined;
     const sourcePins = row?.["sourcePins"] as SourcePin[] | undefined;
-    const actionTargets = Array.isArray(actions) ? new Set(actions.map((action) => action.target.toLowerCase())) : null;
+    const actionTargets = Array.isArray(actions) ? new Set(actions.flatMap(capabilityCalls).map((action) => action.target.toLowerCase())) : null;
     if (!row || row["active"] !== true || row["accepted"] !== true
       || row["frozen"] === true || !Array.isArray(actions)
       || !integrationAcceptanceSchema.safeParse(row["acceptance"]).success

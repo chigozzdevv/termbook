@@ -18,4 +18,5 @@ export type ExecuteResult = {
   draw: bigint;
   tx?: `0x${string}`;
   error?: string;
+  pendingIds?: `0x${string}`[];
 };

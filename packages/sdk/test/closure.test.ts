@@ -20,6 +20,7 @@ function fixture(remote = false) {
     wait: vi.fn(async () => ({ status: "success" })),
     ethereumWormholeFee: vi.fn(async () => 0n),
     read: vi.fn(async (_address: string, _abi: unknown, name: string) => {
+      if (name === "managedBundle") return false;
       if (name === "closeStep") return [word, "0x01", state.positions === 0n, 0n];
       if (name === "remoteCollateral") return remote;
       if (name === "solanaCollateral") return false;

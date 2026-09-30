@@ -48,6 +48,8 @@ const contracts = {
   IAppDeploymentGuard: "app-deployment-guard",
   ImplementationGuard: "implementation-guard",
   FlowExecutor: "flow-executor",
+  ExecutionManager: "execution-manager",
+  IExecutionPolicy: "execution-policy",
 } as const;
 
 await mkdir(output, { recursive: true });

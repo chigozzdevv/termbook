@@ -1,6 +1,7 @@
 import { BaseError, ContractFunctionRevertedError, createPublicClient, http, parseAbi, type PublicClient, type TransactionReceipt } from "viem";
 import type { ActivityEvent, ResolvedClientConfig, ContractWriteRequest, TxHash } from "../types/client.types.js";
 import type { HealthView } from "../types/account.types.js";
+import { executionCoreAbi, type ExecutionAction } from "../app/execution.js";
 import {
   collateralVaultAbi,
   creditAccountAbi,
@@ -145,6 +146,23 @@ export class RpcClient {
     } catch (error) {
       const reverted = error instanceof BaseError
         ? error.walk((cause) => cause instanceof ContractFunctionRevertedError) : undefined;
+      if (reverted instanceof ContractFunctionRevertedError && reverted.data?.errorName === "ActionPreview") {
+        const values = reverted.data.args as readonly bigint[] | undefined;
+        if (values?.length === 4 && values.every((value) => typeof value === "bigint")) {
+          return { healthBps: values[0]!, initialBps: values[1]!, debt: values[2]!, recoveryValue: values[3]! };
+        }
+      }
+      throw new Error("action-preview-unavailable", { cause: error });
+    }
+    throw new Error("action-preview-unavailable");
+  }
+
+  async previewPlan(creditId: TxHash, action: ExecutionAction, drawAmount: bigint, nonce: bigint): Promise<ActionPreview> {
+    try {
+      await this.client.simulateContract({ address: this.config.core, abi: executionCoreAbi,
+        functionName: "previewPlan", args: [creditId, action, drawAmount, nonce], account: this.config.wallet.address });
+    } catch (error) {
+      const reverted = error instanceof BaseError ? error.walk((cause) => cause instanceof ContractFunctionRevertedError) : undefined;
       if (reverted instanceof ContractFunctionRevertedError && reverted.data?.errorName === "ActionPreview") {
         const values = reverted.data.args as readonly bigint[] | undefined;
         if (values?.length === 4 && values.every((value) => typeof value === "bigint")) {

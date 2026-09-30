@@ -74,6 +74,10 @@ beforeEach(() => {
       if (functionName === "recoveryAdapter") return readerAdapter;
       if (functionName === "appReader") return address("b");
       if (functionName === "appReaderCodeHash") return keccak256("0x1234");
+      if (functionName === "managedBundle" || functionName === "dependencyValid") return true;
+      if (functionName === "executionManager") return address("c");
+      if (functionName === "bundles") return [address("d"), address("b"), keccak256("0x1234"), keccak256("0x1234"),
+        keccak256("0xabcd"), 32, 32, 300];
       if (functionName === "isActive" || functionName === "isReaderActive" || functionName === "isCallAllowed") return true;
       if (functionName === "recoveryCallCount") return 1n;
       throw new Error("unexpected-read");

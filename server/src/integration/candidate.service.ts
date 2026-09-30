@@ -10,12 +10,13 @@ import { validateIntegrationSources } from "./integration.source.js";
 import { integrationAcceptanceSchema, integrationDraftRequestSchema,
   integrationMappingSchema, integrationSchema } from "./integration.schema.js";
 import type { z } from "zod";
+import { capabilityCalls } from "@termbook/schema";
 
 type CandidateDraft = Awaited<ReturnType<typeof inspectIntegrationDraft>>;
 
 function matchesDraft(draft: CandidateDraft, mapping: z.infer<typeof integrationMappingSchema>): boolean {
   const entries = draft.entries;
-  return mapping.actions.every((action) => entries.some((entry) =>
+  return mapping.actions.flatMap(capabilityCalls).every((action) => entries.some((entry) =>
     entry.target.toLowerCase() === action.target.toLowerCase()
       && entry.signature === action.signature))
     && mapping.verifiedSources.every((source) => entries.some((entry) =>

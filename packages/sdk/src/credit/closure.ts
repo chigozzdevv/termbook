@@ -4,6 +4,7 @@ import type { TermbookClient } from "../client/client.js";
 import type { TxHash } from "../types/client.types.js";
 import { parseSolanaActionPlan } from "../collateral/solana-action.js";
 import { HttpClient } from "../transport/http.js";
+import { CreditApp } from "../app/app.js";
 
 export type ClosureStage = "freezing" | "unwinding" | "settlement_pending" | "repaying"
   | "funding_required" | "withdrawing_surplus" | "return_pending" | "closed";
@@ -86,6 +87,8 @@ export async function closeCredit(client: TermbookClient, creditId: TxHash, opti
       continue;
     }
     if (facility !== 5) throw new Error("recovery-blocked");
+    const reconciled = await new CreditApp(client, creditId).syncIfChanged(details);
+    if (reconciled) { lastTx = reconciled.tx; continue; }
     const debt = await client.rpc.debt(creditId);
     if (debt > 0n && await client.rpc.creditFreeCash(creditId) > 0n) {
       await progress("repaying");

@@ -7,6 +7,11 @@ import {TermbookCore} from "../../src/monad/credit/TermbookCore.sol";
 import {HouseRegistry} from "../../src/monad/house/HouseRegistry.sol";
 import {HouseVault} from "../../src/monad/house/HouseVault.sol";
 import {RiskEngine} from "../../src/monad/risk/RiskEngine.sol";
+import {IntegrationRegistry} from "../../src/monad/integration/IntegrationRegistry.sol";
+import {ExecutionPolicyFixture} from "../integration/execution-manager.t.sol";
+import {MockAppCallValidator} from "../MockAppCallValidator.sol";
+import {MockHealthSource} from "../MockHealthSource.sol";
+import {MockExitVerifier, FundedPositionRecoveryAdapter, FundedPositionTarget} from "../integration/real-flow.t.sol";
 
 contract HouseAdmissionTest is Test {
     MockERC20 token;
@@ -27,6 +32,23 @@ contract HouseAdmissionTest is Test {
         risk = new RiskEngine(address(core));
         core.setRisk(address(risk));
         core.setHouseRegistry(address(registry));
+        bytes32 bundle = keccak256("bundle");
+        ExecutionPolicyFixture policy = new ExecutionPolicyFixture(address(this));
+        core.configureExecutionPolicy(bundle, address(policy), 2, 2, 300);
+        IntegrationRegistry integrations = new IntegrationRegistry(address(this));
+        integrations.approve(bundle, keccak256("manifest"));
+        integrations.registerCall(bundle, address(policy), policy.noop.selector, 4, type(uint8).max, type(uint8).max, 0);
+        integrations.registerRecoveryCall(bundle, address(policy), policy.noop.selector, 4, type(uint8).max);
+        MockAppCallValidator validator = new MockAppCallValidator();
+        integrations.setCallValidator(bundle, address(policy), policy.noop.selector, address(validator));
+        integrations.setRecoveryCallValidator(bundle, address(policy), policy.noop.selector, address(validator));
+        integrations.activate(bundle);
+        core.setIntegrationRegistry(address(integrations));
+        MockHealthSource health = new MockHealthSource();
+        health.setReaderActive(bundle, true);
+        core.setHealthSource(address(health));
+        core.setExitVerifier(bundle, address(new MockExitVerifier()));
+        core.setAppRecoveryAdapter(bundle, address(new FundedPositionRecoveryAdapter(new FundedPositionTarget(token))));
         house = vm.addr(houseKey);
         borrower = vm.addr(borrowerKey);
         token.mint(address(this), 1_000);

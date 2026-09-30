@@ -20,6 +20,7 @@ import { riskKeeper } from "./risk/risk.config.js";
 import { runRecoveryRelayWorker } from "./recovery/relay.worker.js";
 import { recoveryRelayConfig } from "./recovery/relay.config.js";
 import { runKeeperWorker } from "./chain/keeper.worker.js";
+import { runExecutionWorker } from "./integration/execution.worker.js";
 
 async function main(): Promise<void> {
   assertRuntimeConfig();
@@ -56,6 +57,8 @@ async function main(): Promise<void> {
   let active: Promise<void> | undefined;
   let riskTimer: ReturnType<typeof setTimeout> | undefined;
   let riskActive: Promise<void> | undefined;
+  let actionTimer: ReturnType<typeof setTimeout> | undefined;
+  let actionActive: Promise<void> | undefined;
   let keeperTimer: ReturnType<typeof setTimeout> | undefined;
   let keeperActive: Promise<void> | undefined;
   const schedule = (): void => {
@@ -80,13 +83,22 @@ async function main(): Promise<void> {
       if (!stopping) keeperTimer = setTimeout(scheduleKeepers, 5_000);
     });
   };
+  const scheduleActions = (): void => {
+    if (stopping) return;
+    actionActive = runExecutionWorker().then(() => undefined).catch(() => {
+      logger.error("execution-monitor-failed");
+    }).finally(() => {
+      if (!stopping) actionTimer = setTimeout(scheduleActions, 5_000);
+    });
+  };
   const shutdown = async (): Promise<void> => {
     if (stopping) return;
     stopping = true;
     clearTimeout(timer);
     clearTimeout(riskTimer);
     clearTimeout(keeperTimer);
-    await Promise.all([active, riskActive, keeperActive]);
+    clearTimeout(actionTimer);
+    await Promise.all([active, riskActive, keeperActive, actionActive]);
     await stopWorkers();
     await closeRedis();
     await mongoose.disconnect();
@@ -97,6 +109,7 @@ async function main(): Promise<void> {
   schedule();
   scheduleRisk();
   scheduleKeepers();
+  scheduleActions();
 }
 
 void main();

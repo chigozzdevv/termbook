@@ -11,6 +11,8 @@ import {ITermbookCore} from "./ITermbookCore.sol";
 import {IExitVerifier} from "../integration/IExitVerifier.sol";
 import {IAppRecoveryAdapter} from "../integration/IAppRecoveryAdapter.sol";
 import {IAppExitPlanner} from "../integration/IAppExitPlanner.sol";
+import {ExecutionManager} from "../integration/ExecutionManager.sol";
+import {ExecutionTypes} from "../integration/IExecutionPolicy.sol";
 import {InboxFactory} from "../routing/InboxFactory.sol";
 import {SettlementInbox} from "../routing/SettlementInbox.sol";
 import {IWormholeCore} from "../../shared/collateral/IWormholeCore.sol";
@@ -131,6 +133,7 @@ interface IOracleRegistrySaleCore {
 interface IIntegrationRegistryCore {
     function isActive(bytes32 versionId) external view returns (bool);
     function dependenciesValid(bytes32 versionId) external view returns (bool);
+    function dependencyValid(bytes32 versionId, address dependency) external view returns (bool);
     function recoveryCallCount(bytes32 versionId) external view returns (uint256);
     function validateCall(bytes32 versionId, address target, bytes calldata data, address account, uint256 drawAmount)
         external
@@ -408,6 +411,16 @@ contract TermbookCore is ITermbookCore {
         bool active;
     }
 
+    struct ExecutionAuthorization {
+        uint256 drawAmount;
+        uint256 maxDraw;
+        uint256 nonce;
+        uint256 deadline;
+        uint256 revision;
+        address signer;
+        bytes signature;
+    }
+
     address public governance;
     address public guardian;
     address public riskEngine;
@@ -416,6 +429,9 @@ contract TermbookCore is ITermbookCore {
     address public houseRegistry;
     address public healthSource;
     bytes32 public immutable domain;
+    ExecutionManager public immutable executionManager;
+    mapping(bytes32 => bool) public managedBundle;
+    mapping(bytes32 => bool) public actionHealthBlocked;
     bool public paused;
     uint256 public acceptedCredits;
     bool private entered;
@@ -549,6 +565,8 @@ contract TermbookCore is ITermbookCore {
     );
     event RemoteSalePolicySet(bytes32 indexed marketId, uint256 indexed sourceChain, address indexed collateralAsset);
     event RemoteSalePolicyDisabled(bytes32 indexed marketId);
+    event ActionExecuted(bytes32 indexed creditId, bytes32 indexed capability, bytes32 indexed actionHash);
+    event ActionsReconciled(bytes32 indexed creditId, uint256 revision, bool healthBlocked);
 
     error Expired();
     error Unauthorized();
@@ -598,6 +616,7 @@ contract TermbookCore is ITermbookCore {
         guardian = guardian_;
         riskEngine = risk_;
         domain = keccak256(abi.encode("termbook-v1", block.chainid, address(this)));
+        executionManager = new ExecutionManager(address(this));
     }
 
     function setGovernance(address governance_) external onlyGovernance {
@@ -1038,6 +1057,120 @@ contract TermbookCore is ITermbookCore {
         exitPlannerCodeHash[bundleId] = planner.codehash;
     }
 
+    function configureExecutionPolicy(bytes32 bundleId, address policy, uint8 maxPositions, uint8 maxPending, uint32 maxAge)
+        external onlyGovernance {
+        if (bundleEverUsed[bundleId] || managedBundle[bundleId]) revert Frozen();
+        executionManager.configure(bundleId, policy, maxPositions, maxPending, maxAge);
+        managedBundle[bundleId] = true;
+    }
+
+    function configureExecutionSession(bytes32 creditId, address key, ExecutionManager.Permission[] calldata permissions,
+        uint256 perAction, uint256 total, uint256 maxExposure, uint256 aggregateExposure, uint256 expiry) external {
+        Credit storage c = _credits[creditId];
+        if (msg.sender != c.borrower || c.facility != Types.Facility.Ready || expiry > c.maturity
+            || !managedBundle[c.bundleId]) revert Unauthorized();
+        executionManager.configureSession(creditId, c.bundleId, key, permissions, perAction, total,
+            maxExposure, aggregateExposure, expiry, sessionGeneration[creditId]);
+        c.revision = RevisionLib.next(c.revision);
+    }
+
+    function revokeExecutionSession(bytes32 creditId, address key) external {
+        Credit storage c = _credits[creditId];
+        if (msg.sender != c.borrower) revert Unauthorized();
+        executionManager.revokeSession(creditId, key);
+        c.revision = RevisionLib.next(c.revision);
+    }
+
+    function executionDigest(bytes32 creditId, ExecutionTypes.Action calldata action, ExecutionAuthorization calldata auth)
+        public view returns (bytes32) {
+        Credit storage c = _credits[creditId];
+        return keccak256(abi.encode(domain, keccak256("Termbook execution v1"), creditId, c.bundleId, c.termsHash,
+            executionManager.policyHash(c.bundleId), keccak256(abi.encode(action)), auth.drawAmount, auth.maxDraw,
+            auth.nonce, auth.deadline, auth.revision, auth.signer, sessionGeneration[creditId]));
+    }
+
+    function executePlan(bytes32 creditId, ExecutionTypes.Action calldata action, ExecutionAuthorization calldata auth)
+        external nonReentrant returns (bytes[] memory results) {
+        Credit storage c = _credits[creditId];
+        if (auth.revision != c.revision || auth.deadline < block.timestamp || auth.signer == address(0)
+            || !AuthLib.verify(executionDigest(creditId, action, auth), auth.signature, auth.signer)) revert BadSig();
+        results = _executePlan(c, creditId, action, auth, false);
+        emit ActionExecuted(creditId, action.capability, keccak256(abi.encode(action)));
+    }
+
+    function previewPlan(bytes32 creditId, ExecutionTypes.Action calldata action, uint256 drawAmount, uint256 nonce)
+        external nonReentrant {
+        Credit storage c = _credits[creditId];
+        ExecutionAuthorization memory auth = ExecutionAuthorization(drawAmount, drawAmount, nonce,
+            block.timestamp, c.revision, c.borrower, "");
+        _executePlan(c, creditId, action, auth, true);
+        Types.HealthSnapshot memory health = IHealthSourceCore(healthSource).snapshot(creditId, c.bundleId, c.revision, c.debt);
+        revert ActionPreview(health.healthBps, IRiskCore(riskEngine).initialBps(creditId), c.debt, health.recoveryValue);
+    }
+
+    function _executePlan(Credit storage c, bytes32 creditId, ExecutionTypes.Action calldata action,
+        ExecutionAuthorization memory auth, bool preview) internal returns (bytes[] memory results) {
+        if (c.facility != Types.Facility.Ready || paused || !managedBundle[c.bundleId] || actionHealthBlocked[creditId]
+            || auth.drawAmount > action.requiredInput || auth.drawAmount > auth.maxDraw
+            || integrationRegistry == address(0)) revert BadState();
+        _accrue(c, creditId);
+        _requireFreshHealth(c, creditId);
+        Types.Risk beforeRisk = IRiskCore(riskEngine).riskState(creditId);
+        if (c.debt != 0 && (beforeRisk == Types.Risk.Frozen || beforeRisk == Types.Risk.Liquidatable)) revert Frozen();
+        _requireExecutionDependencies(c.bundleId);
+        ExecutionManager.Reservation memory reservation = executionManager.prepare(creditId, c.bundleId, c.account, action);
+        uint256 primaryNonce = c.nonce;
+        uint256 nonceKey = auth.nonce;
+        if (auth.signer != c.borrower) {
+            executionManager.consumeSession(creditId, c.bundleId, auth.signer, action.capability, action.market,
+                action.requiredInput, reservation.exposure, auth.nonce, sessionGeneration[creditId]);
+            nonceKey = uint256(keccak256(abi.encode("termbook-execution-session", creditId, auth.signer, auth.nonce)));
+        }
+        if (nonceUsed[creditId][nonceKey]) revert Used();
+        if (auth.drawAmount != 0) {
+            _draw(c, creditId, auth.drawAmount, auth.maxDraw, nonceKey, auth.nonce, false);
+        } else {
+            if (block.timestamp >= c.maturity) revert Expired();
+            nonceUsed[creditId][nonceKey] = true;
+            if (auth.signer == c.borrower) c.nonce = auth.nonce;
+            c.revision = RevisionLib.next(c.revision);
+        }
+        if (auth.signer != c.borrower) c.nonce = primaryNonce;
+        if (action.requiredInput != 0) _requireFreeActionCash(c, creditId, action.requiredInput);
+        results = new bytes[](action.calls.length);
+        for (uint256 i; i < action.calls.length; ++i) {
+            ExecutionTypes.Call calldata call_ = action.calls[i];
+            _requireAppCall(c, call_.target, call_.data, call_.spendAmount);
+            if (call_.spendAmount != 0) {
+                if (call_.spendAmount > call_.spendToken.balanceOf(c.account)) revert OverLimit();
+                ICreditAccountCore(c.account).approveSpend(call_.spendToken, call_.target, 0);
+                ICreditAccountCore(c.account).approveSpend(call_.spendToken, call_.target, call_.spendAmount);
+            }
+            results[i] = ICreditAccountCore(c.account).execute(call_.target, call_.data);
+            if (call_.spendAmount != 0) ICreditAccountCore(c.account).approveSpend(call_.spendToken, call_.target, 0);
+        }
+        executionManager.complete(creditId, c.bundleId, c.account, action, reservation, results);
+        if (!preview) _recordPostActionHealth(c, creditId);
+    }
+
+    function syncActions(bytes32 creditId) external nonReentrant {
+        Credit storage c = _credits[creditId];
+        if (!managedBundle[c.bundleId] || c.account == address(0) || c.facility == Types.Facility.Closed) revert BadState();
+        _accrue(c, creditId);
+        if (executionManager.sync(creditId, c.bundleId, c.account)) c.revision = RevisionLib.next(c.revision);
+        actionHealthBlocked[creditId] = true;
+        try this.previewHealth(creditId) returns (Types.HealthSnapshot memory current) {
+            try IRiskCore(riskEngine).record(creditId, current) {
+                uint256 initial = IRiskCore(riskEngine).initialBps(creditId);
+                actionHealthBlocked[creditId] = executionManager.breached(creditId)
+                    || initial == 0 || (c.debt != 0 && current.healthBps < initial);
+                healthSnapshotAt[creditId] = block.timestamp;
+                healthSnapshotRevision[creditId] = c.revision;
+            } catch {}
+        } catch {}
+        emit ActionsReconciled(creditId, c.revision, actionHealthBlocked[creditId]);
+    }
+
     function setVerifierRegistry(address registry) external onlyGovernance {
         if (acceptedCredits != 0) revert Frozen();
         if (registry == address(0) || registry.code.length == 0) revert InvalidTerms();
@@ -1465,6 +1598,7 @@ contract TermbookCore is ITermbookCore {
         uint256 liquidationBps;
         if (houseRegistry != address(0)) {
             if (!IHouseRegistryCore(houseRegistry).isActiveHouse(p.house, p.vault)) revert InvalidVault();
+            _requireExecutionDependencies(p.bundleId);
             uint256 maxLimit;
             uint256 minMaturity;
             uint256 maxMaturity;
@@ -2978,7 +3112,7 @@ contract TermbookCore is ITermbookCore {
     ) internal {
         Credit storage c = _credits[creditId];
         if (
-            msg.sender != c.borrower || c.facility != Types.Facility.Ready || sessionKey == address(0) || perAction == 0
+            managedBundle[c.bundleId] || msg.sender != c.borrower || c.facility != Types.Facility.Ready || sessionKey == address(0) || perAction == 0
                 || total < perAction || expiry <= block.timestamp
         ) revert Unauthorized();
         bytes32 previous = sessionCapabilityOf[creditId][sessionKey];
@@ -3018,6 +3152,7 @@ contract TermbookCore is ITermbookCore {
         bytes calldata sessionSig
     ) external nonReentrant {
         Credit storage c = _credits[creditId];
+        if (managedBundle[c.bundleId]) revert Unauthorized();
         uint256 cap = sessionCapabilityLimit[creditId][sessionKey][capability];
         uint256 total = sessionTotalLimit[creditId][sessionKey];
         uint256 spent = sessionSpent[creditId][sessionKey];
@@ -3050,7 +3185,7 @@ contract TermbookCore is ITermbookCore {
         bytes calldata borrowerSig
     ) external nonReentrant returns (bytes memory result) {
         Credit storage c = _credits[creditId];
-        if (c.facility != Types.Facility.Ready || paused) revert BadState();
+        if (c.facility != Types.Facility.Ready || paused || managedBundle[c.bundleId]) revert BadState();
         _requireAppCall(c, target, data, amount);
         _accrue(c, creditId);
         bytes32 actionHash = keccak256(abi.encode(target, data));
@@ -3083,7 +3218,7 @@ contract TermbookCore is ITermbookCore {
         bytes calldata borrowerSig
     ) external nonReentrant returns (bytes memory result) {
         Credit storage c = _credits[creditId];
-        if (c.facility != Types.Facility.Ready || paused || drawAmount > spendAmount) revert BadState();
+        if (c.facility != Types.Facility.Ready || paused || drawAmount > spendAmount || managedBundle[c.bundleId]) revert BadState();
         _requireAppCall(c, target, data, spendAmount);
         _accrue(c, creditId);
         bytes32 digest = keccak256(abi.encode(
@@ -3124,7 +3259,7 @@ contract TermbookCore is ITermbookCore {
     ) internal {
         Credit storage c = _credits[creditId];
         if (c.facility != Types.Facility.Ready || paused || nonceUsed[creditId][borrowerNonce]
-            || amount > spendAmount) revert BadState();
+            || amount > spendAmount || managedBundle[c.bundleId]) revert BadState();
         _requireAppCall(c, target, data, spendAmount);
         _accrue(c, creditId);
         if (amount > 0) {
@@ -3152,6 +3287,14 @@ contract TermbookCore is ITermbookCore {
             ? IIntegrationRegistryCore(integrationRegistry).validateCall(c.bundleId, target, data, c.account, amount)
             : approvedCalls[target][selector];
         if (!allowed) revert Unauthorized();
+    }
+
+    function _requireExecutionDependencies(bytes32 bundleId) internal view {
+        if (!managedBundle[bundleId] || integrationRegistry == address(0)) revert InvalidTerms();
+        (address policy, address reader,,,,,,) = executionManager.bundles(bundleId);
+        IIntegrationRegistryCore registry = IIntegrationRegistryCore(integrationRegistry);
+        if (!registry.isActive(bundleId) || !registry.dependencyValid(bundleId, policy)
+            || !registry.dependencyValid(bundleId, reader)) revert InvalidTerms();
     }
 
     function _requireFreeActionCash(Credit storage c, bytes32 creditId, uint256 spendAmount) internal view {
@@ -3199,6 +3342,7 @@ contract TermbookCore is ITermbookCore {
         bool checkBeforeDraw
     ) internal {
         if (amount == 0 || amount > maxBound) revert OverLimit();
+        if (managedBundle[c.bundleId] && (actionHealthBlocked[creditId] || executionManager.breached(creditId))) revert Frozen();
         if (integrationRegistry != address(0) && !IIntegrationRegistryCore(integrationRegistry).isActive(c.bundleId)) {
             revert BadHealth();
         }
@@ -3430,6 +3574,7 @@ contract TermbookCore is ITermbookCore {
     function finishClose(bytes32 creditId) external nonReentrant {
         Credit storage c = _credits[creditId];
         if (c.facility != Types.Facility.Closing || c.debt != 0 || !c.collateralReturned) revert BadState();
+        if (managedBundle[c.bundleId]) executionManager.sync(creditId, c.bundleId, c.account);
         _requireExitReady(c, creditId);
         if (ICreditAccountCore(c.account).tokenBalance(IHouseVaultCore(c.vault).asset()) != 0) revert BadState();
         c.facility = Types.Facility.Closed;
@@ -3451,6 +3596,7 @@ contract TermbookCore is ITermbookCore {
     }
 
     function _requireExitReady(Credit storage c, bytes32 creditId) internal view {
+        if (managedBundle[c.bundleId] && executionManager.pendingCount(creditId) != 0) revert Pending();
         address verifier = exitVerifierOfBundle[c.bundleId];
         if (verifier == address(0) || verifier.codehash != exitVerifierCodeHash[c.bundleId]) revert BadState();
         try IExitVerifier(verifier).canExit(creditId, c.account) returns (bool ready) {
@@ -3564,6 +3710,7 @@ contract TermbookCore is ITermbookCore {
         if (!IAppRecoveryAdapter(adapter).verifyRecovery(creditId, c.account, instruction, expectedState)) {
             revert BadState();
         }
+        if (managedBundle[c.bundleId]) executionManager.sync(creditId, c.bundleId, c.account);
         c.revision = RevisionLib.next(c.revision);
         if (borrowerExit) emit AppExitStep(creditId, adapter, target, keccak256(data));
         else emit AppRecoveryStep(creditId, adapter, target, keccak256(data));
@@ -3799,7 +3946,10 @@ contract TermbookCore is ITermbookCore {
         Credit storage c = _credits[creditId];
         if (c.revision == 0 || healthSource == address(0)) revert BadHealth();
         _requireHealthIntegrity(c, creditId);
-        return IHealthSourceCore(healthSource).snapshot(creditId, c.bundleId, c.revision, _previewDebt(c, creditId));
+        Types.HealthSnapshot memory current = IHealthSourceCore(healthSource).snapshot(creditId, c.bundleId, c.revision, _previewDebt(c, creditId));
+        if (current.debt != _previewDebt(c, creditId)) revert BadHealth();
+        if (current.appValue > 0) _requireAppRecoveryAdapter(c.bundleId);
+        return current;
     }
 
     function creditVault(bytes32 creditId) external view returns (address) {

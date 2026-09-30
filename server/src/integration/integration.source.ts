@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { keccak256, parseAbiItem, stringToHex, toFunctionSelector, toHex,
   type AbiFunction, type Address, type Hex } from "viem";
-import type { CapabilityDefinition } from "@termbook/schema";
+import { capabilityCalls, type CapabilityDefinition } from "@termbook/schema";
 import { monadClient } from "../chain/monad.client.js";
 import { env } from "../config/env.js";
 
@@ -110,7 +110,8 @@ export async function validateIntegrationSources(
   const finalized = await chain.getBlock({ blockTag: "finalized" });
   if (await chain.getChainId() !== env.monadChainId) throw new Error("integration-chain-mismatch");
   const byTarget = new Map(evidence.map((item) => [item.target.toLowerCase(), item]));
-  const targets = new Set(actions.map((action) => action.target.toLowerCase()));
+  const calls = actions.flatMap(capabilityCalls);
+  const targets = new Set(calls.map((action) => action.target.toLowerCase()));
   if (byTarget.size !== evidence.length || targets.size !== evidence.length
     || [...byTarget.keys()].some((target) => !targets.has(target))) {
     throw new Error("integration-source-evidence-incomplete");
@@ -135,7 +136,7 @@ export async function validateIntegrationSources(
       || !reviewed.implementationSourceHash)
       || !implementation && (reviewed.implementation || reviewed.implementationSourceHash)
       || !wordPattern.test(reviewed.sourceHash)) throw new Error("integration-source-evidence-invalid");
-    const targetActions = actions.filter((action) => action.target.toLowerCase() === targetKey);
+    const targetActions = calls.filter((action) => action.target.toLowerCase() === targetKey);
     const source = await importVerifiedSource(env.monadChainId, target, code,
       implementation ? null : selector(targetActions[0]!.signature));
     if (source.sourceHash.toLowerCase() !== reviewed.sourceHash.toLowerCase()) {

@@ -1,10 +1,10 @@
 import {
-  decodeFunctionData, keccak256, parseAbiItem, toFunctionSelector,
+  keccak256, parseAbiItem, toFunctionSelector,
   type Address, type Hex,
 } from "viem";
 import { monadClient } from "../chain/monad.client.js";
 import { env } from "../config/env.js";
-import { coreActionAbi } from "./integration.abi.js";
+import { decodeCoreAction } from "./integration.abi.js";
 import { beaconSlot, implementationSlot, importVerifiedSource } from "./integration.source.js";
 import type { integrationDraftSchema } from "./integration.schema.js";
 import type { z } from "zod";
@@ -59,10 +59,10 @@ async function observedCall(chain: ReturnType<typeof monadClient>, transaction: 
   }
   if (transaction.to && equal(transaction.to, core)) {
     try {
-      const decoded = decodeFunctionData({ abi: coreActionAbi, data: transaction.input });
-      const [creditId, calledTarget, data] = decoded.args;
-      if (equal(calledTarget, target) && equal(data.slice(0, 10), selector)) {
-        return { callData: data, creditId, functionName: decoded.functionName, kind: "termbook" };
+      const decoded = decodeCoreAction(transaction.input);
+      const calls = decoded.calls.filter((call) => equal(call.target, target) && equal(call.data.slice(0, 10), selector));
+      if (calls.length === 1) {
+        return { callData: calls[0]!.data, creditId: decoded.creditId, functionName: decoded.functionName, kind: "termbook" };
       }
     } catch {
       throw new Error("integration-draft-reference-invalid");

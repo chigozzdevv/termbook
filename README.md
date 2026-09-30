@@ -104,8 +104,10 @@ nondelegating contracts with pinned code hashes.
 `StaticCallValidator` covers fixed-width ABI calls with exact, account, range,
 and spend bounds. Calls with dynamic arguments or app-specific state checks need
 a reviewed validator implementing `IAppCallValidator`.
-`fundingPath` identifies the borrower input used to calculate the required
-settlement-token draw. The server checks the target and selector against the
+`steps` defines up to seven preceding calls before the primary call. Every
+`fundingPath` contributes to the required settlement-token input, including
+separately funded execution fees. `marketPath` and `exposurePath` bind the market
+and exposure independently of margin. The server checks each target and selector against the
 finalized IntegrationRegistry policy before publishing the app token. The SDK
 builds calldata from this manifest; an app passes only a capability and typed
 parameters to `open({ action })`. For example:
@@ -144,13 +146,25 @@ HouseRegistry and vault asset, then ranked by estimated cost for a common draw
 and duration. The displayed estimate includes origination, interest, and
 commitment fees under those assumptions.
 
-`CreditApp.review()` simulates the exact action through `Core.previewAction`
+`CreditApp.review()` simulates the complete action through `Core.previewPlan`
 and displays the resulting debt, recoverable value, and health threshold. The
 simulation always reverts its state changes. Actual execution repeats the
 checks with the borrower's signature and enforces post-action health. During
 liquidation, an approved keeper calls `recoverApp` through the bundle's pinned
 adapter and registered recovery call, then repays recovered account cash to
 HouseVault. Freezing new app actions does not disable a reviewed recovery call.
+Each admitted bundle registers an `IExecutionPolicy` and its pinned state reader.
+Core executes at most eight calls as the Credit Account, with exact approvals
+reset after each call. `ExecutionManager` reserves portfolio and pending slots,
+validates pending identifiers and recipients, and reconciles partial fills,
+refunds, and cancellation races from authoritative app state. The action worker
+submits changed accounting through the durable keeper journal. Reconciliation
+records an external fill during a health outage and blocks new risk until fresh
+health clears it; an exposure breach remains blocked. Refunds do not reduce debt.
+Scoped sessions bind capabilities, markets, individual and aggregate spending
+and exposure, expiry, and the Credit's session generation. The primary wallet
+configures or revokes them onchain. Execution reports pending IDs from receipt
+events, and closure reconciles changed pending state before unwinding.
 Each integration still needs a concrete reader and adapter for its deployed app.
 An application reader must implement `IAppStateReader` to enumerate at most
 32 current positions and 32 pending actions for a Credit Account. The server

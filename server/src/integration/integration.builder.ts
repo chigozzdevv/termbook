@@ -2,12 +2,12 @@ import {
   decodeAbiParameters, decodeFunctionData, keccak256, parseAbi, parseAbiItem, padHex, stringToHex, toFunctionSelector,
   type Address, type Hex,
 } from "viem";
-import type { CapabilityDefinition } from "@termbook/schema";
+import { capabilityCalls, type CapabilityDefinition } from "@termbook/schema";
 import { termbookCoreAbi } from "@termbook/bindings";
 import { monadClient } from "../chain/monad.client.js";
 import { env } from "../config/env.js";
 import type { integrationAcceptanceSchema } from "./integration.schema.js";
-import { coreActionAbi } from "./integration.abi.js";
+import { decodeCoreAction } from "./integration.abi.js";
 import type { z } from "zod";
 
 type Acceptance = z.infer<typeof integrationAcceptanceSchema>;
@@ -134,15 +134,20 @@ export async function validateIntegrationAcceptance(
     }
     let decoded;
     try {
-      decoded = decodeFunctionData({ abi: coreActionAbi, data: transaction.input });
+      decoded = decodeCoreAction(transaction.input);
     } catch {
       throw new Error("integration-action-evidence-invalid");
     }
-    const [creditId, target, data] = decoded.args;
-    const item = parseAbiItem(action.signature);
-    if (item.type !== "function" || !equal(creditId, evidence.creditId)
-      || !equal(actionCredit.bundleId, versionId)
-      || !equal(target, action.target) || !equal(data.slice(0, 10), toFunctionSelector(item))) {
+    const { creditId, calls } = decoded;
+    const expected = capabilityCalls(action);
+    if (!equal(creditId, evidence.creditId) || !equal(actionCredit.bundleId, versionId)
+      || calls.length !== expected.length
+      || decoded.capability && !equal(decoded.capability, keccak256(stringToHex(action.capability)))
+      || calls.some((call, index) => {
+        const item = parseAbiItem(expected[index]!.signature);
+        return item.type !== "function" || !equal(call.target, expected[index]!.target)
+          || !equal(call.data.slice(0, 10), toFunctionSelector(item));
+      })) {
       throw new Error("integration-action-evidence-invalid");
     }
     if (equal(creditId, acceptance.recoveredCreditId) && receipt.blockNumber > recoverySetupBlock) {

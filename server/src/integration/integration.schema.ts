@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { capabilityDefinitionSchema } from "@termbook/schema";
+import { capabilityCalls, capabilityDefinitionSchema } from "@termbook/schema";
 import { parseAbiItem } from "viem";
 import { applicationIdSchema } from "./application.schema.js";
 
@@ -46,11 +46,13 @@ export const integrationMappingSchema = z.strictObject({
     if (names.has(action.capability)) ctx.addIssue({ code: "custom", path: ["actions", index, "capability"], message: "capability-duplicate" });
     names.add(action.capability);
     try {
-      const item = parseAbiItem(action.signature);
-      if (item.type !== "function" || item.stateMutability !== "nonpayable" || item.inputs.length !== action.arguments.length) throw new Error();
-      const fundingPath = action.fundingPath;
-      if (fundingPath && !action.arguments.some((arg) => arg.source === "input" && arg.path
+      for (const call of capabilityCalls(action)) {
+      const item = parseAbiItem(call.signature);
+      if (item.type !== "function" || item.stateMutability !== "nonpayable" || item.inputs.length !== call.arguments.length) throw new Error();
+      const fundingPath = call.fundingPath;
+      if (fundingPath && !call.arguments.some((arg) => arg.source === "input" && arg.path
         && (fundingPath === arg.path || fundingPath.startsWith(`${arg.path}.`)))) throw new Error();
+      }
     } catch {
       ctx.addIssue({ code: "custom", path: ["actions", index], message: "capability-definition-invalid" });
     }
@@ -58,7 +60,7 @@ export const integrationMappingSchema = z.strictObject({
   if (value.category === "perps" && (!names.has("place_order") || !names.has("close_position"))) {
     ctx.addIssue({ code: "custom", path: ["actions"], message: "perps-lifecycle-incomplete" });
   }
-  const targets = new Set(value.actions.map((action) => action.target.toLowerCase()));
+  const targets = new Set(value.actions.flatMap(capabilityCalls).map((action) => action.target.toLowerCase()));
   const sources = value.verifiedSources.map((source) => source.target.toLowerCase());
   if (new Set(sources).size !== sources.length || sources.length !== targets.size
     || sources.some((target) => !targets.has(target))) {

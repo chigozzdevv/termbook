@@ -8,6 +8,7 @@ import { monadClient } from "../chain/monad.client.js";
 import { env } from "../config/env.js";
 import type { integrationAcceptanceSchema } from "./integration.schema.js";
 import { decodeCoreAction } from "./integration.abi.js";
+import { validateIntegrationSuite } from "./integration.suite.js";
 import type { z } from "zod";
 
 type Acceptance = z.infer<typeof integrationAcceptanceSchema>;
@@ -40,7 +41,10 @@ export async function validateIntegrationAcceptance(
   settlementAsset: Address,
   actions: CapabilityDefinition[],
   acceptance: Acceptance,
+  manifestHash: Hex,
 ): Promise<void> {
+  const chain = monadClient();
+  const suite = await validateIntegrationSuite(chain, versionId, manifestHash, acceptance.suite, acceptance.evidenceHash, actions);
   const actionNames = actions.map((action) => action.capability);
   if (Object.keys(acceptance.actionTransactions).length !== actions.length
     || actionNames.some((name) => !acceptance.actionTransactions[name])) {
@@ -56,7 +60,6 @@ export async function validateIntegrationAcceptance(
       equal(item.creditId, acceptance.recoveredCreditId))) {
     throw new Error("integration-action-evidence-incomplete");
   }
-  const chain = monadClient();
   const finalized = await chain.getBlock({ blockTag: "finalized" });
   if (await chain.getChainId() !== env.monadChainId) throw new Error("integration-chain-mismatch");
   const core = env.core as Address;
@@ -71,7 +74,8 @@ export async function validateIntegrationAcceptance(
   ]);
   if (equal(health, zero) || equal(adapter, zero) || equal(activeCredit.account, zero)
     || equal(recoveredCredit.account, zero) || equal(activeCredit.account, recoveredCredit.account)
-    || !equal(activeCredit.bundleId, versionId) || !equal(recoveredCredit.bundleId, versionId)) {
+    || !equal(activeCredit.bundleId, versionId) || !equal(recoveredCredit.bundleId, versionId)
+    || !equal(activeCredit.borrower, suite.actors.borrower) || !equal(recoveredCredit.borrower, suite.actors.borrower)) {
     throw new Error("integration-credit-evidence-invalid");
   }
   const [readerConfig, asset, recoveredAsset, activeAccountCode, recoveredAccountCode] = await Promise.all([
@@ -92,6 +96,14 @@ export async function validateIntegrationAcceptance(
   const appReader = await chain.readContract({ address: readerConfig[0], abi: appHealthAbi,
     functionName: "appReader", blockNumber: finalized.number });
   if (equal(appReader, zero)) throw new Error("integration-reader-evidence-invalid");
+  const pins = new Set(suite.contracts.map((pin) => pin.target.toLowerCase()));
+  if ([core, health, adapter, readerConfig[0], appReader, activeCredit.account, recoveredCredit.account,
+    activeCredit.vault, recoveredCredit.vault, settlementAsset, ...actions.flatMap(capabilityCalls).map((call) => call.target)]
+    .some((target) => !pins.has(target.toLowerCase()))) throw new Error("integration-suite-pin-missing");
+  if (suite.exclusions.some((item) => item.id === "retention_authorization")
+    && await chain.readContract({ address: core, abi: termbookCoreAbi, functionName: "retentionSupported", args: [versionId], blockNumber: finalized.number })) {
+    throw new Error("integration-suite-exclusion-invalid");
+  }
   const [positions, pending, value, recoveredPositions, recoveredPending] = await Promise.all([
     chain.readContract({ address: appReader, abi: appReaderAbi, functionName: "positionCount",
       args: [acceptance.activeCreditId as Hex, activeCredit.account], blockNumber: finalized.number }),
@@ -160,7 +172,12 @@ export async function validateIntegrationAcceptance(
   let latestRecoveryIndex = 0;
   for (const hash of acceptance.recoveryTxHashes) {
     const receipt = await canonicalReceipt(hash as Hex);
-    if (!equal(receipt.to ?? zero, core) || receipt.blockNumber <= recoverySetupBlock
+    const transaction = await chain.getTransaction({ hash: hash as Hex });
+    const approved = await chain.readContract({ address: core, abi: termbookCoreAbi, functionName: "recoveryKeepers",
+      args: [suite.actors.keeper as Address], blockNumber: receipt.blockNumber });
+    if (!approved || !equal(transaction.from, suite.actors.keeper) || equal(transaction.from, recoveredCredit.borrower)
+      || !equal(transaction.to ?? zero, core) || !equal(transaction.blockHash ?? "", receipt.blockHash)
+      || !equal(receipt.to ?? zero, core) || receipt.blockNumber <= recoverySetupBlock
       || !receipt.logs.some((log) =>
       equal(log.address, core) && log.topics.length === 4
         && equal(log.topics[0] ?? "", recoveryTopic)
@@ -179,6 +196,7 @@ export async function validateIntegrationAcceptance(
     canonicalReceipt(repaymentHash), chain.getTransaction({ hash: repaymentHash }),
   ]);
   if (!equal(repayment.to ?? zero, core) || !equal(repaymentTx.to ?? zero, core)
+    || !equal(repaymentTx.from, suite.actors.keeper) || equal(repaymentTx.from, recoveredCredit.borrower)
     || !equal(repaymentTx.hash, repaymentHash)
     || !equal(repaymentTx.blockHash ?? "", repayment.blockHash)
     || repayment.blockNumber < latestRecoveryBlock

@@ -6,17 +6,19 @@ import {AppGateway} from "../../src/monad/integration/AppGateway.sol";
 import {MockSettlementReceiver} from "../MockSettlementReceiver.sol";
 
 contract AppExecutionTest is Test {
-    function testUnknownCapabilityReverts() public {
-        AppGateway g = new AppGateway(address(this));
-        vm.expectRevert(AppGateway.Unknown.selector);
-        g.buildCall(bytes32("nope"), "");
-    }
-
-    function testRegisteredCall() public {
-        AppGateway g = new AppGateway(address(this));
+    function testDuplicateCapabilityCannotReplaceReviewedTarget() public {
         MockSettlementReceiver target = new MockSettlementReceiver();
-        g.setCall(bytes32("swap"), address(target), MockSettlementReceiver.onSettlement.selector);
-        (address t,) = g.buildCall(bytes32("swap"), hex"11");
-        assertEq(t, address(target));
+        AppGateway.Rule[] memory rules = new AppGateway.Rule[](2);
+        rules[0] = AppGateway.Rule(bytes32("swap"), address(target), MockSettlementReceiver.onSettlement.selector,
+            0, type(uint16).max, type(uint16).max, address(0), type(uint16).max, 0);
+        rules[1] = rules[0];
+        vm.expectRevert(AppGateway.Invalid.selector); new AppGateway(rules);
+    }
+    function testSpendWordCannotReplaceBoundAccountIdentity() public {
+        MockSettlementReceiver target = new MockSettlementReceiver();
+        AppGateway.Rule[] memory rules = new AppGateway.Rule[](1);
+        rules[0] = AppGateway.Rule(bytes32("swap"), address(target), MockSettlementReceiver.onSettlement.selector,
+            32, 0, type(uint16).max, address(target), 0, 100);
+        vm.expectRevert(AppGateway.Invalid.selector); new AppGateway(rules);
     }
 }

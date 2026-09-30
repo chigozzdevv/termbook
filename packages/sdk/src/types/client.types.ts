@@ -10,6 +10,7 @@ export type ContractWriteRequest = {
   functionName: string;
   args?: readonly unknown[];
   value?: bigint;
+  gas?: bigint;
   account: `0x${string}`;
 };
 

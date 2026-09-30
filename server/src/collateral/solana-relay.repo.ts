@@ -55,10 +55,9 @@ export const solanaRelayRepo = {
     if ((await SolanaRelayModel.updateOne({ _id: id, lease, leaseExpiresAt: { $gt: new Date() } },
       { $set: { state: "confirmed" } })).modifiedCount !== 1) throw new Error("solana-relay-lease-lost");
   },
-  async release(id: string, lease: string, failure?: string, failures = 0): Promise<void> {
+  async release(id: string, lease: string, failure?: string, failures = 0, delayMs = 5000): Promise<void> {
     await SolanaRelayModel.updateOne({ _id: id, lease }, { $unset: { lease: 1, leaseExpiresAt: 1 }, $set: {
-      nextRunAt: new Date(Date.now() + (failure ? Math.min(300_000, 5000 * 2 ** Math.min(failures, 6)) : 5000)),
       ...(failure ? { failure, failures: failures + 1 } : {}),
-    } });
+    }, $max: { nextRunAt: new Date(Date.now() + (failure ? Math.min(300_000, 5000 * 2 ** Math.min(failures, 6)) : delayMs)) } });
   },
 };

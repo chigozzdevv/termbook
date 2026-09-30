@@ -4,7 +4,7 @@ import { monadClient } from "../chain/monad.client.js";
 import { keeperTransaction } from "../chain/keeper.js";
 import { env } from "../config/env.js";
 import { logger } from "../logging/logger.js";
-import { riskKeeper } from "./risk.config.js";
+import { riskKeeper, riskScanConfig } from "./risk.config.js";
 import { riskRepo } from "./risk.repo.js";
 import { recoveryClearancePlan } from "../recovery/clearance.service.js";
 
@@ -29,11 +29,16 @@ const remoteAbi = parseAbi([
   "function messageFee() view returns (uint256)",
 ]);
 let running = false;
+let nextShard = 0;
 
 export async function runRiskWorker(): Promise<number> {
   if (running) return 0;
+  const config = riskScanConfig();
   running = true;
   const key = `${env.monadChainId}:${env.core.toLowerCase()}`;
+  let scan: Awaited<ReturnType<typeof riskRepo.claim>> = null;
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
+  let leaseLost = false;
   try {
     const chain = monadClient();
     if (await chain.getChainId() !== env.monadChainId) throw new Error("risk-chain-mismatch");
@@ -43,10 +48,22 @@ export async function runRiskWorker(): Promise<number> {
       functionName: "recoveryKeepers", args: [keeper.address], blockNumber: finalized.number })) {
       throw new Error("risk-keeper-not-approved");
     }
-    const credits = await riskRepo.page(key);
-    for (let offset = 0; offset < credits.length; offset += 8) {
-      await Promise.all(credits.slice(offset, offset + 8).map(async (id) => {
-        try { await inspectCredit(chain, id as Hex, finalized, keeper); }
+    for (let attempt = 0; attempt < config.shards && !scan; ++attempt) {
+      const shard = nextShard++ % config.shards;
+      scan = await riskRepo.claim(key, shard, config.shards);
+    }
+    if (!scan) return 0;
+    const lease = scan;
+    heartbeat = setInterval(() => { void riskRepo.renew(lease.id, lease.lease).then((ok) => { if (!ok) leaseLost = true; })
+      .catch(() => { leaseLost = true; }); }, 30_000);
+    heartbeat.unref();
+    const credits = await riskRepo.page(scan, config.pageSize);
+    for (let offset = 0; offset < credits.length; offset += config.concurrency) {
+      if (leaseLost) throw new Error("risk-scan-lease-lost");
+      await Promise.all(credits.slice(offset, offset + config.concurrency).map(async (id) => {
+        try { await inspectCredit(chain, id as Hex, finalized, keeper, async () => {
+          if (leaseLost || !await riskRepo.renew(lease.id, lease.lease)) throw new Error("risk-scan-lease-lost");
+        }); }
         catch (error) {
           const failure = error instanceof Error && /^risk-[a-z-]+$/.test(error.message)
             ? error.message : "risk-state-unavailable";
@@ -56,24 +73,28 @@ export async function runRiskWorker(): Promise<number> {
         }
       }));
     }
-    await riskRepo.advance(key, credits.at(-1) ?? "");
+    if (leaseLost) throw new Error("risk-scan-lease-lost");
+    await riskRepo.advance(scan, credits.at(-1) ?? "", finalized.number.toString(), credits.length < config.pageSize);
+    const completed = scan.cycleCompletedAt ?? scan.cycleStartedAt;
+    if (completed && Date.now() - completed.getTime() > config.maxAgeMs) logger.error("risk-scan-lag", { shard: scan.id, ageMs: Date.now() - completed.getTime() });
     return credits.length;
-  } finally { running = false; }
+  } finally { clearInterval(heartbeat); try { if (scan) await riskRepo.release(scan.id, scan.lease); } finally { running = false; } }
 }
 
 async function inspectCredit(chain: PublicClient, id: Hex,
-  finalized: { number: bigint; hash: Hex; timestamp: bigint }, keeper: ReturnType<typeof riskKeeper>): Promise<void> {
+  finalized: { number: bigint; hash: Hex; timestamp: bigint }, keeper: ReturnType<typeof riskKeeper>, ensureLease: () => Promise<void>): Promise<void> {
   const core = env.core as Hex;
   const blockNumber = finalized.number;
   const c = await chain.readContract({ address: core, abi: termbookCoreAbi,
     functionName: "creditDetails", args: [id], blockNumber });
   const key = `${env.monadChainId}:${core.toLowerCase()}:${id.toLowerCase()}`;
+  const submit = async (input: Parameters<typeof keeperTransaction>[0]) => { await ensureLease(); return keeperTransaction(input); };
   const send = async (name: "markMatured" | "markDefaulted" | "startLiquidation" | "repayAvailableCash" | "cure",
     args: readonly [Hex]): Promise<void> => {
     if (!keeper) return;
     await chain.simulateContract({ address: core, abi: termbookCoreAbi, functionName: name,
       args, account: keeper.address, blockNumber });
-    const result = await keeperTransaction({ client: chain, rpcUrl: env.rpcUrl,
+    const result = await submit({ client: chain, rpcUrl: env.rpcUrl,
       chainId: env.monadChainId, account: keeper, operation: `${id}:${c.revision}:${name}`,
       to: core, data: encodeFunctionData({ abi: termbookCoreAbi, functionName: name, args }) });
     if (result === "reverted") throw new Error("risk-operation-reverted");
@@ -120,7 +141,7 @@ async function inspectCredit(chain: PublicClient, id: Hex,
       if (keeper) {
         const data = encodeFunctionData({ abi: termbookCoreAbi, functionName: "recoverApp", args: [id, instruction] });
         await chain.call({ account: keeper.address, to: core, data, blockNumber });
-        await keeperTransaction({ client: chain, rpcUrl: env.rpcUrl, chainId: env.monadChainId,
+        await submit({ client: chain, rpcUrl: env.rpcUrl, chainId: env.monadChainId,
           account: keeper, operation: `${id}:${c.revision}:${operation}`, to: core, data });
       }
       return;
@@ -144,7 +165,7 @@ async function inspectCredit(chain: PublicClient, id: Hex,
           const data = encodeFunctionData({ abi: termbookCoreAbi, functionName: "authorizeRemoteSeizure",
             args: [id, c.collateralAmount, finalized.timestamp + 86400n] });
           await chain.call({ account: keeper.address, to: core, data, value, blockNumber });
-          await keeperTransaction({ client: chain, rpcUrl: env.rpcUrl, chainId: env.monadChainId,
+          await submit({ client: chain, rpcUrl: env.rpcUrl, chainId: env.monadChainId,
             account: keeper, operation: `${id}:${c.revision}:seize`, to: core, data, value });
         }
         return;
@@ -163,7 +184,7 @@ async function inspectCredit(chain: PublicClient, id: Hex,
           await record(solana ? "solana_clearance_proof_required" : "source_clearance_pending");
           if (keeper && !solana) {
             const plan = await recoveryClearancePlan({ creditId: id }, keeper.address);
-            await keeperTransaction({ client: chain, rpcUrl: env.rpcUrl, chainId: env.monadChainId,
+            await submit({ client: chain, rpcUrl: env.rpcUrl, chainId: env.monadChainId,
               account: keeper, operation: `${id}:${c.revision}:clearance`, to: plan.to, data: plan.data });
           }
           return;
@@ -181,7 +202,7 @@ async function inspectCredit(chain: PublicClient, id: Hex,
       if (keeper) {
         const data = encodeFunctionData({ abi: termbookCoreAbi, functionName: "recoverCollateral", args: [id, amount] });
         await chain.call({ account: keeper.address, to: core, data, blockNumber });
-        await keeperTransaction({ client: chain, rpcUrl: env.rpcUrl, chainId: env.monadChainId,
+        await submit({ client: chain, rpcUrl: env.rpcUrl, chainId: env.monadChainId,
           account: keeper, operation: `${id}:${c.revision}:collateral`, to: core, data });
       }
       return;

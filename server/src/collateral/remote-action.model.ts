@@ -17,7 +17,9 @@ const remoteActionSchema = new mongoose.Schema({
   confirmBlockHash: String,
   failure: String,
   nextRunAt: Date,
+  failures: { type: Number, default: 0 },
 }, { timestamps: true });
+remoteActionSchema.index({ state: 1, nextRunAt: 1, createdAt: 1 });
 
 const signerSchema = new mongoose.Schema({
   _id: { type: String, required: true },

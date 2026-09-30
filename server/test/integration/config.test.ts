@@ -1,3 +1,5 @@
+import { sampleSuite } from "./suite.fixture.js";
+import { suiteHash } from "../../src/integration/integration.suite.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { monadClient } from "../../src/chain/monad.client.js";
 import { integrationRepo } from "../../src/integration/integration.repo.js";
@@ -42,7 +44,8 @@ const actions = [{ capability: "place_order", label: "Place order", target: addr
     signature: "function closePosition(uint256 positionId,address account,uint256 direction,uint256 bound,uint256 market)",
     arguments: [{ source: "input" as const, path: "position_id", label: "Position ID" },
       { source: "credit_account" as const }, ...priceArguments], marketPath: "market", price, settlement: "atomic" as const }];
-const acceptance = { evidenceHash: `0x${"e".repeat(64)}`,
+const suite = sampleSuite({ versionId, manifestHash: codeHash });
+const acceptance = { suite, evidenceHash: suiteHash(suite),
   activeCreditId: `0x${"c".repeat(64)}`, recoveredCreditId: `0x${"d".repeat(64)}`,
   actionTransactions: { place_order: { creditId: `0x${"d".repeat(64)}`, txHash: `0x${"1".repeat(64)}` },
     close_position: { creditId: `0x${"d".repeat(64)}`, txHash: `0x${"4".repeat(64)}` } },
@@ -119,14 +122,14 @@ describe("integration app token", () => {
       tokenHash: expect.stringMatching(/^[a-f0-9]{64}$/),
     }));
     expect(JSON.stringify(vi.mocked(integrationRepo.create).mock.calls[0])).not.toContain(result.appToken);
-    expect(validateIntegrationAcceptance).toHaveBeenCalledWith(versionId, settlementAsset, actions, acceptance);
+    expect(validateIntegrationAcceptance).toHaveBeenCalledWith(versionId, settlementAsset, actions, acceptance, codeHash);
   });
 
   it("resolves only an active token and returns Core derived risk config", async () => {
     const result = await integrationService.approve({ applicationId, category: "perps", versionId, codeHash, settlementAsset, actions,
       verifiedSources, acceptance });
     vi.mocked(integrationRepo.byTokenHash).mockResolvedValue({ versionId, codeHash, settlementAsset, actions,
-      acceptance, sourcePins, accepted: true, active: true, frozen: false } as never);
+      acceptance, review: { evidenceHash: acceptance.evidenceHash, mode: suite.mode }, sourcePins, accepted: true, active: true, frozen: false } as never);
     const resolved = await integrationService.resolve(result.appToken);
     expect(resolved).toMatchObject({ appToken: result.appToken, core: address("1"), riskEngine: address("6"),
       accountFactory: address("2"), settlementAsset, chainId: 143 });
@@ -137,7 +140,7 @@ describe("integration app token", () => {
     const result = await integrationService.approve({ applicationId, category: "perps", versionId, codeHash, settlementAsset, actions,
       verifiedSources, acceptance });
     vi.mocked(integrationRepo.byTokenHash).mockResolvedValue({ versionId, codeHash, settlementAsset, actions,
-      acceptance, sourcePins, accepted: true, active: true, frozen: true } as never);
+      acceptance, review: { evidenceHash: acceptance.evidenceHash, mode: suite.mode }, sourcePins, accepted: true, active: true, frozen: true } as never);
     await expect(integrationService.resolve(result.appToken)).rejects.toThrow("integration-not-found");
   });
 
@@ -160,7 +163,7 @@ describe("integration app token", () => {
     const result = await integrationService.approve({ applicationId, category: "perps", versionId, codeHash, settlementAsset, actions,
       verifiedSources, acceptance });
     vi.mocked(integrationRepo.byTokenHash).mockResolvedValue({ versionId, codeHash, settlementAsset, actions,
-      acceptance, sourcePins, accepted: true, active: true, frozen: false } as never);
+      acceptance, review: { evidenceHash: acceptance.evidenceHash, mode: suite.mode }, sourcePins, accepted: true, active: true, frozen: false } as never);
     vi.mocked(verifyIntegrationSourcePins).mockResolvedValue(false);
     await expect(integrationService.resolve(result.appToken)).rejects.toThrow("integration-not-found");
   });

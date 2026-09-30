@@ -13,4 +13,5 @@ export function integrationRoute(app: FastifyInstance): void {
   app.post("/integrations/candidates/:id/details", integrationController.candidate);
   app.get("/integrations", integrationController.list);
   app.get("/integrations/config", integrationController.resolve);
+  app.get("/integrations/validation", integrationController.requirements);
 }

@@ -4,7 +4,7 @@ import { monadClient } from "../chain/monad.client.js";
 import { keeperTransaction } from "../chain/keeper.js";
 import { env } from "../config/env.js";
 import { logger } from "../logging/logger.js";
-import { riskKeeper } from "../risk/risk.config.js";
+import { riskKeeper, riskScanConfig } from "../risk/risk.config.js";
 import { riskRepo } from "../risk/risk.repo.js";
 
 const state = "(bytes32 positionId,uint256 committed,uint256 filled,uint256 refunded,uint256 remaining,uint256 liability,uint256 maxLiability,uint256 deadline,uint256 observedAt,uint8 positionSlots,address refundRecipient,uint8 status)";
@@ -26,6 +26,7 @@ const managerAbi = parseAbi([
 const policyAbi = parseAbi([`function pendingState(bytes32,address,bytes32) view returns (${state})`]);
 const riskAbi = parseAbi(["function initialBps(bytes32) view returns (uint256)"]);
 let running = false;
+let nextShard = 0;
 
 export function pendingAccountingEqual(left: Record<string, unknown>, right: Record<string, unknown>): boolean {
   return Object.keys(left).filter((key) => key !== "observedAt").every((key) =>
@@ -33,7 +34,7 @@ export function pendingAccountingEqual(left: Record<string, unknown>, right: Rec
 }
 
 export async function reconcileActions(chain: PublicClient, creditId: Hex, blockNumber: bigint,
-  keeper: ReturnType<typeof riskKeeper>): Promise<void> {
+  keeper: ReturnType<typeof riskKeeper>, ensureLease?: () => Promise<void>): Promise<void> {
   const core = env.core as Hex;
   const credit = await chain.readContract({ address: core, abi: termbookCoreAbi,
     functionName: "creditDetails", args: [creditId], blockNumber });
@@ -69,6 +70,7 @@ export async function reconcileActions(chain: PublicClient, creditId: Hex, block
   }
   await chain.simulateContract({ address: core, abi: coreAbi, functionName: "syncActions",
     args: [creditId], account: keeper.address, blockNumber });
+  await ensureLease?.();
   const result = await keeperTransaction({ client: chain, rpcUrl: env.rpcUrl, chainId: env.monadChainId,
     account: keeper, operation: `${creditId}:${credit.revision}:sync:${blockNumber}`, to: core,
     data: encodeFunctionData({ abi: coreAbi, functionName: "syncActions", args: [creditId] }) });
@@ -77,21 +79,35 @@ export async function reconcileActions(chain: PublicClient, creditId: Hex, block
 
 export async function runExecutionWorker(): Promise<number> {
   if (running) return 0;
+  const config = riskScanConfig();
   running = true;
   const cursor = `${env.monadChainId}:${env.core.toLowerCase()}:actions`;
+  let scan: Awaited<ReturnType<typeof riskRepo.claim>> = null;
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
+  let lost = false;
   try {
     const chain = monadClient();
     if (await chain.getChainId() !== env.monadChainId) throw new Error("execution-chain-mismatch");
     const block = await chain.getBlock({ blockTag: "finalized" });
-    const credits = await riskRepo.page(cursor);
+    for (let attempt = 0; attempt < config.shards && !scan; ++attempt) scan = await riskRepo.claim(cursor, nextShard++ % config.shards, config.shards);
+    if (!scan) return 0;
+    const lease = scan;
+    heartbeat = setInterval(() => { void riskRepo.renew(lease.id, lease.lease).then((ok) => { if (!ok) lost = true; })
+      .catch(() => { lost = true; }); }, 30_000);
+    heartbeat.unref();
+    const credits = await riskRepo.page(scan, config.pageSize);
     const keeper = riskKeeper();
-    for (let offset = 0; offset < credits.length; offset += 8) {
-      await Promise.all(credits.slice(offset, offset + 8).map(async (id) => {
-        try { await reconcileActions(chain, id as Hex, block.number, keeper); }
+    for (let offset = 0; offset < credits.length; offset += config.concurrency) {
+      if (lost) throw new Error("execution-scan-lease-lost");
+      await Promise.all(credits.slice(offset, offset + config.concurrency).map(async (id) => {
+        try { await reconcileActions(chain, id as Hex, block.number, keeper, async () => {
+          if (lost || !await riskRepo.renew(lease.id, lease.lease)) throw new Error("execution-scan-lease-lost");
+        }); }
         catch { logger.warn("execution-reconciliation-unavailable", { creditId: id, block: block.number.toString() }); }
       }));
     }
-    await riskRepo.advance(cursor, credits.at(-1) ?? "");
+    if (lost) throw new Error("execution-scan-lease-lost");
+    await riskRepo.advance(scan, credits.at(-1) ?? "", block.number.toString(), credits.length < config.pageSize);
     return credits.length;
-  } finally { running = false; }
+  } finally { clearInterval(heartbeat); try { if (scan) await riskRepo.release(scan.id, scan.lease); } finally { running = false; } }
 }

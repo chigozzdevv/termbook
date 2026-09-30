@@ -6,6 +6,7 @@ import { env } from "../config/env.js";
 import { integrationRepo } from "./integration.repo.js";
 import { admittedPrices } from "./integration.price.js";
 import { validateIntegrationAcceptance } from "./integration.builder.js";
+import { assertSuiteEnvelope, requireForkReview, verifySuitePins } from "./integration.suite.js";
 import { applicationService } from "./application.service.js";
 import { integrationAcceptanceSchema, integrationSchema } from "./integration.schema.js";
 import { validateIntegrationSources, verifyIntegrationSourcePins, type SourcePin } from "./integration.source.js";
@@ -143,14 +144,17 @@ async function admittedActions(versionId: `0x${string}`, actions: CapabilityDefi
 }
 
 export const integrationService = {
-  async prepare(input: z.infer<typeof integrationSchema>) {
+  async prepare(input: z.infer<typeof integrationSchema>, review?: { reviewer: `0x${string}`; forkReviewSignature?: `0x${string}` }) {
     const application = await applicationService.requireVerified(input.applicationId, undefined, true);
     const versionId = input.versionId as `0x${string}`;
     if (!addressPattern.test(input.settlementAsset) || /^0x0{40}$/i.test(input.settlementAsset)) {
       throw new Error("settlement-asset-unavailable");
     }
     if (!await admitted(versionId, input.codeHash) || !await admittedActions(versionId, input.actions, input.category)) throw new Error("integration-not-admitted");
-    await validateIntegrationAcceptance(versionId, input.settlementAsset as `0x${string}`, input.actions, input.acceptance);
+    const suite = assertSuiteEnvelope(versionId, input.codeHash as `0x${string}`, input.acceptance.suite,
+      input.acceptance.evidenceHash, input.actions);
+    await requireForkReview(suite, review?.forkReviewSignature, review?.reviewer);
+    await validateIntegrationAcceptance(versionId, input.settlementAsset as `0x${string}`, input.actions, input.acceptance, input.codeHash as `0x${string}`);
     const sourcePins = await validateIntegrationSources(input.actions, input.verifiedSources);
     const appToken = `tbk_${randomBytes(32).toString("hex")}`;
     const doc = { versionId: input.versionId.toLowerCase(), codeHash: input.codeHash.toLowerCase(),
@@ -158,6 +162,8 @@ export const integrationService = {
         category: input.category,
         settlementAsset: input.settlementAsset.toLowerCase(), actions: input.actions, sourcePins,
         acceptance: input.acceptance, accepted: true,
+        review: { evidenceHash: input.acceptance.evidenceHash, mode: suite.mode, reviewer: review?.reviewer ?? null,
+          forkReviewSignature: review?.forkReviewSignature ?? null, reviewedAt: new Date() },
         tokenHash: tokenHash(appToken), active: true, frozen: false };
     return { doc, appToken, versionId: input.versionId.toLowerCase() };
   },
@@ -196,6 +202,15 @@ export const integrationService = {
     }
     const chain = monadClient();
     const block = await chain.getBlock({ blockTag: "finalized" });
+    try {
+      const acceptance = integrationAcceptanceSchema.parse(row["acceptance"]);
+      const suite = assertSuiteEnvelope(String(row["versionId"]) as `0x${string}`, String(row["codeHash"]) as `0x${string}`,
+        acceptance.suite, acceptance.evidenceHash, actions);
+      const review = row["review"] as { evidenceHash?: string; mode?: string; reviewer?: `0x${string}`; forkReviewSignature?: `0x${string}` } | undefined;
+      if (!review || review.evidenceHash?.toLowerCase() !== acceptance.evidenceHash.toLowerCase() || review.mode !== suite.mode) throw new Error("integration-review-missing");
+      await requireForkReview(suite, review.forkReviewSignature, review.reviewer);
+      await verifySuitePins(chain, suite, block.number);
+    } catch (cause) { throw new Error("integration-not-found", { cause }); }
     const settlementFactory = addressPattern.test(env.settlementFactory) && !/^0x0{40}$/i.test(env.settlementFactory)
       ? env.settlementFactory as `0x${string}` : undefined;
     const [coreCode, factoryCode, riskEngine, settlementCode] = await Promise.all([

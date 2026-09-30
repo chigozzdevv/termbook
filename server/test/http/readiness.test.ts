@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readiness } from "../../src/http/readiness.js";
 
+vi.mock("../../src/risk/risk.repo.js", () => ({ riskRepo: { scanHealthy: vi.fn(async () => true) } }));
 const mocks = vi.hoisted(() => ({ state: 1, cursor: vi.fn(), chainId: vi.fn(), block: vi.fn() }));
 vi.mock("mongoose", () => ({ default: { connection: { get readyState() { return mocks.state; } } } }));
 vi.mock("../../src/chain/indexer.model.js", () => ({ IndexCursorModel: {

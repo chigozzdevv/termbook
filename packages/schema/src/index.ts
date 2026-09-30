@@ -11,3 +11,4 @@ export * from "./integration.js";
 export * from "./recovery.js";
 export * from "./catalog.js";
 export * from "./errors.js";
+export * from "./acceptance.js";

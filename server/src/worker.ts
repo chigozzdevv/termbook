@@ -16,7 +16,7 @@ import { assertRuntimeConfig, assertSettlementWorkerConfig } from "./config/env.
 import mongoose from "mongoose";
 import { indexerStart, runIndexerWorker } from "./chain/indexer.worker.js";
 import { runRiskWorker } from "./risk/risk.worker.js";
-import { riskKeeper } from "./risk/risk.config.js";
+import { riskKeeper, riskScanConfig } from "./risk/risk.config.js";
 import { runRecoveryRelayWorker } from "./recovery/relay.worker.js";
 import { recoveryRelayConfig } from "./recovery/relay.config.js";
 import { runKeeperWorker } from "./chain/keeper.worker.js";
@@ -30,6 +30,7 @@ async function main(): Promise<void> {
   assertRecoveryWorkerConfig();
   indexerStart();
   riskKeeper();
+  riskScanConfig();
   recoveryRelayConfig();
   solanaProofConfig();
   await solanaRelayConfig();

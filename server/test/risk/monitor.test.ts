@@ -10,15 +10,18 @@ vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: () => ({
   getChainId: async () => 143, getBlock: async () => ({ number: 100n, hash: `0x${"b".repeat(64)}`, timestamp: 1000n }),
   readContract: mocks.read, simulateContract: mocks.simulate, call: mocks.call,
 }) }));
-vi.mock("../../src/risk/risk.config.js", () => ({ riskKeeper: () => mocks.keeper }));
-vi.mock("../../src/risk/risk.repo.js", () => ({ riskRepo: { page: vi.fn(), advance: vi.fn(), record: vi.fn() } }));
+vi.mock("../../src/risk/risk.config.js", () => ({ riskKeeper: () => mocks.keeper, riskScanConfig: () => ({ shards: 1, pageSize: 128, concurrency: 8, maxAgeMs: 120000 }) }));
+vi.mock("../../src/risk/risk.repo.js", () => ({ riskRepo: { page: vi.fn(), advance: vi.fn(), record: vi.fn(), claim: vi.fn(), renew: vi.fn(), release: vi.fn() } }));
 vi.mock("../../src/chain/keeper.js", () => ({ keeperTransaction: vi.fn() }));
 vi.mock("../../src/recovery/clearance.service.js", () => ({ recoveryClearancePlan: vi.fn() }));
 const id = `0x${"a".repeat(64)}`;
 let credit: Record<string, unknown>;
 let health: bigint;
 beforeEach(() => {
-  vi.resetAllMocks(); health = 10500n;
+  vi.resetAllMocks();
+  vi.mocked(riskRepo.claim).mockResolvedValue({ id: "scan", lease: "token", lower: "", upper: null, after: "", cycleStartedAt: new Date(), cycleCompletedAt: new Date() });
+  vi.mocked(riskRepo.renew).mockResolvedValue(true);
+  health = 10500n;
   credit = { facility: 4, payment: 1, debt: 200n, revision: 4n, maturity: 2000n, grace: 100n,
     bundleId: id, account: mocks.keeper.address };
   vi.mocked(riskRepo.page).mockResolvedValue([id]);

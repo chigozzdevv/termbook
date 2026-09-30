@@ -3,12 +3,13 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {FlowExecutor} from "../../src/monad/integration/FlowExecutor.sol";
+import {ExecutionManager} from "../../src/monad/integration/ExecutionManager.sol";
 
 contract AppRecoveryTest is Test {
     function testNonCoreBlocked() public {
         FlowExecutor f = new FlowExecutor(address(this));
         vm.prank(address(9));
-        vm.expectRevert(FlowExecutor.Unauthorized.selector);
-        f.runFlow(bytes32("c"), bytes32("f"), "");
+        vm.expectRevert(ExecutionManager.Unauthorized.selector);
+        f.sync(bytes32("c"), bytes32("f"), address(1));
     }
 }

@@ -44,6 +44,7 @@ export const candidateService = {
     }
     return { id, applicationId: String(candidate["applicationId"]),
       status: String(candidate["status"]), draft: candidate["draft"],
+      validationError: candidate["validationError"] ?? null,
       mapping: candidate["mapping"] ?? null, proposal: candidate["proposal"] ?? null };
   },
   async map(id: string, owner: string, mapping: z.infer<typeof integrationMappingSchema>) {
@@ -60,22 +61,35 @@ export const candidateService = {
   },
   async evidence(id: string, owner: string, acceptance: z.infer<typeof integrationAcceptanceSchema>) {
     const candidate = await candidateRepo.get(id);
-    if (!candidate || candidate["status"] !== "ready_to_test" || candidate["owner"] !== owner.toLowerCase()) {
+    if (!candidate || !["ready_to_test", "validating"].includes(String(candidate["status"])) || candidate["owner"] !== owner.toLowerCase()) {
       throw new Error("integration-candidate-unavailable");
     }
     const mapping = integrationMappingSchema.parse(candidate["mapping"]);
     await applicationService.requireVerified(mapping.applicationId, owner);
     const proposal = integrationSchema.parse({ ...mapping, acceptance });
-    await Promise.all([
-      validateIntegrationAcceptance(proposal.versionId as `0x${string}`,
-        proposal.settlementAsset as `0x${string}`, proposal.actions, proposal.acceptance),
-      validateIntegrationSources(proposal.actions, proposal.verifiedSources),
-    ]);
-    const updated = await candidateRepo.setProposal(id, owner.toLowerCase(), proposal);
-    if (!updated) throw new Error("integration-candidate-unavailable");
-    return { id, status: "security_review" };
+    const lease = randomUUID();
+    if (!await candidateRepo.beginValidation(id, owner.toLowerCase(), proposal, lease)) throw new Error("integration-validation-busy");
+    let leaseLost = false, renewing = false;
+    const heartbeat = setInterval(() => {
+      if (renewing) return; renewing = true;
+      void candidateRepo.renewValidation(id, lease).then((result) => { if (!result) leaseLost = true; })
+        .catch(() => { leaseLost = true; }).finally(() => { renewing = false; });
+    }, 60_000);
+    heartbeat.unref();
+    try {
+      await Promise.all([
+        validateIntegrationAcceptance(proposal.versionId as `0x${string}`,
+          proposal.settlementAsset as `0x${string}`, proposal.actions, proposal.acceptance, proposal.codeHash as `0x${string}`),
+        validateIntegrationSources(proposal.actions, proposal.verifiedSources),
+      ]);
+      if (leaseLost || !await candidateRepo.setProposal(id, owner.toLowerCase(), proposal, lease)) throw new Error("integration-validation-lease-lost");
+      return { id, status: "security_review" };
+    } catch (error) {
+      const code = error instanceof Error && /^integration-[a-z-]+$/.test(error.message) ? error.message : "integration-validation-failed";
+      await candidateRepo.failValidation(id, lease, code); throw error;
+    } finally { clearInterval(heartbeat); }
   },
-  async publish(id: string, reviewer: string) {
+  async publish(id: string, reviewer: string, forkReviewSignature?: `0x${string}`) {
     const candidate = await candidateRepo.get(id);
     if (!candidate || candidate["status"] !== "security_review") throw new Error("integration-candidate-unavailable");
     const proposal = integrationSchema.parse(candidate["proposal"]);
@@ -83,7 +97,7 @@ export const candidateService = {
       || !matchesDraft(candidate["draft"] as CandidateDraft, proposal)) {
       throw new Error("integration-candidate-unavailable");
     }
-    const prepared = await integrationService.prepare(proposal);
+    const prepared = await integrationService.prepare(proposal, { reviewer: reviewer as `0x${string}`, forkReviewSignature });
     try {
       await withTx(async (session) => {
         await integrationRepo.create(prepared.doc, session);

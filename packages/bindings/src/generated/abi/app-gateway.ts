@@ -3,17 +3,87 @@ export const appGatewayAbi = [
     "type": "constructor",
     "inputs": [
       {
-        "name": "core_",
-        "type": "address",
-        "internalType": "address"
+        "name": "rules_",
+        "type": "tuple[]",
+        "internalType": "struct AppGateway.Rule[]",
+        "components": [
+          {
+            "name": "capability",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "target",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "selector",
+            "type": "bytes4",
+            "internalType": "bytes4"
+          },
+          {
+            "name": "paramsLength",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "accountWord",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "creditWord",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "spendToken",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "spendWord",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "maxSpend",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
       }
     ],
     "stateMutability": "nonpayable"
   },
   {
     "type": "function",
+    "name": "NO_WORD",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "buildCall",
     "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      },
       {
         "name": "capability",
         "type": "bytes32",
@@ -27,63 +97,51 @@ export const appGatewayAbi = [
     ],
     "outputs": [
       {
-        "name": "target",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "data",
-        "type": "bytes",
-        "internalType": "bytes"
+        "name": "call_",
+        "type": "tuple",
+        "internalType": "struct ExecutionTypes.Call",
+        "components": [
+          {
+            "name": "target",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "spendToken",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "spendAmount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "data",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
+        ]
       }
     ],
     "stateMutability": "view"
   },
   {
     "type": "function",
-    "name": "calls",
-    "inputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "target",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "selector",
-        "type": "bytes4",
-        "internalType": "bytes4"
-      },
-      {
-        "name": "active",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "core",
+    "name": "manifestHash",
     "inputs": [],
     "outputs": [
       {
         "name": "",
-        "type": "address",
-        "internalType": "address"
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ],
     "stateMutability": "view"
   },
   {
     "type": "function",
-    "name": "disable",
+    "name": "rule",
     "inputs": [
       {
         "name": "capability",
@@ -91,45 +149,108 @@ export const appGatewayAbi = [
         "internalType": "bytes32"
       }
     ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct AppGateway.Rule",
+        "components": [
+          {
+            "name": "capability",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "target",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "selector",
+            "type": "bytes4",
+            "internalType": "bytes4"
+          },
+          {
+            "name": "paramsLength",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "accountWord",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "creditWord",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "spendToken",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "spendWord",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "maxSpend",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
-    "name": "setCall",
+    "name": "spendTokenCodeHash",
     "inputs": [
       {
-        "name": "capability",
+        "name": "",
         "type": "bytes32",
         "internalType": "bytes32"
-      },
-      {
-        "name": "target",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "selector",
-        "type": "bytes4",
-        "internalType": "bytes4"
       }
     ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "targetCodeHash",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "error",
-    "name": "InvalidTarget",
+    "name": "Bounds",
     "inputs": []
   },
   {
     "type": "error",
-    "name": "Unauthorized",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "Unknown",
+    "name": "Invalid",
     "inputs": []
   }
 ] as const;

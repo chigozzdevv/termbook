@@ -10,8 +10,8 @@ vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: () => ({
   getChainId: async () => 143, getBlock: async () => ({ number: 100n }),
   readContract: mocks.read, simulateContract: mocks.simulate,
 }) }));
-vi.mock("../../src/risk/risk.config.js", () => ({ riskKeeper: () => mocks.keeper }));
-vi.mock("../../src/risk/risk.repo.js", () => ({ riskRepo: { page: vi.fn(), advance: vi.fn() } }));
+vi.mock("../../src/risk/risk.config.js", () => ({ riskKeeper: () => mocks.keeper, riskScanConfig: () => ({ shards: 1, pageSize: 128, concurrency: 8, maxAgeMs: 120000 }) }));
+vi.mock("../../src/risk/risk.repo.js", () => ({ riskRepo: { page: vi.fn(), advance: vi.fn(), claim: vi.fn(), renew: vi.fn(), release: vi.fn() } }));
 vi.mock("../../src/chain/keeper.js", () => ({ keeperTransaction: vi.fn(async () => "confirmed") }));
 vi.mock("../../src/logging/logger.js", () => ({ logger: { warn: vi.fn() } }));
 const id = `0x${"3".repeat(64)}`;
@@ -21,6 +21,8 @@ let breached = false;
 let health = 15_000n;
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(riskRepo.claim).mockResolvedValue({ id: "scan", lease: "token", lower: "", upper: null, after: "" });
+  vi.mocked(riskRepo.renew).mockResolvedValue(true);
   changed = true; blocked = false; breached = false; health = 15_000n;
   vi.mocked(riskRepo.page).mockResolvedValue([id]);
   mocks.read.mockImplementation(async ({ functionName }: { functionName: string }) => {
@@ -44,7 +46,7 @@ describe("pending action monitor", () => {
     expect(keeperTransaction).toHaveBeenCalledWith(expect.objectContaining({ operation: `${id}:4:sync:100` }));
     expect(mocks.read.mock.calls.every(([arg]) => arg.blockNumber === 100n)).toBe(true);
     expect(mocks.read.mock.calls.some(([arg]) => arg.functionName === "previewHealth")).toBe(false);
-    expect(riskRepo.advance).toHaveBeenCalledWith(expect.stringContaining(":actions"), id);
+    expect(riskRepo.advance).toHaveBeenCalledWith(expect.objectContaining({ id: "scan", lease: "token" }), id, "100", true);
   });
   it("does not pay for an observation timestamp alone", async () => {
     changed = false;

@@ -96,15 +96,17 @@ export async function runSolanaRelayWorker(): Promise<number> {
       const heartbeat = setInterval(() => { void solanaRelayRepo.renew(claimed.action._id, claimed.lease)
         .then((ok) => { if (!ok) lost = true; }).catch(() => { lost = true; }); }, 15_000);
       let failure: string | undefined;
+      let delay = 5000;
       try {
         await processSolanaRelay(claimed.action, claimed.lease, config);
         if (lost) throw new Error("solana-relay-lease-lost");
       } catch (error) {
-        failure = error instanceof Error ? error.message : "solana-relay-unavailable";
-        logger.warn("solana-source-relay-failed", { actionHash: claimed.action._id, failure });
+        const reason = error instanceof Error ? error.message : "solana-relay-unavailable";
+        if (["solana-topup-awaiting-source", "solana-relay-expiry-pending", "solana-relay-transaction-pending"].includes(reason)) delay = 60_000;
+        else { failure = reason; logger.warn("solana-source-relay-failed", { actionHash: claimed.action._id, failure }); }
       } finally {
         clearInterval(heartbeat);
-        await solanaRelayRepo.release(claimed.action._id, claimed.lease, failure, claimed.action.failures);
+        await solanaRelayRepo.release(claimed.action._id, claimed.lease, failure, claimed.action.failures, delay);
       }
     }
     return count;

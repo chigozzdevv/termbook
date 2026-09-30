@@ -1,11 +1,12 @@
 import { z } from "zod";
-import { capabilityCalls, capabilityDefinitionSchema } from "@termbook/schema";
+import { capabilityCalls, capabilityDefinitionSchema, integrationSuiteSchema } from "@termbook/schema";
 import { parseAbiItem } from "viem";
 import { applicationIdSchema } from "./application.schema.js";
 
 const word = z.string().regex(/^0x[a-fA-F0-9]{64}$/).refine((value) => !/^0x0{64}$/i.test(value));
 export const integrationAcceptanceSchema = z.strictObject({
   evidenceHash: word,
+  suite: integrationSuiteSchema,
   activeCreditId: word,
   recoveredCreditId: word,
   actionTransactions: z.record(z.string().min(1), z.strictObject({ creditId: word, txHash: word })),

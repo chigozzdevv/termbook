@@ -14,6 +14,7 @@ import {IAppExitPlanner} from "../integration/IAppExitPlanner.sol";
 import {IAppRetentionVerifier, IAppRetentionPlanner} from "../integration/IAppRetentionVerifier.sol";
 import {PriceProtection} from "../integration/PriceProtection.sol";
 import {ExecutionManager} from "../integration/ExecutionManager.sol";
+import {FlowExecutor} from "../integration/FlowExecutor.sol";
 import {ReservationManager} from "../house/ReservationManager.sol";
 import {ExecutionTypes} from "../integration/IExecutionPolicy.sol";
 import {InboxFactory} from "../routing/InboxFactory.sol";
@@ -645,7 +646,7 @@ contract TermbookCore is ITermbookCore {
         guardian = guardian_;
         riskEngine = risk_;
         domain = keccak256(abi.encode("termbook-v1", block.chainid, address(this)));
-        executionManager = new ExecutionManager(address(this));
+        executionManager = new FlowExecutor(address(this));
         reservationManager = new ReservationManager(address(this));
         priceProtection = new PriceProtection(address(this));
     }
@@ -1100,7 +1101,12 @@ contract TermbookCore is ITermbookCore {
 
     function retentionSupported(bytes32 bundleId) external view returns (bool) {
         address verifier = retentionVerifierOfBundle[bundleId];
-        return verifier.code.length != 0 && verifier.codehash == retentionVerifierCodeHash[bundleId];
+        if (verifier.code.length == 0 || verifier.codehash != retentionVerifierCodeHash[bundleId]) return false;
+        IIntegrationRegistryCore registry = IIntegrationRegistryCore(integrationRegistry);
+        if (address(registry) != address(0) && !registry.dependencyValid(bundleId, verifier)) return false;
+        address planner = retentionPlannerOfBundle[bundleId];
+        return planner == address(0) || (planner.code.length != 0 && planner.codehash == retentionPlannerCodeHash[bundleId]
+            && (address(registry) == address(0) || registry.dependencyValid(bundleId, planner)));
     }
 
     function setRetentionPlanner(bytes32 bundleId, address planner) external onlyGovernance {

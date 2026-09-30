@@ -1,8 +1,10 @@
+import { sampleSuite } from "./suite.fixture.js";
+import { suiteHash } from "../../src/integration/integration.suite.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { FastifyRequest } from "fastify";
 
 vi.mock("../../src/integration/candidate.repo.js", () => ({ candidateRepo: {
-  create: vi.fn(), get: vi.fn(), setMapping: vi.fn(), setProposal: vi.fn(), activate: vi.fn(),
+  create: vi.fn(), get: vi.fn(), setMapping: vi.fn(), setProposal: vi.fn(), activate: vi.fn(), beginValidation: vi.fn(), renewValidation: vi.fn(), failValidation: vi.fn(),
 } }));
 vi.mock("../../src/integration/integration.draft.js", () => ({ inspectIntegrationDraft: vi.fn() }));
 vi.mock("../../src/integration/application.service.js", () => ({ applicationService: {
@@ -54,13 +56,15 @@ const actions = [
 const mapping = { applicationId, category: "perps" as const, versionId: word("4"),
   codeHash: word("5"), settlementAsset: address("6"), actions,
   verifiedSources: [{ target, sourceHash }] };
-const acceptance = { evidenceHash: word("7"), activeCreditId: word("8"), recoveredCreditId: word("9"),
+const suite = sampleSuite({ versionId: mapping.versionId, manifestHash: mapping.codeHash });
+const acceptance = { suite, evidenceHash: suiteHash(suite), activeCreditId: word("8"), recoveredCreditId: word("9"),
   actionTransactions: { place_order: { creditId: word("9"), txHash: word("a") },
     close_position: { creditId: word("8"), txHash: word("b") } },
   recoveryTxHashes: [word("c")], repaymentTxHash: word("d") };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(candidateRepo.beginValidation).mockResolvedValue({ status: "validating" } as never);
   vi.mocked(applicationService.requireVerified).mockResolvedValue({ id: applicationId,
     owner, origin: "https://trade.example.org", chainId: 143 });
   vi.mocked(inspectIntegrationDraft).mockResolvedValue(draft as never);
@@ -106,6 +110,16 @@ describe("integration candidate lifecycle", () => {
     expect(candidateRepo.setProposal).not.toHaveBeenCalled();
     await expect(candidateService.evidence(candidateId, owner, acceptance))
       .resolves.toEqual({ id: candidateId, status: "security_review" });
+  });
+
+  it("rejects concurrent validation and releases failed validation for retry", async () => {
+    vi.mocked(candidateRepo.get).mockResolvedValue({ applicationId, owner, status: "validating", mapping, draft } as never);
+    vi.mocked(candidateRepo.beginValidation).mockResolvedValueOnce(null);
+    await expect(candidateService.evidence(candidateId, owner, acceptance)).rejects.toThrow("integration-validation-busy");
+    expect(candidateRepo.setProposal).not.toHaveBeenCalled();
+    vi.mocked(validateIntegrationAcceptance).mockRejectedValueOnce(new Error("integration-assertion-failed"));
+    await expect(candidateService.evidence(candidateId, owner, acceptance)).rejects.toThrow("integration-assertion-failed");
+    expect(candidateRepo.failValidation).toHaveBeenCalledWith(candidateId, expect.any(String), "integration-assertion-failed");
   });
 
   it("publishes only an unchanged reviewed candidate", async () => {

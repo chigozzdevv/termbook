@@ -77,12 +77,43 @@ target, ABI function, and argument source (`input`, `borrower`,
 `credit_account`, or `credit_id`). Perps mappings must include placement and
 closure. The candidate stays inactive in `ready_to_test` until the owner submits
 an `acceptance` record to `POST /integrations/candidates/:id/evidence`. It
-includes `evidenceHash`, active and recovered Credit IDs, one actual Core action
-transaction per declared capability, recovery transaction hashes, and an
-account-funded House repayment hash. The server verifies finalized receipts,
-positive live app value, empty recovered positions and pending actions, and
-recovery order. A reviewer must verify the report's economic assertions and
-that each action changed the intended app state.
+includes the complete `suite`, its canonical `evidenceHash`, active and recovered
+Credit IDs, one actual Core action transaction per declared capability, recovery
+transaction hashes, and an account-funded House repayment hash. `GET
+/integrations/validation` lists the cases covering the specification's 16 acceptance
+requirements. Each applicable case records pinned contract identities, canonical
+blocks, before/after reads, asserted outcomes, transactions or simulations, roles,
+and gas limits. Rejection cases require a successful control at the same block.
+The server replays deployment observations and simulations, verifies transaction
+inputs and receipts, checks live app value and empty recovered positions, and
+requires recovery by an approved keeper distinct from the borrower. A reviewer
+checks the economic meaning and coverage of every assertion before publication.
+
+Use `IntegrationValidationRunner` from the SDK, or run:
+
+```sh
+node --import tsx scripts/validate-integration.ts validation.json
+```
+
+The JSON config contains `rpcUrl`, `suite` metadata, `module`, `parameters`,
+`gasLimit`, `checkpoint`, and `output` paths. The reviewed module exports
+`createScenarios(parameters, actors)` returning named `cases` and justified
+`exclusions`. Cases call the recorder's `observe`, `simulate`, `transact`, and
+`assert` methods. Use the actual supported account and role model at minimum and
+maximum supported sizes. Set `TERMBOOK_VALIDATION_BORROWER_KEY`,
+`TERMBOOK_VALIDATION_KEEPER_KEY`, and `TERMBOOK_VALIDATION_UNAUTHORIZED_KEY`
+for the three distinct wallets bound in the suite metadata. The runner saves
+state and submitted transaction hashes before waiting for finality; rerunning
+resumes the same case and transaction. The server records `validating` with a
+renewed lease, rejects concurrent submissions, and restores `ready_to_test` with
+a failure code when validation fails.
+
+A fork report pins its finalized parent block and deployments. It is reviewed
+as a fork artifact, since its synthetic transactions cannot be checked through
+the deployment RPC. Publication also requires a reviewer signature over
+`integrationForkReview(suite)` from the SDK, submitted as `forkReviewSignature`.
+Actual deployment action, valuation, keeper-recovery and repayment samples remain
+mandatory. Fork results cannot substitute for those deployed permission checks.
 
 Only an admin publishes a candidate in `security_review` using
 `POST /integrations` with `{ "candidateId": "..." }`. Publication repeats
@@ -639,3 +670,18 @@ same hash and the configured Core emitter.
 No production consensus clients, live route approvals, or deployed asset
 configuration are included in this repository. Route liquidity limits and a
 live cross-chain recovery drill are required before accepting production funds.
+
+### Keeper scan capacity
+
+Risk and asynchronous-action monitors use independent database leases and bounded
+credit-ID shards. `RISK_SCAN_SHARDS` is a power of two from 1 to 256;
+`RISK_SCAN_PAGE_SIZE` defaults to 128 (maximum 1024),
+`RISK_SCAN_CONCURRENCY` defaults to 8 (maximum 32), and
+`RISK_SCAN_MAX_AGE_MS` defaults to 120000. Run additional worker instances and
+choose these limits for the admitted portfolio sizes and RPC capacity. Cursor
+advancement is fenced by the lease; another worker can resume an expired lease.
+The readiness endpoint requires recent complete risk and action scan cycles
+when active Credits exist. Stale cycles also emit `risk-scan-lag` errors. Monitors
+read finalized Core state and simulate eligibility before journaled submissions.
+Remote source actions apply retry backoff and schedule by next-run time, so an
+unavailable proof or unfunded top-up cannot repeatedly occupy the first batch.

@@ -1088,6 +1088,19 @@ contract RealFlowTest is Test {
         vm.stopPrank();
     }
 
+    function testRetentionSupportRequiresVerifierAndPlannerDependencies() public {
+        bytes32 bundle = keccak256("bundle");
+        RetentionVerifierFixture verifier = new RetentionVerifierFixture();
+        RetentionPlannerFixture planner = new RetentionPlannerFixture(target);
+        core.setRetentionVerifier(bundle, address(verifier)); core.setRetentionPlanner(bundle, address(planner));
+        IntegrationRegistry registry = new IntegrationRegistry(address(this)); core.setIntegrationRegistry(address(registry));
+        registry.approve(bundle, keccak256("manifest"));
+        assertFalse(core.retentionSupported(bundle));
+        registry.pinDependency(bundle, address(verifier)); assertFalse(core.retentionSupported(bundle));
+        registry.pinDependency(bundle, address(planner)); assertTrue(core.retentionSupported(bundle));
+        vm.etch(address(planner), hex"00"); assertFalse(core.retentionSupported(bundle));
+    }
+
     function testRetentionStepsRequirePinnedCallsAndVerifiedResultEvenWhenPaused() public {
         bytes32 id = keccak256("retention-cancel"); bytes32 bundle = keccak256("bundle");
         RetentionVerifierFixture verifier = new RetentionVerifierFixture(); verifier.watch(target);

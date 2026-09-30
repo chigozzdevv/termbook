@@ -1,5 +1,9 @@
+import { sampleSuite } from "./suite.fixture.js";
+import { suiteHash } from "../../src/integration/integration.suite.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encodeAbiParameters, encodeFunctionData, keccak256, padHex, parseAbi, stringToHex } from "viem";
+
+vi.mock("../../src/integration/integration.suite.js", async (original) => ({ ...await original<typeof import("../../src/integration/integration.suite.js")>(), validateIntegrationSuite: vi.fn(async (_chain, _version, _hash, suite) => suite) }));
 
 vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: vi.fn() }));
 
@@ -32,7 +36,8 @@ const actions = [{ capability: "place_order", label: "Place order", target,
   signature: "function placeOrder(uint256 amount,address account)",
   arguments: [{ source: "input" as const, path: "amount", label: "Amount" },
     { source: "credit_account" as const }], settlement: "atomic" as const }];
-const acceptance = { evidenceHash: word("1"), activeCreditId, recoveredCreditId,
+const suite = sampleSuite({ core, versionId });
+const acceptance = { suite, evidenceHash: suiteHash(suite), activeCreditId, recoveredCreditId,
   actionTransactions: { place_order: { creditId: recoveredCreditId, txHash: actionHash } },
   recoveryTxHashes: [recoveryHash], repaymentTxHash: repaymentHash };
 const appData = encodeFunctionData({ abi: parseAbi(["function placeOrder(uint256,address)"]),
@@ -45,17 +50,19 @@ const repaymentInput = encodeFunctionData({ abi: parseAbi(["function recoverAcco
 const previous = { core: env.core, monadChainId: env.monadChainId };
 
 function chain(overrides: { appValue?: bigint; actionInput?: `0x${string}`; recoveryBlock?: bigint;
-  repaymentInput?: `0x${string}`; repaymentBlock?: bigint } = {}) {
+  repaymentInput?: `0x${string}`; repaymentBlock?: bigint; recoverySender?: string } = {}) {
   return {
     getChainId: vi.fn(async () => 143),
     getBlock: vi.fn(async ({ blockTag }: { blockTag?: string }) =>
       blockTag === "finalized" ? { number: 100n, timestamp: 1000n } : { hash: blockHash }),
     readContract: vi.fn(async ({ functionName, args }: { functionName: string; args?: readonly unknown[] }) => {
+      if (functionName === "retentionSupported") return false;
+      if (functionName === "recoveryKeepers") return true;
       if (functionName === "healthSource") return health;
       if (functionName === "appRecoveryAdapterOfBundle") return adapter;
       if (functionName === "creditDetails") return {
         account: args?.[0] === activeCreditId ? activeAccount : recoveredAccount,
-        bundleId: versionId, vault,
+        bundleId: versionId, vault, borrower: suite.actors.borrower,
       };
       if (functionName === "readers") return [healthReader, 1n, true, 100n, word("1")];
       if (functionName === "asset") return token;
@@ -77,7 +84,7 @@ function chain(overrides: { appValue?: bigint; actionInput?: `0x${string}`; reco
         data: encodeAbiParameters([{ type: "uint256" }, { type: "uint256" }], [60n, 40n]),
       }] : [],
     })),
-    getTransaction: vi.fn(async ({ hash }: { hash: string }) => ({ to: core, hash, blockHash,
+    getTransaction: vi.fn(async ({ hash }: { hash: string }) => ({ to: core, hash, blockHash, from: overrides.recoverySender ?? suite.actors.keeper,
       input: hash === repaymentHash ? overrides.repaymentInput ?? repaymentInput : overrides.actionInput ?? actionInput })),
   };
 }
@@ -96,31 +103,37 @@ describe("integration acceptance", () => {
   it("requires finalized action and independent recovery samples", async () => {
     const client = chain();
     vi.mocked(monadClient).mockReturnValue(client as never);
-    await validateIntegrationAcceptance(versionId, token, actions, acceptance);
+    await validateIntegrationAcceptance(versionId, token, actions, acceptance, suite.manifestHash as `0x${string}`);
     expect(client.getTransactionReceipt).toHaveBeenCalledTimes(3);
+  });
+
+  it("rejects a recovery performed by the borrower", async () => {
+    vi.mocked(monadClient).mockReturnValue(chain({ recoverySender: suite.actors.borrower }) as never);
+    await expect(validateIntegrationAcceptance(versionId, token, actions, acceptance, suite.manifestHash as `0x${string}`))
+      .rejects.toThrow("integration-recovery-evidence-invalid");
   });
 
   it("rejects a sample whose app value is zero", async () => {
     vi.mocked(monadClient).mockReturnValue(chain({ appValue: 0n }) as never);
-    await expect(validateIntegrationAcceptance(versionId, token, actions, acceptance))
+    await expect(validateIntegrationAcceptance(versionId, token, actions, acceptance, suite.manifestHash as `0x${string}`))
       .rejects.toThrow("integration-position-evidence-invalid");
   });
 
   it("rejects a recovery recorded before the sampled app action", async () => {
     vi.mocked(monadClient).mockReturnValue(chain({ recoveryBlock: 19n }) as never);
-    await expect(validateIntegrationAcceptance(versionId, token, actions, acceptance))
+    await expect(validateIntegrationAcceptance(versionId, token, actions, acceptance, suite.manifestHash as `0x${string}`))
       .rejects.toThrow("integration-recovery-evidence-invalid");
   });
 
   it("rejects a reference call to a different application selector", async () => {
     vi.mocked(monadClient).mockReturnValue(chain({ actionInput: "0x12345678" }) as never);
-    await expect(validateIntegrationAcceptance(versionId, token, actions, acceptance))
+    await expect(validateIntegrationAcceptance(versionId, token, actions, acceptance, suite.manifestHash as `0x${string}`))
       .rejects.toThrow("integration-action-evidence-invalid");
   });
 
   it("rejects repayment before the forced recovery action", async () => {
     vi.mocked(monadClient).mockReturnValue(chain({ repaymentBlock: 29n }) as never);
-    await expect(validateIntegrationAcceptance(versionId, token, actions, acceptance))
+    await expect(validateIntegrationAcceptance(versionId, token, actions, acceptance, suite.manifestHash as `0x${string}`))
       .rejects.toThrow("integration-repayment-evidence-invalid");
   });
 
@@ -128,7 +141,7 @@ describe("integration acceptance", () => {
     const input = encodeFunctionData({ abi: parseAbi(["function repay(bytes32,uint256)"]),
       functionName: "repay", args: [recoveredCreditId, 60n] });
     vi.mocked(monadClient).mockReturnValue(chain({ repaymentInput: input }) as never);
-    await expect(validateIntegrationAcceptance(versionId, token, actions, acceptance))
+    await expect(validateIntegrationAcceptance(versionId, token, actions, acceptance, suite.manifestHash as `0x${string}`))
       .rejects.toThrow("integration-repayment-evidence-invalid");
   });
 });

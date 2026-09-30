@@ -50,3 +50,6 @@ export { PaymentPendingError, PaymentExpiredError } from "./settlement/payment.j
 export { evmPaymentWallet } from "./settlement/payment-wallet.js";
 
 export { LocalPaymentPendingError, LocalPaymentFailedError } from "./settlement/local-payment.js";
+export { IntegrationValidationRunner, IntegrationValidationPendingError, integrationEvidenceHash,
+  integrationForkReview, assertIntegrationEvidence } from "./integration/validation.js";
+export type { IntegrationValidationOptions, ValidationCheckpoint, ValidationRead, ValidationCall } from "./integration/validation.js";

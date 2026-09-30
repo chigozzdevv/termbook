@@ -500,8 +500,11 @@ export async function runRemoteActionWorker(): Promise<number> {
     for (const record of pending) {
       try {
         await handleRemoteActionJob({ kind: "collateral.remote-action", payload: { actionHash: record.actionHash } });
+        await remoteActionRepo.defer(record.actionHash, 5_000);
       } catch (error) {
-        logger.warn("remote-action-retry", { actionHash: record.actionHash, reason: error instanceof Error ? error.message : "unknown" });
+        const failure = error instanceof Error && /^[a-z]+(?:-[a-z]+)+$/.test(error.message) ? error.message : "remote-action-unavailable";
+        await remoteActionRepo.defer(record.actionHash, Math.min(300_000, 5_000 * 2 ** Math.min(Number(record.failures ?? 0), 6)), failure);
+        logger.warn("remote-action-retry", { actionHash: record.actionHash, failure });
       }
     }
     return drainQueue(handleRemoteActionJob, ["collateral.remote-action", "collateral.remote-authorized"]);

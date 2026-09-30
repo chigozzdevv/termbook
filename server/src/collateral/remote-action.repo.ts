@@ -43,9 +43,11 @@ export const remoteActionRepo = {
     return RemoteActionModel.updateOne({ actionHash, kind: 2, state: "pending" },
       { $set: { state: outcome === 1 ? "finalized" : "expired" }, $unset: { failure: 1, nextRunAt: 1 } });
   },
-  async defer(actionHash: string, delay: number) {
-    return RemoteActionModel.updateOne({ actionHash, kind: 2, state: "pending" },
-      { $set: { nextRunAt: new Date(Date.now() + delay) } });
+  async defer(actionHash: string, delay: number, failure?: string) {
+    if (!Number.isSafeInteger(delay) || delay < 1 || delay > 300_000) throw new Error("remote-action-retry-delay-invalid");
+    return RemoteActionModel.updateOne({ actionHash, state: { $in: ["pending", "prepared", "submitted", "mined", "external_execution", "source_finalized",
+      "confirm_prepared", "confirm_submitted", "confirm_mined"] } },
+      { $max: { nextRunAt: new Date(Date.now() + delay) }, ...(failure ? { $set: { failure }, $inc: { failures: 1 } } : {}) });
   },
   async find(actionHash: string) {
     return RemoteActionModel.findOne({ actionHash }).lean();
@@ -55,7 +57,7 @@ export const remoteActionRepo = {
       "pending", "prepared", "submitted", "mined", "external_execution", "source_finalized",
       "confirm_prepared", "confirm_submitted", "confirm_mined",
     ] }, $or: [{ nextRunAt: { $exists: false } }, { nextRunAt: { $lte: new Date() } }] })
-      .sort({ createdAt: 1 }).limit(10).lean();
+      .sort({ nextRunAt: 1, createdAt: 1 }).limit(10).lean();
   },
   async listByCredit(creditId: string) {
     return RemoteActionModel.find({ creditId }).select("actionHash creditId kind authorizationTxHash state txHash confirmTxHash failure")

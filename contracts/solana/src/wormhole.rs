@@ -13,12 +13,18 @@ use std::str::FromStr;
 
 use crate::VaultError;
 
+#[cfg(not(feature = "testnet"))]
 const CORE_ID: &str = "worm2ZoG2kUd4vFXhvjh93UUH596ayRfgQ2MgjNMTth";
+#[cfg(feature = "testnet")]
+const CORE_ID: &str = "3u8hJUVTA4jH1wYAyUur7FFZVQ8H635K3tSHHF4ssjQ5";
 const POST_SHIM_ID: &str = "EtZMZM22ViKMo4r5y4Anovs3wKQ2owUmDpjygnMMcdEX";
 const POST_MESSAGE_DISCRIMINATOR: [u8; 8] = [214, 50, 100, 209, 38, 34, 7, 76];
 const SNAPSHOT_DOMAIN: &[u8] = b"Termbook Solana snapshot v1";
 const AUTH_DOMAIN: &[u8] = b"Termbook Monad authorization v1";
+#[cfg(not(feature = "testnet"))]
 const MONAD_WORMHOLE_CHAIN: u16 = 48;
+#[cfg(feature = "testnet")]
+const MONAD_WORMHOLE_CHAIN: u16 = 10009;
 const FINALIZED: u8 = 1;
 
 #[derive(BorshDeserialize, BorshSerialize)]

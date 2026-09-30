@@ -386,6 +386,11 @@ lock commitment or the controller's executed or expired action before
 publishing. The receiving verifier pins the emitter and message type. This
 route trusts Wormhole's Guardian quorum.
 
+### Optional native consensus route
+
+The selected ETH and SOL deployment uses Wormhole. The following route is an
+optional consensus-client alternative.
+
 The native consensus route uses `source` and `ethereum-verifier`. The `source`
 stage deploys the Monad verifier, recovery vault, and controller on Ethereum;
 the controller creates its collateral vault. Bind
@@ -662,13 +667,14 @@ recording remains available. Governance must register the collateral vault and
 recovery vault in TermbookCore, admit the verifier, and appoint a recovery
 keeper. The route and risk signers must separately validate the signed 1Click
 quote, source asset, recovery operation, and destination inbox before funding.
-The Ethereum source verifier must prove the `lockCommitments(lockId)` storage
-value against a finalized Ethereum state root and bind the admitted vault and
-all lock fields. The source action proof must bind `RemoteActionApplied` to the exact
-authorization hash; the Monad proof must bind `RemoteActionAuthorized` to the
-same hash and the configured Core emitter.
-No production consensus clients, live route approvals, or deployed asset
-configuration are included in this repository. Route liquidity limits and a
+For the optional native consensus route, the Ethereum source verifier proves
+the `lockCommitments(lockId)` storage value against a finalized Ethereum state
+root and binds the admitted vault and all lock fields. The source action proof
+binds `RemoteActionApplied` to the exact authorization hash; the Monad proof
+binds `RemoteActionAuthorized` to the same hash and the configured Core emitter.
+The selected Wormhole route verifies the bound custody and action commitments
+in Guardian-signed messages. Live route approvals and deployed asset configuration
+must be supplied during deployment. Route liquidity limits and a
 live cross-chain recovery drill are required before accepting production funds.
 
 ### Keeper scan capacity
@@ -685,3 +691,23 @@ when active Credits exist. Stale cycles also emit `risk-scan-lag` errors. Monito
 read finalized Core state and simulate eligibility before journaled submissions.
 Remote source actions apply retry backoff and schedule by next-run time, so an
 unavailable proof or unfunded top-up cannot repeatedly occupy the first batch.
+
+### Recovery route shortfalls
+
+A route can return source collateral and deliver only part of its quoted
+settlement-token minimum. Proceeds are still allocated to the bound House claim.
+An incomplete minimum stays pending while the keeper retries or reconciles refunds.
+After the operation deadline plus one hour, the House manager may explicitly
+accept the shortfall through `HouseVault.acceptRecoveryShortfall(operationId,
+expectedAccounted)`. The factory requires empty inbox custody and the exact
+reviewed allocation, records the nominal minimum shortfall, and completes the
+operation without reducing debt or cancelling later recovery claims. ETH's
+completion VAA can then clear source delivery state. SOL's refund balances remain
+controlled by the recovery PDA and are available for a new recovery operation.
+Source clearance, cure and write-off retain their independent checks.
+
+The SDK exposes `house.recovery_operation(operationId)` as a finalized snapshot
+and `house.accept_recovery_shortfall({ operation_id, expected_accounted })` for
+the House manager. Late destination receipts continue repaying the same credit;
+late source refunds remain attributable to the original recovery operation.
+Keepers cannot accept a shortfall or manufacture repayment from a provider status.

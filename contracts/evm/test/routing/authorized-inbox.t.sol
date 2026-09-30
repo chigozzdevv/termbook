@@ -191,6 +191,61 @@ contract AuthorizedInboxTest is Test {
         assertEq(token.balanceOf(address(house)), 500);
     }
 
+    function testOnlyHouseManagerCanAcceptExpiredShortfallWithoutErasingDebt() public {
+        InboxFactory.Operation memory op = _operation(1);
+        SettlementInbox inbox = SettlementInbox(factory.createAuthorized(op, _signature(op)));
+        token.mint(address(this), 500); token.approve(address(house), 500); house.deposit(address(this), 500);
+        vm.startPrank(address(core)); house.reserve(op.creditId, 500); house.fundDraw(op.creditId, payer, 500); vm.stopPrank();
+        token.mint(address(inbox), 200); inbox.notifyAll(); inbox.settle(200);
+        assertEq(core.debt(), 300);
+        vm.prank(payer); vm.expectRevert(HouseVault.Unauthorized.selector);
+        house.acceptRecoveryShortfall(op.operationId, 200);
+        vm.expectRevert(InboxFactory.Invalid.selector); house.acceptRecoveryShortfall(op.operationId, 200);
+        vm.warp(uint256(op.deadline) + factory.RECOVERY_SHORTFALL_DELAY() + 1);
+        vm.expectRevert(InboxFactory.Unauthorized.selector); factory.acceptRecoveryShortfall(op.operationId, 200);
+        vm.expectRevert(InboxFactory.Invalid.selector); house.acceptRecoveryShortfall(op.operationId, 199);
+        token.mint(address(inbox), 1);
+        vm.expectRevert(InboxFactory.Invalid.selector); house.acceptRecoveryShortfall(op.operationId, 200);
+        inbox.notifyAll(); inbox.settle(1);
+        house.acceptRecoveryShortfall(op.operationId, 201);
+        assertEq(factory.acceptedRecoveryShortfall(op.operationId), 199);
+        assertTrue(factory.recoverySettled(op.operationId)); assertFalse(factory.recoveryCancelled(op.operationId));
+        assertEq(factory.pendingRecoveryCount(op.creditId), 0); assertEq(core.debt(), 299);
+        vm.expectRevert(InboxFactory.Unauthorized.selector); house.acceptRecoveryShortfall(op.operationId, 201);
+        token.mint(address(inbox), 299); inbox.notifyAll(); inbox.settle(299);
+        assertEq(core.debt(), 0); assertEq(token.balanceOf(address(house)), 500);
+    }
+
+    function testAcceptedShortfallCanPublishTheSourceCompletionAuthorization() public {
+        InboxFactory.Operation memory op = _operation(1);
+        MockRecoveryWormhole wormhole = new MockRecoveryWormhole(); factory.configureEthereumWormhole(address(wormhole));
+        vm.deal(address(this), 10 wei);
+        factory.createAuthorized{value: 1 wei}(op, _signature(op));
+        vm.warp(uint256(op.deadline) + factory.RECOVERY_SHORTFALL_DELAY() + 1);
+        house.acceptRecoveryShortfall(op.operationId, 0);
+        factory.publishEthereumRecoverySettlement{value: 1 wei}(op.operationId);
+        assertTrue(factory.recoverySettled(op.operationId)); assertEq(factory.acceptedRecoveryShortfall(op.operationId), op.minOut);
+        assertEq(factory.recoverySettlementSequence(op.operationId), 9);
+        (bytes32 domain, bytes32 digest) = abi.decode(wormhole.lastPayload(), (bytes32, bytes32));
+        assertEq(domain, WormholeMessages.RECOVERY_SETTLED);
+        assertEq(digest, keccak256(abi.encode(op.operationId, factory.operationDigestOf(op.operationId), factory.inboxOf(op.operationId))));
+    }
+
+    function testAllocatedUntrackedProceedsCanCompleteRecoveryBeforeReceiptNotification() public {
+        InboxFactory.Operation memory op = _operation(1);
+        SettlementInbox inbox = SettlementInbox(factory.createAuthorized(op, _signature(op)));
+        token.mint(address(this), 500); token.approve(address(house), 500); house.deposit(address(this), 500);
+        vm.startPrank(address(core)); house.reserve(op.creditId, 500); house.fundDraw(op.creditId, payer, 500); vm.stopPrank();
+        token.mint(address(inbox), op.minOut - 1); inbox.settleUntracked(op.minOut - 1);
+        vm.expectRevert(InboxFactory.Invalid.selector); factory.settleRecoveryOperation(op.operationId);
+        token.mint(address(inbox), 1); inbox.settleUntracked(1);
+        factory.settleRecoveryOperation(op.operationId);
+        assertEq(factory.pendingRecoveryCount(op.creditId), 0); assertTrue(factory.recoverySettled(op.operationId));
+        assertEq(inbox.received(), 0); assertEq(inbox.untrackedApplied(), op.minOut); assertEq(core.debt(), 100);
+        token.mint(address(inbox), 100); inbox.settleUntracked(100);
+        assertEq(core.debt(), 0); assertEq(token.balanceOf(address(house)), 500);
+    }
+
     function testOverflowRecoveryReducesDebtBeforeRouteCompletion() public {
         InboxFactory.Operation memory op = _operation(1);
         op.maxReceived = 400;

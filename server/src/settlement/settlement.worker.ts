@@ -20,6 +20,8 @@ const inboxAbi = parseAbi([
   "function received() view returns (uint256)",
   "function applied() view returns (uint256)",
   "function refunded() view returns (uint256)",
+  "function untrackedApplied() view returns (uint256)",
+  "function untrackedRefunded() view returns (uint256)",
   "function notifyAll() returns (uint256)",
   "function notifyReceipt(uint256 amount)",
   "function settle(uint256 amount)",
@@ -90,7 +92,7 @@ async function refreshProviderStatus(operation: Operation): Promise<void> {
 }
 
 async function trackRecoveryShortfall(
-  operation: Operation, received: bigint, refunded: bigint, balance: bigint, available: bigint,
+  operation: Operation, received: bigint, untrackedAccounted: bigint, balance: bigint, available: bigint,
   minOut: bigint, cap: bigint, deadline: bigint,
 ): Promise<void> {
   if (operation.kind !== "recovery" || !["SUCCESS", "REFUNDED", "FAILED"].includes(operation.providerStatus ?? "")
@@ -99,7 +101,7 @@ async function trackRecoveryShortfall(
   const untracked = balance - available;
   const capacity = cap - received;
   const creditable = untracked < capacity ? untracked : capacity;
-  const realized = received - refunded + creditable;
+  const realized = received + untrackedAccounted + creditable;
   const deficit = realized < minOut ? minOut - realized : 0n;
   if (deficit === 0n && !operation.recoveryShortfall) return;
   const shortfall = deficit.toString();
@@ -133,7 +135,7 @@ async function reconcile(operation: Operation): Promise<boolean> {
   const inbox = operation.inbox as `0x${string}`;
   const vault = operation.vault as `0x${string}`;
   const token = operation.token as `0x${string}`;
-  const [registered, actualVault, actualToken, creditId, deadline, minOut, cap, received, applied, refunded, active, balance, cancelled] = await Promise.all([
+  const [registered, actualVault, actualToken, creditId, deadline, minOut, cap, received, applied, refunded, untrackedApplied, untrackedRefunded, active, balance, cancelled] = await Promise.all([
     chain.readContract({ address: env.settlementFactory as `0x${string}`, abi: factoryAbi, functionName: "inboxOf", args: [operation.operationId as `0x${string}`], blockNumber }),
     chain.readContract({ address: inbox, abi: inboxAbi, functionName: "vault" , blockNumber }),
     chain.readContract({ address: inbox, abi: inboxAbi, functionName: "token" , blockNumber }),
@@ -144,6 +146,8 @@ async function reconcile(operation: Operation): Promise<boolean> {
     chain.readContract({ address: inbox, abi: inboxAbi, functionName: "received" , blockNumber }),
     chain.readContract({ address: inbox, abi: inboxAbi, functionName: "applied" , blockNumber }),
     chain.readContract({ address: inbox, abi: inboxAbi, functionName: "refunded" , blockNumber }),
+    chain.readContract({ address: inbox, abi: inboxAbi, functionName: "untrackedApplied", blockNumber }),
+    chain.readContract({ address: inbox, abi: inboxAbi, functionName: "untrackedRefunded", blockNumber }),
     chain.readContract({ address: vault, abi: houseAbi, functionName: "settlementInboxes", args: [inbox] , blockNumber }),
     chain.readContract({ address: token, abi: tokenAbi, functionName: "balanceOf", args: [inbox] , blockNumber }),
     chain.readContract({ address: inbox, abi: inboxAbi, functionName: "cancelled", blockNumber }),
@@ -160,7 +164,7 @@ async function reconcile(operation: Operation): Promise<boolean> {
   });
   const available = received - applied - refunded;
   if (balance < available) throw new Error("settlement-custody-shortfall");
-  await trackRecoveryShortfall(operation, received, refunded, balance, available, minOut, cap, deadline);
+  await trackRecoveryShortfall(operation, received, untrackedApplied + untrackedRefunded, balance, available, minOut, cap, deadline);
   const now = finalized.timestamp;
   const operationKey = `${operation.operationId}:${received}:${applied}:${refunded}:${balance}`;
   const act = async (method: "notifyReceipt" | "settle" | "refund" | "refundUntracked" | "settleUntracked", amount: bigint) => {
@@ -196,7 +200,7 @@ async function reconcile(operation: Operation): Promise<boolean> {
       const operationId = operation.operationId as `0x${string}`;
       const settled = await chain.readContract({ address: factory, abi: factoryAbi,
         functionName: "recoverySettled", args: [operationId] , blockNumber });
-      if (!settled && applied + refunded >= minOut) {
+      if (!settled && applied + refunded + untrackedApplied + untrackedRefunded >= minOut) {
         await submit(factory, `${operationKey}:completed`, encodeFunctionData({ abi: factoryAbi,
           functionName: "settleRecoveryOperation", args: [operationId] }), blockNumber);
         return true;

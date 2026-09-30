@@ -31,6 +31,7 @@ const sourceAbi = parseAbi([
 const inboxAbi = parseAbi([
   "function creditId() view returns (bytes32)", "function vault() view returns (address)",
   "function applied() view returns (uint256)", "function refunded() view returns (uint256)",
+  "function untrackedApplied() view returns (uint256)", "function untrackedRefunded() view returns (uint256)",
   "function minOut() view returns (uint256)", "function available() view returns (uint256)",
 ]);
 const verifierAbi = parseAbi(["function proofMaxAge() view returns (uint256)"]);
@@ -102,15 +103,17 @@ export async function runRecoveryRelayWorker(): Promise<number> {
           processed++; continue;
         }
         if (!pending) continue;
-        const [applied, refunded, minimum, available, publishedAt, maximumAge] = await Promise.all([
+        const [applied, refunded, untrackedApplied, untrackedRefunded, minimum, available, publishedAt, maximumAge] = await Promise.all([
           monad.readContract({ address: op.inbox, abi: inboxAbi, functionName: "applied", blockNumber: at }),
           monad.readContract({ address: op.inbox, abi: inboxAbi, functionName: "refunded", blockNumber: at }),
+          monad.readContract({ address: op.inbox, abi: inboxAbi, functionName: "untrackedApplied", blockNumber: at }),
+          monad.readContract({ address: op.inbox, abi: inboxAbi, functionName: "untrackedRefunded", blockNumber: at }),
           monad.readContract({ address: op.inbox, abi: inboxAbi, functionName: "minOut", blockNumber: at }),
           monad.readContract({ address: op.inbox, abi: inboxAbi, functionName: "available", blockNumber: at }),
           monad.readContract({ address: factory, abi: factoryAbi, functionName: "recoverySettlementPublishedAt", args: [op.operationId], blockNumber: at }),
           source.readContract({ address: verifier, abi: verifierAbi, functionName: "proofMaxAge", blockNumber: sourceAt }),
         ]);
-        if (available !== 0n || applied + refunded < minimum) continue;
+        if (available !== 0n || (!settled && applied + refunded + untrackedApplied + untrackedRefunded < minimum)) continue;
         const finalized = await monad.getBlock({ blockTag: "finalized" });
         if (publishedAt === 0n || finalized.timestamp - publishedAt > maximumAge / 2n) {
           const wormhole = await monad.readContract({ address: factory, abi: factoryAbi, functionName: "ethereumWormholeCore" });

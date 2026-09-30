@@ -7,6 +7,7 @@ import { localPayment, savedLocalPayment, type LocalPaymentCheckpoint } from "..
 import { remotePayment, savedPayment } from "../settlement/payment.js";
 import type { PaymentCheckpoint, PaymentOptions } from "../settlement/payment-types.js";
 import { parseEventLogs } from "viem";
+import { readRecoveryOperation, acceptRecoveryShortfall } from "./recovery.js";
 
 export class House {
   client: TermbookClient;
@@ -16,6 +17,14 @@ export class House {
     if (!/^0x[a-fA-F0-9]{40}$/.test(id)) throw new Error("param-invalid");
     this.client = client;
     this.id = id;
+  }
+
+  async recovery_operation(operationId: TxHash) {
+    return readRecoveryOperation(this.client, this.id, operationId);
+  }
+
+  async accept_recovery_shortfall(input: { operation_id: TxHash; expected_accounted: bigint }) {
+    return acceptRecoveryShortfall(this.client, this.id, input);
   }
 
   async summary(): Promise<HouseSummary> {

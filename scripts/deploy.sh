@@ -2,7 +2,7 @@
 set -eu
 
 usage() {
-  echo "usage: scripts/deploy.sh {protocol|routing|source|source-wormhole|ethereum-beacon-client|ethereum-verifier|ethereum-wormhole-verifier|native-collateral|collateral-health-reader|app-health-reader}" >&2
+  echo "usage: scripts/deploy.sh {protocol|routing|source|source-wormhole|ethereum-beacon-client|ethereum-verifier|ethereum-wormhole-verifier|native-collateral|collateral-health-reader|app-health-reader|app-exit-verifier|retention-verifier|solana-wormhole}" >&2
   exit 2
 }
 
@@ -48,7 +48,7 @@ case "$MONAD_CHAIN_ID" in
 esac
 
 case "$1" in
-  protocol|routing|ethereum-beacon-client|ethereum-verifier|ethereum-wormhole-verifier|native-collateral|collateral-health-reader|app-health-reader)
+  protocol|routing|ethereum-beacon-client|ethereum-verifier|ethereum-wormhole-verifier|native-collateral|collateral-health-reader|app-health-reader|app-exit-verifier|retention-verifier|solana-wormhole)
     foundry_version=$(forge --version)
     if ! printf '%s\n' "$foundry_version" | awk -F '[ .-]' 'NR == 1 { exit !($3 > 1 || ($3 == 1 && $4 >= 8)) }'; then
       echo "Foundry 1.8 or newer is required for Monad deployment" >&2
@@ -121,6 +121,22 @@ if [ "$1" = ethereum-wormhole-verifier ]; then
   same "$(cast call "$SOURCE_PUBLISHER_ADDRESS" 'wormhole()(address)' --block finalized --rpc-url "$SOURCE_RPC_URL")" 0x98f3c9e6E3fAce36bAAd05FE09d375Ef1464288B || fail "source publisher Wormhole mismatch"
 fi
 
+if [ "$1" = solana-wormhole ]; then
+  [ "$MONAD_CHAIN_ID" = 143 ] || fail "Monad mainnet is required for Solana mainnet collateral"
+  check_monad_deployment "$RPC_URL"
+  : "${WORMHOLE_CORE_ADDRESS:?WORMHOLE_CORE_ADDRESS is required}"
+  : "${SOLANA_RPC_URL:?SOLANA_RPC_URL is required}"
+  : "${SOLANA_PROGRAM_ID:?SOLANA_PROGRAM_ID is required}"
+  : "${SOLANA_GENESIS:?SOLANA_GENESIS is required}"
+  : "${SOLANA_EMITTER:?SOLANA_EMITTER is required}"
+  : "${SOLANA_PROGRAM_DATA_HASH:?SOLANA_PROGRAM_DATA_HASH is required}"
+  same "$WORMHOLE_CORE_ADDRESS" 0x194B123c5E96B9b2E49763619985790Dc241CAC0 || fail "canonical Monad Wormhole Core required"
+  [ "$(cast to-dec "$(cast call "$WORMHOLE_CORE_ADDRESS" 'chainId()(uint16)' --rpc-url "$RPC_URL")")" = 48 ] || fail "Monad Wormhole Core mismatch"
+  solana_program_base58=$(node --input-type=module -e 'import { solanaPubkeyBase58 } from "@termbook/sdk"; process.stdout.write(solanaPubkeyBase58(process.env.SOLANA_PROGRAM_ID));')
+  solana_check=$(node --import tsx server/scripts/verify-solana-program.ts "$SOLANA_RPC_URL" "$solana_program_base58" "$SOLANA_GENESIS" "$SOLANA_PROGRAM_DATA_HASH")
+  node --input-type=module -e 'const report = JSON.parse(process.argv[1]); if (report.emitterHex.toLowerCase() !== process.env.SOLANA_EMITTER.toLowerCase()) throw new Error("solana-emitter-mismatch");' "$solana_check"
+fi
+
 case "$1" in
   protocol) script=deploy-protocol.s.sol ;;
   routing) script=deploy-routing.s.sol ;;
@@ -132,6 +148,9 @@ case "$1" in
   native-collateral) script=deploy-native-collateral.s.sol ;;
   collateral-health-reader) script=deploy-collateral-health-reader.s.sol ;;
   app-health-reader) script=deploy-app-health-reader.s.sol ;;
+  app-exit-verifier) script=deploy-app-exit-verifier.s.sol ;;
+  retention-verifier) script=deploy-retention-verifier.s.sol ;;
+  solana-wormhole) script=deploy-solana-wormhole.s.sol ;;
 esac
 
 if [ "$1" = source ] || [ "$1" = source-wormhole ]; then

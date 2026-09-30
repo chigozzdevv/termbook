@@ -48,6 +48,8 @@ contract InboxFactory {
     mapping(bytes32 => uint256) public pendingRecoveryCount;
     mapping(bytes32 => bool) public recoverySettled;
     mapping(bytes32 => bool) public recoveryCancelled;
+    mapping(bytes32 => uint256) public acceptedRecoveryShortfall;
+    uint256 public constant RECOVERY_SHORTFALL_DELAY = 1 hours;
     mapping(bytes32 => uint256) public recoverySourceChain;
     mapping(bytes32 => uint64) public recoverySettlementSequence;
     mapping(bytes32 => uint256) public recoverySettlementPublishedAt;
@@ -81,6 +83,7 @@ contract InboxFactory {
     event InboxCreated(bytes32 indexed operationId, address inbox);
     event RecoveryOperationCreated(bytes32 indexed operationId, bytes32 indexed operationDigest, address indexed inbox);
     event RecoveryOperationSettled(bytes32 indexed operationId, bytes32 indexed creditId);
+    event RecoveryShortfallAccepted(bytes32 indexed operationId, bytes32 indexed creditId, uint256 accounted, uint256 shortfall);
     event RegistrarSet(address indexed registrar);
     event RouteRegistrySet(address indexed registry);
     event EthereumWormholeConfigured(address indexed wormhole);
@@ -219,7 +222,7 @@ contract InboxFactory {
         SettlementInbox inbox = SettlementInbox(inboxOf[operationId]);
         if (!recoveryOperation[operationId] || recoverySettled[operationId]
             || inbox.available() != 0 || inbox.token().balanceOf(address(inbox)) != 0
-            || inbox.applied() + inbox.refunded() < inbox.minOut()) revert Invalid();
+            || inbox.applied() + inbox.refunded() + inbox.untrackedApplied() + inbox.untrackedRefunded() < inbox.minOut()) revert Invalid();
         recoverySettled[operationId] = true;
         pendingRecoveryCount[inbox.creditId()] -= 1;
         emit RecoveryOperationSettled(operationId, inbox.creditId());
@@ -232,6 +235,20 @@ contract InboxFactory {
         recoverySettled[operationId] = true;
         recoveryCancelled[operationId] = true;
         pendingRecoveryCount[inbox.creditId()] -= 1;
+        emit RecoveryOperationSettled(operationId, inbox.creditId());
+    }
+
+    function acceptRecoveryShortfall(bytes32 operationId, uint256 expectedAccounted) external {
+        SettlementInbox inbox = SettlementInbox(inboxOf[operationId]);
+        if (!recoveryOperation[operationId] || recoverySettled[operationId] || msg.sender != inbox.vault()) revert Unauthorized();
+        uint256 accounted = inbox.applied() + inbox.refunded() + inbox.untrackedApplied() + inbox.untrackedRefunded();
+        if (block.timestamp <= recoveryOperationDeadlineOf[operationId] + RECOVERY_SHORTFALL_DELAY
+            || inbox.available() != 0 || inbox.token().balanceOf(address(inbox)) != 0
+            || accounted != expectedAccounted || accounted >= inbox.minOut()) revert Invalid();
+        acceptedRecoveryShortfall[operationId] = inbox.minOut() - accounted;
+        recoverySettled[operationId] = true;
+        pendingRecoveryCount[inbox.creditId()] -= 1;
+        emit RecoveryShortfallAccepted(operationId, inbox.creditId(), accounted, inbox.minOut() - accounted);
         emit RecoveryOperationSettled(operationId, inbox.creditId());
     }
 

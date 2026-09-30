@@ -58,6 +58,24 @@ export const houseVaultAbi = [
   },
   {
     "type": "function",
+    "name": "acceptRecoveryShortfall",
+    "inputs": [
+      {
+        "name": "operationId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "expectedAccounted",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "accruedReceivables",
     "inputs": [],
     "outputs": [

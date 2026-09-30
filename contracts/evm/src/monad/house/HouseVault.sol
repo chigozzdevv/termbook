@@ -16,6 +16,7 @@ interface ISettlementInboxView {
 
 interface IInboxFactoryView {
     function inboxOf(bytes32 operationId) external view returns (address);
+    function acceptRecoveryShortfall(bytes32 operationId, uint256 expectedAccounted) external;
 }
 
 interface ISettlementCore {
@@ -265,6 +266,10 @@ contract HouseVault is IHouseVault {
         ISettlementCore(core).commitFullRecovery(creditId);
         ISettlementCore(core).finalizeRecovery(creditId);
         ISettlementCore(core).finishLiquidation(creditId);
+    }
+
+    function acceptRecoveryShortfall(bytes32 operationId, uint256 expectedAccounted) external onlyManager guarded {
+        IInboxFactoryView(inboxFactory).acceptRecoveryShortfall(operationId, expectedAccounted);
     }
 
     function creditFundingOpen(bytes32 creditId) external view returns (bool) {

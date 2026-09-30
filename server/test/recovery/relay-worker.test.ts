@@ -35,7 +35,7 @@ beforeEach(() => {
   }] }) }) });
   mocks.monad.mockImplementation(async ({ functionName }: { functionName: string }) => ({
     creditId: credit, vault: house, operationDigestOf: digest, recoveryCancelled: false, recoverySettled: settled,
-    applied: 350n, refunded: 0n, minOut: 350n, available: 0n, recoverySettlementPublishedAt: published,
+    applied: 350n, refunded: 0n, untrackedApplied: 0n, untrackedRefunded: 0n, minOut: 350n, available: 0n, recoverySettlementPublishedAt: published,
     ethereumWormholeCore: address("a"), messageFee: 10n, recoverySettlementSequence: 9n,
     verifierRegistry: address("b"), verifiers: [address("c")], sourceVault: address("d"),
   })[functionName]);
@@ -72,6 +72,23 @@ describe("remote recovery completion relay", () => {
     expect(decodeFunctionData({ abi, data: request.data })).toMatchObject({
       functionName: "confirmDelivery", args: [op, "0x1234", "0x"],
     });
+  });
+
+  it("relays a House-accepted shortfall without inventing repayment", async () => {
+    settled = true;
+    const original = mocks.monad.getMockImplementation()!;
+    mocks.monad.mockImplementation((request) => request.functionName === "applied" ? 100n : original(request));
+    expect(await runRecoveryRelayWorker()).toBe(1);
+    const request = vi.mocked(keeperTransaction).mock.calls[0]![0];
+    expect(decodeFunctionData({ abi, data: request.data }).functionName).toBe("publishEthereumRecoverySettlement");
+  });
+
+  it("counts untracked funds already applied to the bound debt before publishing completion", async () => {
+    const original = mocks.monad.getMockImplementation()!;
+    mocks.monad.mockImplementation((request) => ({ applied: 100n, untrackedApplied: 250n })[request.functionName] ?? original(request));
+    expect(await runRecoveryRelayWorker()).toBe(1);
+    const request = vi.mocked(keeperTransaction).mock.calls[0]![0];
+    expect(decodeFunctionData({ abi, data: request.data }).functionName).toBe("publishEthereumRecoverySettlement");
   });
 
   it("reconciles a fully refunded source operation using its bound proof", async () => {

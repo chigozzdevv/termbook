@@ -62,7 +62,7 @@ function setup(received: bigint, applied: bigint, balance: bigint, debt: bigint,
   mocks.wallet.sendTransaction.mockResolvedValue(txHash);
   mocks.chain.readContract.mockImplementation(async ({ functionName }: { functionName: string }) => ({
     inboxOf: inbox, vault, token, creditId, deadline: BigInt(deadline), minOut: 80n,
-    maxReceived: 100n, received, applied, refunded: 0n, settlementInboxes: true,
+    maxReceived: 100n, received, applied, refunded: 0n, untrackedApplied: 0n, untrackedRefunded: 0n, settlementInboxes: true,
     balanceOf: balance, core, creditDebt: debt, recoverySettled: false, solanaCollateral: false,
   } as Record<string, unknown>)[functionName]);
 }
@@ -120,6 +120,17 @@ describe("recovery inbox overflow", () => {
     const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
     expect(await runSettlementWorker()).toBe(0);
     expect(warn).toHaveBeenCalledWith("settlement-reconciliation-failed", expect.anything());
+  });
+
+  it("counts allocated untracked funds in completion and the nominal route shortfall", async () => {
+    setup(40n, 40n, 0n, 20n, "SUCCESS");
+    const original = mocks.chain.readContract.getMockImplementation()!;
+    mocks.chain.readContract.mockImplementation((request: { functionName: string }) => request.functionName === "untrackedApplied" ? 40n : original(request));
+    const warning = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    expect(await runSettlementWorker()).toBe(1);
+    const decoded = decodeFunctionData({ abi: inboxAbi, data: mocks.chain.call.mock.calls[0]![0].data });
+    expect(decoded).toMatchObject({ functionName: "settleRecoveryOperation", args: [operationId] });
+    expect(warning).not.toHaveBeenCalledWith("recovery-proceeds-shortfall", expect.anything());
   });
 
   it("retires a failed SOL route only against verified and unused source refunds", async () => {

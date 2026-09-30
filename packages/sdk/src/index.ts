@@ -53,3 +53,5 @@ export { LocalPaymentPendingError, LocalPaymentFailedError } from "./settlement/
 export { IntegrationValidationRunner, IntegrationValidationPendingError, integrationEvidenceHash,
   integrationForkReview, assertIntegrationEvidence } from "./integration/validation.js";
 export type { IntegrationValidationOptions, ValidationCheckpoint, ValidationRead, ValidationCall } from "./integration/validation.js";
+
+export type { RecoveryOperationView } from "./house/recovery.js";

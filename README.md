@@ -506,6 +506,32 @@ maturity, or while closing; a specifically disabled recovery call still fails.
 Ordinary app actions stop at maturity. An exit does not authorize a withdrawal
 to the borrower or skip the separate repayment and collateral-return checks.
 
+## Payment completion
+
+`credit.repay()` and `house.account(owner).deposit()` wait for finalized House
+accounting. Local results use the transaction's allocation or minted shares.
+Remote payments use a registered inbox; receipt alone creates no debt reduction
+or shares. Source funding supports admitted EVM ERC-20/native routes and native
+SOL routes. The source wallet may differ from the Monad wallet and must match
+the reviewed source refund recipient.
+
+Use `settlement.routes()` to read configured routes. Non-recovery route entries
+include a public `sourceRpcUrl`, `sourceKind` (`erc20` or `native`), and, for SOL,
+`sourceGenesis` and `sourceAddressFormat: "solana"`. The quote, operation digest,
+source transfer, finalized inbox accounting, and source refunds are checked
+before completion. Normal repayment overflow cannot authorize payment above
+its receipt cap; excess is returned to its bound recipient.
+
+Payment options accept `signal`, `timeoutMs`, `onProgress`, `onLocalProgress`,
+and a `sourceWallet` or client `paymentWalletResolver`. Browser checkpoints are
+saved automatically. `PaymentPendingError` and `LocalPaymentPendingError` carry
+the saved operation. Resume with `credit.resumeRepayment(checkpoint)`,
+`credit.resumeLocalRepayment(checkpoint)`, `house.account(owner).resumeDeposit(checkpoint)`,
+or `house.account(owner).resumeLocalDeposit(checkpoint)`. Resuming verifies the existing
+transaction and authorization rather than creating another payment. Solana
+signed transfers are saved before broadcast and can be rebroadcast until their
+blockhash expires. An unfunded expired quote raises `PaymentExpiredError`.
+
 ## Aurora value routing
 
 The settlement adapter uses Aurora Intents 1Click to quote an admitted ERC-20

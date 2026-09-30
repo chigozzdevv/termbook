@@ -84,6 +84,12 @@ export class Settlement {
     this.client = client;
   }
 
+  async routes(): Promise<import("./payment-types.js").PaymentRoute[]> {
+    await this.client.ready();
+    if (!this.client.config.apiBase) throw new Error("api-required");
+    return new HttpClient(this.client.config.apiBase).get("/settlement/routes");
+  }
+
   async inboxStatus(inbox: `0x${string}`): Promise<ReceiptView> {
     await this.client.ready();
     if (!/^0x[a-fA-F0-9]{40}$/.test(inbox)) throw new Error("param-invalid");
@@ -140,8 +146,14 @@ export class Settlement {
   }
 
   async fundErc20(registration: SettlementRegistration, sourceRpcUrl: string, sourceWallet: Wallet): Promise<`0x${string}`> {
-    if (registration.sourceAddressFormat !== "evm" || registration.kind === "recovery" || !sourceWallet.writeContract || sourceWallet.address.toLowerCase() !== registration.payer.toLowerCase()) throw new Error("source-wallet-required");
-    if (!validEvmQuote(registration)) throw new Error("settlement-invalid");
+    if (registration.sourceAddressFormat !== "evm" || registration.kind === "recovery" || !sourceWallet.writeContract || sourceWallet.address.toLowerCase() !== registration.sourceRefundRecipient.toLowerCase()) throw new Error("source-wallet-required");
+    if (!validEvmQuote(registration) || !registration.operation) throw new Error("settlement-invalid");
+    const route = (await this.routes()).find((item) => item.kind === registration.kind
+      && item.routeId.toLowerCase() === registration.operation!.routeId.toLowerCase()
+      && item.routeVersion.toLowerCase() === registration.operation!.routeVersion.toLowerCase()
+      && item.sourceChain === registration.sourceChain && item.sourceAsset.toLowerCase() === registration.sourceAsset.toLowerCase());
+    if (!route || route.sourceKind === "native" || registration.providerQuote.quoteRequest.originAsset !== route.sourceAssetId
+      || registration.providerQuote.quoteRequest.destinationAsset !== route.destinationAssetId) throw new Error("settlement-route-not-admitted");
     const chain = createPublicClient({ transport: http(sourceRpcUrl) });
     if (await chain.getChainId() !== registration.sourceChain) throw new Error("chain-mismatch");
     const tx = await sourceWallet.writeContract({
@@ -273,10 +285,10 @@ export class Settlement {
     lpRecipient?: `0x${string}`;
     minShares?: bigint;
     registrationTxHash?: `0x${string}`;
-  }): Promise<SettlementRegistration> {
+  }, options: { allowExpiredQuote?: boolean; onSubmitted?: (tx: `0x${string}`) => Promise<void> } = {}): Promise<SettlementRegistration> {
     await this.client.ready();
     const factory = this.client.config.settlementFactory;
-    if (!factory || input.payer.toLowerCase() !== this.client.signer.address().toLowerCase() || !input.routeVersion || input.maxAmountIn <= 0n || input.maxReceived < input.minAmountOut || input.deadline <= Date.now() / 1000) throw new Error("settlement-route-required");
+    if (!factory || input.payer.toLowerCase() !== this.client.signer.address().toLowerCase() || !input.routeVersion || input.maxAmountIn <= 0n || input.maxReceived < input.minAmountOut || !options.allowExpiredQuote && input.deadline <= Date.now() / 1000) throw new Error("settlement-route-required");
     const sourceAddressFormat = input.sourceAddressFormat ?? "evm";
     const sourceRefundRecipient = input.sourceRefundRecipient ?? input.sourceRefund;
     if ((sourceAddressFormat !== "evm" && sourceAddressFormat !== "solana")
@@ -310,6 +322,10 @@ export class Settlement {
     const inboxBefore = await this.client.rpc.read<`0x${string}`>(factory, inboxFactoryAbi, "inboxOf", [id]);
     let registrationTxHash = input.registrationTxHash;
     if (inboxBefore.toLowerCase() === zeroAddress) {
+      if (input.deadline <= Date.now() / 1000) throw new Error("settlement-registration-expired");
+      if (registrationTxHash) {
+        await this.client.rpc.wait(registrationTxHash);
+      } else {
       const signature = await this.client.signer.sign({
         domain: { name: "Termbook", version: "1", chainId: this.client.config.chainId, verifyingContract: factory },
         primaryType: "SettlementOperation",
@@ -330,8 +346,10 @@ export class Settlement {
         ? await this.client.rpc.ethereumFactoryWormholeFee(factory) : undefined;
       const tx = await this.client.rpc.write(factory, inboxFactoryAbi, "createAuthorized",
         [operation, signature], wormholeFee);
-      await this.client.rpc.wait(tx);
       registrationTxHash = tx;
+      await options.onSubmitted?.(tx);
+      await this.client.rpc.wait(tx);
+      }
     }
     if (input.kind === "recovery" && (!registrationTxHash || !/^0x[a-fA-F0-9]{64}$/.test(registrationTxHash))) {
       throw new Error("recovery-registration-tx-required");
@@ -343,7 +361,14 @@ export class Settlement {
       if (Date.now() > until) throw new Error("settlement-finality-timeout");
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
-    const result = await this.client.authenticatedPost<{ operationId?: string; inbox?: string; quote?: OneClickQuoteResponse }>("/settlement", {
+    const [expectedDigest, storedDigest] = await Promise.all([
+      this.client.rpc.client.readContract({ address: factory, abi: inboxFactoryAbi,
+        functionName: "operationDigest", args: [operation], blockTag: "finalized" }),
+      this.client.rpc.client.readContract({ address: factory, abi: inboxFactoryAbi,
+        functionName: "operationDigestOf", args: [id], blockTag: "finalized" }),
+    ]);
+    if (expectedDigest !== storedDigest) throw new Error("settlement-operation-mismatch");
+    const body = {
       operationId: id,
       registrationTxHash,
       kind: input.kind,
@@ -359,13 +384,17 @@ export class Settlement {
       payer: input.payer,
       deadline: input.deadline,
       refundRecipient: input.monadRefund,
+      sourceRefund: input.sourceRefund,
       sourceRefundRecipient,
       monadRefundRecipient: input.monadRefund,
       routeVersion: input.routeVersion,
       routeId: input.routeId,
       lpRecipient: input.lpRecipient,
       minShares: input.minShares?.toString(),
-    });
+    };
+    const result = input.deadline <= Date.now() / 1000 && options.allowExpiredQuote
+      ? await new HttpClient(this.client.config.apiBase!).get<{ operationId?: string; inbox?: string; quote?: OneClickQuoteResponse }>(`/settlement/${id}`)
+      : await this.client.authenticatedPost<{ operationId?: string; inbox?: string; quote?: OneClickQuoteResponse }>("/settlement", body);
     const providerQuote = result.quote;
     const quote = providerQuote?.quote;
     const quotedRequest = providerQuote?.quoteRequest;
@@ -384,7 +413,7 @@ export class Settlement {
         || !quote.amountIn || BigInt(quote.amountIn) !== input.maxAmountIn
         || BigInt(quote.minAmountOut) < input.minAmountOut
         || BigInt(quote.amountOut) > input.maxReceived
-        || !quote.deadline || !Number.isFinite(quoteDeadline) || quoteDeadline <= Date.now()
+        || !quote.deadline || !Number.isFinite(quoteDeadline) || !options.allowExpiredQuote && quoteDeadline <= Date.now()
         || quoteDeadline > input.deadline * 1000
     ) throw new Error("settlement-invalid");
     const registration = { operationId: id, registrationTxHash, operation, kind: input.kind, payer: input.payer,

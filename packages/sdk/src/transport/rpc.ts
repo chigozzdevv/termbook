@@ -49,7 +49,8 @@ export class RpcClient {
     const writer = this.config.wallet.writeContract;
     if (!writer) throw new Error("wallet-write-unavailable");
     const rpcChainId = await this.client.getChainId();
-    if (rpcChainId !== this.config.chainId) throw new Error("chain-mismatch");
+    if (rpcChainId !== this.config.chainId || this.config.wallet.getChainId
+      && await this.config.wallet.getChainId() !== this.config.chainId) throw new Error("chain-mismatch");
     const request: ContractWriteRequest = { address, abi, functionName, args, account: this.config.wallet.address };
     if (value !== undefined) request.value = value;
     return writer(request);

@@ -95,6 +95,7 @@ contract HouseVault is IHouseVault {
     mapping(address => address) public lpInboxRecipient;
     mapping(address => uint256) public lpInboxMinShares;
     mapping(address => bool) public lpInboxMinted;
+    mapping(address => uint256) public lpInboxShares;
     mapping(uint256 => Withdrawal) public withdrawals;
     uint256 public withdrawalNonce;
     uint256 public queuedWithdrawalShares;
@@ -805,6 +806,7 @@ contract HouseVault is IHouseVault {
             if (minShares == 0) minShares = lpInboxMinShares[msg.sender];
             if (minted == 0 || minted < minShares) revert InvalidShares();
             lpInboxMinted[msg.sender] = true;
+            lpInboxShares[msg.sender] = minted;
             freeCash += amount;
             totalShares += minted;
             shares[lpInboxRecipient[msg.sender]] += minted;

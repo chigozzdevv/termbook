@@ -32,6 +32,9 @@ const routeSchema = z.object({
   maxAmountIn: z.string().regex(/^\d+$/),
   slippageBps: z.number().int().min(0).max(1000),
   sourceAddressFormat: z.enum(["evm", "solana"]).default("evm"),
+  sourceRpcUrl: z.string().url().optional(),
+  sourceKind: z.enum(["erc20", "native"]).optional(),
+  sourceGenesis: bytes32.optional(),
   recoveryVault: sourceAddress.optional(),
 });
 const quoteSchema = z.object({
@@ -48,6 +51,13 @@ const quoteSchema = z.object({
 }).passthrough();
 
 export type AuroraRoute = z.infer<typeof routeSchema>;
+
+export function paymentRoutes(): AuroraRoute[] {
+  if (!env.auroraRoutes || !env.auroraApiKey) return [];
+  const routes = z.array(routeSchema).parse(JSON.parse(env.auroraRoutes));
+  return routes.filter((route) => route.kind !== "recovery" && route.sourceRpcUrl
+    && (route.sourceAddressFormat !== "solana" || route.sourceGenesis && route.sourceKind === "native"));
+}
 
 export function admittedRoute(input: {
   routeId: string;

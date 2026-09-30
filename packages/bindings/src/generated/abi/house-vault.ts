@@ -915,6 +915,25 @@ export const houseVaultAbi = [
   },
   {
     "type": "function",
+    "name": "lpInboxShares",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "manager",
     "inputs": [],
     "outputs": [

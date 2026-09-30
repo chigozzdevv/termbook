@@ -38,7 +38,9 @@ contract SettlementInbox is ISettlementInbox {
     uint256 public applied;
     uint256 public refunded;
     uint256 public untrackedApplied;
+    uint256 public untrackedRefunded;
     bool public cancelled;
+    bool public boundedRepayment;
     bool private entered;
 
     error Reentered();
@@ -108,6 +110,11 @@ contract SettlementInbox is ISettlementInbox {
         amount = balance - outstanding;
         if (amount > maxReceived - received) revert CapExceeded();
         received += amount;
+    }
+
+    function configureRepayment() external {
+        if (msg.sender != factory || creditId == bytes32(0) || received != 0 || boundedRepayment) revert InvalidRecipient();
+        boundedRepayment = true;
     }
 
     function configureLp(address authorizer, uint256 minShares) external {
@@ -184,12 +191,13 @@ contract SettlementInbox is ISettlementInbox {
         if (block.timestamp <= deadline && !(creditId == bytes32(0) && (cancelled || applied != 0 || refunded != 0))) {
             revert Expired();
         }
-        if (creditId != bytes32(0) && ICreditDebt(ISettlementDebt(vault).core()).creditDebt(creditId) != 0) {
+        if (!boundedRepayment && creditId != bytes32(0) && ICreditDebt(ISettlementDebt(vault).core()).creditDebt(creditId) != 0) {
             revert Nothing();
         }
         uint256 balance = _balance();
         uint256 outstanding = available();
         if (amount == 0 || balance < outstanding || amount > balance - outstanding) revert Nothing();
+        untrackedRefunded += amount;
         uint256 recipientBalance = _balanceOf(refundRecipient);
         token.safeTransfer(refundRecipient, amount);
         if (_balanceOf(refundRecipient) - recipientBalance != amount) revert BadToken();
@@ -197,7 +205,7 @@ contract SettlementInbox is ISettlementInbox {
     }
 
     function settleUntracked(uint256 amount) external guard {
-        if (creditId == bytes32(0)) revert Nothing();
+        if (creditId == bytes32(0) || boundedRepayment) revert Nothing();
         uint256 debt = ICreditDebt(ISettlementDebt(vault).core()).creditDebt(creditId);
         uint256 balance = _balance();
         uint256 outstanding = available();

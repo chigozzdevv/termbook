@@ -45,3 +45,8 @@ export { Catalog } from "./catalog/catalog.js";
 export * from "./types/index.js";
 
 export * from "./credit/closure.js";
+
+export { PaymentPendingError, PaymentExpiredError } from "./settlement/payment.js";
+export { evmPaymentWallet } from "./settlement/payment-wallet.js";
+
+export { LocalPaymentPendingError, LocalPaymentFailedError } from "./settlement/local-payment.js";

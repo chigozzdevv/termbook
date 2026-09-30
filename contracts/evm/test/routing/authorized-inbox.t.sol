@@ -90,6 +90,20 @@ contract AuthorizedInboxTest is Test {
     address payer;
     bytes32 routeId = keccak256("route");
 
+    function testRepaymentCapDoesNotAuthorizeOverflowDebtPayment() public {
+        InboxFactory.Operation memory op = _operation(0);
+        SettlementInbox inbox = SettlementInbox(factory.createAuthorized(op, _signature(op)));
+        assertTrue(inbox.boundedRepayment());
+        token.mint(address(inbox), op.maxReceived + 1);
+        inbox.notifyReceipt(op.maxReceived);
+        vm.expectRevert(SettlementInbox.Nothing.selector);
+        inbox.settleUntracked(1);
+        vm.warp(uint256(op.deadline) + 1);
+        inbox.refundUntracked(1);
+        assertEq(inbox.untrackedRefunded(), 1);
+        assertEq(token.balanceOf(op.refundRecipient), 1);
+    }
+
     function setUp() public {
         token = new MockERC20();
         adapter = new MockSettlementReceiver();
@@ -243,6 +257,7 @@ contract AuthorizedInboxTest is Test {
         assertEq(house.shares(payer), 500);
         assertEq(house.freeCash(), 500);
         assertTrue(house.lpInboxMinted(address(inbox)));
+        assertEq(house.lpInboxShares(address(inbox)), house.shares(payer));
     }
 
     function testLpPayerCanCancelFundedInboxAndRefundLateReceipts() public {

@@ -9,6 +9,8 @@ import { requestAuroraStatus } from "./aurora.client.js";
 import type { OneClickQuoteResponse } from "@defuse-protocol/one-click-sdk-typescript";
 
 const inboxAbi = parseAbi([
+  "function cancelled() view returns (bool)",
+  "function boundedRepayment() view returns (bool)",
   "function vault() view returns (address)",
   "function token() view returns (address)",
   "function creditId() view returns (bytes32)",
@@ -131,7 +133,7 @@ async function reconcile(operation: Operation): Promise<boolean> {
   const inbox = operation.inbox as `0x${string}`;
   const vault = operation.vault as `0x${string}`;
   const token = operation.token as `0x${string}`;
-  const [registered, actualVault, actualToken, creditId, deadline, minOut, cap, received, applied, refunded, active, balance] = await Promise.all([
+  const [registered, actualVault, actualToken, creditId, deadline, minOut, cap, received, applied, refunded, active, balance, cancelled] = await Promise.all([
     chain.readContract({ address: env.settlementFactory as `0x${string}`, abi: factoryAbi, functionName: "inboxOf", args: [operation.operationId as `0x${string}`], blockNumber }),
     chain.readContract({ address: inbox, abi: inboxAbi, functionName: "vault" , blockNumber }),
     chain.readContract({ address: inbox, abi: inboxAbi, functionName: "token" , blockNumber }),
@@ -144,12 +146,13 @@ async function reconcile(operation: Operation): Promise<boolean> {
     chain.readContract({ address: inbox, abi: inboxAbi, functionName: "refunded" , blockNumber }),
     chain.readContract({ address: vault, abi: houseAbi, functionName: "settlementInboxes", args: [inbox] , blockNumber }),
     chain.readContract({ address: token, abi: tokenAbi, functionName: "balanceOf", args: [inbox] , blockNumber }),
+    chain.readContract({ address: inbox, abi: inboxAbi, functionName: "cancelled", blockNumber }),
   ]);
   if (
     registered.toLowerCase() !== inbox.toLowerCase() || actualVault.toLowerCase() !== vault.toLowerCase()
       || actualToken.toLowerCase() !== token.toLowerCase() || !active
       || creditId.toLowerCase() !== (operation.creditId ?? zeroBytes32).toLowerCase()
-      || deadline !== BigInt(operation.deadline) || minOut !== BigInt(operation.minAmountOut)
+      || operation.kind !== "lp_deposit" && (deadline !== BigInt(operation.deadline) || minOut !== BigInt(operation.minAmountOut))
       || cap !== BigInt(operation.maxReceived) || received < applied + refunded
   ) throw new Error("settlement-inbox-mismatch");
   await SettlementModel.updateOne({ operationId: operation.operationId, inbox: operation.inbox }, {
@@ -174,15 +177,15 @@ async function reconcile(operation: Operation): Promise<boolean> {
     if (creditId.toLowerCase() !== zeroBytes32) {
       const core = await chain.readContract({ address: vault, abi: houseAbi, functionName: "core" , blockNumber });
       const debt = await chain.readContract({ address: core, abi: coreAbi, functionName: "creditDebt", args: [creditId] , blockNumber });
-      if (debt !== 0n && available === 0n) {
+      if (operation.kind === "recovery" && debt !== 0n && available === 0n) {
         await act("settleUntracked", untracked < debt ? untracked : debt);
         return true;
       }
-      if (debt === 0n && now > deadline) {
+      if ((debt === 0n || operation.kind === "repay") && now > deadline) {
         await act("refundUntracked", untracked);
         return true;
       }
-    } else if (now > deadline) {
+    } else if (now > deadline || cancelled) {
         await act("refundUntracked", untracked);
         return true;
     }
@@ -220,7 +223,7 @@ async function reconcile(operation: Operation): Promise<boolean> {
     return false;
   }
   if (creditId.toLowerCase() === zeroBytes32) {
-    if (now > deadline) {
+    if (now > deadline || cancelled) {
       await act("refund", available);
       return true;
     }

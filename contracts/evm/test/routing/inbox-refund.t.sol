@@ -73,6 +73,7 @@ contract InboxRefundTest is Test {
         vm.warp(block.timestamp + 2 days);
         inbox.refundUntracked(100);
         assertEq(token.balanceOf(address(3)), 100);
+        assertEq(inbox.untrackedRefunded(), 100);
         assertEq(inbox.available(), 1_000);
         assertEq(token.balanceOf(address(inbox)), 1_000);
         vm.expectRevert(SettlementInbox.Nothing.selector);

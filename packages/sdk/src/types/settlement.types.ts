@@ -4,6 +4,8 @@ export type RepayArgs = {
   maxPayment?: bigint;
   deadline?: number;
   source?: {
+    sourceAddressFormat?: "evm" | "solana";
+    sourceRefundRecipient?: string;
     chainId: number;
     asset: `0x${string}`;
     maxAmountIn: bigint;
@@ -29,5 +31,12 @@ export type RepayResult = {
   deadline?: string;
   providerQuote?: unknown;
   registration?: SettlementRegistration;
+  localCheckpoint?: import("../settlement/local-payment.js").LocalPaymentCheckpoint;
+  checkpoint?: import("../settlement/payment-types.js").PaymentCheckpoint;
+  refunded?: bigint;
+  sourceRefunded?: bigint;
 };
 import type { SettlementRegistration } from "../settlement/settlement.js";
+
+export type { PaymentCheckpoint, PaymentOptions, PaymentRoute, PaymentSourceWallet } from "../settlement/payment-types.js";
+export type { LocalPaymentCheckpoint, LocalPaymentOptions } from "../settlement/local-payment.js";

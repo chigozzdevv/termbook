@@ -170,6 +170,7 @@ contract InboxFactory {
         inboxOf[op.operationId] = inbox;
         bytes32 digest = operationDigest(op);
         operationDigestOf[op.operationId] = digest;
+        if (op.kind == 0) SettlementInbox(inbox).configureRepayment();
         if (op.kind == 2) SettlementInbox(inbox).configureLp(op.payer, op.minShares);
         IHouseInboxRegistration(op.vault).registerInboxFromFactory(inbox, op.kind, op.lpRecipient, op.minShares);
         if (op.kind == 1) {

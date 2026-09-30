@@ -73,6 +73,19 @@ export const settlementInboxAbi = [
   },
   {
     "type": "function",
+    "name": "boundedRepayment",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "cancel",
     "inputs": [],
     "outputs": [],
@@ -106,6 +119,13 @@ export const settlementInboxAbi = [
         "internalType": "uint256"
       }
     ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "configureRepayment",
+    "inputs": [],
     "outputs": [],
     "stateMutability": "nonpayable"
   },
@@ -459,6 +479,19 @@ export const settlementInboxAbi = [
   {
     "type": "function",
     "name": "untrackedApplied",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "untrackedRefunded",
     "inputs": [],
     "outputs": [
       {

@@ -3,12 +3,18 @@ import { HttpError } from "../http/http.errors.js";
 import { env } from "../config/env.js";
 import { monadClient } from "../chain/monad.client.js";
 import { admittedRoute, requestAuroraQuote } from "./aurora.client.js";
-import { encodeAbiParameters, keccak256 } from "viem";
+import { encodeAbiParameters, keccak256, parseAbi } from "viem";
 import { solanaBase58Bytes } from "../collateral/solana-proof.js";
+import { solanaAlias } from "../quote/solana.js";
 import type { AuroraRoute } from "./aurora.client.js";
 import type { z } from "zod";
 import type { settlementSchema } from "./settlement.schema.js";
 
+const operationAbi = parseAbi([
+  "function operationDigest((bytes32 operationId,uint8 kind,address payer,uint256 sourceChain,address sourceAsset,address vault,address token,bytes32 creditId,uint256 maxAmountIn,uint256 minOut,uint256 maxReceived,address sourceRefund,address refundRecipient,uint256 deadline,bytes32 routeId,bytes32 routeVersion,address lpRecipient,uint256 minShares) op) view returns (bytes32)",
+  "function operationDigestOf(bytes32) view returns (bytes32)",
+]);
+const zeroAddress = "0x0000000000000000000000000000000000000000";
 const zero = "0x0000000000000000000000000000000000000000000000000000000000000000";
 const factoryAbi = [{ type: "function", name: "inboxOf", stateMutability: "view", inputs: [{ type: "bytes32" }], outputs: [{ type: "address" }] }] as const;
 const registryAbi = [{ type: "function", name: "routes", stateMutability: "view", inputs: [{ type: "bytes32" }], outputs: [{ type: "address" }, { type: "bytes32" }, { type: "bool" }, { type: "uint256" }, { type: "uint256" }] }] as const;
@@ -48,6 +54,27 @@ async function confirmedInbox(input: Input, route: AuroraRoute): Promise<`0x${st
   }
   const inbox = await chain.readContract({ blockNumber: finalizedBlock, address: env.settlementFactory as `0x${string}`, abi: factoryAbi, functionName: "inboxOf", args: [input.operationId as `0x${string}`] });
   if (inbox.toLowerCase() === "0x0000000000000000000000000000000000000000") throw new HttpError(409, "settlement-inbox-required");
+  const sourceRefund = input.sourceRefund ?? (route.sourceAddressFormat === "evm" ? input.sourceRefundRecipient : undefined);
+  if (!sourceRefund || route.sourceAddressFormat === "evm"
+    && sourceRefund.toLowerCase() !== input.sourceRefundRecipient.toLowerCase()) throw new HttpError(409, "settlement-source-refund-mismatch");
+  if (route.sourceAddressFormat === "solana" && route.sourceGenesis
+    && solanaAlias(route.sourceGenesis as `0x${string}`, solanaBase58Bytes(input.sourceRefundRecipient)).toLowerCase() !== sourceRefund.toLowerCase()) throw new HttpError(409, "settlement-source-refund-mismatch");
+  const operation = {
+    operationId: input.operationId, kind: input.kind === "repay" ? 0 : input.kind === "recovery" ? 1 : 2,
+    payer: input.payer, sourceChain: BigInt(input.sourceChain), sourceAsset: input.sourceAsset,
+    vault: input.vault, token: input.token, creditId: input.creditId ?? zero,
+    maxAmountIn: BigInt(input.maxAmountIn), minOut: BigInt(input.minAmountOut), maxReceived: BigInt(input.maxReceived),
+    sourceRefund, refundRecipient: input.monadRefundRecipient, deadline: BigInt(input.deadline),
+    routeId: input.routeId, routeVersion: input.routeVersion, lpRecipient: input.lpRecipient ?? zeroAddress,
+    minShares: BigInt(input.minShares ?? "0"),
+  };
+  const [expectedDigest, registeredDigest] = await Promise.all([
+    chain.readContract({ address: env.settlementFactory as `0x${string}`, abi: operationAbi,
+      functionName: "operationDigest", args: [operation as never], blockNumber: finalizedBlock }),
+    chain.readContract({ address: env.settlementFactory as `0x${string}`, abi: operationAbi,
+      functionName: "operationDigestOf", args: [input.operationId as `0x${string}`], blockNumber: finalizedBlock }),
+  ]);
+  if (expectedDigest.toLowerCase() !== registeredDigest.toLowerCase()) throw new HttpError(409, "settlement-operation-mismatch");
   const registry = await chain.readContract({ blockNumber: finalizedBlock, address: env.settlementFactory as `0x${string}`, abi: registryPointerAbi, functionName: "routeRegistry" });
   if (registry.toLowerCase() === "0x0000000000000000000000000000000000000000") throw new HttpError(503, "settlement-route-unavailable");
   const [adapter, pair, enabled, maximum, version] = await chain.readContract({ blockNumber: finalizedBlock, address: registry, abi: registryAbi, functionName: "routes", args: [input.routeId as `0x${string}`] });

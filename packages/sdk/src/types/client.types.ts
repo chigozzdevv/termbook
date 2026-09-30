@@ -43,6 +43,7 @@ export type ClientConfig = {
   confirmations?: number;
   actions?: CapabilityDefinition[];
   settlementAsset?: `0x${string}`;
+  paymentWalletResolver?: (route: import("../settlement/payment-types.js").PaymentRoute) => Promise<import("../settlement/payment-types.js").PaymentSourceWallet>;
   sourceWalletResolver?: (market: CollateralMarket) => Promise<SourceLockWallet>;
 };
 

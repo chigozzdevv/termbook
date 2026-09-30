@@ -3,13 +3,15 @@ import type { AppAction } from "../types/app.types.js";
 import type { ActivityCallback, Unsubscribe } from "../types/client.types.js";
 import type { CreditActivity, CreditSummary, ExecuteResult, ExecuteOptions } from "../types/credit.types.js";
 import type { RepayArgs, RepayResult } from "../types/settlement.types.js";
-import { settlementNonce } from "../settlement/settlement.js";
+import { localPayment, savedLocalPayment, type LocalPaymentCheckpoint } from "../settlement/local-payment.js";
+import { remotePayment, savedPayment } from "../settlement/payment.js";
+import type { PaymentCheckpoint, PaymentOptions } from "../settlement/payment-types.js";
 import { CreditApp } from "../app/app.js";
 import { CreditAccount } from "../account/account.js";
 import { CreditCollateral } from "../collateral/collateral.js";
 import type { CollateralSetup } from "../collateral/setup.js";
 import { houseVaultAbi, termbookCoreAbi } from "@termbook/bindings";
-import { decodeEventLog, decodeFunctionData, parseAbi } from "viem";
+import { decodeFunctionData, parseAbi } from "viem";
 import { closeCredit, type CloseOptions } from "./closure.js";
 const clearanceAbi = parseAbi(["function confirmRemoteRecoveryClearance(bytes32,bytes,bytes)"]);
 
@@ -124,7 +126,17 @@ export class Credit {
     return { debt, cap, deadline };
   }
 
-  async repay(args: RepayArgs): Promise<RepayResult> {
+  async repay(args: RepayArgs, options: PaymentOptions = {}): Promise<RepayResult> {
+    await this.client.ready();
+    if (options.checkpoint) return this.resumeRepayment(options.checkpoint, options);
+    const remote = savedPayment(this.client, { kind: "repay", vault: this.client.config.core, creditId: this.id });
+    if (remote && remote.stage !== "complete") {
+      if (args.from !== "aurora_intents") throw new Error("payment-already-pending");
+      return this.resumeRepayment(remote, options);
+    }
+    const local = options.localCheckpoint ?? savedLocalPayment(this.client, { kind: "repay", chainId: this.client.config.chainId,
+      target: this.client.config.core, payer: this.client.signer.address(), creditId: this.id });
+    if (local && (options.localCheckpoint || local.stage !== "complete")) return this.resumeLocalRepayment(local, options);
     if (args.amount !== "max" && args.amount <= 0n) throw new Error("param-invalid");
     const details = await this.details();
     const vault = asAddress(field(details, "vault", 4));
@@ -136,53 +148,49 @@ export class Credit {
     if (debt === 0n) return { applied: 0n, remaining: 0n, status: "applied" };
     if (args.from === "aurora_intents") {
       if (!args.source || args.source.maxAmountIn <= 0n) throw new Error("settlement-route-required");
-      const operation = await this.client.settlement.register({
-        kind: "repay",
-        payer: this.client.signer.address(),
-        nonce: settlementNonce(),
-        chainId: args.source.chainId,
-        routeId: args.source.routeId,
-        routeVersion: args.source.routeVersion,
-        creditId: this.id,
-        asset: args.source.asset,
-        settlementAsset: asset,
-        vault,
-        maxAmountIn: args.source.maxAmountIn,
-        maxReceived: args.source.maxReceived,
-        minAmountOut: cap < debt ? cap : debt,
-        deadline,
-        sourceRefund: args.source.sourceRefund,
-        monadRefund: args.source.monadRefund,
-      });
-      return { applied: 0n, remaining: debt, status: "pending", registration: operation, ...operation };
+      if (args.source.maxReceived > cap) throw new Error("repayment-cap-invalid");
+      const outcome = await remotePayment(this.client, { kind: "repay", payer: this.client.signer.address(),
+        vault, token: asset, creditId: this.id, amount: String(cap < debt ? cap : debt), deadline,
+        source: { ...args.source, maxAmountIn: String(args.source.maxAmountIn), maxReceived: String(args.source.maxReceived) },
+      }, options);
+      return { applied: outcome.applied, remaining: outcome.remaining, status: outcome.applied > 0n && outcome.remaining > 0n ? "partial" : outcome.status,
+        refunded: outcome.refunded, sourceRefunded: outcome.sourceRefunded, checkpoint: outcome.checkpoint,
+        registration: outcome.registration, ...(outcome.registration ?? {}) };
     }
+
     const fromAccount = args.from === "credit_account";
     if (fromAccount) {
       const cash = await this.client.rpc.creditFreeCash(this.id);
       if (cash < debt && args.amount === "max" || cash === 0n) throw new Error("settle-failed");
       if (cap > cash) cap = cash;
-    } else {
-      await this.client.rpc.wait(await this.client.rpc.approve(asset, this.client.config.core, cap));
     }
-    const tx = await this.client.rpc.coreWrite("repayUpTo", [this.id, cap, BigInt(deadline), fromAccount, args.amount === "max"]);
-    const receipt = await this.client.rpc.wait(tx);
-    let applied = 0n;
-    for (const log of receipt.logs) {
-      if (log.address.toLowerCase() !== this.client.config.core.toLowerCase()) continue;
-      try {
-        const event = decodeEventLog({ abi: termbookCoreAbi, data: log.data, topics: log.topics });
-        if (event.eventName === "Repaid" && event.args.creditId.toLowerCase() === this.id.toLowerCase()) applied += event.args.amount;
-      } catch { /* Other receipt events do not account for repayment. */ }
-    }
-    const remaining = await this.client.rpc.debt(this.id);
-    const result: RepayResult = { applied, remaining, status: remaining === 0n ? "applied" : "partial", tx };
+    const result = await localPayment(this.client, { kind: "repay", chainId: this.client.config.chainId,
+      payer: this.client.signer.address(), target: this.client.config.core, token: asset, creditId: this.id,
+      amount: String(cap), deadline, fromAccount, requireFull: args.amount === "max", stage: "reviewed" }, options);
+    const { applied, remaining, tx } = result;
+    const repayment: RepayResult = { applied, remaining, status: remaining === 0n ? "applied" : "partial", tx, localCheckpoint: result.checkpoint };
     if (!fromAccount && applied < cap) {
       try {
-        result.approvalCleanupTx = await this.client.rpc.approve(asset, this.client.config.core, 0n);
-        await this.client.rpc.wait(result.approvalCleanupTx);
-      } catch { result.approvalCleanupRequired = true; }
+        repayment.approvalCleanupTx = await this.client.rpc.approve(asset, this.client.config.core, 0n);
+        await this.client.rpc.wait(repayment.approvalCleanupTx);
+      } catch { repayment.approvalCleanupRequired = true; }
     }
-    return result;
+    return repayment;
+  }
+
+  async resumeLocalRepayment(checkpoint: LocalPaymentCheckpoint, options: PaymentOptions = {}): Promise<RepayResult> {
+    if (checkpoint.kind !== "repay" || checkpoint.creditId?.toLowerCase() !== this.id.toLowerCase()) throw new Error("payment-checkpoint-invalid");
+    const result = await localPayment(this.client, checkpoint, { ...options, localCheckpoint: checkpoint });
+    return { applied: result.applied, remaining: result.remaining, status: result.remaining === 0n ? "applied" : "partial",
+      tx: result.tx, localCheckpoint: result.checkpoint };
+  }
+
+  async resumeRepayment(checkpoint: PaymentCheckpoint, options: Omit<PaymentOptions, "checkpoint"> = {}): Promise<RepayResult> {
+    if (checkpoint.input.kind !== "repay" || checkpoint.input.creditId?.toLowerCase() !== this.id.toLowerCase()) throw new Error("payment-checkpoint-invalid");
+    const outcome = await remotePayment(this.client, checkpoint.input, { ...options, checkpoint });
+    return { applied: outcome.applied, remaining: outcome.remaining, status: outcome.applied > 0n && outcome.remaining > 0n ? "partial" : outcome.status,
+      refunded: outcome.refunded, sourceRefunded: outcome.sourceRefunded, checkpoint: outcome.checkpoint,
+      registration: outcome.registration, ...(outcome.registration ?? {}) };
   }
 
   async close(options: CloseOptions = {}): Promise<{ closed: true; tx?: `0x${string}` }> {

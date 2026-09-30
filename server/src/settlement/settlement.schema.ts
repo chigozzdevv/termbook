@@ -13,6 +13,7 @@ export const settlementSchema = z.object({
   payer: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
   nonce: z.string().regex(/^\d+$/).refine((value) => BigInt(value) >= 0n),
   sourceChain: z.number().int().positive(),
+  sourceRefund: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
   sourceAsset: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
   vault: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
   token: z.string().regex(/^0x[a-fA-F0-9]{40}$/),

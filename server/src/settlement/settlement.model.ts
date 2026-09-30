@@ -11,6 +11,7 @@ const settlementSchema = new mongoose.Schema(
     nonce: String,
     sourceChain: Number,
     sourceAsset: String,
+    sourceRefund: String,
     vault: String,
     token: String,
     creditId: String,

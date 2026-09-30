@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { encodeAbiParameters, encodeEventTopics } from "viem";
+import { encodeAbiParameters, encodeEventTopics, encodeFunctionData } from "viem";
 import { termbookCoreAbi } from "@termbook/bindings";
 import { Credit } from "../src/credit/credit.js";
 
@@ -9,16 +9,29 @@ const asset = `0x${"3".repeat(40)}` as const;
 const tx = `0x${"4".repeat(64)}` as const;
 function fixture() {
   const topics = encodeEventTopics({ abi: termbookCoreAbi, eventName: "Repaid", args: { creditId: id } });
+  let input = "0x" as `0x${string}`;
+  const blockHash = tx;
+  const payer = core;
   const rpc = {
     creditDetails: async () => ({ debt: 200n, vault: core }),
     read: vi.fn(async (_address: unknown, _abi: unknown, name: string) => name === "repaymentQuote" ? [210n, 220n] : asset),
-    coreWrite: vi.fn(async (_name: string, _args: readonly unknown[]) => tx),
+    coreWrite: vi.fn(async (_name: string, _args: readonly unknown[]) => {
+      input = encodeFunctionData({ abi: termbookCoreAbi, functionName: _name, args: _args } as never); return tx;
+    }),
     approve: vi.fn(async (_asset: string, _spender: string, _amount: bigint) => tx), debt: async () => 0n,
     creditFreeCash: vi.fn(async () => 219n),
     wait: vi.fn(async () => ({ logs: [{ address: core, topics,
       data: encodeAbiParameters([{ type: "uint256" }, { type: "uint256" }], [215n, 0n]) }] })),
   };
-  const credit = new Credit({ ready: async () => {}, config: { core }, rpc } as never, id);
+  const finalized = {
+    getChainId: async () => 143,
+    getBlock: async () => ({ number: 1n, hash: blockHash, transactions: [tx] }),
+    getTransaction: async () => ({ to: core, from: payer, input, value: 0n }),
+    readContract: async () => 0n,
+    getTransactionReceipt: async () => ({ ...(await rpc.wait()), status: "success", blockNumber: 1n, blockHash, transactionIndex: 0 }),
+  };
+  const credit = new Credit({ ready: async () => {}, config: { core, chainId: 143 }, signer: { address: () => payer },
+    rpc: { ...rpc, client: finalized } } as never, id);
   return { credit, rpc };
 }
 describe("capped repayment", () => {

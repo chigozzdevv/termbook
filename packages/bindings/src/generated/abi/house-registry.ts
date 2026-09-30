@@ -12,6 +12,25 @@ export const houseRegistryAbi = [
   },
   {
     "type": "function",
+    "name": "activePolicyVersion",
+    "inputs": [
+      {
+        "name": "house",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "disable",
     "inputs": [
       {

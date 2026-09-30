@@ -31,6 +31,9 @@ library Types {
         uint256 aprBps;
         uint256 originationFee;
         uint256 commitmentFeeBps;
+        bytes32 reservationPolicyHash;
+        address bondPayer;
+        address bondRefundRecipient;
         bytes signature;
     }
 

@@ -15,6 +15,7 @@ export * from "./abi/integration-registry.js";
 export * from "./abi/protocol-governance.js";
 export * from "./abi/guardian.js";
 export * from "./abi/house-registry.js";
+export * from "./abi/reservation-manager.js";
 export * from "./abi/house-policy-governor.js";
 export * from "./abi/verifier-registry.js";
 export * from "./abi/ethereum-beacon-light-client.js";

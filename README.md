@@ -146,6 +146,21 @@ HouseRegistry and vault asset, then ranked by estimated cost for a common draw
 and duration. The displayed estimate includes origination, interest, and
 commitment fees under those assumptions.
 
+Registered Houses require a complete quote binding the immutable reservation
+policy, bond payer, and refund recipient. `ReservationManager` enforces a minimum
+annual reservation rate of 100 basis points, a setup duration of at most seven
+days, a bond covering maximum disclosed charges, and borrower and House count
+and amount caps. Charges stop at readiness or the accepted setup deadline; unused
+bond is refunded without releasing the ready facility's commitment. Abandonment
+and expiry apply the accepted charges and bounded repeat penalties. Governance
+can attest a protocol setup failure with an evidence hash, giving a full refund.
+Bond custody stays in HouseVault's separate bond accounting until settlement.
+Sponsor funding requires a single-use onchain grant binding the Credit, borrower,
+vault, policy, refund recipient, amount cap, and expiry. SDK acceptance can use
+`sponsor_wallet` and `sponsor_cap`, or an existing valid grant and token allowance.
+House policy versions increase monotonically; configured risk terms cannot be
+changed within a version.
+
 `CreditApp.review()` simulates the complete action through `Core.previewPlan`
 and displays the resulting debt, recoverable value, and health threshold. The
 simulation always reverts its state changes. Actual execution repeats the

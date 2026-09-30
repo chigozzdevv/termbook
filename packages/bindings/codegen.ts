@@ -22,6 +22,7 @@ const contracts = {
   ProtocolGovernance: "protocol-governance",
   Guardian: "guardian",
   HouseRegistry: "house-registry",
+  ReservationManager: "reservation-manager",
   HousePolicyGovernor: "house-policy-governor",
   VerifierRegistry: "verifier-registry",
   EthereumBeaconLightClient: "ethereum-beacon-light-client",

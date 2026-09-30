@@ -404,6 +404,12 @@ export class TermbookModal {
       terms.append(element("p", `House ${this.offer.house}`, "mono"));
       terms.append(element("p", `Collateral ${this.offer.collateralAmount} · Credit ${this.offer.limit} · APR ${this.offer.aprBps / 100}%`));
       terms.append(element("p", `Origination fee ${this.offer.originationFee} · Reservation bond ${this.offer.reservationBond}`));
+      if (this.offer.reservationTerms) {
+        const reservation = this.offer.reservationTerms;
+        terms.append(element("p", `Reservation rate ${reservation.annualRateBps / 100}% annually on the reserved limit until ready or the setup deadline.`));
+        terms.append(element("p", `Setup fee ${reservation.readyFee} · Abandonment fee ${reservation.abandonFee + reservation.repeatCharge} · Expiry fee ${reservation.expiryFee + reservation.repeatCharge}.`));
+        terms.append(element("p", "Unused bond returns to the authorized payer. An attested protocol setup failure refunds the full bond."));
+      }
       if (this.offer.estimatedTotalCost !== undefined) terms.append(element("p", `Estimated total cost ${this.offer.estimatedTotalCost} base units for a ${this.offer.costAssumptions?.draw ?? 0n} base-unit draw over ${this.offer.costAssumptions?.durationSeconds ?? 0} seconds.`));
       if (this.offer.riskTerms) terms.append(element("p", `Initial ${this.offer.riskTerms.initialBps} · Maintenance ${this.offer.riskTerms.maintenanceBps} · Watch ${this.offer.riskTerms.watchBps} · Freeze ${this.offer.riskTerms.freezeBps} · Recovery ${this.offer.riskTerms.liquidationBps} bps`));
       terms.append(element("p", `Expires ${new Date(this.offer.expiry * 1000).toLocaleString()}`));

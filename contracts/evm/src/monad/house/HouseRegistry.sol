@@ -91,7 +91,7 @@ contract HouseRegistry {
             revert Unauthorized();
         }
         if (
-            version == 0 || maxLimit == 0 || minMaturity == 0 || maxMaturity < minMaturity || maxAprBps > 1_000_000
+            version <= policies[house].version || maxLimit == 0 || minMaturity == 0 || maxMaturity < minMaturity || maxAprBps > 1_000_000
                 || maxOriginationFeeBps > 10_000 || maxCommitmentFeeBps > 10_000
         ) revert Invalid();
         policies[house] = Policy({
@@ -132,7 +132,7 @@ contract HouseRegistry {
                 || freezeBps < liquidationBps || liquidationBps < PROTOCOL_FLOOR_BPS
         ) revert Invalid();
         Policy storage policy = policies[house];
-        if (!policy.active) revert Invalid();
+        if (!policy.active || policy.riskConfigured) revert Invalid();
         policy.initialBps = initialBps;
         policy.maintenanceBps = maintenanceBps;
         policy.watchBps = watchBps;
@@ -154,5 +154,10 @@ contract HouseRegistry {
     function isActiveHouse(address house, address vault) external view returns (bool) {
         House memory registered = houses[house];
         return registered.active && registered.vault == vault && houseOfVault[vault] == house;
+    }
+
+    function activePolicyVersion(address house) external view returns (uint256) {
+        Policy memory policy = policies[house];
+        return policy.active && policy.riskConfigured && houses[house].active ? policy.version : 0;
     }
 }

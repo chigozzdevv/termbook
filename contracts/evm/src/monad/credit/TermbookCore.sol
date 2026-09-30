@@ -12,6 +12,7 @@ import {IExitVerifier} from "../integration/IExitVerifier.sol";
 import {IAppRecoveryAdapter} from "../integration/IAppRecoveryAdapter.sol";
 import {IAppExitPlanner} from "../integration/IAppExitPlanner.sol";
 import {ExecutionManager} from "../integration/ExecutionManager.sol";
+import {ReservationManager} from "../house/ReservationManager.sol";
 import {ExecutionTypes} from "../integration/IExecutionPolicy.sol";
 import {InboxFactory} from "../routing/InboxFactory.sol";
 import {SettlementInbox} from "../routing/SettlementInbox.sol";
@@ -154,6 +155,7 @@ interface IVerifierRegistryCore {
 
 interface IHouseRegistryCore {
     function isActiveHouse(address house, address vault) external view returns (bool);
+    function activePolicyVersion(address house) external view returns (uint256);
     function policies(address house)
         external
         view
@@ -430,6 +432,9 @@ contract TermbookCore is ITermbookCore {
     address public healthSource;
     bytes32 public immutable domain;
     ExecutionManager public immutable executionManager;
+    ReservationManager public immutable reservationManager;
+    mapping(bytes32 => bytes32) public setupFailureEvidence;
+    event SetupProtocolFailure(bytes32 indexed creditId, bytes32 evidenceHash);
     mapping(bytes32 => bool) public managedBundle;
     mapping(bytes32 => bool) public actionHealthBlocked;
     bool public paused;
@@ -617,6 +622,7 @@ contract TermbookCore is ITermbookCore {
         riskEngine = risk_;
         domain = keccak256(abi.encode("termbook-v1", block.chainid, address(this)));
         executionManager = new ExecutionManager(address(this));
+        reservationManager = new ReservationManager(address(this));
     }
 
     function setGovernance(address governance_) external onlyGovernance {
@@ -1064,6 +1070,21 @@ contract TermbookCore is ITermbookCore {
         managedBundle[bundleId] = true;
     }
 
+    function configureReservationPolicy(address house, uint256 version, ReservationManager.Policy calldata policy)
+        external onlyGovernance {
+        if (houseRegistry == address(0) || !IHouseRegistryCore(houseRegistry).isActiveHouse(house, policy.vault)) revert InvalidVault();
+        if (IHouseRegistryCore(houseRegistry).activePolicyVersion(house) != version) revert InvalidTerms();
+        reservationManager.configure(house, version, policy);
+    }
+
+    function markSetupProtocolFailure(bytes32 creditId, bytes32 evidenceHash) external onlyGovernance {
+        Credit storage c = _credits[creditId];
+        if (c.borrower == address(0) || uint256(c.facility) > uint256(Types.Facility.AccountCreating)
+            || c.debt != 0 || evidenceHash == bytes32(0) || setupFailureEvidence[creditId] != bytes32(0)) revert BadState();
+        setupFailureEvidence[creditId] = evidenceHash;
+        emit SetupProtocolFailure(creditId, evidenceHash);
+    }
+
     function configureExecutionSession(bytes32 creditId, address key, ExecutionManager.Permission[] calldata permissions,
         uint256 perAction, uint256 total, uint256 maxExposure, uint256 aggregateExposure, uint256 expiry) external {
         Credit storage c = _credits[creditId];
@@ -1270,7 +1291,10 @@ contract TermbookCore is ITermbookCore {
                 quote.termsHash,
                 quote.aprBps,
                 quote.originationFee,
-                quote.commitmentFeeBps
+                quote.commitmentFeeBps,
+                quote.reservationPolicyHash,
+                quote.bondPayer,
+                quote.bondRefundRecipient
             )
         );
     }
@@ -1489,7 +1513,7 @@ contract TermbookCore is ITermbookCore {
         }
         bytes32 fullDigest = quoteDigestFull(quote);
         if (!AuthLib.verify(fullDigest, quote.signature, quote.house)) revert BadSig();
-        _accept(p, true, false);
+        _acceptReserved(p, true, false, ReservationManager.Authorization(quote.reservationPolicyHash, quote.bondPayer, quote.bondRefundRecipient));
         if (quote.collateralVault != address(0)) {
             if (
                 quote.owner == address(0) || quote.collateralAsset == address(0) || quote.collateralAmount == 0
@@ -1551,7 +1575,7 @@ contract TermbookCore is ITermbookCore {
             quote.originationFee,
             quote.commitmentFeeBps
         );
-        _accept(p, true, false);
+        _acceptReserved(p, true, false, ReservationManager.Authorization(quote.reservationPolicyHash, quote.bondPayer, quote.bondRefundRecipient));
         solanaCollateral[creditId] = true;
         _setQuotedCollateral(
             creditId,
@@ -1576,6 +1600,11 @@ contract TermbookCore is ITermbookCore {
     }
 
     function _accept(AcceptParams memory p, bool fullDigest, bool termsDigest) internal {
+        _acceptReserved(p, fullDigest, termsDigest, ReservationManager.Authorization(bytes32(0), address(0), address(0)));
+    }
+
+    function _acceptReserved(AcceptParams memory p, bool fullDigest, bool termsDigest,
+        ReservationManager.Authorization memory reservationAuth) internal {
         if (paused) revert Frozen();
         if (msg.sender != p.borrower) revert Unauthorized();
         if (intentUsed[p.intentId] || _credits[p.creditId].revision != 0 || houseNonces[p.house][p.houseNonce]) {
@@ -1598,6 +1627,7 @@ contract TermbookCore is ITermbookCore {
         uint256 liquidationBps;
         if (houseRegistry != address(0)) {
             if (!IHouseRegistryCore(houseRegistry).isActiveHouse(p.house, p.vault)) revert InvalidVault();
+            if (!fullDigest) revert InvalidTerms();
             _requireExecutionDependencies(p.bundleId);
             uint256 maxLimit;
             uint256 minMaturity;
@@ -1685,7 +1715,12 @@ contract TermbookCore is ITermbookCore {
         houseNonces[p.house][p.houseNonce] = true;
         IHouseVaultCore(p.vault).reserve(p.creditId, p.limit);
         vaultEverUsed[p.vault] = true;
-        if (p.reservationBond > 0) IHouseVaultCore(p.vault).collectBond(p.creditId, p.borrower, p.reservationBond);
+        address bondPayer = p.borrower;
+        if (houseRegistry != address(0)) {
+            bondPayer = reservationManager.reserve(p.creditId, p.house, policyVersion, p.vault, p.borrower, p.limit,
+                p.reservationBond, p.setupDeadline, reservationAuth);
+        }
+        if (p.reservationBond > 0) IHouseVaultCore(p.vault).collectBond(p.creditId, bondPayer, p.reservationBond);
         Credit storage c = _credits[p.creditId];
         c.facility = Types.Facility.Reserved;
         c.payment = Types.Payment.Undrawn;
@@ -1783,10 +1818,21 @@ contract TermbookCore is ITermbookCore {
     }
 
     function _settleBond(Credit storage c, bytes32 creditId) internal {
+        if (reservationManager.active(creditId)) {
+            _settleReservation(c, creditId, ReservationManager.Outcome.Ready);
+            return;
+        }
         if (!bondSettled[creditId] && c.reservationBond > 0) {
             IHouseVaultCore(c.vault).settleBond(creditId, c.reservationBond);
             bondSettled[creditId] = true;
         }
+    }
+
+    function _settleReservation(Credit storage c, bytes32 creditId, ReservationManager.Outcome outcome) internal {
+        (uint256 charge, uint256 refund, address recipient) = reservationManager.settle(creditId, outcome);
+        if (charge != 0) IHouseVaultCore(c.vault).settleBond(creditId, charge);
+        if (refund != 0) IHouseVaultCore(c.vault).refundBond(creditId, recipient, refund);
+        bondSettled[creditId] = true;
     }
 
     function setCollateral(bytes32 creditId, address collateralVault, address returnRecipient) external {
@@ -2241,7 +2287,12 @@ contract TermbookCore is ITermbookCore {
             uint256 committed = IHouseVaultCore(c.vault).creditCommitted(creditId);
             if (committed > 0) IHouseVaultCore(c.vault).release(creditId, committed);
         }
-        if (c.vault != address(0) && c.reservationBond > 0 && !bondSettled[creditId]) {
+        if (reservationManager.active(creditId)) {
+            ReservationManager.Outcome outcome = setupFailureEvidence[creditId] != bytes32(0)
+                ? ReservationManager.Outcome.ProtocolFailure : block.timestamp > c.setupDeadline
+                ? ReservationManager.Outcome.Expired : ReservationManager.Outcome.Abandoned;
+            _settleReservation(c, creditId, outcome);
+        } else if (c.vault != address(0) && c.reservationBond > 0 && !bondSettled[creditId]) {
             IHouseVaultCore(c.vault).refundBond(creditId, c.borrower, c.reservationBond);
         }
         c.revision = RevisionLib.next(c.revision);

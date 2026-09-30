@@ -259,6 +259,21 @@ export const termbookCoreAbi = [
             "internalType": "uint256"
           },
           {
+            "name": "reservationPolicyHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "bondPayer",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "bondRefundRecipient",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
             "name": "signature",
             "type": "bytes",
             "internalType": "bytes"
@@ -402,6 +417,21 @@ export const termbookCoreAbi = [
                 "name": "commitmentFeeBps",
                 "type": "uint256",
                 "internalType": "uint256"
+              },
+              {
+                "name": "reservationPolicyHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "bondPayer",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "bondRefundRecipient",
+                "type": "address",
+                "internalType": "address"
               },
               {
                 "name": "signature",
@@ -1588,6 +1618,86 @@ export const termbookCoreAbi = [
         "name": "expiry",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "configureReservationPolicy",
+    "inputs": [
+      {
+        "name": "house",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "version",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "policy",
+        "type": "tuple",
+        "internalType": "struct ReservationManager.Policy",
+        "components": [
+          {
+            "name": "vault",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "maxSetupDuration",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "annualRateBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "maxBorrowerCount",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "maxHouseCount",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "maxBorrowerLimit",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "maxHouseLimit",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "readyFee",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "abandonFee",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "expiryFee",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "repeatPenalty",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
       }
     ],
     "outputs": [],
@@ -3342,6 +3452,24 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "markSetupProtocolFailure",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "evidenceHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "minimumRemoteRecoveryProceeds",
     "inputs": [
       {
@@ -4108,6 +4236,21 @@ export const termbookCoreAbi = [
             "internalType": "uint256"
           },
           {
+            "name": "reservationPolicyHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "bondPayer",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "bondRefundRecipient",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
             "name": "signature",
             "type": "bytes",
             "internalType": "bytes"
@@ -4864,6 +5007,19 @@ export const termbookCoreAbi = [
     ],
     "outputs": [],
     "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "reservationManager",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract ReservationManager"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -5746,6 +5902,25 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "setupFailureEvidence",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "solanaActionHash",
     "inputs": [
       {
@@ -6090,6 +6265,21 @@ export const termbookCoreAbi = [
                 "name": "commitmentFeeBps",
                 "type": "uint256",
                 "internalType": "uint256"
+              },
+              {
+                "name": "reservationPolicyHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "bondPayer",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "bondRefundRecipient",
+                "type": "address",
+                "internalType": "address"
               },
               {
                 "name": "signature",
@@ -7366,6 +7556,25 @@ export const termbookCoreAbi = [
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SetupProtocolFailure",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "evidenceHash",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
       }
     ],
     "anonymous": false

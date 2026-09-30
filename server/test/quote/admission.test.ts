@@ -30,20 +30,31 @@ describe("offer admission", () => {
       quoteId: `q_${index}`, house, vault, borrower, settlementAsset: asset, bundleId, limit: "200",
       originationFee: "0", aprBps: index === 0 ? 100 : 200, commitmentFeeBps: 0,
       expiry: now + 300, setupDeadline: now + 3600, maturity: now + 7200,
+      reservationPolicyHash: bundleId, reservationBond: "5",
     })) as never);
     vi.mocked(houseRepo.get).mockImplementation(async (house) => ({ house, vault, asset, active: true } as never));
     const readContract = vi.fn(async ({ functionName, args }: { functionName: string; args?: readonly string[] }) => {
       if (functionName === "houseRegistry") return address("6");
+      if (functionName === "reservationManager") return address("7");
+      if (functionName === "policyHashes") return bundleId;
+      if (functionName === "minimumBond") return 1n;
+      if (functionName === "abandonments") return 0n;
       if (functionName === "isActiveHouse") return args?.[0] === second;
       if (functionName === "asset") return asset;
+      if (functionName === "policies" && args?.length === 2) return [vault, 86400, 100, 1, 10, 1000n, 10000n, 1n, 2n, 3n, 1n];
       if (functionName === "policies") return [1n, 1_000n, 3600n, 86400n, 1_000n, 100n, 100n,
         15_000n, 13_000n, 12_000n, 11_500n, 11_000n, true, true];
       throw new Error("unexpected-read");
     });
-    vi.mocked(monadClient).mockReturnValue({ getBlock: async () => ({ number: 123n }), readContract } as never);
+    vi.mocked(monadClient).mockReturnValue({ getBlock: async () => ({ number: 123n, timestamp: BigInt(now) }), readContract } as never);
     const offers = await quoteService.offers("intent");
     expect(offers.map((offer) => offer.house)).toEqual([second]);
     expect(offers[0]?.riskTerms).toMatchObject({ initialBps: "15000", liquidationBps: "11000" });
     expect(readContract).toHaveBeenCalledWith(expect.objectContaining({ functionName: "isActiveHouse", blockNumber: 123n }));
+    expect(offers[0]?.reservationTerms).toMatchObject({ policyHash: bundleId, minimumBond: "1" });
+    vi.mocked(quoteRepo.list).mockResolvedValue([{ ...offers[0], reservationPolicyHash: `0x${"b".repeat(64)}` }] as never);
+    expect(await quoteService.offers("intent")).toEqual([]);
+    vi.mocked(quoteRepo.list).mockResolvedValue([{ ...offers[0], reservationBond: "0" }] as never);
+    expect(await quoteService.offers("intent")).toEqual([]);
   });
 });

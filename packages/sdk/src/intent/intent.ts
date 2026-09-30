@@ -2,7 +2,9 @@ import type { TermbookClient } from "../client/client.js";
 import type { EvmCollateralSelection, IntentRequest } from "../types/intent.types.js";
 import { Credit } from "../credit/credit.js";
 import { HttpClient } from "../transport/http.js";
-import { encodeAbiParameters, keccak256, stringToHex } from "viem";
+import { encodeAbiParameters, keccak256, parseAbi, stringToHex } from "viem";
+import type { Wallet } from "../types/client.types.js";
+import { RpcClient } from "../transport/rpc.js";
 import { collateralSelectionSchema, NATIVE_SOL_ASSET_BYTES, type CollateralSetupBinding, type CollateralSetupCheckpoint } from "@termbook/schema";
 import { CollateralChainNotIntegratedError, CollateralSetup, CollateralSetupInterruptedError, type CollateralProofSource, type SourceLockWallet } from "../collateral/setup.js";
 import { EvmSourceLockWallet, type EvmSourceWalletConfig } from "../collateral/evm-source.js";
@@ -41,11 +43,16 @@ export type Offer = {
   costAssumptions?: { draw: bigint; durationSeconds: number; interest: bigint; commitmentFee: bigint };
   riskTerms?: { policyVersion: bigint; initialBps: bigint; maintenanceBps: bigint;
     watchBps: bigint; freezeBps: bigint; liquidationBps: bigint };
+  reservationTerms?: { policyHash: `0x${string}`; minimumBond: bigint; maxSetupDuration: number;
+    annualRateBps: number; readyFee: bigint; abandonFee: bigint; expiryFee: bigint; repeatPenalty: bigint; repeatCharge: bigint };
   expiry: number;
   maturity: number;
   setupDeadline: number;
   grace: number;
   reservationBond: bigint;
+  reservationPolicyHash?: `0x${string}`;
+  bondPayer?: `0x${string}`;
+  bondRefundRecipient?: `0x${string}`;
   nonce: bigint;
   bundleId: `0x${string}`;
   termsHash: `0x${string}`;
@@ -61,6 +68,8 @@ export type AcceptOptions = {
   proof_source?: CollateralProofSource;
   checkpoint?: CollateralSetupCheckpoint;
   on_progress?: (checkpoint: CollateralSetupCheckpoint, binding: CollateralSetupBinding) => void | Promise<void>;
+  sponsor_wallet?: Wallet;
+  sponsor_cap?: bigint;
 };
 
 export function offerFingerprint(offer: Offer): `0x${string}` {
@@ -107,6 +116,18 @@ function parseOffer(raw: Record<string, unknown>): Offer {
     initialBps: BigInt(String(risk["initialBps"])), maintenanceBps: BigInt(String(risk["maintenanceBps"])),
     watchBps: BigInt(String(risk["watchBps"])), freezeBps: BigInt(String(risk["freezeBps"])),
     liquidationBps: BigInt(String(risk["liquidationBps"])) } : undefined;
+  const reservation = raw["reservationTerms"] as Record<string, unknown> | undefined;
+  const reservationTerms = reservation ? { policyHash: bytes32(reservation["policyHash"]),
+    minimumBond: BigInt(String(reservation["minimumBond"])), maxSetupDuration: Number(reservation["maxSetupDuration"]),
+    annualRateBps: Number(reservation["annualRateBps"]), readyFee: BigInt(String(reservation["readyFee"])),
+    abandonFee: BigInt(String(reservation["abandonFee"])), expiryFee: BigInt(String(reservation["expiryFee"])),
+    repeatPenalty: BigInt(String(reservation["repeatPenalty"])), repeatCharge: BigInt(String(reservation["repeatCharge"] ?? 0)) } : undefined;
+  if (reservationTerms && (reservationTerms.minimumBond > reservationBond || reservationTerms.minimumBond < 0n
+    || !Number.isSafeInteger(reservationTerms.maxSetupDuration) || reservationTerms.maxSetupDuration <= 0
+    || reservationTerms.maxSetupDuration > 7 * 86400 || !Number.isInteger(reservationTerms.annualRateBps)
+    || reservationTerms.annualRateBps < 100 || reservationTerms.annualRateBps > 10_000
+    || [reservationTerms.readyFee, reservationTerms.abandonFee, reservationTerms.expiryFee, reservationTerms.repeatPenalty, reservationTerms.repeatCharge]
+      .some((value) => value < 0n))) throw new Error("offer-invalid");
   if (limit <= 0n || nonce < 0n || reservationBond < 0n || originationFee < 0n || !Number.isSafeInteger(aprBps) || aprBps < 0 || aprBps > 1_000_000 || !Number.isSafeInteger(commitmentFeeBps) || commitmentFeeBps < 0 || commitmentFeeBps > 10_000) throw new Error("offer-invalid");
   if (estimatedTotalCost !== undefined && estimatedTotalCost < 0n || costAssumptions &&
     (!Number.isSafeInteger(costAssumptions.durationSeconds) || costAssumptions.durationSeconds <= 0 ||
@@ -156,11 +177,15 @@ function parseOffer(raw: Record<string, unknown>): Offer {
     estimatedTotalCost,
     costAssumptions,
     riskTerms,
+    reservationTerms,
     expiry,
     maturity,
     setupDeadline,
     grace,
     reservationBond,
+    reservationPolicyHash: bytes32(raw["reservationPolicyHash"] ?? `0x${"0".repeat(64)}`),
+    bondPayer: address(raw["bondPayer"] ?? `0x${"0".repeat(40)}`),
+    bondRefundRecipient: address(raw["bondRefundRecipient"] ?? `0x${"0".repeat(40)}`),
     nonce,
     bundleId: bytes32(raw["bundleId"] ?? raw["bundle_id"]),
     termsHash: bytes32(raw["termsHash"] ?? raw["terms_hash"]),
@@ -181,6 +206,9 @@ function quoteForCore(offer: Offer) {
     nonce: offer.nonce, expiry: BigInt(offer.expiry), termsHash: offer.termsHash,
     revolving: offer.revolving, aprBps: BigInt(offer.aprBps),
     originationFee: offer.originationFee, commitmentFeeBps: BigInt(offer.commitmentFeeBps),
+    reservationPolicyHash: offer.reservationPolicyHash ?? `0x${"0".repeat(64)}`,
+    bondPayer: offer.bondPayer ?? `0x${"0".repeat(40)}`,
+    bondRefundRecipient: offer.bondRefundRecipient ?? `0x${"0".repeat(40)}`,
     signature: offer.signature,
   };
 }
@@ -256,6 +284,48 @@ export class Intent {
       .slice(0, 5);
   }
 
+  private async fundReservation(offer: Offer, asset: `0x${string}`, options: AcceptOptions): Promise<void> {
+    if (offer.reservationBond === 0n) return;
+    const payer = !offer.bondPayer || /^0x0{40}$/i.test(offer.bondPayer) ? offer.borrower : offer.bondPayer;
+    if (payer.toLowerCase() === offer.borrower.toLowerCase()) {
+      const approval = await this.client.rpc.approve(asset, offer.vault, offer.reservationBond);
+      await this.client.rpc.wait(approval);
+      return;
+    }
+    const coreAbi = parseAbi(["function reservationManager() view returns (address)"]);
+    const managerAbi = parseAbi([
+      "function authorizeSponsor(bytes32,(address borrower,address vault,bytes32 policyHash,address refundRecipient,uint256 maxBond,uint256 expiry))",
+      "function sponsorGrants(bytes32,address) view returns (address borrower,address vault,bytes32 policyHash,address refundRecipient,uint256 maxBond,uint256 expiry)",
+    ]);
+    const manager = await this.client.rpc.read<`0x${string}`>(this.client.config.core, coreAbi, "reservationManager");
+    const creditId = keccak256(encodeAbiParameters([{ type: "bytes32" }, { type: "address" }, { type: "address" }, { type: "uint256" }],
+      [offer.intentId, offer.borrower, offer.house, offer.nonce]));
+    const recipient = !offer.bondRefundRecipient || /^0x0{40}$/i.test(offer.bondRefundRecipient) ? payer : offer.bondRefundRecipient;
+    const wallet = options.sponsor_wallet;
+    if (wallet) {
+      const cap = options.sponsor_cap ?? offer.reservationBond;
+      if (wallet.address.toLowerCase() !== payer.toLowerCase() || cap < offer.reservationBond || cap >= 2n ** 256n
+        || !offer.reservationPolicyHash || /^0x0{64}$/i.test(offer.reservationPolicyHash)) throw new Error("bond-sponsor-invalid");
+      if (wallet.getChainId && await wallet.getChainId() !== this.client.config.chainId) throw new Error("chain-mismatch");
+      const rpc = new RpcClient({ ...this.client.config, wallet });
+      await rpc.wait(await rpc.write(manager, managerAbi, "authorizeSponsor", [creditId, {
+        borrower: offer.borrower, vault: offer.vault, policyHash: offer.reservationPolicyHash,
+        refundRecipient: recipient, maxBond: cap, expiry: BigInt(offer.expiry),
+      }]));
+      await rpc.wait(await rpc.approve(asset, offer.vault, offer.reservationBond));
+    } else {
+      const grant = await this.client.rpc.read<readonly [`0x${string}`, `0x${string}`, `0x${string}`, `0x${string}`, bigint, bigint]>(
+        manager, managerAbi, "sponsorGrants", [creditId, payer]);
+      if (grant[0].toLowerCase() !== offer.borrower.toLowerCase() || grant[1].toLowerCase() !== offer.vault.toLowerCase()
+        || grant[2].toLowerCase() !== offer.reservationPolicyHash?.toLowerCase()
+        || grant[3].toLowerCase() !== recipient.toLowerCase() || grant[4] < offer.reservationBond
+        || grant[5] <= BigInt(Math.floor(Date.now() / 1000))) throw new Error("bond-sponsor-authorization-required");
+      const allowance = await this.client.rpc.read<bigint>(asset, parseAbi(["function allowance(address,address) view returns (uint256)"]),
+        "allowance", [payer, offer.vault]);
+      if (allowance < offer.reservationBond) throw new Error("bond-sponsor-funding-required");
+    }
+  }
+
   async accept(args: AcceptOptions): Promise<Credit> {
     const requested = this.requiredRequest().collateral;
     if ("chain" in requested && requested.chain.namespace === "solana") return this.acceptSolana(args);
@@ -321,10 +391,7 @@ export class Intent {
           { type: "function", name: "asset", inputs: [], outputs: [{ type: "address" }], stateMutability: "view" },
         ] as const, "asset");
         if (vaultAsset.toLowerCase() !== offer.settlementAsset!.toLowerCase()) throw new Error("offer-settlement-mismatch");
-        if (offer.reservationBond > 0n) {
-          const bondApproval = await this.client.rpc.approve(vaultAsset, offer.vault, offer.reservationBond);
-          await this.client.rpc.wait(bondApproval);
-        }
+        await this.fundReservation(offer, vaultAsset, args);
         return this.client.rpc.coreWrite("acceptQuote", [quoteForCore(offer)]);
       },
     });
@@ -387,10 +454,7 @@ export class Intent {
           { type: "function", name: "asset", inputs: [], outputs: [{ type: "address" }], stateMutability: "view" },
         ] as const, "asset");
         if (vaultAsset.toLowerCase() !== offer.settlementAsset!.toLowerCase()) throw new Error("offer-settlement-mismatch");
-        if (offer.reservationBond > 0n) {
-          const bondApproval = await this.client.rpc.approve(vaultAsset, offer.vault, offer.reservationBond);
-          await this.client.rpc.wait(bondApproval);
-        }
+        await this.fundReservation(offer, vaultAsset, args);
         return this.client.rpc.coreWrite("acceptSolanaQuote", [{
           quote: quoteForCore(offer), sourceGenesis: source.sourceGenesis,
           sourceVault: source.sourceVault, sourceAsset: source.sourceAsset,

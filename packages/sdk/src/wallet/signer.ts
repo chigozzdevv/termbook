@@ -110,6 +110,9 @@ export class Signer {
     aprBps?: bigint;
     originationFee?: bigint;
     commitmentFeeBps?: bigint;
+    reservationPolicyHash?: `0x${string}`;
+    bondPayer?: `0x${string}`;
+    bondRefundRecipient?: `0x${string}`;
   }): `0x${string}` {
     return keccak256(
       encodeAbiParameters(
@@ -120,6 +123,7 @@ export class Signer {
           { type: "uint256" }, { type: "uint256" }, { type: "bool" }, { type: "bytes32" },
           { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" },
           { type: "uint256" }, { type: "bytes32" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" },
+          { type: "bytes32" }, { type: "address" }, { type: "address" },
         ],
         [
           args.domain, args.intentId, args.borrower, args.owner, args.house, args.vault, BigInt(args.sourceChain),
@@ -127,6 +131,8 @@ export class Signer {
           args.limit, BigInt(args.maturity), args.revolving, args.bundleId, BigInt(args.setupDeadline), BigInt(args.grace),
           args.reservationBond, args.nonce, BigInt(args.expiry), args.termsHash,
           args.aprBps ?? 0n, args.originationFee ?? 0n, args.commitmentFeeBps ?? 0n,
+          args.reservationPolicyHash ?? `0x${"0".repeat(64)}`, args.bondPayer ?? `0x${"0".repeat(40)}`,
+          args.bondRefundRecipient ?? `0x${"0".repeat(40)}`,
         ],
       ),
     );

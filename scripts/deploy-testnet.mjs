@@ -283,7 +283,7 @@ await monad.queue(governance, core, "TermbookCore", "configureSolanaWormhole", [
 await monad.queue(governance, verifiers, "VerifierRegistry", "setVerifier", [11155111n, ethereumVerifier, 1n, 7200n]);
 await monad.queue(governance, verifiers, "VerifierRegistry", "setVerifier", [501n, solanaVerifier, 1n, 7200n]);
 await monad.queue(governance, houses, "HouseRegistry", "register", [account.address, house, usdc, account.address]);
-report.completedAt = new Date().toISOString();
+report.completedAt ??= new Date().toISOString();
 report.tokens = { "10143": { USDC: usdc, WMON: wrappedMon }, "11155111": { WETH: weth } };
 for (const chainId of [10143, 11155111]) {
   const entries = report.transactions.filter((transaction) => transaction.chainId === chainId);

@@ -393,6 +393,24 @@ After the recorded timelock expires, run
 configuration. It checks each onchain action and skips actions that are still
 timelocked or already executed.
 
+The deployed testnet addresses, receipts and code hashes are recorded in
+[`deployments/testnet.json`](deployments/testnet.json).
+
+| Network | Contract | Address |
+| --- | --- | --- |
+| Monad testnet | TermbookCore | `0xd12d4abf4df27c58623abb0a74f203f4216c1bbd` |
+| Monad testnet | USDC HouseVault | `0x9a38097d9ee21b5e6a6f3b74358ce2ead2105c90` |
+| Monad testnet | MON collateral vault | `0x02815928275683afe4e5e3f37f5bdb500f53df88` |
+| Sepolia | WETH collateral vault | `0xEa1D95605B4852038105Ed098AcE314e23e2A799` |
+| Solana devnet | SOL collateral program | `FTj5kb9Z7JDpGNWD2NowGgz67zP3VxUKwLgKEFSTrYg1` |
+
+Eight governance actions are queued and become executable by
+3 October 2026 at 00:02:29 Africa/Lagos. Collateral markets, feeds, House policies,
+integration bundles and settlement routes still require admission. The source
+controller remains paused, and no LP funds have been deposited. API and keeper
+hosting and live lock, repayment, return and recovery tests remain operational
+setup work.
+
 Recompute reviewed runtime code hashes when rebuilding from this layout;
 Solidity source paths and remappings affect bytecode metadata.
 
@@ -465,9 +483,9 @@ USDC price, a recovery route, and the required governance configuration.
 
 | Asset | Lock location | Current implementation |
 | --- | --- | --- |
-| MON | Native MON enters `NativeCollateralVault` on Monad and is held as WMON. | Local custody, native return, WMON sale for USDC, and oracle-backed collateral-only health reader. Requires reviewed WMON and USDC deployments, feed, risk bands, exit verifier, and market admission. |
-| ETH | WETH stays in `CollateralVault` on Ethereum. | The Wormhole route publishes Ethereum custody snapshots and Monad action authorizations as Guardian VAAs, with pinned emitters and payloads verified onchain. The native Beacon and Monad BFT verifier contracts remain available as a separate route. The Wormhole route still needs deployment and live lock, return, seizure, and recovery tests before accepting funds. |
-| SOL | Native SOL stays in a Solana program-derived account. | Monad publishes lock and action authorizations through Wormhole. The Solana program verifies posted VAAs and emits custody snapshots through the Wormhole shim; Monad verifies signed snapshot VAAs. The SDK connects a browser Solana wallet and posts VAAs; immutable program deployment and live recovery tests are still required. |
+| MON | Native MON enters `NativeCollateralVault` on Monad and is held as WMON. | Local custody, native return, WMON sale for USDC, and oracle-backed collateral-only health reader. The vault and USDC House are deployed on Monad testnet; feeds, risk bands, exit verifier, and market admission remain to be configured. |
+| ETH | WETH stays in `CollateralVault` on Ethereum. | The Wormhole route publishes Ethereum custody snapshots and Monad action authorizations as Guardian VAAs, with pinned emitters and payloads verified onchain. The native Beacon and Monad BFT verifier contracts remain available as a separate route. The Wormhole contracts are deployed on Monad testnet and Sepolia; admission and live lock, return, seizure, and recovery tests remain before accepting funds. |
+| SOL | Native SOL stays in a Solana program-derived account. | Monad publishes lock and action authorizations through Wormhole. The Solana program verifies posted VAAs and emits custody snapshots through the Wormhole shim; Monad verifies signed snapshot VAAs. The SDK connects a browser Solana wallet and posts VAAs. The program is deployed immutably on devnet with its verifiers on Monad testnet; market admission and live recovery tests remain. |
 
 For SOL, Monad Core binds the lock and publishes its Wormhole authorization
 before a Solana wallet signs the SDK `SolanaSourceLockWallet` lock instruction.

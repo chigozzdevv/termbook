@@ -11,7 +11,7 @@ See `termbook.md` for the required behavior specification.
 - `contracts/evm/src/monad/` contracts deployed on Monad
 - `contracts/evm/src/ethereum/` contracts deployed on Ethereum
 - `contracts/evm/src/shared/` code compiled into either EVM deployment
-- `contracts/solana/` native SOL custody program, admission disabled
+- `contracts/solana/` native SOL custody program
 - `packages/bindings/` generated contract ABIs and deployments
 - `packages/schema/` shared request and response schemas
 - `packages/sdk/` borrower and LP client
@@ -34,6 +34,21 @@ forge test --root contracts/evm
 
 Foundry pins Solidity 0.8.24 and Cancun bytecode while running tests on Prague,
 so the Ethereum BLS precompile tests execute locally instead of being skipped.
+
+## API authorization
+
+Each POST has its own wallet authorization. Manual clients request `/auth/nonce`
+with `wallet`, `method: "POST"`, the exact `path`, and `bodyHash`, calculated as
+`hashMessage(canonicalJson(body))`. Sign the returned message and submit the
+original body with `x-termbook-wallet`, `x-termbook-signature`, and
+`x-termbook-nonce`. The challenge binds the API domain, request, expiry and wallet.
+Only a valid signature consumes the nonce; consumption is atomic across replicas.
+Contract wallets use ERC-1271 at a finalized block. The SDK validates challenges
+before signing. App tokens identify integrations and confer no wallet authority.
+
+Queue delivery is at least once. BullMQ IDs are deterministic hashes; Mongo
+fallback jobs use renewable leases and bounded retries. Handlers reconcile
+confirmed onchain state before submitting another transaction.
 
 ## Deployment stages
 
@@ -340,6 +355,27 @@ When debt is zero, the borrower can request
 original Solana recipient. The SDK builds `RecoveryPayout`; the separate
 `payout-confirmation-plan` proves execution or expiry to clear Core's pending
 payout state.
+
+The Solana program pins Wormhole Core and the emission shim. `Lock` checks its
+executing program and ProgramData accounts and rejects an active upgrade
+authority. The shim accounts are payer, bridge, message, emitter, sequence, fee
+collector, clock, system program, Wormhole Core, event authority, and emission shim.
+`CheckpointLock` and `CheckpointRecovery` publish fresh custody snapshots without
+repeating a completed transfer. `ReconcileRecoveryRefund` records only SOL
+actually returned to the recovery PDA.
+
+Before admission, remove the program upgrade authority and run:
+
+```sh
+node --import tsx server/scripts/verify-solana-program.ts <rpc-url> <program-id> <genesis-hex> <program-data-hash>
+```
+
+Use the verified program and emitter values to deploy `WormholeSolanaAccountClient`
+and admit `SolanaVerifier`. Run `(cd contracts/solana && cargo build-sbf --offline)`
+to build `contracts/solana/target/deploy/sol_collateral.so`.
+Preserve the ignored `sol_collateral-keypair.json` to retain the program ID.
+The local SBF smoke test checks invalid bindings against a loaded program;
+the live deployment exercises the actual Guardian and routing paths.
 
 `CollateralHealthReader` values bound collateral and free USDC held in the
 Credit Account; it assigns zero value to application positions. Markets that

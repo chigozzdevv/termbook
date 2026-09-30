@@ -8,6 +8,7 @@ export { CreditApp } from "./app/app.js";
 export { ExecutionPendingError } from "./app/completion.js";
 export { CreditAccount } from "./account/account.js";
 export { House } from "./house/house.js";
+export { CollateralChangePendingError, CollateralChangeFailedError, CollateralChangeExpiredError } from "./collateral/change.js";
 export { CreditCollateral } from "./collateral/collateral.js";
 export { CollateralSetup, collateralSetupHash, restoreCollateralSetup, CollateralChainNotIntegratedError, CollateralSetupInterruptedError } from "./collateral/setup.js";
 export type { CollateralSetupOptions, SourceLockWallet, SourceLockObservation, CollateralProofSource } from "./collateral/setup.js";

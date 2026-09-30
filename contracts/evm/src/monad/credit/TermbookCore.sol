@@ -86,6 +86,9 @@ interface ICollateralVaultCore {
     function release(bytes32 lockId, address recipient, uint256 amount, uint256 nonce) external;
     function seize(bytes32 lockId, address recipient, uint256 amount) external;
     function setPauseGuardian(address guardian) external;
+    function topUp(bytes32 lockId, address payer, uint256 amount) external;
+    function topUpNative(bytes32 lockId, address payer, uint256 amount) external payable;
+    function isNativeCollateralVault() external view returns (bool);
 }
 
 interface ICreditAccountCore {
@@ -483,6 +486,15 @@ contract TermbookCore is ITermbookCore {
     mapping(bytes32 => uint256) public collateralSourceChainOf;
     mapping(bytes32 => bool) public remoteCollateral;
     mapping(bytes32 => bool) public bondSettled;
+    struct CollateralTopUp {
+        uint256 amount;
+        bytes32 actionHash;
+        uint256 revision;
+        uint256 deadline;
+    }
+    mapping(bytes32 => CollateralTopUp) public pendingCollateralTopUp;
+    mapping(bytes32 => bool) public remoteReturnDeducted;
+    mapping(bytes32 => uint8) public collateralActionOutcome;
     mapping(bytes32 => uint256) public pendingRemoteReturn;
     mapping(bytes32 => uint256) public pendingRemoteSeizure;
     mapping(bytes32 => uint256) public remoteActionNonce;
@@ -544,6 +556,8 @@ contract TermbookCore is ITermbookCore {
     event RemoteActionAuthorized(bytes32 indexed creditId, bytes32 indexed actionHash, uint8 kind);
     event RemoteSeizureConfirmed(bytes32 indexed creditId, bytes32 indexed actionHash, uint256 amount);
     event RemoteSeizureCancelled(bytes32 indexed creditId, bytes32 indexed actionHash);
+    event CollateralAdded(bytes32 indexed creditId, bytes32 indexed lockId, uint256 amount);
+    event CollateralTopUpCancelled(bytes32 indexed creditId, bytes32 indexed actionHash);
     event RemoteReturnCancelled(bytes32 indexed creditId, bytes32 indexed actionHash);
     event SourceRecoveryReturnAuthorized(
         bytes32 indexed creditId, bytes32 indexed actionHash, address indexed owner,
@@ -963,7 +977,7 @@ contract TermbookCore is ITermbookCore {
         if (
             !remoteCollateral[creditId] || solanaCollateral[creditId]
                 || collateralSourceChainOf[creditId] != 1 || ethereumWormholeCore == address(0)
-                || kind > RemoteAction.SEIZE
+                || kind > RemoteAction.TOPUP
         ) revert InvalidAuthority();
         bytes32 actionHash;
         if (kind == RemoteAction.RELEASE) {
@@ -971,6 +985,9 @@ contract TermbookCore is ITermbookCore {
                 revert InvalidAuthority();
             }
             actionHash = remoteReturnActionHash[creditId];
+        } else if (kind == RemoteAction.TOPUP) {
+            if (pendingCollateralTopUp[creditId].amount == 0 || block.timestamp > pendingCollateralTopUp[creditId].deadline) revert InvalidAuthority();
+            actionHash = pendingCollateralTopUp[creditId].actionHash;
         } else {
             if (pendingRemoteSeizure[creditId] == 0 || block.timestamp > remoteSeizureDeadline[creditId]) {
                 revert InvalidAuthority();
@@ -2361,32 +2378,7 @@ contract TermbookCore is ITermbookCore {
         if (c.facility == Types.Facility.Closing || repaidRecovery) _requireExitReady(c, creditId);
         if (amount == 0 || amount > c.collateralAmount) revert InvalidCollateral();
         if (remoteCollateral[creditId]) {
-            if (
-                pendingRemoteReturn[creditId] != 0 || pendingRemoteSeizure[creditId] != 0
-                    || pendingSolanaFundingHash[creditId] != bytes32(0)
-                    || pendingSolanaPayoutHash[creditId] != bytes32(0)
-            ) revert Pending();
-            uint256 available = c.collateralAmount - pendingRemoteReturn[creditId];
-            if (amount > available) revert InvalidCollateral();
-            pendingRemoteReturn[creditId] += amount;
-            uint256 nonce = ++remoteActionNonce[creditId];
-            uint256 revision = RevisionLib.next(c.revision);
-            uint256 deadline = block.timestamp + 7 days;
-            bytes32 actionHash = solanaCollateral[creditId]
-                ? solanaActionHash(creditId, RemoteAction.RELEASE, amount, nonce, revision, deadline)
-                : RemoteAction.hash(_remoteAction(
-                    c, creditId, RemoteAction.RELEASE, c.returnRecipient, amount, nonce, deadline
-                ));
-            remoteReturnActionHash[creditId] = actionHash;
-            remoteReturnRevision[creditId] = revision;
-            remoteReturnDeadline[creditId] = deadline;
-            c.revision = revision;
-            if (solanaCollateral[creditId]) _publishSolanaAuthorization(actionHash);
-            else if (collateralSourceChainOf[creditId] == 1) {
-                _publishEthereumAuthorization(creditId, actionHash, RemoteAction.RELEASE);
-            }
-            emit Events.RemoteReturnRequested(creditId, lockId, amount, c.returnRecipient);
-            emit RemoteActionAuthorized(creditId, actionHash, RemoteAction.RELEASE);
+            _requestRemoteReturn(c, creditId, amount, false);
             return;
         }
         ICollateralVaultCore(c.collateralVault).release(lockId, c.returnRecipient, amount, c.revision);
@@ -2397,6 +2389,90 @@ contract TermbookCore is ITermbookCore {
         }
         c.revision = RevisionLib.next(c.revision);
         emit Events.CollateralReturned(creditId, lockId, amount);
+    }
+
+    function _requireNoCustodyAction(bytes32 creditId) internal view {
+        if (pendingRemoteReturn[creditId] != 0 || pendingRemoteSeizure[creditId] != 0
+            || pendingCollateralTopUp[creditId].amount != 0 || pendingSolanaFundingHash[creditId] != bytes32(0)
+            || pendingSolanaPayoutHash[creditId] != bytes32(0)) revert Pending();
+    }
+
+    function _requestRemoteReturn(Credit storage c, bytes32 creditId, uint256 amount, bool deduct) internal {
+        _requireNoCustodyAction(creditId);
+        pendingRemoteReturn[creditId] = amount;
+        remoteReturnDeducted[creditId] = deduct;
+        uint256 nonce = ++remoteActionNonce[creditId];
+        uint256 revision = RevisionLib.next(c.revision);
+        uint256 deadline = block.timestamp + 7 days;
+        bytes32 actionHash = solanaCollateral[creditId]
+            ? solanaActionHash(creditId, RemoteAction.RELEASE, amount, nonce, revision, deadline)
+            : RemoteAction.hash(_remoteAction(c, creditId, RemoteAction.RELEASE, c.returnRecipient, amount, nonce, deadline));
+        remoteReturnActionHash[creditId] = actionHash;
+        remoteReturnRevision[creditId] = revision;
+        remoteReturnDeadline[creditId] = deadline;
+        if (deduct) c.collateralAmount -= amount;
+        c.revision = revision;
+        if (solanaCollateral[creditId]) _publishSolanaAuthorization(actionHash);
+        else if (collateralSourceChainOf[creditId] == 1) _publishEthereumAuthorization(creditId, actionHash, RemoteAction.RELEASE);
+        emit Events.RemoteReturnRequested(creditId, c.lockId, amount, c.returnRecipient);
+        emit RemoteActionAuthorized(creditId, actionHash, RemoteAction.RELEASE);
+    }
+
+    function addCollateral(bytes32 creditId, uint256 amount, uint256 deadline) external payable nonReentrant {
+        Credit storage c = _credits[creditId];
+        if (msg.sender != c.borrower || c.facility != Types.Facility.Ready || !c.collateralBound
+            || !collateralProven[creditId] || c.collateralReturned || amount == 0) revert InvalidCollateral();
+        _requireNoCustodyAction(creditId);
+        if (!remoteCollateral[creditId]) {
+            _requireHealthIntegrity(c, creditId);
+            if (ICollateralVaultCore(c.collateralVault).isNativeCollateralVault()) {
+                if (msg.value != amount) revert InvalidCollateral();
+                ICollateralVaultCore(c.collateralVault).topUpNative{value: amount}(c.lockId, msg.sender, amount);
+            } else {
+                if (msg.value != 0) revert InvalidAuthority();
+                ICollateralVaultCore(c.collateralVault).topUp(c.lockId, msg.sender, amount);
+            }
+            c.collateralAmount += amount;
+            c.revision = RevisionLib.next(c.revision);
+            emit CollateralAdded(creditId, c.lockId, amount);
+            return;
+        }
+        if (deadline <= block.timestamp || deadline > block.timestamp + 7 days) revert Expired();
+        if (!solanaCollateral[creditId] && collateralSourceChainOf[creditId] != 1 && msg.value != 0) revert InvalidAuthority();
+        if (solanaCollateral[creditId] && c.collateralAmount + amount > type(uint64).max) revert InvalidCollateral();
+        uint256 nonce = ++remoteActionNonce[creditId];
+        uint256 revision = RevisionLib.next(c.revision);
+        bytes32 actionHash = solanaCollateral[creditId]
+            ? solanaActionHash(creditId, RemoteAction.TOPUP, amount, nonce, revision, deadline)
+            : RemoteAction.hash(_remoteAction(c, creditId, RemoteAction.TOPUP, collateralOwnerOf[creditId], amount, nonce, deadline));
+        pendingCollateralTopUp[creditId] = CollateralTopUp(amount, actionHash, revision, deadline);
+        c.revision = revision;
+        if (solanaCollateral[creditId]) _publishSolanaAuthorization(actionHash);
+        else if (collateralSourceChainOf[creditId] == 1) _publishEthereumAuthorization(creditId, actionHash, RemoteAction.TOPUP);
+        emit RemoteActionAuthorized(creditId, actionHash, RemoteAction.TOPUP);
+    }
+
+    function confirmCollateralTopUp(bytes32 creditId, bytes calldata header, bytes calldata proof) external nonReentrant {
+        Credit storage c = _credits[creditId];
+        CollateralTopUp memory request = pendingCollateralTopUp[creditId];
+        if (request.amount == 0 || !remoteCollateral[creditId]) revert Pending();
+        _verifyRemoteEvent(c, creditId, header, proof, request.actionHash);
+        delete pendingCollateralTopUp[creditId];
+        collateralActionOutcome[request.actionHash] = 1;
+        c.collateralAmount += request.amount;
+        c.revision = RevisionLib.next(c.revision);
+        emit CollateralAdded(creditId, c.lockId, request.amount);
+    }
+
+    function cancelExpiredCollateralTopUp(bytes32 creditId, bytes calldata header, bytes calldata proof) external nonReentrant {
+        Credit storage c = _credits[creditId];
+        CollateralTopUp memory request = pendingCollateralTopUp[creditId];
+        if (request.amount == 0 || !remoteCollateral[creditId] || block.timestamp <= request.deadline) revert Pending();
+        _verifyUnconsumedRemoteAction(c, creditId, header, proof, request.actionHash, request.deadline);
+        delete pendingCollateralTopUp[creditId];
+        collateralActionOutcome[request.actionHash] = 2;
+        c.revision = RevisionLib.next(c.revision);
+        emit CollateralTopUpCancelled(creditId, request.actionHash);
     }
 
     function _remoteAction(
@@ -2440,11 +2516,12 @@ contract TermbookCore is ITermbookCore {
         SolanaIdentity storage identity = solanaIdentityOf[creditId];
         if (
             !solanaCollateral[creditId] || c.lockId == bytes32(0) || solanaLockPdaOf[creditId] == bytes32(0)
-                || kind > RemoteAction.SEIZE || amount == 0 || amount > type(uint64).max
+                || kind > RemoteAction.TOPUP || amount == 0 || amount > type(uint64).max
                 || nonce == 0 || nonce > type(uint64).max || revision == 0 || revision > type(uint64).max
                 || deadline > uint256(uint64(type(int64).max))
         ) revert InvalidCollateral();
-        bytes32 recipient = kind == RemoteAction.RELEASE ? identity.returnRecipient : identity.recoveryVault;
+        bytes32 recipient = kind == RemoteAction.TOPUP ? identity.sourceOwner
+            : kind == RemoteAction.RELEASE ? identity.returnRecipient : identity.recoveryVault;
         return keccak256(
             abi.encode(
                 SOLANA_ACTION_DOMAIN,
@@ -2476,7 +2553,7 @@ contract TermbookCore is ITermbookCore {
         if (
             !remoteCollateral[creditId]
                 || (c.facility != Types.Facility.Liquidating && c.facility != Types.Facility.RecoveryPending)
-                || c.recoveryFinalized || pendingRemoteSeizure[creditId] != 0
+                || c.recoveryFinalized || pendingRemoteSeizure[creditId] != 0 || pendingCollateralTopUp[creditId].amount != 0
                 || pendingRemoteReturn[creditId] != 0 || pendingSolanaFundingHash[creditId] != bytes32(0)
                 || pendingSolanaPayoutHash[creditId] != bytes32(0)
                 || amount == 0 || amount > c.collateralAmount
@@ -2508,17 +2585,20 @@ contract TermbookCore is ITermbookCore {
     function confirmRemoteReturn(bytes32 creditId, bytes calldata header, bytes calldata proof) external nonReentrant {
         Credit storage c = _credits[creditId];
         if (
-            (c.facility != Types.Facility.Closing && c.facility != Types.Facility.Aborted
+            (!remoteReturnDeducted[creditId] && c.facility != Types.Facility.Closing && c.facility != Types.Facility.Aborted
                 && !_repaidRecoveryCanReturn(c, creditId))
                 || !remoteCollateral[creditId] || pendingRemoteReturn[creditId] == 0 || verifierRegistry == address(0)
         ) revert Pending();
         uint256 amount = pendingRemoteReturn[creditId];
-        _verifyRemoteEvent(c, creditId, header, proof, remoteReturnActionHash[creditId]);
+        bytes32 actionHash = remoteReturnActionHash[creditId];
+        _verifyRemoteEvent(c, creditId, header, proof, actionHash);
+        collateralActionOutcome[actionHash] = 1;
         pendingRemoteReturn[creditId] = 0;
         remoteReturnActionHash[creditId] = bytes32(0);
         remoteReturnRevision[creditId] = 0;
         remoteReturnDeadline[creditId] = 0;
-        c.collateralAmount -= amount;
+        if (!remoteReturnDeducted[creditId]) c.collateralAmount -= amount;
+        delete remoteReturnDeducted[creditId];
         if (c.collateralAmount == 0) {
             c.collateralReturned = true;
             lockReturned[creditId][c.lockId] = true;
@@ -2589,6 +2669,9 @@ contract TermbookCore is ITermbookCore {
                 || actionHash == bytes32(0) || deadline == 0 || block.timestamp <= deadline
         ) revert Pending();
         _verifyUnconsumedRemoteAction(c, creditId, header, proof, actionHash, deadline);
+        collateralActionOutcome[actionHash] = 2;
+        if (remoteReturnDeducted[creditId]) c.collateralAmount += pendingRemoteReturn[creditId];
+        delete remoteReturnDeducted[creditId];
         pendingRemoteReturn[creditId] = 0;
         remoteReturnActionHash[creditId] = bytes32(0);
         remoteReturnRevision[creditId] = 0;
@@ -2676,7 +2759,7 @@ contract TermbookCore is ITermbookCore {
             !remoteCollateral[creditId] || solanaCollateral[creditId]
                 || !remoteSeizureConfirmed[creditId]
                 || c.debt != 0
-                || pendingRemoteSeizure[creditId] != 0
+                || pendingRemoteSeizure[creditId] != 0 || pendingCollateralTopUp[creditId].amount != 0
                 || (c.facility != Types.Facility.RecoveryPending && c.facility != Types.Facility.Liquidated)
                 || remoteRecoveryVaultOf[creditId] == address(0) || owner == address(0)
                 || amount == 0 || deadline <= block.timestamp || deadline > block.timestamp + 7 days
@@ -2774,7 +2857,7 @@ contract TermbookCore is ITermbookCore {
                     && c.facility != Types.Facility.Liquidated)
                 || c.debt == 0 || funding.amount == 0 || funding.amount > type(uint64).max
                 || funding.amount > _availableSolanaRecovery(funding.creditId)
-                || pendingRemoteSeizure[funding.creditId] != 0 || pendingRemoteReturn[funding.creditId] != 0
+                || pendingCollateralTopUp[funding.creditId].amount != 0 || pendingRemoteSeizure[funding.creditId] != 0 || pendingRemoteReturn[funding.creditId] != 0
                 || pendingSolanaFundingHash[funding.creditId] != bytes32(0)
                 || pendingSolanaPayoutHash[funding.creditId] != bytes32(0)
                 || solanaRecoveryOperationFunded[funding.operationId]
@@ -2834,7 +2917,7 @@ contract TermbookCore is ITermbookCore {
         if (msg.sender != c.borrower) revert Unauthorized();
         if (
             !solanaCollateral[creditId] || !remoteSeizureConfirmed[creditId] || c.debt != 0
-                || pendingRemoteSeizure[creditId] != 0 || pendingRemoteReturn[creditId] != 0
+                || pendingCollateralTopUp[creditId].amount != 0 || pendingRemoteSeizure[creditId] != 0 || pendingRemoteReturn[creditId] != 0
                 || pendingSolanaFundingHash[creditId] != bytes32(0)
                 || pendingSolanaPayoutHash[creditId] != bytes32(0)
                 || (c.facility != Types.Facility.RecoveryPending && c.facility != Types.Facility.Liquidated)
@@ -3050,7 +3133,7 @@ contract TermbookCore is ITermbookCore {
     function confirmRemoteRecoveryClearance(bytes32 creditId, bytes calldata header, bytes calldata proof)
         external nonReentrant {
         Credit storage c = _credits[creditId];
-        if (!remoteSeizureConfirmed[creditId] || pendingRemoteSeizure[creditId] != 0
+        if (!remoteSeizureConfirmed[creditId] || pendingRemoteSeizure[creditId] != 0 || pendingCollateralTopUp[creditId].amount != 0
             || pendingSolanaFundingHash[creditId] != bytes32(0)
             || pendingSolanaPayoutHash[creditId] != bytes32(0)) revert Pending();
         bool verified;
@@ -3145,13 +3228,14 @@ contract TermbookCore is ITermbookCore {
         }
     }
 
-    function withdrawCollateral(bytes32 creditId, uint256 amount) external nonReentrant {
+    function withdrawCollateral(bytes32 creditId, uint256 amount) external payable nonReentrant {
         Credit storage c = _credits[creditId];
         if (
             msg.sender != c.borrower || c.facility != Types.Facility.Ready || c.lockId == bytes32(0)
-                || remoteCollateral[creditId]
         ) revert Unauthorized();
         if (amount == 0 || amount >= c.collateralAmount) revert InvalidCollateral();
+        _requireNoCustodyAction(creditId);
+        if ((!remoteCollateral[creditId] || (!solanaCollateral[creditId] && collateralSourceChainOf[creditId] != 1)) && msg.value != 0) revert InvalidAuthority();
         _accrue(c, creditId);
         if (riskEngine != address(0)) {
             Types.HealthSnapshot memory snapshot = _requireFreshHealth(c, creditId);
@@ -3159,6 +3243,10 @@ contract TermbookCore is ITermbookCore {
                 c.collateralAmount == 0 ? 0 : snapshot.sourceValue * (c.collateralAmount - amount) / c.collateralAmount;
             IRiskCore(riskEngine).checkCollateralWithdraw(creditId, sourceValueAfter);
             IRiskCore(riskEngine).applyCollateralWithdraw(creditId, sourceValueAfter);
+        }
+        if (remoteCollateral[creditId]) {
+            _requestRemoteReturn(c, creditId, amount, true);
+            return;
         }
         ICollateralVaultCore(c.collateralVault).release(c.lockId, c.returnRecipient, amount, c.revision);
         c.collateralAmount -= amount;
@@ -3718,7 +3806,7 @@ contract TermbookCore is ITermbookCore {
 
     function finishClose(bytes32 creditId) external nonReentrant {
         Credit storage c = _credits[creditId];
-        if (c.facility != Types.Facility.Closing || c.debt != 0 || !c.collateralReturned) revert BadState();
+        if (c.facility != Types.Facility.Closing || c.debt != 0 || !c.collateralReturned || pendingCollateralTopUp[creditId].amount != 0 || pendingRemoteReturn[creditId] != 0) revert BadState();
         if (managedBundle[c.bundleId]) executionManager.sync(creditId, c.bundleId, c.account);
         _requireExitReady(c, creditId);
         if (ICreditAccountCore(c.account).tokenBalance(IHouseVaultCore(c.vault).asset()) != 0) revert BadState();
@@ -3734,7 +3822,7 @@ contract TermbookCore is ITermbookCore {
         _accrue(c, creditId);
         if (msg.sender != c.borrower || c.facility != Types.Facility.Liquidated || !c.recoveryFinalized
             || c.debt != 0 || c.collateralAmount != 0 || pendingRemoteReturn[creditId] != 0
-            || pendingRemoteSeizure[creditId] != 0 || !_remoteRecoveryComplete(c, creditId)) revert BadState();
+            || pendingCollateralTopUp[creditId].amount != 0 || pendingRemoteSeizure[creditId] != 0 || !_remoteRecoveryComplete(c, creditId)) revert BadState();
         _requireExitReady(c, creditId);
         ICreditAccountCore(c.account).releaseControl();
         c.revision = RevisionLib.next(c.revision);
@@ -3977,7 +4065,7 @@ contract TermbookCore is ITermbookCore {
         if (
             block.timestamp >= c.maturity || c.payment == Types.Payment.Defaulted || c.recoveryFinalized || fullTermination[creditId]
                 || verifiedRecoveryPaid[creditId] <= recoveryPaidAtStart[creditId]
-                || pendingRemoteSeizure[creditId] != 0 || pendingRemoteReturn[creditId] != 0
+                || pendingCollateralTopUp[creditId].amount != 0 || pendingRemoteSeizure[creditId] != 0 || pendingRemoteReturn[creditId] != 0
                 || !_remoteRecoveryComplete(c, creditId)
         ) {
             revert BadState();
@@ -4013,7 +4101,7 @@ contract TermbookCore is ITermbookCore {
         if (
             msg.sender != c.vault || (c.facility != Types.Facility.RecoveryPending && c.facility != Types.Facility.Liquidating)
                 || !fullTermination[creditId] || c.recoveryFinalized || pendingRemoteReturn[creditId] != 0
-                || pendingRemoteSeizure[creditId] != 0 || pendingSolanaFundingHash[creditId] != bytes32(0)
+                || pendingCollateralTopUp[creditId].amount != 0 || pendingRemoteSeizure[creditId] != 0 || pendingSolanaFundingHash[creditId] != bytes32(0)
                 || pendingSolanaPayoutHash[creditId] != bytes32(0)
         ) revert Unauthorized();
         _accrue(c, creditId);

@@ -26,6 +26,7 @@ function fixture(remote = false, solana = false) {
       if (name === "closingRetention") return state.retaining;
       if (name === "remoteCollateral") return remote;
       if (name === "solanaCollateral") return solana;
+      if (name === "pendingCollateralTopUp") return [0n, word, 0n, 0n];
       if (name === "pendingRemoteReturn") return state.pending;
       if (name === "remoteReturnActionHash") return word;
       if (name === "asset") return asset;

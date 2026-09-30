@@ -1,5 +1,6 @@
 import type { TermbookClient } from "../client/client.js";
-import type { CollateralArgs } from "../types/collateral.types.js";
+import { changeCollateral, savedCollateralChange } from "./change.js";
+import type { CollateralArgs, CollateralChangeOptions, CollateralChangeCheckpoint } from "../types/collateral.types.js";
 import type { TxHash } from "../types/client.types.js";
 import { encodeAbiParameters, keccak256 } from "viem";
 import { collateralVaultAbi, nativeCollateralVaultAbi } from "@termbook/bindings";
@@ -22,8 +23,9 @@ export class CreditCollateral {
     this.creditId = creditId;
   }
 
-  async add(args: CollateralArgs): Promise<{ lockId: `0x${string}`; tx: TxHash }> {
+  async add(args: CollateralArgs, options: CollateralChangeOptions = {}): Promise<{ lockId: `0x${string}`; tx: TxHash; checkpoint?: CollateralChangeCheckpoint }> {
     await this.client.ready();
+    if (options.checkpoint || await this.client.rpc.facility(this.creditId) === 4) return changeCollateral(this.client, this.creditId, "add", args, options);
     if (args.amount <= 0n) throw new Error("param-invalid");
     const details = await this.client.rpc.creditDetails(this.creditId);
     const detailVault = detail(details, "collateralVault", 6);
@@ -96,17 +98,23 @@ export class CreditCollateral {
     return { lockId, tx };
   }
 
-  async withdraw(args: CollateralArgs): Promise<{ pending: boolean; tx?: TxHash }> {
+  async withdraw(args: CollateralArgs, options: CollateralChangeOptions = {}): Promise<{ pending: boolean; tx: TxHash; checkpoint: CollateralChangeCheckpoint }> {
+    const result = await changeCollateral(this.client, this.creditId, "withdraw", args, options);
+    return { pending: false, tx: result.tx, checkpoint: result.checkpoint };
+  }
+
+  async resumeAddition(options: CollateralChangeOptions = {}) {
     await this.client.ready();
-    const details = await this.client.rpc.creditDetails(this.creditId);
-    const lock = detail(details, "lockId", 22);
-    const amount = detail(details, "collateralAmount", 9);
-    if (typeof lock !== "string" || !/^0x[a-fA-F0-9]{64}$/.test(lock)) throw new Error("collateral-unavailable");
-    const requested = args.amount > 0n ? args.amount : BigInt(String(amount ?? 0));
-    if (requested <= 0n) throw new Error("param-invalid");
-    const tx = await this.client.rpc.coreWrite("withdrawCollateral", [this.creditId, requested]);
-    await this.client.rpc.wait(tx);
-    return { pending: false, tx };
+    const checkpoint = options.checkpoint ?? savedCollateralChange(this.client, this.creditId, "add");
+    if (!checkpoint) throw new Error("collateral-checkpoint-required");
+    return changeCollateral(this.client, this.creditId, "add", { amount: BigInt(checkpoint.amount) }, { ...options, checkpoint });
+  }
+
+  async resumeWithdrawal(options: CollateralChangeOptions = {}) {
+    await this.client.ready();
+    const checkpoint = options.checkpoint ?? savedCollateralChange(this.client, this.creditId, "withdraw");
+    if (!checkpoint) throw new Error("collateral-checkpoint-required");
+    return changeCollateral(this.client, this.creditId, "withdraw", { amount: BigInt(checkpoint.amount) }, { ...options, checkpoint });
   }
 
   async balance(): Promise<bigint> {

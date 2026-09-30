@@ -70,6 +70,20 @@ contract NativeCollateralVaultTest is Test {
         );
     }
 
+    function testNativeTopUpWrapsExactlyAndRejectsUnauthorizedOrWrongValue() public {
+        _lock(recipient);
+        vm.deal(address(this), 1 ether);
+        vm.expectRevert(NativeCollateralVault.Unauthorized.selector);
+        vm.prank(owner); vault.topUpNative{value: 1 ether}(lockId, owner, 1 ether);
+        vm.expectRevert(NativeCollateralVault.InvalidBinding.selector);
+        vault.topUpNative{value: 1 ether}(lockId, owner, 2 ether);
+        vault.topUpNative{value: 1 ether}(lockId, owner, 1 ether);
+        (,,,,uint256 amount,,,,,,) = vault.lockInfo(lockId);
+        assertEq(amount, 3 ether);
+        assertEq(wrapped.balanceOf(address(vault)), 3 ether);
+        assertEq(address(vault).balance, 0);
+    }
+
     function testNativeDepositWrapsExactAmountAndBindsLock() public {
         uint256 ownerBefore = owner.balance;
         _lock(recipient);

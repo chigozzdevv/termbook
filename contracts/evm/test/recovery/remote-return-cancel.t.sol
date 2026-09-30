@@ -7,6 +7,8 @@ import {MockRemoteSaleOracle} from "../MockRemoteSaleOracle.sol";
 import {TermbookCore} from "../../src/monad/credit/TermbookCore.sol";
 import {HouseVault} from "../../src/monad/house/HouseVault.sol";
 import {VerifierRegistry} from "../../src/monad/collateral/VerifierRegistry.sol";
+import {AccountFactory} from "../../src/monad/credit/AccountFactory.sol";
+import {MockExitVerifier} from "../integration/real-flow.t.sol";
 import {Types} from "../../src/shared/Types.sol";
 
 contract MockReturnCancelVerifier {
@@ -30,6 +32,10 @@ contract MockReturnCancelVerifier {
     function bootstrapHash() external pure returns (bytes32) { return keccak256("ethereum-bootstrap"); }
     function verifyLock(bytes calldata, bytes calldata, address vault, bytes32 digest) external view returns (bool) {
         return vault == sourceVault && digest != bytes32(0);
+    }
+
+    function verifyAppliedAction(bytes calldata, bytes calldata proof, address vault, bytes32 digest) external view returns (bool) {
+        return vault == sourceVault && abi.decode(proof, (bytes32)) == digest;
     }
 
     function setUnconsumed(bool value) external { unconsumed = value; }
@@ -59,6 +65,7 @@ contract RemoteReturnCancelTest is Test {
         vault = HouseVault(deployCode("HouseVault.sol:HouseVault", abi.encode(address(settlement), address(core), address(this), address(0), address(0))));
         verifier = new MockReturnCancelVerifier(sourceVault, sourceController);
         VerifierRegistry registry = new VerifierRegistry(address(this));
+        core.setExitVerifier(keccak256("bundle"), address(new MockExitVerifier()));
         core.setVerifierRegistry(address(registry));
         registry.setVerifier(1, address(verifier), 1, 1 days);
         core.setSourceCollateralVault(1, sourceAsset, sourceVault);
@@ -72,7 +79,7 @@ contract RemoteReturnCancelTest is Test {
         vault.deposit(address(this), 1_000e18);
     }
 
-    function _abortedCredit() private returns (bytes32 creditId, bytes32 lockId) {
+    function _preparedCredit(bool abortSetup) private returns (bytes32 creditId, bytes32 lockId) {
         address borrower = vm.addr(borrowerKey);
         address house = vm.addr(houseKey);
         Types.Quote memory quote;
@@ -103,12 +110,19 @@ contract RemoteReturnCancelTest is Test {
         vm.prank(borrower);
         core.bindRemoteCollateral(creditId, lockId);
         core.proveCollateral(creditId, 1, hex"01", hex"02");
-        vm.warp(quote.setupDeadline + 1);
-        core.expireSetup(creditId);
+        if (abortSetup) {
+            vm.warp(quote.setupDeadline + 1);
+            core.expireSetup(creditId);
+        } else {
+            address account = (new AccountFactory()).create(creditId, borrower, address(core));
+            vm.prank(borrower);
+            core.bindAccount(creditId, account);
+            assertEq(uint256(core.creditDetails(creditId).facility), uint256(Types.Facility.Ready));
+        }
     }
 
     function testExpiredReturnRequiresFinalizedNonexecutionProof() public {
-        (bytes32 creditId, bytes32 lockId) = _abortedCredit();
+        (bytes32 creditId, bytes32 lockId) = _preparedCredit(true);
         address borrower = vm.addr(borrowerKey);
         vm.prank(borrower);
         core.authorizeReturn(creditId, lockId, 20e18);
@@ -132,4 +146,88 @@ contract RemoteReturnCancelTest is Test {
         core.authorizeReturn(creditId, lockId, 20e18);
         assertTrue(core.remoteReturnActionHash(creditId) != firstHash);
     }
+    function testReadyWithdrawalRemovesBackingBeforeSourceExecution() public {
+        (bytes32 id,) = _preparedCredit(false);
+        vm.prank(vm.addr(borrowerKey)); core.withdrawCollateral(id, 70e18);
+        bytes32 hash = core.remoteReturnActionHash(id);
+        assertEq(core.creditDetails(id).collateralAmount, 30e18);
+        assertEq(core.pendingRemoteReturn(id), 70e18);
+        assertTrue(core.remoteReturnDeducted(id));
+        vm.expectRevert(TermbookCore.Pending.selector);
+        vm.prank(vm.addr(borrowerKey)); core.withdrawCollateral(id, 1e18);
+        core.confirmRemoteReturn(id, hex"01", abi.encode(hash));
+        assertEq(core.creditDetails(id).collateralAmount, 30e18);
+        assertEq(core.collateralActionOutcome(hash), 1);
+        assertFalse(core.remoteReturnDeducted(id));
+        vm.expectRevert(TermbookCore.Pending.selector);
+        core.confirmRemoteReturn(id, hex"01", abi.encode(hash));
+    }
+
+    function testWithdrawalExpiryRestoresOnlyAfterNonexecutionProof() public {
+        (bytes32 id,) = _preparedCredit(false);
+        vm.prank(vm.addr(borrowerKey)); core.withdrawCollateral(id, 70e18);
+        bytes32 hash = core.remoteReturnActionHash(id);
+        uint256 deadline = core.remoteReturnDeadline(id);
+        vm.warp(deadline + 1);
+        assertEq(core.creditDetails(id).collateralAmount, 30e18);
+        vm.expectRevert(TermbookCore.InvalidCollateral.selector);
+        core.cancelExpiredRemoteReturn(id, hex"01", hex"02");
+        verifier.setUnconsumed(true);
+        core.cancelExpiredRemoteReturn(id, hex"01", hex"02");
+        assertEq(core.creditDetails(id).collateralAmount, 100e18);
+        assertEq(core.collateralActionOutcome(hash), 2);
+    }
+
+    function testTopUpCountsOnlyProvedDeltaAndCannotReplayEarlierProof() public {
+        (bytes32 id,) = _preparedCredit(false);
+        address borrower = vm.addr(borrowerKey);
+        vm.prank(borrower); core.withdrawCollateral(id, 70e18);
+        core.confirmRemoteReturn(id, hex"01", abi.encode(core.remoteReturnActionHash(id)));
+        vm.prank(borrower); core.addCollateral(id, 20e18, vm.getBlockTimestamp() + 1 hours);
+        (,bytes32 hash,,) = core.pendingCollateralTopUp(id);
+        assertEq(core.creditDetails(id).collateralAmount, 30e18);
+        vm.expectRevert(TermbookCore.InvalidCollateral.selector);
+        core.confirmCollateralTopUp(id, hex"01", abi.encode(bytes32(uint256(7))));
+        core.confirmCollateralTopUp(id, hex"01", abi.encode(hash));
+        assertEq(core.creditDetails(id).collateralAmount, 50e18);
+        assertEq(core.collateralActionOutcome(hash), 1);
+        vm.expectRevert(TermbookCore.Pending.selector);
+        core.confirmCollateralTopUp(id, hex"01", abi.encode(hash));
+        vm.expectRevert(TermbookCore.InvalidCollateral.selector);
+        core.proveCollateral(id, 1, hex"01", hex"02");
+    }
+
+    function testTopUpLateConfirmationCannotOrphanFundsDuringClosure() public {
+        (bytes32 id, bytes32 lockId) = _preparedCredit(false);
+        address borrower = vm.addr(borrowerKey);
+        vm.prank(borrower); core.addCollateral(id, 20e18, vm.getBlockTimestamp() + 1 hours);
+        (,bytes32 hash,,) = core.pendingCollateralTopUp(id);
+        vm.prank(borrower); core.startClosing(id);
+        vm.expectRevert(TermbookCore.Pending.selector);
+        vm.prank(borrower); core.authorizeReturn(id, lockId, 100e18);
+        core.confirmCollateralTopUp(id, hex"01", abi.encode(hash));
+        assertEq(core.creditDetails(id).collateralAmount, 120e18);
+        vm.prank(borrower); core.authorizeReturn(id, lockId, 120e18);
+    }
+
+    function testUnfundedTopUpCanExpireWithoutAddingBacking() public {
+        (bytes32 id,) = _preparedCredit(false);
+        uint256 deadline = vm.getBlockTimestamp() + 1 hours;
+        vm.prank(vm.addr(borrowerKey)); core.addCollateral(id, 20e18, deadline);
+        (,bytes32 hash,,) = core.pendingCollateralTopUp(id);
+        vm.warp(deadline + 1); verifier.setUnconsumed(true);
+        core.cancelExpiredCollateralTopUp(id, hex"01", hex"02");
+        assertEq(core.creditDetails(id).collateralAmount, 100e18);
+        assertEq(core.collateralActionOutcome(hash), 2);
+    }
+
+    function testPartialWithdrawalCanConfirmAfterClosingStarts() public {
+        (bytes32 id,) = _preparedCredit(false);
+        vm.prank(vm.addr(borrowerKey)); core.withdrawCollateral(id, 70e18);
+        bytes32 hash = core.remoteReturnActionHash(id);
+        vm.prank(vm.addr(borrowerKey)); core.startClosing(id);
+        core.confirmRemoteReturn(id, hex"01", abi.encode(hash));
+        assertEq(core.creditDetails(id).collateralAmount, 30e18);
+    }
+
 }

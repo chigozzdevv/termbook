@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 
 const action = new mongoose.Schema({
-  _id: String, creditId: { type: String, required: true }, kind: { type: Number, enum: [0, 1], required: true },
+  _id: String, creditId: { type: String, required: true }, kind: { type: Number, enum: [0, 1, 2], required: true },
   authorizationTxHash: { type: String, required: true }, state: { type: String, default: "pending" },
   mode: String, sourceTx: String, lease: String, leaseExpiresAt: Date,
   transactionCount: { type: Number, default: 0 }, failures: { type: Number, default: 0 },

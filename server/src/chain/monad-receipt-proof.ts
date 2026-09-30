@@ -247,7 +247,7 @@ export async function fetchMonadAuthorizationProof(input: {
   core: Address;
   creditId: Hex;
   actionHash: Hex;
-  kind: 0 | 1;
+  kind: 0 | 1 | 2;
 }) {
   return fetchMonadReceiptProof({
     txHash: input.txHash,
@@ -256,7 +256,7 @@ export async function fetchMonadAuthorizationProof(input: {
 }
 
 export function authorizationLogIndex(
-  receipt: TransactionReceipt, core: Address, creditId: Hex, actionHash: Hex, kind: 0 | 1,
+  receipt: TransactionReceipt, core: Address, creditId: Hex, actionHash: Hex, kind: 0 | 1 | 2,
 ): number {
   if (receipt.status !== "success" || !word.test(creditId) || !word.test(actionHash)) throw new Error("authorization-receipt-invalid");
   const data = encodeAbiParameters([{ type: "uint8" }], [kind]);

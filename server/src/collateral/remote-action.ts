@@ -8,6 +8,9 @@ const coreAbi = parseAbi([
   "function remoteCollateral(bytes32) view returns (bool)",
   "function solanaCollateral(bytes32) view returns (bool)",
   "function remoteActionNonce(bytes32) view returns (uint256)",
+  "function remoteReturnDeducted(bytes32) view returns (bool)",
+  "function collateralOwnerOf(bytes32) view returns (address)",
+  "function pendingCollateralTopUp(bytes32) view returns (uint256 amount,bytes32 actionHash,uint256 revision,uint256 deadline)",
   "function pendingRemoteReturn(bytes32) view returns (uint256)",
   "function remoteReturnActionHash(bytes32) view returns (bytes32)",
   "function remoteReturnDeadline(bytes32) view returns (uint256)",
@@ -30,7 +33,7 @@ export type RemoteAction = {
   creditId: Hex;
   lockId: Hex;
   asset: Address;
-  kind: 0 | 1;
+  kind: 0 | 1 | 2;
   recipient: Address;
   amount: bigint;
   nonce: bigint;
@@ -40,7 +43,7 @@ export type RemoteAction = {
 export type RemoteActionRecord = {
   actionHash: string;
   creditId: string;
-  kind: 0 | 1;
+  kind: 0 | 1 | 2;
   authorizationTxHash: string;
   action: { [K in keyof RemoteAction]: string | number };
 };
@@ -70,38 +73,40 @@ export function parseStoredAction(value: RemoteActionRecord["action"]): RemoteAc
     monadChain: BigInt(value.monadChain), monadCore: value.monadCore as Address,
     sourceChain: BigInt(value.sourceChain), sourceVault: value.sourceVault as Address,
     creditId: value.creditId as Hex, lockId: value.lockId as Hex,
-    asset: value.asset as Address, kind: value.kind as 0 | 1,
+    asset: value.asset as Address, kind: value.kind as 0 | 1 | 2,
     recipient: value.recipient as Address, amount: BigInt(value.amount),
     nonce: BigInt(value.nonce), deadline: BigInt(value.deadline),
   };
 }
 
-export async function readAuthorizedAction(creditId: Hex, kind: 0 | 1, requester?: Address, allowExpired = false) {
+export async function readAuthorizedAction(creditId: Hex, kind: 0 | 1 | 2, requester?: Address, allowExpired = false) {
   const chain = monadClient();
   if (await chain.getChainId() !== env.monadChainId) throw new Error("remote-action-monad-chain-mismatch");
   const finalized = await chain.getBlock({ blockTag: "finalized" });
   const core = env.core as Address;
   const at = finalized.number;
+  const topUp = kind === 2 ? await chain.readContract({ address: core, abi: coreAbi, functionName: "pendingCollateralTopUp", args: [creditId], blockNumber: at }) : undefined;
+  const deducted = kind === 0 ? await chain.readContract({ address: core, abi: coreAbi, functionName: "remoteReturnDeducted", args: [creditId], blockNumber: at }) : false;
   const [credit, sourceChain, remote, solana, nonce, amount, actionHash, recipient, deadline, recoveryVault] = await Promise.all([
     chain.readContract({ address: core, abi: termbookCoreAbi, functionName: "creditDetails", args: [creditId], blockNumber: at }),
     chain.readContract({ address: core, abi: coreAbi, functionName: "collateralSourceChainOf", args: [creditId], blockNumber: at }),
     chain.readContract({ address: core, abi: coreAbi, functionName: "remoteCollateral", args: [creditId], blockNumber: at }),
     chain.readContract({ address: core, abi: coreAbi, functionName: "solanaCollateral", args: [creditId], blockNumber: at }),
     chain.readContract({ address: core, abi: coreAbi, functionName: "remoteActionNonce", args: [creditId], blockNumber: at }),
-    chain.readContract({ address: core, abi: coreAbi, functionName: kind === 0 ? "pendingRemoteReturn" : "pendingRemoteSeizure", args: [creditId], blockNumber: at }),
-    chain.readContract({ address: core, abi: coreAbi, functionName: kind === 0 ? "remoteReturnActionHash" : "remoteSeizureActionHash", args: [creditId], blockNumber: at }),
-    kind === 0 ? Promise.resolve(creditId) : chain.readContract({ address: core, abi: coreAbi, functionName: "remoteSeizureRecipient", args: [creditId], blockNumber: at }),
-    chain.readContract({ address: core, abi: coreAbi, functionName: kind === 0 ? "remoteReturnDeadline" : "remoteSeizureDeadline", args: [creditId], blockNumber: at }),
+    topUp ? Promise.resolve(topUp[0]) : chain.readContract({ address: core, abi: coreAbi, functionName: kind === 0 ? "pendingRemoteReturn" : "pendingRemoteSeizure", args: [creditId], blockNumber: at }),
+    topUp ? Promise.resolve(topUp[1]) : chain.readContract({ address: core, abi: coreAbi, functionName: kind === 0 ? "remoteReturnActionHash" : "remoteSeizureActionHash", args: [creditId], blockNumber: at }),
+    kind === 2 ? chain.readContract({ address: core, abi: coreAbi, functionName: "collateralOwnerOf", args: [creditId], blockNumber: at }) : kind === 0 ? Promise.resolve(creditId) : chain.readContract({ address: core, abi: coreAbi, functionName: "remoteSeizureRecipient", args: [creditId], blockNumber: at }),
+    topUp ? Promise.resolve(topUp[3]) : chain.readContract({ address: core, abi: coreAbi, functionName: kind === 0 ? "remoteReturnDeadline" : "remoteSeizureDeadline", args: [creditId], blockNumber: at }),
     chain.readContract({ address: core, abi: coreAbi, functionName: "remoteRecoveryVaultOf", args: [creditId], blockNumber: at }),
   ]);
   if (!remote || solana || sourceChain !== 1n || nonce === 0n || amount === 0n
     || actionHash.toLowerCase() === zero || credit.lockId.toLowerCase() === zero
     || credit.collateralVault.toLowerCase() === zeroAddress || credit.collateralAsset.toLowerCase() === zeroAddress
-    || recoveryVault.toLowerCase() === zeroAddress || amount > credit.collateralAmount) {
+    || recoveryVault.toLowerCase() === zeroAddress || (kind !== 2 && deducted !== true && amount > credit.collateralAmount)) {
     throw new Error("remote-action-unavailable");
   }
   if (requester) {
-    const allowed = kind === 0
+    const allowed = kind !== 1
       ? requester.toLowerCase() === credit.borrower.toLowerCase()
       : await chain.readContract({ address: core, abi: coreAbi, functionName: "recoveryKeepers", args: [requester], blockNumber: at });
     if (!allowed) throw new Error("permission-denied");

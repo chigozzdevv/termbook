@@ -39,6 +39,14 @@ export const remoteActionRepo = {
     if (!saved || !equalIdentity(saved, doc)) throw new Error("remote-action-conflict");
     return saved;
   },
+  async finishTopUp(actionHash: string, outcome: 1 | 2) {
+    return RemoteActionModel.updateOne({ actionHash, kind: 2, state: "pending" },
+      { $set: { state: outcome === 1 ? "finalized" : "expired" }, $unset: { failure: 1, nextRunAt: 1 } });
+  },
+  async defer(actionHash: string, delay: number) {
+    return RemoteActionModel.updateOne({ actionHash, kind: 2, state: "pending" },
+      { $set: { nextRunAt: new Date(Date.now() + delay) } });
+  },
   async find(actionHash: string) {
     return RemoteActionModel.findOne({ actionHash }).lean();
   },
@@ -46,7 +54,7 @@ export const remoteActionRepo = {
     return RemoteActionModel.find({ state: { $in: [
       "pending", "prepared", "submitted", "mined", "external_execution", "source_finalized",
       "confirm_prepared", "confirm_submitted", "confirm_mined",
-    ] } })
+    ] }, $or: [{ nextRunAt: { $exists: false } }, { nextRunAt: { $lte: new Date() } }] })
       .sort({ createdAt: 1 }).limit(10).lean();
   },
   async listByCredit(creditId: string) {

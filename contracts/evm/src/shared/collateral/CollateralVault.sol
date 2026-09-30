@@ -35,6 +35,7 @@ contract CollateralVault is ICollateralVault {
     mapping(bytes32 => bool) public releaseUsed;
     mapping(bytes32 => bytes32) public lockCommitments;
     bool public remoteMode;
+    uint256 private entered;
 
     error Exists();
     error Unknown();
@@ -45,6 +46,16 @@ contract CollateralVault is ICollateralVault {
     error InvalidRecipient();
     error InvalidAsset();
     error InvalidBinding();
+    error Reentrant();
+
+    modifier nonReentrant() {
+        if (entered != 0) revert Reentrant();
+        entered = 1;
+        _;
+        entered = 0;
+    }
+
+    event ToppedUp(bytes32 indexed lockId, address indexed payer, uint256 amount);
 
     event Locked(bytes32 indexed lockId, bytes32 indexed creditId, address indexed owner, uint256 amount);
     event LockCommitted(bytes32 indexed lockId, bytes32 indexed commitment);
@@ -108,7 +119,7 @@ contract CollateralVault is ICollateralVault {
         address recipient,
         uint256 deadline,
         uint256 revision
-    ) internal {
+    ) internal nonReentrant {
         if (lockExists[lockId]) revert Exists();
         if (paused || msg.sender != owner || owner == address(0) || creditId == bytes32(0)) revert Unauthorized();
         if (amount == 0 || revision == 0) revert InvalidAmount();
@@ -180,7 +191,7 @@ contract CollateralVault is ICollateralVault {
         return keccak256(abi.encode(lockId, slot));
     }
 
-    function release(bytes32 lockId, address recipient, uint256 amount, uint256 nonce) public {
+    function release(bytes32 lockId, address recipient, uint256 amount, uint256 nonce) public nonReentrant {
         if (msg.sender != core) revert Unauthorized();
         bytes32 key = keccak256(abi.encode(lockId, recipient, amount, nonce));
         if (releaseUsed[key]) revert Used();
@@ -206,7 +217,7 @@ contract CollateralVault is ICollateralVault {
         emit RemoteActionApplied(actionHash, lockId, recipient, amount, 0);
     }
 
-    function seize(bytes32 lockId, address recipient, uint256 amount) public {
+    function seize(bytes32 lockId, address recipient, uint256 amount) public nonReentrant {
         if (msg.sender != core) revert Unauthorized();
         Lock storage l = locks[lockId];
         if (!lockExists[lockId]) revert Unknown();
@@ -226,6 +237,23 @@ contract CollateralVault is ICollateralVault {
         if (actionHash == bytes32(0)) revert InvalidBinding();
         seize(lockId, recipient, amount);
         emit RemoteActionApplied(actionHash, lockId, recipient, amount, 1);
+    }
+
+    function topUp(bytes32 lockId, address payer, uint256 amount) public nonReentrant {
+        if (msg.sender != core || paused) revert Unauthorized();
+        Lock storage l = locks[lockId];
+        if (!lockExists[lockId] || l.released || l.seized || payer == address(0) || amount == 0) revert InvalidBinding();
+        uint256 beforeBalance = asset.balanceOf(address(this));
+        asset.safeTransferFrom(payer, address(this), amount);
+        if (asset.balanceOf(address(this)) - beforeBalance != amount) revert InvalidAmount();
+        l.amount += amount;
+        emit ToppedUp(lockId, payer, amount);
+    }
+
+    function topUpAuthorized(bytes32 lockId, address payer, uint256 amount, bytes32 actionHash) external {
+        if (actionHash == bytes32(0) || payer != locks[lockId].owner) revert InvalidBinding();
+        topUp(lockId, payer, amount);
+        emit RemoteActionApplied(actionHash, lockId, payer, amount, 2);
     }
 
     function lockInfo(bytes32 lockId)

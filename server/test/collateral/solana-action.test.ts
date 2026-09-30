@@ -3,6 +3,7 @@ import { keccak256 } from "viem";
 import { NATIVE_SOL_ASSET_BYTES } from "@termbook/schema";
 import { solanaAlias } from "../../src/quote/solana.js";
 
+vi.mock("../../src/collateral/remote-action.service.js", () => ({ verifyAuthorizationReceipt: vi.fn() }));
 vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: vi.fn() }));
 vi.mock("../../src/collateral/solana-proof.js", () => ({
   fetchSolanaProof: vi.fn(), solanaFinalizedClock: vi.fn(),
@@ -52,12 +53,12 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function source(kind: 0 | 1, verified = true) {
+function source(kind: 0 | 1 | 2, verified = true) {
   const amount = 500_000_000n;
   const action: SolanaAction = {
     monadChain: 143n, monadCore: core, sourceGenesis: genesis, sourceVault: pda,
     creditId, lockId, asset: NATIVE_SOL_ASSET_BYTES, kind,
-    recipient: kind === 0 ? returnRecipient : recoveryVault,
+    recipient: kind === 2 ? word("c") : kind === 0 ? returnRecipient : recoveryVault,
     amountLamports: amount, nonce: 2n, revision: 3n, deadline: 500n,
     verifierVersion: 1n,
   };
@@ -70,6 +71,7 @@ function source(kind: 0 | 1, verified = true) {
     solanaIdentityOf: [genesis, programId, NATIVE_SOL_ASSET_BYTES, word("c"),
       returnRecipient, recoveryVault, 1n],
     solanaLockPdaOf: pda, remoteActionNonce: 2n,
+    pendingCollateralTopUp: kind === 2 ? [amount, actionHash, 3n, 500n] : [0n, word("0"), 0n, 0n],
     pendingRemoteReturn: kind === 0 ? amount : 0n,
     pendingRemoteSeizure: kind === 1 ? amount : 0n,
     remoteReturnActionHash: kind === 0 ? actionHash : word("0"),
@@ -101,6 +103,21 @@ describe("Solana remote action plans", () => {
     expect(result.authorizationTxHash).toBe(word("e"));
   });
 
+  it("binds top-up funding to the existing source owner and exact amount", async () => {
+    const { actionHash } = source(2);
+    const result = await solanaActionService.plan({ creditId, kind: "topup", mode: "apply", authorizationTxHash: word("e") }, borrower);
+    expect(result.action.kind).toBe(2);
+    expect(result.action.recipient).toBe(word("c"));
+    expect(result.action.amountLamports).toBe("500000000");
+    expect(result.actionHash).toBe(actionHash);
+    expect(result.programDataHash).toBe(programDataHash);
+  });
+  it("confirms a top-up through the pinned action verifier", async () => {
+    const { actionHash } = source(2);
+    const result = await solanaActionService.confirmationPlan({ creditId, kind: "topup", mode: "apply", sourceTx }, borrower);
+    expect(result).toMatchObject({ to: core, mode: "apply", actionHash });
+    expect(result.data.slice(0, 10)).toBe((await import("viem")).toFunctionSelector("confirmCollateralTopUp(bytes32,bytes,bytes)"));
+  });
   it("returns a Monad confirmation only after the pinned verifier accepts the finalized source proof", async () => {
     const { actionHash, call } = source(1);
     const result = await solanaActionService.confirmationPlan({ creditId, kind: "seize", mode: "apply", sourceTx }, borrower);

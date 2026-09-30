@@ -72,7 +72,7 @@ async function current(target: Address, id: Hex, kind: "authorization" | "recove
 }
 
 export async function currentEthereumAuthorization(input: {
-  core: Address; creditId: Hex; actionHash: Hex; kind: 0 | 1; refresh?: boolean; recoveryReturn?: boolean;
+  core: Address; creditId: Hex; actionHash: Hex; kind: 0 | 1 | 2; refresh?: boolean; recoveryReturn?: boolean;
 }) {
   const payload = encodeAbiParameters(
     [{ type: "bytes32" }, { type: "bytes32" }],

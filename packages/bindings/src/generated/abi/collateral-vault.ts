@@ -627,6 +627,57 @@ export const collateralVaultAbi = [
     "stateMutability": "nonpayable"
   },
   {
+    "type": "function",
+    "name": "topUp",
+    "inputs": [
+      {
+        "name": "lockId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "payer",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "topUpAuthorized",
+    "inputs": [
+      {
+        "name": "lockId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "payer",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "actionHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
     "type": "event",
     "name": "LockCommitted",
     "inputs": [
@@ -777,6 +828,31 @@ export const collateralVaultAbi = [
     "anonymous": false
   },
   {
+    "type": "event",
+    "name": "ToppedUp",
+    "inputs": [
+      {
+        "name": "lockId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "payer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
     "type": "error",
     "name": "Exists",
     "inputs": []
@@ -809,6 +885,11 @@ export const collateralVaultAbi = [
   {
     "type": "error",
     "name": "InvalidToken",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "Reentrant",
     "inputs": []
   },
   {

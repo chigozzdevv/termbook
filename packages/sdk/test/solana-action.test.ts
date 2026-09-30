@@ -58,6 +58,25 @@ describe("Solana source action instruction", () => {
       .toThrow("solana-action-proof-invalid");
   });
 
+  it("encodes owner-funded top-ups and permissionless expiry as separate instructions", () => {
+    const programId = key(11);
+    const action: SolanaRemoteAuthorization = { monadChain: 143n, monadCore: address(3),
+      sourceGenesis: key(5), sourceVault: key(10), creditId: key(2), lockId: key(1), asset: key(1),
+      kind: 2, recipient: key(9), amountLamports: 500_000_000n, nonce: 1n, revision: 2n,
+      deadline: 100n, verifierVersion: 1n };
+    const plan = { programId, actionHash: solanaActionHash(action, programId), action, authorizationTxHash: key(18), mode: "apply" as const };
+    const keys = Array.from({ length: 12 }, () => ({ pubkey: solanaPubkeyBase58(key(19)), isSigner: false, isWritable: false }));
+    const topup = solanaActionInstruction(plan, keys);
+    expect(topup.data[0]).toBe(8);
+    expect(topup.keys).toHaveLength(15);
+    expect(topup.keys[1]).toEqual({ pubkey: solanaPubkeyBase58(key(9)), isSigner: true, isWritable: true });
+    expect(topup.keys[2]?.pubkey).toBe("11111111111111111111111111111111");
+    const expiry = solanaActionInstruction({ ...plan, mode: "expire" }, keys);
+    expect(expiry.data[0]).toBe(2);
+    expect(expiry.keys).toHaveLength(13);
+    expect(expiry.keys.some((meta) => meta.isSigner)).toBe(false);
+  });
+
   it("parses the JSON plan and checks finalized source state before asking the wallet to submit", async () => {
     const programId = key(11);
     const action: SolanaRemoteAuthorization = {

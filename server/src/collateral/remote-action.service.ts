@@ -42,6 +42,7 @@ export const remoteActionService = {
       functionName: "solanaCollateral", args: [input.creditId as Hex], blockNumber: finalized.number })) {
       if (!await solanaRelayConfig()) throw new Error("remote-action-worker-unavailable");
       const { actionHash, action } = await readSolanaAction({ creditId: input.creditId as Hex, kind: input.kind }, requester);
+      if (action.kind === 2) throw new Error("remote-action-owner-funding-required");
       await verifyAuthorizationReceipt(input.creditId as Hex, actionHash, action.kind, input.authorizationTxHash as Hex);
       await solanaRelayRepo.open({ _id: actionHash.toLowerCase(), creditId: input.creditId as Hex,
         kind: action.kind, authorizationTxHash: input.authorizationTxHash as Hex });
@@ -209,7 +210,7 @@ export const remoteActionService = {
   },
 };
 
-export async function verifyAuthorizationReceipt(creditId: Hex, actionHash: Hex, kind: 0 | 1, hash: Hex): Promise<void> {
+export async function verifyAuthorizationReceipt(creditId: Hex, actionHash: Hex, kind: 0 | 1 | 2, hash: Hex): Promise<void> {
   const chain = monadClient();
   const receipt = await chain.getTransactionReceipt({ hash });
   const finalized = await chain.getBlock({ blockTag: "finalized" });
@@ -229,10 +230,11 @@ export async function verifyAuthorizationReceipt(creditId: Hex, actionHash: Hex,
   if (matches.length !== 1) throw new Error("remote-action-authorization-mismatch");
 }
 
-export async function scheduleFinalizedAction(input: { creditId: Hex; actionHash: Hex; kind: 0 | 1; authorizationTxHash: Hex }) {
+export async function scheduleFinalizedAction(input: { creditId: Hex; actionHash: Hex; kind: 0 | 1 | 2; authorizationTxHash: Hex }) {
   const chain = monadClient();
   const at = (await chain.getBlock({ blockTag: "finalized" })).number;
-  const current = await chain.readContract({ address: env.core as Address, abi: termbookCoreAbi,
+  const current = input.kind === 2 ? (await chain.readContract({ address: env.core as Address, abi: termbookCoreAbi,
+    functionName: "pendingCollateralTopUp", args: [input.creditId], blockNumber: at }))[1] : await chain.readContract({ address: env.core as Address, abi: termbookCoreAbi,
     functionName: input.kind === 0 ? "remoteReturnActionHash" : "remoteSeizureActionHash", args: [input.creditId], blockNumber: at });
   if (current.toLowerCase() !== input.actionHash.toLowerCase()) return;
   await verifyAuthorizationReceipt(input.creditId, input.actionHash, input.kind, input.authorizationTxHash);

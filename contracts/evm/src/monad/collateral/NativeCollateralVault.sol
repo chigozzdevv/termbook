@@ -49,6 +49,7 @@ contract NativeCollateralVault is ICollateralVault {
     error NativeTransferFailed();
     error Reentrant();
 
+    event ToppedUp(bytes32 indexed lockId, address indexed payer, uint256 amount);
     event Locked(bytes32 indexed lockId, bytes32 indexed creditId, address indexed owner, uint256 amount);
     event Released(bytes32 indexed lockId, address indexed recipient, uint256 amount);
     event Seized(bytes32 indexed lockId, address indexed recipient, uint256 amount);
@@ -127,6 +128,19 @@ contract NativeCollateralVault is ICollateralVault {
             revert InvalidAmount();
         }
         emit Locked(lockId, creditId, owner, amount);
+    }
+
+    function topUpNative(bytes32 lockId, address payer, uint256 amount) external payable nonReentrant {
+        _onlyCore();
+        Lock storage l = locks[lockId];
+        if (paused || !lockExists[lockId] || l.released || l.seized || payer == address(0)
+            || amount == 0 || msg.value != amount) revert InvalidBinding();
+        uint256 nativeBefore = address(this).balance - amount;
+        uint256 wrappedBefore = asset.balanceOf(address(this));
+        IWrappedNative(asset).deposit{value: amount}();
+        if (asset.balanceOf(address(this)) - wrappedBefore != amount || address(this).balance != nativeBefore) revert InvalidAmount();
+        l.amount += amount;
+        emit ToppedUp(lockId, payer, amount);
     }
 
     function release(bytes32 lockId, address recipient, uint256 amount, uint256 nonce) external nonReentrant {

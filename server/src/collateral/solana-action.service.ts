@@ -1,6 +1,7 @@
 import { termbookCoreAbi, verifierRegistryAbi } from "@termbook/bindings";
 import { encodeAbiParameters, encodeFunctionData, keccak256, parseAbi, stringToHex, type Address, type Hex } from "viem";
 import { monadClient } from "../chain/monad.client.js";
+import { verifyAuthorizationReceipt } from "./remote-action.service.js";
 import { env } from "../config/env.js";
 import { solanaAlias } from "../quote/solana.js";
 import { fetchSolanaProof, solanaFinalizedClock } from "./solana-proof.js";
@@ -13,6 +14,9 @@ const coreAbi = parseAbi([
   "function solanaIdentityOf(bytes32) view returns (bytes32 sourceGenesis,bytes32 programId,bytes32 sourceAsset,bytes32 sourceOwner,bytes32 returnRecipient,bytes32 recoveryVault,uint64 verifierVersion)",
   "function solanaLockPdaOf(bytes32) view returns (bytes32)",
   "function solanaMarkets(uint256) view returns (bytes32 sourceGenesis,bytes32 programId,bytes32 programDataHash,bytes32 sourceAsset,bool active)",
+  "function pendingCollateralTopUp(bytes32) view returns (uint256 amount,bytes32 actionHash,uint256 revision,uint256 deadline)",
+  "function confirmCollateralTopUp(bytes32 creditId,bytes header,bytes proof)",
+  "function cancelExpiredCollateralTopUp(bytes32 creditId,bytes header,bytes proof)",
   "function remoteActionNonce(bytes32) view returns (uint256)",
   "function pendingRemoteReturn(bytes32) view returns (uint256)",
   "function remoteReturnActionHash(bytes32) view returns (bytes32)",
@@ -51,7 +55,7 @@ function same(left: unknown, right: string): boolean {
 
 export type SolanaAction = {
   monadChain: bigint; monadCore: Address; sourceGenesis: Hex; sourceVault: Hex;
-  creditId: Hex; lockId: Hex; asset: Hex; kind: 0 | 1; recipient: Hex;
+  creditId: Hex; lockId: Hex; asset: Hex; kind: 0 | 1 | 2; recipient: Hex;
   amountLamports: bigint; nonce: bigint; revision: bigint; deadline: bigint;
   verifierVersion: bigint;
 };
@@ -61,7 +65,7 @@ export function hashSolanaAction(action: SolanaAction, programId: Hex): Hex {
     action.asset, action.recipient, programId].every((value) => word.test(value) && BigInt(value) !== 0n)
     || [action.monadChain, action.amountLamports, action.nonce, action.revision,
       action.deadline, action.verifierVersion].some((value) => value <= 0n || value > maxU64)
-    || action.deadline > maxI64 || (action.kind !== 0 && action.kind !== 1)) {
+    || action.deadline > maxI64 || (action.kind !== 0 && action.kind !== 1 && action.kind !== 2)) {
     throw new Error("solana-action-invalid");
   }
   return keccak256(encodeAbiParameters([
@@ -85,7 +89,8 @@ export async function readSolanaAction(input: Pick<PlanInput, "creditId" | "kind
   if (await chain.getChainId() !== env.monadChainId) throw new Error("solana-monad-chain-mismatch");
   const at = (await chain.getBlock({ blockTag: "finalized" })).number;
   const core = env.core as Address;
-  const kind = input.kind === "release" ? 0 : 1;
+  const kind = input.kind === "topup" ? 2 : input.kind === "release" ? 0 : 1;
+  const topUp = kind === 2 ? await chain.readContract({ address: core, abi: coreAbi, functionName: "pendingCollateralTopUp", args: [input.creditId], blockNumber: at }) : undefined;
   const [credit, isSolana, sourceChain, identity, pda, nonce, amount, actionHash, revision, deadline] = await Promise.all([
     chain.readContract({ address: core, abi: termbookCoreAbi, functionName: "creditDetails", args: [input.creditId], blockNumber: at }),
     chain.readContract({ address: core, abi: coreAbi, functionName: "solanaCollateral", args: [input.creditId], blockNumber: at }),
@@ -93,20 +98,20 @@ export async function readSolanaAction(input: Pick<PlanInput, "creditId" | "kind
     chain.readContract({ address: core, abi: coreAbi, functionName: "solanaIdentityOf", args: [input.creditId], blockNumber: at }),
     chain.readContract({ address: core, abi: coreAbi, functionName: "solanaLockPdaOf", args: [input.creditId], blockNumber: at }),
     chain.readContract({ address: core, abi: coreAbi, functionName: "remoteActionNonce", args: [input.creditId], blockNumber: at }),
-    chain.readContract({ address: core, abi: coreAbi,
+    topUp ? Promise.resolve(topUp[0]) : chain.readContract({ address: core, abi: coreAbi,
       functionName: kind === 0 ? "pendingRemoteReturn" : "pendingRemoteSeizure", args: [input.creditId], blockNumber: at }),
-    chain.readContract({ address: core, abi: coreAbi,
+    topUp ? Promise.resolve(topUp[1]) : chain.readContract({ address: core, abi: coreAbi,
       functionName: kind === 0 ? "remoteReturnActionHash" : "remoteSeizureActionHash", args: [input.creditId], blockNumber: at }),
-    chain.readContract({ address: core, abi: coreAbi,
+    topUp ? Promise.resolve(topUp[2]) : chain.readContract({ address: core, abi: coreAbi,
       functionName: kind === 0 ? "remoteReturnRevision" : "remoteSeizureRevision", args: [input.creditId], blockNumber: at }),
-    chain.readContract({ address: core, abi: coreAbi,
+    topUp ? Promise.resolve(topUp[3]) : chain.readContract({ address: core, abi: coreAbi,
       functionName: kind === 0 ? "remoteReturnDeadline" : "remoteSeizureDeadline", args: [input.creditId], blockNumber: at }),
   ]);
   if (!isSolana || sourceChain <= 0n || amount <= 0n || nonce <= 0n || revision <= 0n || deadline <= 0n
     || !word.test(pda) || BigInt(pda) === 0n || !word.test(actionHash) || BigInt(actionHash) === 0n
     || !word.test(credit.lockId) || BigInt(credit.lockId) === 0n) throw new Error("solana-action-unavailable");
   if (requester) {
-    const allowed = kind === 0 ? same(credit.borrower, requester)
+    const allowed = kind !== 1 ? same(credit.borrower, requester)
       : await chain.readContract({ address: core, abi: coreAbi, functionName: "recoveryKeepers",
         args: [requester as Address], blockNumber: at });
     if (!allowed) throw new Error("permission-denied");
@@ -114,7 +119,7 @@ export async function readSolanaAction(input: Pick<PlanInput, "creditId" | "kind
   const genesis = field(identity, "sourceGenesis", 0) as Hex;
   const programId = field(identity, "programId", 1) as Hex;
   const asset = field(identity, "sourceAsset", 2) as Hex;
-  const recipient = field(identity, kind === 0 ? "returnRecipient" : "recoveryVault", kind === 0 ? 4 : 5) as Hex;
+  const recipient = kind === 2 ? field(identity, "sourceOwner", 3) as Hex : field(identity, kind === 0 ? "returnRecipient" : "recoveryVault", kind === 0 ? 4 : 5) as Hex;
   const verifierVersion = BigInt(String(field(identity, "verifierVersion", 6)));
   if ([genesis, programId, asset, recipient].some((value) => !word.test(value) || BigInt(value) === 0n)
     || !same(credit.collateralVault, solanaAlias(genesis, programId))
@@ -154,12 +159,13 @@ export const solanaActionService = {
   async plan(input: PlanInput, requester?: string) {
     const rpcUrl = process.env["SOLANA_RPC_URL"];
     if (!rpcUrl) throw new Error("solana-action-proof-unavailable");
-    const { action, actionHash, programId } = await readSolanaAction(input, requester);
+    const { action, actionHash, programId, programDataHash } = await readSolanaAction(input, requester);
+    await verifyAuthorizationReceipt(input.creditId, actionHash, action.kind, input.authorizationTxHash);
     const timestamp = await solanaFinalizedClock(rpcUrl);
     if (input.mode === "apply" && action.deadline <= BigInt(timestamp + 120)) throw new Error("solana-action-expired");
     if (input.mode === "expire" && action.deadline >= BigInt(timestamp)) throw new Error("solana-action-not-expired");
     return {
-      programId, actionHash, mode: input.mode, authorizationTxHash: input.authorizationTxHash,
+      programId, programDataHash, actionHash, mode: input.mode, authorizationTxHash: input.authorizationTxHash,
       action: Object.fromEntries(Object.entries(action).map(([key, value]) =>
         [key, typeof value === "bigint" ? value.toString() : value])),
     };
@@ -193,8 +199,8 @@ export const solanaActionService = {
           actionHash, action.nonce, action.deadline], blockNumber: at });
     if (!verified) throw new Error("solana-action-proof-rejected");
     const functionName = input.mode === "apply"
-      ? action.kind === 0 ? "confirmRemoteReturn" : "confirmRemoteSeizure"
-      : action.kind === 0 ? "cancelExpiredRemoteReturn" : "cancelExpiredRemoteSeizure";
+      ? action.kind === 2 ? "confirmCollateralTopUp" : action.kind === 0 ? "confirmRemoteReturn" : "confirmRemoteSeizure"
+      : action.kind === 2 ? "cancelExpiredCollateralTopUp" : action.kind === 0 ? "cancelExpiredRemoteReturn" : "cancelExpiredRemoteSeizure";
     const data = encodeFunctionData({ abi: coreAbi, functionName,
       args: [action.creditId, proof.header, proof.proof] });
     await chain.call({ account: requester as Address | undefined, to: env.core as Address, data });

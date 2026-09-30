@@ -118,6 +118,32 @@ contract RemoteControllerTest is Test {
         return abi.encode(monadCore, keccak256(abi.encode(action.creditId, RemoteAction.hash(action), action.kind)));
     }
 
+    function testTopUpRequiresOwnerFundingAndConsumesAuthorizationOnce() public {
+        token.mint(owner, 400);
+        vm.prank(owner); token.approve(address(vault), 400);
+        RemoteAction.Authorization memory action = _action(RemoteAction.TOPUP, owner);
+        vm.expectRevert(RemoteCollateralController.Invalid.selector);
+        controller.execute(action, abi.encode(true), _proof(action));
+        vm.prank(owner); controller.execute(action, abi.encode(true), _proof(action));
+        assertEq(token.balanceOf(address(vault)), 1400);
+        assertEq(token.balanceOf(owner), 0);
+        assertTrue(controller.consumed(RemoteAction.hash(action)));
+        vm.expectRevert(RemoteCollateralController.Invalid.selector);
+        vm.prank(owner); controller.execute(action, abi.encode(true), _proof(action));
+    }
+
+    function testTopUpRejectsInvalidProofAndRollsBackCustody() public {
+        token.mint(owner, 400);
+        vm.prank(owner); token.approve(address(vault), 400);
+        verifier.setValid(false);
+        RemoteAction.Authorization memory action = _action(RemoteAction.TOPUP, owner);
+        vm.expectRevert(RemoteCollateralController.Unauthorized.selector);
+        vm.prank(owner); controller.execute(action, abi.encode(true), _proof(action));
+        assertEq(token.balanceOf(owner), 400);
+        assertEq(token.balanceOf(address(vault)), 1000);
+        assertFalse(controller.consumed(RemoteAction.hash(action)));
+    }
+
     function testFinalizedReturnMovesTokensToBoundOwner() public {
         RemoteAction.Authorization memory action = _action(RemoteAction.RELEASE, owner);
         controller.execute(action, abi.encode(true), _proof(action));

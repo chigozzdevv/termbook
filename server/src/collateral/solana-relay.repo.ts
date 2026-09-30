@@ -3,7 +3,7 @@ import type { SolanaSignedTransaction } from "@termbook/sdk";
 import { withTx } from "../database/transaction.js";
 import { SolanaRelayModel, SolanaRelayTransactionModel } from "./solana-relay.model.js";
 
-export type RelayAction = { _id: string; creditId: `0x${string}`; kind: 0 | 1; authorizationTxHash: `0x${string}`;
+export type RelayAction = { _id: string; creditId: `0x${string}`; kind: 0 | 1 | 2; authorizationTxHash: `0x${string}`;
   sourceTx?: string; mode?: "apply" | "expire"; failures?: number };
 export type RelayTransaction = { _id: string; actionHash: string; raw: string; blockhash: string;
   lastValidBlockHeight: number; status: string };

@@ -48,6 +48,7 @@ pub enum VaultInstruction {
     ReconcileRecoveryRefund(RecoveryRefundRequest),
     CheckpointRecovery(RecoveryCheckpointRequest),
     CheckpointLock,
+    TopUp(ApplyRequest),
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
@@ -176,6 +177,7 @@ pub struct RemoteAuthorization {
 
 pub const RELEASE: u8 = 0;
 pub const SEIZE: u8 = 1;
+pub const TOPUP: u8 = 2;
 
 pub fn process_instruction(
     program_id: &Pubkey,
@@ -201,6 +203,7 @@ pub fn process_instruction(
             process_checkpoint_recovery(program_id, accounts, &request)
         }
         VaultInstruction::CheckpointLock => process_checkpoint_lock(program_id, accounts),
+        VaultInstruction::TopUp(request) => process_top_up(program_id, accounts, &request),
     }
 }
 
@@ -438,6 +441,85 @@ fn process_action(
         },
     )?;
     wormhole::publish_snapshot(program_id, lock, accounts.as_slice())
+}
+
+fn process_top_up(
+    program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    request: &ApplyRequest,
+) -> ProgramResult {
+    let mut accounts = accounts.iter();
+    let lock = next_account_info(&mut accounts)?;
+    let owner = next_account_info(&mut accounts)?;
+    let system = next_account_info(&mut accounts)?;
+    let posted_vaa = next_account_info(&mut accounts)?;
+    let record = load_lock(program_id, lock)?;
+    if !lock.is_writable
+        || !owner.is_signer
+        || !owner.is_writable
+        || owner.key == lock.key
+        || *system.key != system_program::id()
+        || request.authorization.kind != TOPUP
+        || owner.key.to_bytes() != record.owner
+    {
+        return Err(VaultError::InvalidBinding.into());
+    }
+    let now = Clock::get()?.unix_timestamp;
+    validate_action(&record, &request.authorization, owner.key, now)?;
+    let hash = solana_action_hash(&record, &request.authorization)?;
+    wormhole::verify_monad_authorization(posted_vaa, &record.monad_core, &hash)?;
+    let reserve = Rent::get()?.minimum_balance(lock.data_len());
+    let before = lock.lamports();
+    if before
+        < reserve
+            .checked_add(record.remaining_amount)
+            .ok_or(ProgramError::ArithmeticOverflow)?
+    {
+        return Err(VaultError::InvalidBinding.into());
+    }
+    invoke(
+        &system_instruction::transfer(owner.key, lock.key, request.authorization.amount_lamports),
+        &[owner.clone(), lock.clone(), system.clone()],
+    )?;
+    if lock.lamports().checked_sub(before) != Some(request.authorization.amount_lamports) {
+        return Err(VaultError::InvalidBinding.into());
+    }
+    record_verified_top_up(lock, record, &request.authorization, now, reserve)?;
+    wormhole::publish_snapshot(program_id, lock, accounts.as_slice())
+}
+
+fn record_verified_top_up(
+    lock: &AccountInfo,
+    mut record: LockRecord,
+    action: &RemoteAuthorization,
+    now: i64,
+    reserve: u64,
+) -> ProgramResult {
+    if action.kind != TOPUP || !lock.is_writable {
+        return Err(VaultError::InvalidAction.into());
+    }
+    validate_action(&record, action, &Pubkey::new_from_array(record.owner), now)?;
+    let amount = record
+        .remaining_amount
+        .checked_add(action.amount_lamports)
+        .ok_or(ProgramError::ArithmeticOverflow)?;
+    if lock.lamports()
+        < reserve
+            .checked_add(amount)
+            .ok_or(ProgramError::ArithmeticOverflow)?
+    {
+        return Err(VaultError::InvalidBinding.into());
+    }
+    record.last_action_hash = solana_action_hash(&record, action)?;
+    record.remaining_amount = amount;
+    record.last_nonce = action.nonce;
+    record.last_revision = action.revision;
+    let data = borsh::to_vec(&record).map_err(|_| ProgramError::InvalidAccountData)?;
+    if data.len() != lock.data_len() {
+        return Err(ProgramError::InvalidAccountData);
+    }
+    lock.try_borrow_mut_data()?.copy_from_slice(&data);
+    Ok(())
 }
 
 fn load_lock(program_id: &Pubkey, lock: &AccountInfo) -> Result<LockRecord, ProgramError> {
@@ -853,7 +935,11 @@ fn apply_verified_action(
     now: i64,
     rent: AccountRent,
 ) -> ProgramResult {
-    if lock.key == destination.key || !lock.is_writable || !destination.is_writable {
+    if action.kind > SEIZE
+        || lock.key == destination.key
+        || !lock.is_writable
+        || !destination.is_writable
+    {
         return Err(VaultError::InvalidBinding.into());
     }
     validate_action(&record, action, destination.key, now)?;
@@ -995,9 +1081,14 @@ pub fn validate_action(
     destination: &Pubkey,
     now: i64,
 ) -> ProgramResult {
-    if action.kind > SEIZE
+    if action.kind > TOPUP
         || action.amount_lamports == 0
-        || action.amount_lamports > lock.remaining_amount
+        || (action.kind != TOPUP && action.amount_lamports > lock.remaining_amount)
+        || (action.kind == TOPUP
+            && lock
+                .remaining_amount
+                .checked_add(action.amount_lamports)
+                .is_none())
         || action.monad_chain != lock.monad_chain
         || action.monad_core != lock.monad_core
         || action.source_genesis != lock.source_genesis
@@ -1019,7 +1110,9 @@ pub fn validate_action(
     if action.deadline <= 0 || now > action.deadline {
         return Err(VaultError::Expired.into());
     }
-    let expected_recipient = if action.kind == RELEASE {
+    let expected_recipient = if action.kind == TOPUP {
+        lock.owner
+    } else if action.kind == RELEASE {
         lock.return_recipient
     } else {
         lock.recovery_vault
@@ -2321,6 +2414,88 @@ mod tests {
         assert_eq!(
             reconcile_recovery_refund(&account, record, 1, reserve),
             Err(VaultError::InvalidAction.into())
+        );
+    }
+    #[test]
+    fn top_up_counts_only_verified_delta_and_preserves_initial_commitment() {
+        let program = test_program_id();
+        let rec = record();
+        let mut a = action(TOPUP);
+        a.recipient = rec.owner;
+        a.amount_lamports = 2_000_000_000;
+        let before_digest = solana_lock_digest(&rec).unwrap();
+        let key = Pubkey::new_from_array(rec.source_vault);
+        let mut lamports = rec.remaining_amount + a.amount_lamports + 100;
+        let mut data = borsh::to_vec(&rec).unwrap();
+        let account =
+            AccountInfo::new(&key, false, true, &mut lamports, &mut data, &program, false);
+        record_verified_top_up(&account, rec.clone(), &a, 50, 100).unwrap();
+        let updated = LockRecord::try_from_slice(&account.data.borrow()).unwrap();
+        assert_eq!(
+            updated.remaining_amount,
+            rec.remaining_amount + a.amount_lamports
+        );
+        assert_eq!(updated.initial_amount, rec.initial_amount);
+        assert_eq!(solana_lock_digest(&updated).unwrap(), before_digest);
+        assert_eq!(
+            updated.last_action_hash,
+            solana_action_hash(&rec, &a).unwrap()
+        );
+        assert_eq!(
+            record_verified_top_up(&account, updated, &a, 50, 100),
+            Err(VaultError::Replay.into())
+        );
+    }
+
+    #[test]
+    fn top_up_rejects_missing_custody_wrong_owner_and_overflow() {
+        let program = test_program_id();
+        let rec = record();
+        let mut a = action(TOPUP);
+        a.recipient = rec.owner;
+        let key = Pubkey::new_from_array(rec.source_vault);
+        let mut lamports = rec.remaining_amount + 100;
+        let mut data = borsh::to_vec(&rec).unwrap();
+        let account =
+            AccountInfo::new(&key, false, true, &mut lamports, &mut data, &program, false);
+        assert_eq!(
+            record_verified_top_up(&account, rec.clone(), &a, 50, 100),
+            Err(VaultError::InvalidBinding.into())
+        );
+        a.recipient = rec.return_recipient;
+        assert_eq!(
+            validate_action(&rec, &a, &Pubkey::new_from_array(a.recipient), 50),
+            Err(VaultError::InvalidAction.into())
+        );
+        a.recipient = rec.owner;
+        a.amount_lamports = u64::MAX;
+        assert_eq!(
+            validate_action(&rec, &a, &Pubkey::new_from_array(a.recipient), 50),
+            Err(VaultError::InvalidAction.into())
+        );
+    }
+
+    #[test]
+    fn expired_top_up_consumes_nonce_without_changing_custody() {
+        let program = test_program_id();
+        let rec = record();
+        let mut a = action(TOPUP);
+        a.recipient = rec.owner;
+        let key = Pubkey::new_from_array(rec.source_vault);
+        let mut lamports = rec.remaining_amount + 100;
+        let mut data = borsh::to_vec(&rec).unwrap();
+        let account =
+            AccountInfo::new(&key, false, true, &mut lamports, &mut data, &program, false);
+        expire_verified_action(&account, rec.clone(), &a, 101).unwrap();
+        let updated = LockRecord::try_from_slice(&account.data.borrow()).unwrap();
+        assert_eq!(updated.remaining_amount, rec.remaining_amount);
+        assert_eq!(
+            updated.last_canceled_action_hash,
+            solana_action_hash(&rec, &a).unwrap()
+        );
+        assert_eq!(
+            validate_action(&updated, &a, &Pubkey::new_from_array(a.recipient), 100),
+            Err(VaultError::Replay.into())
         );
     }
 }

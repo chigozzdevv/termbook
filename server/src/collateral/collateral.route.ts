@@ -2,6 +2,8 @@ import type { FastifyInstance } from "fastify";
 import { collateralController } from "./collateral.controller.js";
 
 export function collateralRoute(app: FastifyInstance): void {
+  app.post("/collateral/topups/plan", collateralController.planTopUp);
+  app.post("/collateral/topups/confirmation-plan", collateralController.confirmTopUp);
   app.post("/collateral", collateralController.track);
   app.get("/collateral", collateralController.list);
   app.post("/collateral/solana", collateralController.trackSolana);

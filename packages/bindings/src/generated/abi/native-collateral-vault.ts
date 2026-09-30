@@ -497,6 +497,29 @@ export const nativeCollateralVaultAbi = [
     "stateMutability": "nonpayable"
   },
   {
+    "type": "function",
+    "name": "topUpNative",
+    "inputs": [
+      {
+        "name": "lockId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "payer",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "payable"
+  },
+  {
     "type": "event",
     "name": "Locked",
     "inputs": [
@@ -577,6 +600,31 @@ export const nativeCollateralVaultAbi = [
       },
       {
         "name": "recipient",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ToppedUp",
+    "inputs": [
+      {
+        "name": "lockId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "payer",
         "type": "address",
         "indexed": true,
         "internalType": "address"

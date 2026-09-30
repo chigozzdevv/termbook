@@ -70,6 +70,7 @@ export async function connectSourceWallet(client: TermbookClient, market: Collat
     preflight: (binding) => onSource(() => source.preflight(binding)),
     remoteRecoveryVault: (binding) => source.remoteRecoveryVault(binding),
     observeLock: (binding, lockId, txId) => source.observeLock(binding, lockId, txId),
+    submitAction: (plan) => onSource(() => source.submitAction(plan)),
     submitLock: (binding, lockId, revision) =>
       onSource(() => source.submitLock(binding, lockId, revision)),
   };

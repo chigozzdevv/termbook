@@ -243,6 +243,20 @@ released with `credit.account.release()` after custody and exit reconciliation.
 The SDK reads current health at a single finalized block rather than displaying
 the last stored risk snapshot.
 
+`credit.collateral.add({ amount })` tops up an existing ready facility. Local
+MON or ERC-20 deposits count atomically. Remote WETH and SOL top-ups bind an exact
+owner-funded delta, lock, nonce, and deadline and count only after verified source
+confirmation. Old deposit proofs cannot restore collateral already withdrawn.
+
+Remote withdrawals reserve collateral before publishing a release authorization.
+Reserved amounts immediately stop backing debt and draws. Confirmation cannot
+subtract them twice; only verified nonexecution after expiry restores backing.
+Closure and recovery wait for unresolved top-ups and releases. Both SDK methods
+await finalized completion and save resumable checkpoints, exposed through
+`resumeAddition({ checkpoint })` and `resumeWithdrawal({ checkpoint })`.
+Source relays confirm funded top-ups or expire unused ones without spending the
+collateral owner's funds.
+
 House withdrawal requests retain shares until FIFO redemption and remain exposed
 to gains and losses. Share conversion includes bounded pending loan accrual net
 of protocol fees. Partial recovery retains the suspended commitment; full
@@ -456,6 +470,10 @@ node --import tsx server/scripts/verify-solana-program.ts <rpc-url> <program-id>
 Use the verified program and emitter values to deploy `WormholeSolanaAccountClient`
 and admit `SolanaVerifier`. Run `(cd contracts/solana && cargo build-sbf --offline)`
 to build `contracts/solana/target/deploy/sol_collateral.so`.
+On an isolated validator loaded with that program, run
+`node scripts/check-solana-runtime.mjs http://127.0.0.1:8899 <PROGRAM_ID>` to
+verify program loading, instruction decoding, Clock, PDA derivation, Keccak,
+and rejection of an unverified lock. The check accepts loopback RPC URLs only.
 Preserve the ignored `sol_collateral-keypair.json` to retain the program ID.
 The local SBF smoke test checks invalid bindings against a loaded program;
 the live deployment exercises the actual Guardian and routing paths.

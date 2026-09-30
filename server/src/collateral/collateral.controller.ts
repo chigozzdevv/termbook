@@ -14,7 +14,19 @@ import { solanaRecoveryService } from "./solana-recovery.service.js";
 import { solanaRecoveryPayoutPlanSchema } from "./solana-payout.schema.js";
 import { solanaPayoutService } from "./solana-payout.service.js";
 
+import { topUpService, topUpPlanSchema, topUpConfirmationSchema } from "./topup.service.js";
+
 export const collateralController = {
+  async planTopUp(req: FastifyRequest) {
+    const user = (req as FastifyRequest & { user?: { wallet: string } }).user;
+    if (!user) throw new Error("permission-denied");
+    return topUpService.plan(topUpPlanSchema.parse(req.body), user.wallet as `0x${string}`);
+  },
+  async confirmTopUp(req: FastifyRequest) {
+    const user = (req as FastifyRequest & { user?: { wallet: string } }).user;
+    if (!user) throw new Error("permission-denied");
+    return topUpService.confirmation(topUpConfirmationSchema.parse(req.body), user.wallet as `0x${string}`);
+  },
   async track(req: FastifyRequest) {
     const input = collateralSchema.parse(req.body);
     const user = (req as FastifyRequest & { user?: { wallet: string } }).user;

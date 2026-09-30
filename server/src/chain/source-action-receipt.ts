@@ -9,7 +9,7 @@ export function appliedLogIndex(receipt: TransactionReceipt, input: {
   lockId: Hex;
   recipient: Address;
   amount: bigint;
-  kind: 0 | 1;
+  kind: 0 | 1 | 2;
 }): number {
   if (receipt.status !== "success" || !word.test(input.actionHash) || !word.test(input.lockId)
     || input.amount <= 0n) throw new Error("source-action-receipt-invalid");

@@ -8,6 +8,9 @@ import { fetchMonadAuthorizationProof } from "../chain/monad-receipt-proof.js";
 import { ethereumWormholeMode, fetchEthereumSnapshot } from "../chain/ethereum-wormhole-snapshot.js";
 import { currentEthereumAuthorization } from "../chain/monad-wormhole.js";
 import { fetchConsumedActionProof } from "../chain/source.client.js";
+import { topUpService } from "./topup.service.js";
+import { keeperTransaction } from "../chain/keeper.js";
+import { verifyAuthorizationReceipt } from "./remote-action.service.js";
 import { monadClient } from "../chain/monad.client.js";
 import { env } from "../config/env.js";
 import { logger } from "../logging/logger.js";
@@ -46,6 +49,7 @@ const recoveryVaultAbi = parseAbi([
   "function monadChain() view returns (uint256)",
 ]);
 const coreConfirmAbi = parseAbi([
+  "function collateralActionOutcome(bytes32) view returns (uint8)",
   "function pendingRemoteReturn(bytes32) view returns (uint256)",
   "function remoteReturnActionHash(bytes32) view returns (bytes32)",
   "function pendingRemoteSeizure(bytes32) view returns (uint256)",
@@ -320,7 +324,7 @@ export async function handleRemoteActionJob(job: { kind: string; payload: Record
     if (!configured()) throw new Error("remote-action-worker-unavailable");
     const { creditId, actionHash, kind, authorizationTxHash } = job.payload;
     if (typeof creditId !== "string" || !word.test(creditId) || typeof actionHash !== "string" || !word.test(actionHash)
-      || typeof authorizationTxHash !== "string" || !word.test(authorizationTxHash) || (kind !== 0 && kind !== 1)) {
+      || typeof authorizationTxHash !== "string" || !word.test(authorizationTxHash) || (kind !== 0 && kind !== 1 && kind !== 2)) {
       throw new Error("remote-action-invalid");
     }
     await scheduleFinalizedAction({ creditId: creditId as Hex, actionHash: actionHash as Hex,
@@ -338,6 +342,33 @@ export async function handleRemoteActionJob(job: { kind: string; payload: Record
   if (!equal(hashRemoteAction(action), actionHash) || !equal(record.creditId, action.creditId)
     || record.kind !== action.kind || !word.test(record.authorizationTxHash)) {
     throw new Error("remote-action-record-mismatch");
+  }
+  if (action.kind === 2) {
+    await verifyAuthorizationReceipt(action.creditId, actionHash as Hex, 2, record.authorizationTxHash as Hex);
+    const chain = monadClient(), at = await chain.getBlock({ blockTag: "finalized" });
+    const outcome = await chain.readContract({ address: env.core as Address, abi: coreConfirmAbi,
+      functionName: "collateralActionOutcome", args: [actionHash as Hex], blockNumber: at.number });
+    if (outcome === 1 || outcome === 2) { await remoteActionRepo.finishTopUp(actionHash, outcome); return; }
+    if (outcome !== 0) throw new Error("collateral-topup-outcome-invalid");
+    const current = await readAuthorizedAction(action.creditId, 2, undefined, true);
+    if (!equal(current.actionHash, actionHash)) throw new Error("collateral-topup-authorization-changed");
+    const credit = await chain.readContract({ address: env.core as Address, abi: termbookCoreAbi,
+      functionName: "creditDetails", args: [action.creditId], blockNumber: at.number });
+    let plan;
+    try { plan = await topUpService.confirmation({ creditId: action.creditId, mode: "apply" }, credit.borrower); }
+    catch (error) {
+      if (!(error instanceof Error) || error.message !== "source-action-not-applied") throw error;
+      if (at.timestamp <= action.deadline) { await remoteActionRepo.defer(actionHash, 60_000); return; }
+      plan = await topUpService.confirmation({ creditId: action.creditId, mode: "expire" }, credit.borrower);
+    }
+    if (!equal(plan.actionHash, actionHash) || !equal(plan.to, env.core)) throw new Error("collateral-topup-proof-mismatch");
+    const result = await keeperTransaction({ client: chain, rpcUrl: env.rpcUrl, chainId: env.monadChainId,
+      account: privateKeyToAccount(env.monadConfirmKeeperKey as Hex), operation: `${actionHash}:topup:${plan.mode}`,
+      to: plan.to as Hex, data: plan.data });
+    if (result === "reverted") throw new Error("collateral-topup-confirmation-reverted");
+    if (result === "success") await remoteActionRepo.finishTopUp(actionHash, plan.mode === "apply" ? 1 : 2);
+    else await remoteActionRepo.defer(actionHash, 5_000);
+    return;
   }
   if (record.state === "external_execution") {
     if ((await readConfirmationState(action, actionHash as Hex)).done) {

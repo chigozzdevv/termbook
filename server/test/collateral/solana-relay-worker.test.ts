@@ -46,6 +46,15 @@ describe("SOL authorization relay completion", () => {
     expect(solanaRelayRepo.completed).toHaveBeenCalledWith(hash, "lease");
     expect(solanaActionService.confirmationPlan).toHaveBeenCalledWith({ creditId: hash, kind: "release", mode: "apply", sourceTx: action.sourceTx });
   });
+  it("confirms an owner-funded top-up using its durable source checkpoint", async () => {
+    vi.mocked(monadClient).mockReturnValue({ getChainId: async () => 143, getBlock: async () => ({ number: 10n }),
+      readContract: async () => [10n, hash, 2n, 1000n] } as never);
+    vi.mocked(keeperTransaction).mockResolvedValue("success");
+    await processSolanaRelay({ ...action, kind: 2 }, "lease", config);
+    expect(solanaRelayRepo.sourced).not.toHaveBeenCalled();
+    expect(solanaActionService.confirmationPlan).toHaveBeenCalledWith({ creditId: hash, kind: "topup", mode: "apply", sourceTx: action.sourceTx });
+    expect(solanaRelayRepo.completed).toHaveBeenCalledWith(hash, "lease");
+  });
   it("blocks new work while an earlier signed transaction is unresolved", async () => {
     vi.mocked(solanaRelayRepo.transactions).mockResolvedValue([{ _id: "signature" }] as never);
     vi.mocked(deliverSolanaRelay).mockResolvedValue("pending");

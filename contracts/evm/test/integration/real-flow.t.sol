@@ -629,6 +629,21 @@ contract RealFlowTest is Test {
         assertEq(core.commitmentFeeRemainder(creditId), 0);
     }
 
+    function testLocalTopUpCountsExactCustodyAndInvalidatesOldHealth() public {
+        bytes32 id = keccak256("local-topup");
+        (bytes32 lockId,) = _prepare(id);
+        uint256 revision = core.creditRevision(id);
+        vm.startPrank(borrower);
+        token.approve(address(collateralVault), 50);
+        core.addCollateral(id, 50, 0);
+        vm.stopPrank();
+        assertEq(core.creditDetails(id).collateralAmount, 550);
+        assertEq(token.balanceOf(address(collateralVault)), 550);
+        assertEq(core.creditRevision(id), revision + 1);
+        (,,,,uint256 storedAmount,,,,,,) = collateralVault.lockInfo(lockId);
+        assertEq(storedAmount, 550);
+    }
+
     function testCollateralWithdrawalMaintainsHealthSnapshot() public {
         bytes32 creditId = keccak256("collateral-withdraw-credit");
         _prepare(creditId);

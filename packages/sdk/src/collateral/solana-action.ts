@@ -1,4 +1,4 @@
-import { encodeAbiParameters, hexToBytes, keccak256, stringToHex } from "viem";
+import { bytesToHex, encodeAbiParameters, hexToBytes, keccak256, stringToHex } from "viem";
 import { solanaPubkeyBase58 } from "./solana.js";
 import { solanaPubkeyBytes } from "./solana.js";
 import { decodeSolanaLockRecord, type SolanaInstruction, type SolanaRpcPort, type SolanaWalletPort } from "./solana-source.js";
@@ -17,7 +17,7 @@ export type SolanaRemoteAuthorization = {
   creditId: `0x${string}`;
   lockId: `0x${string}`;
   asset: `0x${string}`;
-  kind: 0 | 1;
+  kind: 0 | 1 | 2;
   recipient: `0x${string}`;
   amountLamports: bigint;
   nonce: bigint;
@@ -31,6 +31,7 @@ export type SolanaActionPlan = {
   actionHash: `0x${string}`;
   action: SolanaRemoteAuthorization;
   authorizationTxHash: `0x${string}`;
+  programDataHash?: `0x${string}`;
   mode: "apply" | "expire";
 };
 
@@ -38,7 +39,7 @@ function valid(action: SolanaRemoteAuthorization, programId: string): void {
   if (![action.sourceGenesis, action.sourceVault, action.creditId, action.lockId,
     action.asset, action.recipient, programId].every((value) => word.test(value) && BigInt(value) !== 0n)
     || !address.test(action.monadCore) || BigInt(action.monadCore) === 0n
-    || (action.kind !== 0 && action.kind !== 1)
+    || (action.kind !== 0 && action.kind !== 1 && action.kind !== 2)
     || [action.monadChain, action.amountLamports, action.nonce, action.revision,
       action.deadline, action.verifierVersion].some((value) => value <= 0n || value > maxU64)
     || action.deadline > (1n << 63n) - 1n) throw new Error("solana-action-invalid");
@@ -85,7 +86,7 @@ export function solanaActionInstruction(plan: SolanaActionPlan, wormholeKeys: So
     throw new Error("solana-action-proof-invalid");
   }
   const data = concat([
-    new Uint8Array([plan.mode === "apply" ? 1 : 2]),
+    new Uint8Array([plan.mode === "apply" ? action.kind === 2 ? 8 : 1 : 2]),
     le(action.monadChain), hexToBytes(action.monadCore), hexToBytes(action.sourceGenesis),
     hexToBytes(action.sourceVault), hexToBytes(action.creditId), hexToBytes(action.lockId),
     hexToBytes(action.asset), new Uint8Array([action.kind]), hexToBytes(action.recipient),
@@ -93,7 +94,8 @@ export function solanaActionInstruction(plan: SolanaActionPlan, wormholeKeys: So
     le(action.verifierVersion),
   ]);
   const keys = [{ pubkey: solanaPubkeyBase58(action.sourceVault), isSigner: false, isWritable: true }];
-  if (plan.mode === "apply") keys.push({ pubkey: solanaPubkeyBase58(action.recipient), isSigner: false, isWritable: true });
+  if (plan.mode === "apply") keys.push({ pubkey: solanaPubkeyBase58(action.recipient), isSigner: action.kind === 2, isWritable: true });
+  if (plan.mode === "apply" && action.kind === 2) keys.push({ pubkey: "11111111111111111111111111111111", isSigner: false, isWritable: false });
   keys.push(...wormholeKeys);
   return { programId: solanaPubkeyBase58(plan.programId), keys, data };
 }
@@ -115,7 +117,7 @@ export function parseSolanaActionPlan(value: unknown): SolanaActionPlan {
     if (typeof item !== "string" || !pattern.test(item)) throw new Error("solana-action-plan-invalid");
     return item.toLowerCase() as `0x${string}`;
   };
-  if (raw["kind"] !== 0 && raw["kind"] !== 1) throw new Error("solana-action-plan-invalid");
+  if (raw["kind"] !== 0 && raw["kind"] !== 1 && raw["kind"] !== 2) throw new Error("solana-action-plan-invalid");
   const action: SolanaRemoteAuthorization = {
     monadChain: number("monadChain"), monadCore: hex("monadCore", address),
     sourceGenesis: hex("sourceGenesis", word), sourceVault: hex("sourceVault", word),
@@ -131,7 +133,10 @@ export function parseSolanaActionPlan(value: unknown): SolanaActionPlan {
     || (plan["mode"] !== "apply" && plan["mode"] !== "expire")) {
     throw new Error("solana-action-plan-invalid");
   }
+  const programDataHash = plan["programDataHash"];
+  if (programDataHash !== undefined && (typeof programDataHash !== "string" || !word.test(programDataHash))) throw new Error("solana-action-plan-invalid");
   const parsed: SolanaActionPlan = {
+    ...(programDataHash !== undefined ? { programDataHash: programDataHash as `0x${string}` } : {}),
     programId: plan["programId"].toLowerCase() as `0x${string}`,
     actionHash: plan["actionHash"].toLowerCase() as `0x${string}`,
     authorizationTxHash: plan["authorizationTxHash"].toLowerCase() as `0x${string}`,
@@ -154,25 +159,36 @@ export async function submitSolanaAction(planValue: unknown, wallet: SolanaWalle
   if (!program?.executable || !vault || vault.owner !== programId || vault.executable) {
     throw new Error("solana-action-source-unavailable");
   }
+  if (action.kind === 2) {
+    if (!plan.programDataHash
+      || program.owner !== "BPFLoaderUpgradeab1e11111111111111111111111" || program.data.length !== 36
+      || new DataView(program.data.buffer, program.data.byteOffset).getUint32(0, true) !== 2) throw new Error("solana-action-owner-required");
+    const programData = await rpc.getAccountInfo(solanaPubkeyBase58(bytesToHex(program.data.subarray(4))));
+    if (!programData || programData.owner !== program.owner || programData.executable || programData.data.length < 45
+      || new DataView(programData.data.buffer, programData.data.byteOffset).getUint32(0, true) !== 3
+      || programData.data[12] !== 0 || keccak256(programData.data) !== plan.programDataHash) throw new Error("solana-program-code-mismatch");
+  }
   const record = decodeSolanaLockRecord(vault.data);
   if (record.version !== 3 || record.monadChain !== action.monadChain
     || record.monadCore !== action.monadCore || record.genesis !== action.sourceGenesis
     || record.program !== plan.programId || record.vault !== action.sourceVault
     || record.creditId !== action.creditId || record.lockId !== action.lockId
     || record.asset !== action.asset || record.verifierVersion !== action.verifierVersion
-    || (action.kind === 0 ? record.returnRecipient : record.recoveryVault) !== action.recipient) {
+    || (action.kind === 2 ? record.owner : action.kind === 0 ? record.returnRecipient : record.recoveryVault) !== action.recipient) {
     throw new Error("solana-action-source-mismatch");
   }
-  if (plan.mode === "apply" && record.lastNonce === action.nonce && record.lastRevision === action.revision
+  if (record.lastNonce === action.nonce && record.lastRevision === action.revision
     && record.lastActionHash.toLowerCase() === plan.actionHash.toLowerCase()) {
     return submitSolanaLockCheckpoint(wallet, programId, solanaPubkeyBase58(action.sourceVault));
   }
-  if (plan.mode === "expire" && record.lastCanceledNonce === action.nonce
+  if (record.lastCanceledNonce === action.nonce
     && record.lastCanceledActionHash.toLowerCase() === plan.actionHash.toLowerCase()) {
     return submitSolanaLockCheckpoint(wallet, programId, solanaPubkeyBase58(action.sourceVault));
   }
   if (record.lastNonce >= action.nonce || record.lastRevision >= action.revision
-    || record.remainingAmount < action.amountLamports) throw new Error("solana-action-source-mismatch");
+    || (action.kind !== 2 && record.remainingAmount < action.amountLamports)
+    || (action.kind === 2 && record.remainingAmount + action.amountLamports > maxU64)) throw new Error("solana-action-source-mismatch");
+  if (action.kind === 2 && plan.mode === "apply" && solanaPubkeyBytes(wallet.publicKey) !== action.recipient) throw new Error("solana-action-owner-required");
   const keys = await prepareSolanaWormhole(wallet, rpc, programId, action.monadCore,
     plan.actionHash, plan.authorizationTxHash);
   const signature = await wallet.sendInstruction(solanaActionInstruction(plan, keys));

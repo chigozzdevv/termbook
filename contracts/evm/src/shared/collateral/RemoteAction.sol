@@ -5,6 +5,7 @@ library RemoteAction {
     bytes32 internal constant DOMAIN = keccak256("Termbook remote collateral action v1");
     uint8 internal constant RELEASE = 0;
     uint8 internal constant SEIZE = 1;
+    uint8 internal constant TOPUP = 2;
 
     struct Authorization {
         uint256 monadChain;

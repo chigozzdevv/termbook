@@ -1,3 +1,4 @@
+import { evmActionAbi, parseEvmActionPlan } from "./evm-action.js";
 import { collateralVaultAbi } from "@termbook/bindings";
 import { createPublicClient, encodeAbiParameters, http, keccak256 } from "viem";
 import { collateralSetupBindingSchema, type CollateralSetupBinding } from "@termbook/schema";
@@ -202,6 +203,39 @@ export class EvmSourceLockWallet implements SourceLockWallet {
     } catch {
       return { state: "submitted", txId };
     }
+  }
+
+  async submitAction(value: unknown): Promise<{ txId: string }> {
+    const { action, header, proof, controller, actionHash } = parseEvmActionPlan(value);
+    if (await this.rpc.getChainId() !== this.config.chainId || !this.config.wallet.getChainId
+      || await this.config.wallet.getChainId() !== this.config.chainId || action.sourceChain !== BigInt(this.config.chainId)
+      || action.sourceVault.toLowerCase() !== this.config.vault.toLowerCase()
+      || action.asset.toLowerCase() !== this.config.asset.toLowerCase()
+      || controller.toLowerCase() !== this.config.controller.toLowerCase()
+      || action.recipient.toLowerCase() !== this.account.accountBytes.toLowerCase()) throw new Error("source-action-binding-mismatch");
+    const [vaultCore, asset, chainId, monadCore, monadChain, info] = await Promise.all([
+      this.rpc.readContract({ address: this.config.vault, abi: collateralVaultAbi, functionName: "core", blockTag: "finalized" }),
+      this.rpc.readContract({ address: this.config.vault, abi: collateralVaultAbi, functionName: "asset", blockTag: "finalized" }),
+      this.rpc.readContract({ address: this.config.vault, abi: collateralVaultAbi, functionName: "chainId_", blockTag: "finalized" }),
+      this.rpc.readContract({ address: controller, abi: remoteControllerAbi, functionName: "monadCore", blockTag: "finalized" }),
+      this.rpc.readContract({ address: controller, abi: remoteControllerAbi, functionName: "monadChain", blockTag: "finalized" }),
+      this.rpc.readContract({ address: this.config.vault, abi: collateralVaultAbi, functionName: "lockInfo", args: [action.lockId], blockTag: "finalized" }),
+    ]);
+    if (vaultCore.toLowerCase() !== controller.toLowerCase() || asset.toLowerCase() !== action.asset.toLowerCase()
+      || chainId !== action.sourceChain || monadCore.toLowerCase() !== action.monadCore.toLowerCase() || monadChain !== action.monadChain
+      || !info[8] || info[9] || info[10] || info[0].toLowerCase() !== action.creditId.toLowerCase()
+      || info[1].toLowerCase() !== action.recipient.toLowerCase()) throw new Error("source-action-binding-mismatch");
+    if (await this.rpc.readContract({ address: controller, abi: evmActionAbi, functionName: "consumed", args: [actionHash] })) throw new Error("source-action-already-applied");
+    if (action.deadline <= BigInt(Math.floor(Date.now() / 1000) + 120)) throw new Error("source-action-expired");
+    let balance = await this.rpc.readContract({ address: action.asset, abi: erc20Abi, functionName: "balanceOf", args: [action.recipient] });
+    if (balance < action.amount && this.config.wrapNative) {
+      await this.write(action.asset, erc20Abi, "deposit", [], action.amount - balance);
+      balance = await this.rpc.readContract({ address: action.asset, abi: erc20Abi, functionName: "balanceOf", args: [action.recipient] });
+    }
+    if (balance < action.amount) throw new Error("source-collateral-balance-insufficient");
+    const allowance = await this.rpc.readContract({ address: action.asset, abi: erc20Abi, functionName: "allowance", args: [action.recipient, action.sourceVault] });
+    if (allowance < action.amount) await this.write(action.asset, erc20Abi, "approve", [action.sourceVault, action.amount]);
+    return { txId: await this.write(controller, evmActionAbi, "execute", [action, header, proof], undefined, false) };
   }
 
   async submitLock(binding: CollateralSetupBinding, lockId: TxHash, revision: bigint): Promise<{ txId: string }> {

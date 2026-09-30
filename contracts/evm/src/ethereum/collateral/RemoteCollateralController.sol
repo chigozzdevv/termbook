@@ -82,11 +82,12 @@ contract RemoteCollateralController {
             action.monadChain != monadChain || action.monadCore != monadCore || action.sourceChain != block.chainid
                 || action.sourceVault != address(vault) || action.asset != vault.asset()
                 || action.creditId == bytes32(0) || action.lockId == bytes32(0) || action.amount == 0
-                || action.nonce == 0 || action.deadline < block.timestamp || action.kind > RemoteAction.SEIZE
+                || action.nonce == 0 || action.deadline < block.timestamp || action.kind > RemoteAction.TOPUP
         ) revert Invalid();
         if (paused) revert Paused();
         (
-            bytes32 creditId,,,,
+            bytes32 creditId,
+            address owner,,,
             uint256 lockedAmount,
             address returnRecipient,,,
             bool exists,
@@ -94,7 +95,9 @@ contract RemoteCollateralController {
             bool seized
         ) = vault.lockInfo(action.lockId);
         if (
-            !exists || released || seized || creditId != action.creditId || action.amount > lockedAmount
+            !exists || released || seized || creditId != action.creditId
+                || (action.kind != RemoteAction.TOPUP && action.amount > lockedAmount)
+                || (action.kind == RemoteAction.TOPUP && (action.recipient != owner || msg.sender != owner))
                 || (action.kind == RemoteAction.SEIZE && action.recipient != recoveryVault)
                 || (action.kind == RemoteAction.RELEASE && action.recipient != returnRecipient)
         ) revert Invalid();
@@ -105,6 +108,8 @@ contract RemoteCollateralController {
         consumed[actionHash] = true;
         if (action.kind == RemoteAction.RELEASE) {
             vault.releaseAuthorized(action.lockId, action.recipient, action.amount, action.nonce, actionHash);
+        } else if (action.kind == RemoteAction.TOPUP) {
+            vault.topUpAuthorized(action.lockId, action.recipient, action.amount, actionHash);
         } else {
             vault.seizeAuthorized(action.lockId, recoveryVault, action.amount, actionHash);
             ISourceRecoveryVault(recoveryVault).recordSeizure(action.creditId, action.amount);

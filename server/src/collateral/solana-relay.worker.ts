@@ -21,12 +21,13 @@ export async function processSolanaRelay(input: RelayAction, lease: string, conf
   const chain = monadClient();
   if (await chain.getChainId() !== env.monadChainId) throw new Error("solana-relay-monad-chain-mismatch");
   const at = (await chain.getBlock({ blockTag: "finalized" })).number;
-  const pending = await chain.readContract({ address: env.core as Hex, abi: termbookCoreAbi,
+  const pending = input.kind === 2 ? (await chain.readContract({ address: env.core as Hex, abi: termbookCoreAbi,
+    functionName: "pendingCollateralTopUp", args: [input.creditId], blockNumber: at }))[1] : await chain.readContract({ address: env.core as Hex, abi: termbookCoreAbi,
     functionName: input.kind === 0 ? "remoteReturnActionHash" : "remoteSeizureActionHash", args: [input.creditId], blockNumber: at });
   if (/^0x0{64}$/i.test(pending)) { await solanaRelayRepo.completed(input._id, lease); return; }
   if (pending.toLowerCase() !== input._id) throw new Error("solana-relay-authorization-changed");
   await verifyAuthorizationReceipt(input.creditId, input._id as Hex, input.kind, input.authorizationTxHash);
-  const kind = input.kind === 0 ? "release" : "seize";
+  const kind = input.kind === 2 ? "topup" : input.kind === 0 ? "release" : "seize";
   const { action, programId, programDataHash } = await readSolanaAction({ creditId: input.creditId, kind });
   const connection = new Connection(config.rpcUrl, { commitment: "finalized", confirmTransactionInitialTimeout: 30_000 });
   await verifySolanaRelayProgram(connection, programId, action.sourceGenesis, programDataHash);
@@ -44,9 +45,10 @@ export async function processSolanaRelay(input: RelayAction, lease: string, conf
     const applied = record.lastNonce === action.nonce && record.lastRevision === action.revision
       && record.lastActionHash === input._id;
     const expired = record.lastCanceledNonce === action.nonce && record.lastCanceledActionHash === input._id;
+    if (input.kind === 2 && !applied && !expired && action.deadline >= time) throw new Error("solana-topup-awaiting-source");
     if (!applied && !expired && action.deadline >= time && action.deadline <= time + 120n) throw new Error("solana-relay-expiry-pending");
     mode = applied ? "apply" : expired || action.deadline < time ? "expire" : "apply";
-    const plan = parseSolanaActionPlan({ programId, actionHash: input._id, mode, authorizationTxHash: input.authorizationTxHash,
+    const plan = parseSolanaActionPlan({ programId, programDataHash, actionHash: input._id, mode, authorizationTxHash: input.authorizationTxHash,
       action: Object.fromEntries(Object.entries(action).map(([key, value]) => [key, typeof value === "bigint" ? value.toString() : value])) });
     const provider = { publicKey: config.signer.publicKey, connect: async () => undefined,
       signTransaction: async <T extends Transaction | VersionedTransaction>(tx: T): Promise<T> => {
@@ -72,7 +74,7 @@ async function schedule(job: { kind: string; payload: Record<string, unknown> })
   const { creditId, actionHash, kind, authorizationTxHash } = job.payload;
   if (job.kind !== "collateral.solana-authorized") return;
   if (![creditId, actionHash, authorizationTxHash].every((value) => typeof value === "string" && /^0x[a-fA-F0-9]{64}$/.test(value))
-    || kind !== 0 && kind !== 1) throw new Error("solana-relay-job-invalid");
+    || kind !== 0 && kind !== 1 && kind !== 2) throw new Error("solana-relay-job-invalid");
   await verifyAuthorizationReceipt(creditId as Hex, actionHash as Hex, kind, authorizationTxHash as Hex);
   await solanaRelayRepo.open({ _id: String(actionHash).toLowerCase(), creditId: creditId as Hex, kind,
     authorizationTxHash: authorizationTxHash as Hex });

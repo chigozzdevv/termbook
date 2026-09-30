@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 const remoteActionSchema = new mongoose.Schema({
   actionHash: { type: String, required: true, unique: true },
   creditId: { type: String, required: true, index: true },
-  kind: { type: Number, required: true, enum: [0, 1] },
+  kind: { type: Number, required: true, enum: [0, 1, 2] },
   authorizationTxHash: { type: String, required: true },
   action: { type: mongoose.Schema.Types.Mixed, required: true },
   state: { type: String, required: true, default: "pending" },
@@ -16,6 +16,7 @@ const remoteActionSchema = new mongoose.Schema({
   confirmNonce: Number,
   confirmBlockHash: String,
   failure: String,
+  nextRunAt: Date,
 }, { timestamps: true });
 
 const signerSchema = new mongoose.Schema({

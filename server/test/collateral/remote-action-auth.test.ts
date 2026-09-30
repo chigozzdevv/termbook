@@ -45,4 +45,18 @@ describe("finalized remote return authorization", () => {
     expect(result.action.deadline).toBe(deadline);
     expect(result.actionHash).toBe(hash);
   });
+  it("accepts a reserved return greater than remaining unreserved backing", async () => {
+    const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
+    const action: RemoteAction = { monadChain: 10143n, monadCore: core, sourceChain: 1n, sourceVault,
+      creditId, lockId, asset, kind: 0, recipient: borrower, amount: 70n, nonce: 1n, deadline };
+    vi.mocked(monadClient).mockReturnValue({ getChainId: async () => 10143, getBlock: async () => ({ number: 100n }),
+      readContract: async ({ functionName }: { functionName: string }) => ({
+        creditDetails: { borrower, lockId, collateralVault: sourceVault, collateralAsset: asset, collateralAmount: 30n, returnRecipient: borrower },
+        remoteReturnDeducted: true, collateralSourceChainOf: 1n, remoteCollateral: true, solanaCollateral: false,
+        remoteActionNonce: 1n, pendingRemoteReturn: 70n, remoteReturnActionHash: hashRemoteAction(action),
+        remoteReturnDeadline: deadline, remoteRecoveryVaultOf: recoveryVault,
+      })[functionName] } as never);
+    expect((await readAuthorizedAction(creditId, 0, borrower)).action.amount).toBe(70n);
+  });
+
 });

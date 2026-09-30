@@ -10,3 +10,24 @@ export type CollateralArgs = {
   header?: `0x${string}`;
   proof?: `0x${string}`;
 };
+
+export type CollateralChangeCheckpoint = {
+  chainId: number;
+  core: `0x${string}`;
+  creditId: `0x${string}`;
+  operation: "add" | "withdraw";
+  amount: string;
+  authorizationTx: `0x${string}`;
+  actionHash?: `0x${string}`;
+  sourceTx?: string;
+  confirmationTx?: `0x${string}`;
+  stage: "submitted" | "authorized" | "source_submitted" | "complete";
+};
+export type CollateralChangeOptions = {
+  checkpoint?: CollateralChangeCheckpoint;
+  sourceWallet?: import("../collateral/setup.js").SourceLockWallet;
+  timeoutMs?: number;
+  pollIntervalMs?: number;
+  signal?: AbortSignal;
+  onProgress?: (checkpoint: CollateralChangeCheckpoint) => void | Promise<void>;
+};

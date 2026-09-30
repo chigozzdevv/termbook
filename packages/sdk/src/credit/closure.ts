@@ -128,6 +128,13 @@ export async function closeCredit(client: TermbookClient, creditId: TxHash, opti
       lastTx = await write("withdraw", [creditId, asset, client.signer.address(), cash]);
       continue;
     }
+    const pendingTopUp = await client.rpc.read<readonly [bigint, TxHash, bigint, bigint]>(client.config.core,
+      termbookCoreAbi, "pendingCollateralTopUp", [creditId]);
+    if (pendingTopUp?.[0] > 0n) {
+      await progress("return_pending");
+      await pause(Math.max(1, Math.min(interval, until - Date.now())), options.signal);
+      continue;
+    }
     if (field(details, "collateralReturned", 24)) {
       lastTx = await write("finishClose");
       continue;

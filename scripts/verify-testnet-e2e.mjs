@@ -36,10 +36,11 @@ async function main() {
     const c = await read(monad, 'TermbookCore', core, 'creditDetails', [t.creditId], 10143);
     const lock = await read(source, 'CollateralVault', deployment.addresses[11155111].CollateralVault, 'locks', [t.lockId], 11155111);
     const position = await read(monad, 'ReferenceAssetApp', recorded.app, 'positions', [t.account], 10143);
+    const accountReleased = await read(monad, 'CreditAccount', t.account, 'released', [], 10143);
     const outcome = { kind: t.kind, creditId: t.creditId, facility: c.facility, payment: c.payment, debt: String(c.debt),
-      collateralReturned: c.collateralReturned, sourceLockedAmount: String(lock[2]), appPosition: String(position),
-      repaymentComplete: t.kind === 'repayment' && c.facility === 6 && c.payment === 4 && c.debt === 0n && c.collateralReturned && lock[2] === 0n && position === 0n,
-      recoveryComplete: t.kind.startsWith('default') && c.facility === 10 && c.debt === 0n && c.collateralReturned && lock[2] === 0n && position === 0n,
+      collateralReturned: c.collateralReturned, sourceLockedAmount: String(lock[2]), appPosition: String(position), accountReleased,
+      repaymentComplete: t.kind === 'repayment' && c.facility === 6 && c.payment === 4 && c.debt === 0n && c.collateralReturned && lock[2] === 0n && position === 0n && accountReleased,
+      recoveryComplete: t.kind.startsWith('default') && c.facility === 10 && c.debt === 0n && c.collateralReturned && lock[2] === 0n && position === 0n && accountReleased,
       setupAborted: c.facility === 7, proofAndReturnReceipts: [] };
     const draw = recorded.transactions.find((tx) => tx.name === `${t.kind}:borrow-and-deposit`);
     if (draw) {
@@ -64,23 +65,39 @@ async function main() {
         if (record.confirmTxHash) outcome.proofAndReturnReceipts.push(await receipt(10143, record.confirmTxHash));
       }
     }
-    if (outcome.recoveryComplete) {
+    if (outcome.recoveryComplete || t.kind.startsWith('default') && [8, 9].includes(c.facility) && c.debt === 0n) {
       const accept = recorded.transactions.find((tx) => tx.name === `${t.kind}:accept`);
       if (!accept) throw new Error('Default acceptance receipt missing');
       const steps = [];
-      const event = artifact('TermbookCore').abi.find((e) => e.type === 'event' && e.name === 'AppRecoveryStep');
+      const events = artifact('TermbookCore').abi.filter((e) => e.type === 'event' && ['AppRecoveryStep', 'RecoveryPayment', 'Repaid', 'LiquidationStarted'].includes(e.name));
+      const topics = events.map((event) => viem.encodeEventTopics({ abi: [event], eventName: event.name })[0]);
+      let exited = false;
+      let recovered = 0n;
       for (let from = BigInt(accept.block); from <= finalized[10143].number; from += 100n) {
         const to = from + 99n > finalized[10143].number ? finalized[10143].number : from + 99n;
-        for (const step of await monad.getLogs({ address: core, event, args: { creditId: t.creditId }, fromBlock: from, toBlock: to })) {
+        const logs = await monad.request({ method: 'eth_getLogs', params: [{ address: core, fromBlock: viem.toHex(from), toBlock: viem.toHex(to), topics: [topics, t.creditId] }] });
+        for (const step of logs) {
+          const decoded = viem.decodeEventLog({ abi: events, topics: step.topics, data: step.data });
+          if (decoded.args.creditId !== t.creditId) throw new Error('Recovery event credit mismatch');
           const tx = await receipt(10143, step.transactionHash);
+          if (tx.block !== String(viem.hexToBigInt(step.blockNumber)) || tx.blockHash !== step.blockHash) throw new Error('Recovery event block mismatch');
+          const mined = await monad.getTransactionReceipt({ hash: step.transactionHash });
+          if (!mined.logs.some((entry) => entry.logIndex === Number(viem.hexToBigInt(step.logIndex))
+            && entry.address.toLowerCase() === core.toLowerCase() && entry.data === step.data && JSON.stringify(entry.topics) === JSON.stringify(step.topics))) throw new Error('Recovery event receipt mismatch');
           const approved = await monad.readContract({ address: core, abi: artifact('TermbookCore').abi,
-            functionName: 'recoveryKeepers', args: [tx.from], blockNumber: step.blockNumber });
-          if (!approved || tx.from.toLowerCase() === c.borrower.toLowerCase() || step.args.target.toLowerCase() !== recorded.app.toLowerCase()) throw new Error('Forced recovery authority mismatch');
+            functionName: 'recoveryKeepers', args: [tx.from], blockNumber: viem.hexToBigInt(step.blockNumber) });
+          if (!approved || tx.from.toLowerCase() === c.borrower.toLowerCase()) throw new Error('Forced recovery authority mismatch');
+          if (decoded.eventName === 'AppRecoveryStep') {
+            if (decoded.args.target.toLowerCase() !== recorded.app.toLowerCase()) throw new Error('Forced exit target mismatch');
+            exited = true;
+          }
+          if (decoded.eventName === 'RecoveryPayment' || decoded.eventName === 'Repaid') recovered += decoded.args.amount;
           steps.push(tx);
         }
       }
-      if (steps.length === 0) throw new Error('No independent keeper recovery was executed');
+      if (!exited || recovered !== 1_000_000n) throw new Error('Independent keeper did not exit and recover the full loan');
       outcome.forcedRecoveryReceipts = steps;
+      outcome.forcedRecoveryAmount = String(recovered);
     }
     observations.push(outcome);
   }
@@ -88,6 +105,7 @@ async function main() {
   const fees = {};
   for (const tx of checked.values()) fees[tx.chainId] = (BigInt(fees[tx.chainId] ?? '0') + BigInt(tx.feeWei)).toString();
   const report = { verifiedAt: new Date().toISOString(), core, scope: recorded.scope, excluded: recorded.excluded,
+    feeScope: 'Listed borrower, proof, return and recovery receipts; excludes keeper funding and oracle updates',
     finalizedBlocks: Object.fromEntries(Object.entries(finalized).map(([id, b]) => [id, { number: String(b.number), hash: b.hash }])),
     observations, measuredFeesWei: fees, transactions: [...checked.values()],
     completed: observations.some((t) => t.repaymentComplete) && observations.some((t) => t.recoveryComplete) };

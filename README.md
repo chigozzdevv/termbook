@@ -80,7 +80,8 @@ not just its expected fee. Workers check this before signing and retrying.
 `--run` advances the cases every 45 seconds until repayment and default recovery
 complete, with a two-hour limit. Only one runner may change the live journal.
 `node scripts/verify-testnet-e2e.mjs` independently checks finalized state,
-canonical receipts, fees and the approved keeper's forced exit, and writes
+canonical receipts, fees, released account control and the approved keeper's
+forced exit and repayment, and writes
 `deployments/testnet-e2e-verification.json` without requiring a signing key.
 Aurora conversions and real perps behavior require their own live exercises.
 
@@ -484,9 +485,15 @@ includes receipt verification and finality status.
 
 The ETH/USDC ratio feed, ETH collateral policy, House risk and reservation policies,
 reference integration, and keeper roles are active. The House received 10 test USDC,
-and the Sepolia controller is unpaused. The API and keepers run locally. Live WETH
-custody, proof verification, app funding, valuation and repayment were exercised;
-return confirmation and default recovery are tracked in `deployments/testnet-e2e.json`.
+and the Sepolia controller is unpaused. The API and keepers run locally. Two live
+WETH-backed 1 USDC loans completed repayment and default recovery through the
+reference app. The approved keeper forcibly redeemed the defaulted position and
+repaid its full debt. Both loans ended with zero debt, no app position, returned
+WETH, confirmed returns on Monad and released account control. The expired setup
+attempt was aborted and its unused WETH returned. Public receipts are recorded in
+`deployments/testnet-e2e.json`; finalized checks are recorded separately in
+`deployments/testnet-e2e-verification.json`. These exercises did not use Aurora
+conversion or a real perps venue.
 MON and SOL price admission and Aurora settlement routes remain unconfigured.
 The public 1Click token catalog does not list these testnets; those settlement
 exercises require provider sandbox routes. Testnet governance has no waiting period.
@@ -564,7 +571,7 @@ USDC price, a recovery route, and the required governance configuration.
 | Asset | Lock location | Current implementation |
 | --- | --- | --- |
 | MON | Native MON enters `NativeCollateralVault` on Monad and is held as WMON. | Local custody, native return, WMON sale for USDC, and oracle-backed collateral-only health reader. The vault and USDC House are deployed on Monad testnet; feeds, risk bands, exit verifier, and market admission remain to be configured. |
-| ETH | WETH stays in `CollateralVault` on Ethereum. | The Wormhole route publishes Ethereum custody snapshots and Monad action authorizations as Guardian VAAs, with pinned emitters and payloads verified onchain. The native Beacon and Monad BFT verifier contracts remain available as a separate route. The Wormhole contracts are deployed on Monad testnet and Sepolia; admission and live lock, return, seizure, and recovery tests remain before accepting funds. |
+| ETH | WETH stays in `CollateralVault` on Ethereum. | The Wormhole route publishes Ethereum custody snapshots and Monad action authorizations as Guardian VAAs, with pinned emitters and payloads verified onchain. The native Beacon and Monad BFT verifier contracts remain available as a separate route. The testnet WETH market is admitted; live locks, borrowing, repayment, app recovery and collateral returns passed against a USDC reference app. WETH seizure and Aurora conversion still need a live exercise. |
 | SOL | Native SOL stays in a Solana program-derived account. | Monad publishes lock and action authorizations through Wormhole. The Solana program verifies posted VAAs and emits custody snapshots through the Wormhole shim; Monad verifies signed snapshot VAAs. The SDK connects a browser Solana wallet and posts VAAs. The program is deployed immutably on devnet with its verifiers on Monad testnet; market admission and live recovery tests remain. |
 
 For SOL, Monad Core binds the lock and publishes its Wormhole authorization

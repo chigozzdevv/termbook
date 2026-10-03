@@ -190,7 +190,10 @@ async function main() {
       }
       if (test.kind.startsWith("default") && test.drawVerified && credit.debt === 0n && credit.collateralReturned && [8, 9].includes(credit.facility)) {
         await monad.call("HouseVault", m.HouseVault, "finalizeRecovery", [test.creditId], `${test.kind}:finalize-recovery`);
-        await monad.call("TermbookCore", m.TermbookCore, "finishLiquidation", [test.creditId], `${test.kind}:finish-liquidation`);
+        credit = await coreRead("creditDetails", [test.creditId]);
+      }
+      if (test.kind.startsWith("default") && test.drawVerified && credit.debt === 0n && credit.collateralReturned
+        && credit.facility === 10 && !await monad.read("CreditAccount", test.account, "released")) {
         await monad.call("TermbookCore", m.TermbookCore, "releaseLiquidatedAccount", [test.creditId], `${test.kind}:release-account`);
       }
     }
@@ -201,12 +204,13 @@ async function main() {
     const credit = await coreRead("creditDetails", [test.creditId]);
     const sourceLock = await source.read("CollateralVault", s.CollateralVault, "locks", [test.lockId]);
     const position = await monad.read("ReferenceAssetApp", app, "positions", [test.account]);
-    const completed = [6, 10].includes(credit.facility) && credit.debt === 0n && credit.collateralReturned && position === 0n && sourceLock[2] === 0n;
+    const accountReleased = await monad.read("CreditAccount", test.account, "released");
+    const completed = [6, 10].includes(credit.facility) && credit.debt === 0n && credit.collateralReturned && position === 0n && sourceLock[2] === 0n && accountReleased;
     if (completed) test.state = "completed";
     if (credit.facility === 7 && credit.collateralReturned && sourceLock[2] === 0n) test.state = "aborted_collateral_returned";
     observations.push({ kind: test.kind, creditId: test.creditId, lockId: test.lockId, account: test.account,
       state: test.state, facility: credit.facility, payment: credit.payment, debt: String(credit.debt),
-      collateralReturned: credit.collateralReturned, sourceLockedAmount: String(sourceLock[2]), appPosition: String(position),
+      collateralReturned: credit.collateralReturned, sourceLockedAmount: String(sourceLock[2]), appPosition: String(position), accountReleased,
       maturity: String(credit.maturity), grace: String(credit.grace), drawVerified: test.drawVerified, failure: test.failure, completed });
   }
   report.observedAt = new Date().toISOString();

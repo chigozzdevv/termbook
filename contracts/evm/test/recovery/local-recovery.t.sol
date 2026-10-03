@@ -108,6 +108,7 @@ contract LocalRecoveryTest is CoreFixture {
         vm.stopPrank();
         vm.prank(borrower);
         core.bindCollateral(creditId, lockId);
+        vm.prank(borrower);
         address account = accounts.create(creditId, borrower, address(core));
         vm.prank(borrower);
         core.bindAccount(creditId, account);

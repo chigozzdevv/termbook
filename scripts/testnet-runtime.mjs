@@ -143,5 +143,5 @@ export async function testnetRuntime(name, simulate) {
     contexts.set(chainId, result);
     return result;
   }
-  return { deployment, report, persist, context };
+  return { deployment, report, persist, context, account };
 }

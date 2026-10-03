@@ -23,6 +23,7 @@ import { runKeeperWorker } from "./chain/keeper.worker.js";
 import { runExecutionWorker } from "./integration/execution.worker.js";
 import { runSolanaRelayWorker } from "./collateral/solana-relay.worker.js";
 import { solanaRelayConfig } from "./collateral/solana-relay.config.js";
+import { ratioFeedConfig, runOracleWorker } from "./chain/oracle.worker.js";
 
 async function main(): Promise<void> {
   assertRuntimeConfig();
@@ -31,6 +32,7 @@ async function main(): Promise<void> {
   indexerStart();
   riskKeeper();
   riskScanConfig();
+  ratioFeedConfig();
   recoveryRelayConfig();
   solanaProofConfig();
   await solanaRelayConfig();
@@ -48,6 +50,7 @@ async function main(): Promise<void> {
       runRecoveryWorker(),
       runRecoveryRelayWorker(),
       runRecoveryRefundWorker(),
+      runOracleWorker(),
     ]);
     const counts = results.map((result, index) => {
       if (result.status === "fulfilled") return result.value;

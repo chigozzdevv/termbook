@@ -33,6 +33,7 @@ export * from "./abi/monad-verifier.js";
 export * from "./abi/oracle-registry.js";
 export * from "./abi/ratio-price-feed.js";
 export * from "./abi/health-source.js";
+export * from "./abi/account-health-source.js";
 export * from "./abi/collateral-health-reader.js";
 export * from "./abi/app-health-reader.js";
 export * from "./abi/app-exit-verifier.js";

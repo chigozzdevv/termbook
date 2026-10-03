@@ -11,6 +11,7 @@ contract AccountFactory {
 
     function create(bytes32 creditId, address borrower, address core) external returns (address account) {
         if (creditId == bytes32(0) || borrower == address(0) || core == address(0)) revert Invalid();
+        if (msg.sender != borrower) revert Invalid();
         if (accountOf[creditId] != address(0)) revert Exists();
         account = address(new CreditAccount(creditId, borrower, core));
         accountOf[creditId] = account;

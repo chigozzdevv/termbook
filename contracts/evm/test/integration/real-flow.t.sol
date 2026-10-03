@@ -478,6 +478,7 @@ contract RealFlowTest is CoreFixture {
         vm.stopPrank();
         vm.prank(borrower);
         core.bindCollateral(creditId, lockId);
+        vm.prank(borrower);
         account = accountFactory.create(creditId, borrower, address(core));
         vm.prank(borrower);
         core.bindAccount(creditId, account);
@@ -495,6 +496,7 @@ contract RealFlowTest is CoreFixture {
         vm.stopPrank();
         vm.prank(borrower);
         core.bindCollateral(creditId, lockId);
+        vm.prank(borrower);
         account = accountFactory.create(creditId, borrower, address(core));
         vm.prank(borrower);
         core.bindAccount(creditId, account);
@@ -1426,6 +1428,7 @@ contract RealFlowTest is CoreFixture {
         vm.stopPrank();
         vm.prank(borrower);
         core.bindCollateral(creditId, lockId);
+        vm.prank(borrower);
         account = accountFactory.create(creditId, borrower, address(core));
         vm.prank(borrower);
         core.bindAccount(creditId, account);

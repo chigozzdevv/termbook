@@ -149,7 +149,7 @@ async function context(chainId, url) {
     return entry;
   }
   async function deploy(name, args = [], label = name) {
-    if (previous && chainId === 10143 && ["Guardian", "AccountFactory", "WormholeSolanaAccountClient", "SolanaVerifier"].includes(label)) {
+    if (previous && chainId === 10143 && ["Guardian", "WormholeSolanaAccountClient", "SolanaVerifier"].includes(label)) {
       const address = previous.addresses[chainId][label];
       const original = previous.transactions.find((transaction) => transaction.chainId === chainId
         && transaction.address?.toLowerCase() === address?.toLowerCase());
@@ -301,16 +301,17 @@ for (const [name, helper] of [["FlowExecutor", execution], ["ReservationManager"
   if ((await monad.read(name, helper, "core")).toLowerCase() !== core.toLowerCase()) throw new Error("Core helper binding mismatch");
 }
 const risk = await monad.deploy("RiskEngine", [core]);
-await monad.deploy("AccountFactory");
+const accounts = await monad.deploy("AccountFactory");
 const integrations = await monad.deploy("IntegrationRegistry", [governance]);
 const factory = await monad.deploy("InboxFactory", [governance]);
 const oracles = await monad.deploy("OracleRegistry", [governance]);
 const health = await monad.deploy("HealthSource", [governance, oracles]);
+const authenticatedHealth = await monad.deploy("AccountHealthSource", [core, health, accounts]);
 await monad.call("TermbookCore", core, "setRisk", [risk]);
 await monad.call("TermbookCore", core, "setIntegrationRegistry", [integrations]);
 await monad.call("TermbookCore", core, "setHouseRegistry", [houses]);
 await monad.call("TermbookCore", core, "setVerifierRegistry", [verifiers]);
-await monad.call("TermbookCore", core, "setHealthSource", [health]);
+await monad.call("TermbookCore", core, "setHealthSource", [authenticatedHealth]);
 await monad.call("TermbookCore", core, "setGovernance", [governance]);
 const house = await monad.deploy("HouseVault", [usdc, core, account.address, factory, guardian]);
 const routes = await monad.deploy("RouteRegistry", [governance]);

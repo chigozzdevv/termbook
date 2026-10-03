@@ -40,6 +40,7 @@ const contracts = {
   OracleRegistry: "oracle-registry",
   RatioPriceFeed: "ratio-price-feed",
   HealthSource: "health-source",
+  AccountHealthSource: "account-health-source",
   CollateralHealthReader: "collateral-health-reader",
   AppHealthReader: "app-health-reader",
   AppExitVerifier: "app-exit-verifier",

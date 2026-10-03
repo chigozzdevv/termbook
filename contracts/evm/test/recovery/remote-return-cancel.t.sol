@@ -117,7 +117,9 @@ contract RemoteReturnCancelTest is CoreFixture {
             vm.warp(quote.setupDeadline + 1);
             core.expireSetup(creditId);
         } else {
-            address account = (new AccountFactory()).create(creditId, borrower, address(core));
+            AccountFactory accounts = new AccountFactory();
+            vm.prank(borrower);
+            address account = accounts.create(creditId, borrower, address(core));
             vm.prank(borrower);
             core.bindAccount(creditId, account);
             assertEq(uint256(core.creditDetails(creditId).facility), uint256(Types.Facility.Ready));

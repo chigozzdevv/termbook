@@ -59,6 +59,13 @@ The ETH/USDC ratio uses admitted Chainlink ETH/USD and USDC/USD feeds, pins thei
 aggregators, and preserves the older observation timestamp. Its permissionless
 `update()` must run when either underlying round changes. The testnet feeds have
 a 24-hour heartbeat; this setup uses a 25-hour age limit for testnet exercises.
+The worker refreshes pinned ratio feeds configured in `RATIO_PRICE_FEEDS` with a
+distinct `ORACLE_KEEPER_KEY`; stale or invalid source rounds remain rejected.
+
+Before accepting the first credit, `scripts/setup-testnet-account-health.mjs`
+deploys the borrower-owned account factory and installs `AccountHealthSource`.
+This wrapper checks factory provenance and identity before any health or cash
+reading can authorize funding. Use `--simulate` first, then `--broadcast`.
 Production price-age and risk parameters require their own admission.
 
 ## API authorization

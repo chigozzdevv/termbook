@@ -79,6 +79,9 @@ test runs after maturity and grace. Fund each keeper for its maximum gas charge,
 not just its expected fee. Workers check this before signing and retrying.
 `--run` advances the cases every 45 seconds until repayment and default recovery
 complete, with a two-hour limit. Only one runner may change the live journal.
+`node scripts/verify-testnet-e2e.mjs` independently checks finalized state,
+canonical receipts, fees and the approved keeper's forced exit, and writes
+`deployments/testnet-e2e-verification.json` without requiring a signing key.
 Aurora conversions and real perps behavior require their own live exercises.
 
 ## API authorization

@@ -31,6 +31,7 @@ export * from "./abi/wormhole-ethereum-verifier.js";
 export * from "./abi/wormhole-monad-verifier.js";
 export * from "./abi/monad-verifier.js";
 export * from "./abi/oracle-registry.js";
+export * from "./abi/ratio-price-feed.js";
 export * from "./abi/health-source.js";
 export * from "./abi/collateral-health-reader.js";
 export * from "./abi/app-health-reader.js";

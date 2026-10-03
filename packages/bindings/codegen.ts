@@ -38,6 +38,7 @@ const contracts = {
   WormholeMonadVerifier: "wormhole-monad-verifier",
   MonadVerifier: "monad-verifier",
   OracleRegistry: "oracle-registry",
+  RatioPriceFeed: "ratio-price-feed",
   HealthSource: "health-source",
   CollateralHealthReader: "collateral-health-reader",
   AppHealthReader: "app-health-reader",

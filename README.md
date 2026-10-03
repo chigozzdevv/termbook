@@ -77,6 +77,8 @@ Expired setup cases are aborted and their collateral returned. `--retry-default`
 creates a separate replacement credit with a 45-minute setup window; its default
 test runs after maturity and grace. Fund each keeper for its maximum gas charge,
 not just its expected fee. Workers check this before signing and retrying.
+`--run` advances the cases every 45 seconds until repayment and default recovery
+complete, with a two-hour limit. Only one runner may change the live journal.
 Aurora conversions and real perps behavior require their own live exercises.
 
 ## API authorization

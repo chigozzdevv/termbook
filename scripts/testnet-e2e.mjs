@@ -2,11 +2,12 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { log, error } from "node:console";
+import { setTimeout as delay } from "node:timers/promises";
 import { canonicalJson, apiAuthorizationMessage } from "../packages/schema/dist/index.js";
 import { root, viem, artifact, testnetRuntime } from "./testnet-runtime.mjs";
 
 const mode = process.argv[2];
-if (!["--begin", "--retry-default", "--advance", "--observe"].includes(mode) || process.argv.length !== 3) throw new Error("Use --begin, --retry-default, --advance, or --observe");
+if (!["--begin", "--retry-default", "--advance", "--run", "--observe"].includes(mode) || process.argv.length !== 3) throw new Error("Use --begin, --retry-default, --advance, --run, or --observe");
 const api = "http://127.0.0.1:3002";
 const erc20 = viem.parseAbi(["function approve(address,uint256) returns(bool)", "function balanceOf(address) view returns(uint256)"]);
 const wethAbi = viem.parseAbi(["function deposit() payable"]);
@@ -106,7 +107,7 @@ async function main() {
   }
 
   if (!report.cases) throw new Error("Run --begin first");
-  if (mode === "--advance") {
+  if (mode === "--advance" || mode === "--run") {
     for (const test of Object.values(report.cases)) {
       let credit = await coreRead("creditDetails", [test.creditId]);
       if ([0, 1, 2, 3].includes(credit.facility) && now > credit.setupDeadline) {
@@ -216,5 +217,36 @@ async function main() {
     excluded: "Aurora conversions and real perps venue behavior", core: m.TermbookCore, app, observations,
     transactions: report.transactions.map((tx) => Object.fromEntries(Object.entries(tx).filter(([key]) => key !== "rawTransaction"))) }, null, 2) + "\n");
   log(JSON.stringify({ observedAt: report.observedAt, cases: observations }));
+  return observations.some((test) => test.kind === "repayment" && test.completed)
+    && observations.some((test) => test.kind.startsWith("default") && test.completed);
 }
-main().catch((cause) => { error(cause instanceof Error ? cause.message.split("\n")[0] : "Live testnet E2E failed"); process.exitCode = 1; });
+
+async function run() {
+  const lockPath = path.join(root, ".testnet/live-e2e.lock");
+  let lock;
+  if (mode !== "--observe") {
+    if (fs.existsSync(lockPath)) {
+      const owner = Number(fs.readFileSync(lockPath, "utf8"));
+      if (!Number.isSafeInteger(owner) || owner <= 0) throw new Error("Live test lock is invalid");
+      try { process.kill(owner, 0); throw new Error("Live test runner is already active"); }
+      catch (cause) {
+        if (cause.code !== "ESRCH") throw cause;
+        fs.unlinkSync(lockPath);
+      }
+    }
+    lock = fs.openSync(lockPath, "wx", 0o600);
+    fs.writeFileSync(lock, String(process.pid));
+  }
+  try {
+    const deadline = Date.now() + 2 * 60 * 60 * 1000;
+    do {
+      const completed = await main();
+      if (mode !== "--run" || completed) return;
+      await delay(45_000);
+    } while (Date.now() < deadline);
+    throw new Error("Live test wait expired; resume with --run");
+  } finally {
+    if (lock !== undefined) { fs.closeSync(lock); fs.unlinkSync(lockPath); }
+  }
+}
+run().catch((cause) => { error(cause instanceof Error ? cause.message.split("\n")[0] : "Live testnet E2E failed"); process.exitCode = 1; });

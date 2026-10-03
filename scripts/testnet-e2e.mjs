@@ -4,7 +4,7 @@ import process from "node:process";
 import { log, error } from "node:console";
 import { setTimeout as delay } from "node:timers/promises";
 import { canonicalJson, apiAuthorizationMessage } from "../packages/schema/dist/index.js";
-import { root, viem, artifact, testnetRuntime } from "./testnet-runtime.mjs";
+import { root, viem, artifact, testnetRuntime, writeJsonAtomic } from "./testnet-runtime.mjs";
 
 const mode = process.argv[2];
 if (!["--begin", "--retry-default", "--advance", "--run", "--observe"].includes(mode) || process.argv.length !== 3) throw new Error("Use --begin, --retry-default, --advance, --run, or --observe");
@@ -212,10 +212,10 @@ async function main() {
   report.observedAt = new Date().toISOString();
   report.observations = observations;
   if (mode !== "--observe") persist();
-  fs.writeFileSync(path.join(root, "deployments/testnet-e2e.json"), JSON.stringify({ network: "testnet", observedAt: report.observedAt,
+  writeJsonAtomic(path.join(root, "deployments/testnet-e2e.json"), { network: "testnet", observedAt: report.observedAt,
     scope: "Real Sepolia WETH custody, Wormhole proofs, Monad USDC borrowing and reference app recovery",
     excluded: "Aurora conversions and real perps venue behavior", core: m.TermbookCore, app, observations,
-    transactions: report.transactions.map((tx) => Object.fromEntries(Object.entries(tx).filter(([key]) => key !== "rawTransaction"))) }, null, 2) + "\n");
+    transactions: report.transactions.map((tx) => Object.fromEntries(Object.entries(tx).filter(([key]) => key !== "rawTransaction"))) });
   log(JSON.stringify({ observedAt: report.observedAt, cases: observations }));
   return observations.some((test) => test.kind === "repayment" && test.completed)
     && observations.some((test) => test.kind.startsWith("default") && test.completed);

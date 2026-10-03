@@ -1,7 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
+import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
+import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 
 export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -10,6 +12,25 @@ export const viem = require("viem");
 const { privateKeyToAccount } = require("viem/accounts");
 const { createPublicClient, createWalletClient, http, keccak256, encodeDeployData, encodeFunctionData } = viem;
 export const artifact = (name) => JSON.parse(fs.readFileSync(path.join(root, `contracts/evm/out/${name}.sol/${name}.json`), "utf8"));
+
+export function writeJsonAtomic(file, value) {
+  const body = JSON.stringify(value, null, 2) + "\n";
+  const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
+  let descriptor;
+  try {
+    descriptor = fs.openSync(temporary, "wx", 0o600);
+    fs.writeFileSync(descriptor, body);
+    fs.fsyncSync(descriptor);
+    fs.closeSync(descriptor);
+    descriptor = undefined;
+    fs.renameSync(temporary, file);
+    const directory = fs.openSync(path.dirname(file), "r");
+    try { fs.fsyncSync(directory); } finally { fs.closeSync(directory); }
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+    if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
+  }
+}
 
 export async function testnetRuntime(name, simulate) {
   if (!/^[a-z0-9-]+$/.test(name) || typeof simulate !== "boolean") throw new Error("Invalid runtime arguments");
@@ -21,7 +42,7 @@ export async function testnetRuntime(name, simulate) {
   const identity = `${deployment.sourceCommit}:${deployment.addresses[10143].TermbookCore}:${simulate}`;
   const report = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : { identity, transactions: [], addresses: {}, governance: [] };
   if (report.identity !== identity) throw new Error("Runtime journal belongs to another deployment");
-  const persist = () => fs.writeFileSync(file, JSON.stringify(report, null, 2), { mode: 0o600 });
+  const persist = () => writeJsonAtomic(file, report);
   const contexts = new Map();
   async function context(chainId) {
     if (contexts.has(chainId)) return contexts.get(chainId);

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { log, error } from 'node:console';
-import { root, viem, artifact } from './testnet-runtime.mjs';
+import { root, viem, artifact, writeJsonAtomic } from './testnet-runtime.mjs';
 import { pacedHttp } from '../server/dist/chain/rpc.transport.js';
 
 async function main() {
@@ -79,7 +79,7 @@ async function main() {
     finalizedBlocks: Object.fromEntries(Object.entries(finalized).map(([id, b]) => [id, { number: String(b.number), hash: b.hash }])),
     observations, measuredFeesWei: fees, transactions: [...checked.values()],
     completed: observations.some((t) => t.repaymentComplete) && observations.some((t) => t.recoveryComplete) };
-  fs.writeFileSync(path.join(root, 'deployments/testnet-e2e-verification.json'), JSON.stringify(report, null, 2) + '\n');
+  writeJsonAtomic(path.join(root, 'deployments/testnet-e2e-verification.json'), report);
   log(JSON.stringify({ verifiedAt: report.verifiedAt, completed: report.completed, observations }));
 }
 main().catch((cause) => { error(cause instanceof Error ? cause.message.split('\n')[0] : 'E2E verification failed'); process.exitCode = 1; });

@@ -41,6 +41,18 @@ async function main() {
       repaymentComplete: t.kind === 'repayment' && c.facility === 6 && c.payment === 4 && c.debt === 0n && c.collateralReturned && lock[2] === 0n && position === 0n,
       recoveryComplete: t.kind.startsWith('default') && c.facility === 10 && c.debt === 0n && c.collateralReturned && lock[2] === 0n && position === 0n,
       setupAborted: c.facility === 7, proofAndReturnReceipts: [] };
+    const draw = recorded.transactions.find((tx) => tx.name === `${t.kind}:borrow-and-deposit`);
+    if (draw) {
+      const drawReceipt = await monad.getTransactionReceipt({ hash: draw.hash });
+      const events = drawReceipt.logs.filter((entry) => entry.address.toLowerCase() === core.toLowerCase()).flatMap((entry) => {
+        try { return [viem.decodeEventLog({ abi: artifact('TermbookCore').abi, topics: entry.topics, data: entry.data })]; }
+        catch { return []; }
+      });
+      const drawn = events.filter((entry) => entry.eventName === 'Drawn' && entry.args.creditId === t.creditId);
+      if (drawn.length !== 1 || drawn[0].args.amount !== 1_000_000n || drawn[0].args.debt !== 1_000_000n) throw new Error('Live draw event mismatch');
+      outcome.drawReceipt = await receipt(10143, draw.hash);
+    }
+    if ((outcome.repaymentComplete || outcome.recoveryComplete) && !draw) throw new Error('Completed test has no live draw');
     for (const endpoint of ['collateral', 'collateral/actions']) {
       const response = await globalThis.fetch(`http://127.0.0.1:3002/${endpoint}?creditId=${t.creditId}`);
       if (!response.ok) throw new Error('Local E2E receipt index unavailable');

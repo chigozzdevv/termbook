@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { env } from "../../src/config/env.js";
-import { requestAuroraQuote, type AuroraRoute } from "../../src/settlement/aurora.client.js";
+import { requestAuroraQuote, requestAuroraStatus, type AuroraRoute } from "../../src/settlement/aurora.client.js";
+
+const original = { apiUrl: env.auroraApiUrl, chainId: env.monadChainId };
 
 vi.mock("@defuse-protocol/one-click-sdk-typescript", () => ({
   verifyQuoteSignature: vi.fn(() => true),
@@ -9,10 +11,22 @@ vi.mock("@defuse-protocol/one-click-sdk-typescript", () => ({
 
 afterEach(() => {
   env.auroraApiKey = "";
+  env.auroraApiUrl = original.apiUrl;
+  env.monadChainId = original.chainId;
   vi.unstubAllGlobals();
 });
 
 describe("Aurora quote admission", () => {
+  it("sends sandbox status requests only to the configured origin without following redirects", async () => {
+    env.monadChainId = 10143;
+    env.auroraApiUrl = "https://sandbox.example";
+    env.auroraApiKey = "test-key";
+    const fetch = vi.fn(async () => new Response("", { status: 503 }));
+    vi.stubGlobal("fetch", fetch);
+    await expect(requestAuroraStatus({ quote: { depositAddress: `0x${"77".repeat(20)}` } } as never)).rejects.toThrow("aurora-status-unavailable");
+    expect(String(fetch.mock.calls[0]?.[0])).toBe(`https://sandbox.example/v0/status?depositAddress=0x${"77".repeat(20)}`);
+    expect(fetch).toHaveBeenCalledWith(expect.any(URL), expect.objectContaining({ redirect: "error", headers: { "X-API-Key": "test-key" } }));
+  });
   it("rejects a signed quote with an unparseable deadline", async () => {
     env.auroraApiKey = "test-key";
     const route = {

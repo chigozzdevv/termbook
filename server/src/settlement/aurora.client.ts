@@ -1,8 +1,19 @@
-import { quoteHash, verifyQuoteSignature, type OneClickQuoteResponse } from "@defuse-protocol/one-click-sdk-typescript";
+import { quoteHash, type OneClickQuoteResponse } from "@defuse-protocol/one-click-sdk-typescript";
 import { z } from "zod";
 import { env } from "../config/env.js";
 import { HttpError } from "../http/http.errors.js";
 import { solanaBase58Bytes } from "../collateral/solana-proof.js";
+import { validateAuroraProvider, verifyAuroraProviderQuote } from "./aurora.provider.js";
+
+function providerEndpoint(path: string): URL {
+  const origin = validateAuroraProvider({ apiUrl: env.auroraApiUrl, publicKey: env.auroraQuotePublicKey, chainId: env.monadChainId });
+  return new URL(path, origin);
+}
+
+export function verifyAuroraQuote(quote: OneClickQuoteResponse): boolean {
+  validateAuroraProvider({ apiUrl: env.auroraApiUrl, publicKey: env.auroraQuotePublicKey, chainId: env.monadChainId });
+  return verifyAuroraProviderQuote(quote, env.auroraQuotePublicKey);
+}
 
 const address = z.string().regex(/^0x[a-fA-F0-9]{40}$/);
 const bytes32 = z.string().regex(/^0x[a-fA-F0-9]{64}$/);
@@ -121,12 +132,14 @@ export async function requestAuroraQuote(input: {
     depositMode: "SIMPLE",
   } as const;
   let response: Response;
+  const endpoint = providerEndpoint("/v0/quote");
   try {
-    response = await fetch("https://1click.chaindefuser.com/v0/quote", {
+    response = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-API-Key": env.auroraApiKey },
       body: JSON.stringify(request),
       signal: AbortSignal.timeout(15_000),
+      redirect: "error",
     });
   } catch {
     throw new HttpError(502, "aurora-quote-unavailable");
@@ -135,7 +148,7 @@ export async function requestAuroraQuote(input: {
   let body: OneClickQuoteResponse;
   try {
     body = quoteSchema.parse(await response.json()) as unknown as OneClickQuoteResponse;
-    if (!verifyQuoteSignature(body)) throw new Error("invalid-signature");
+    if (!verifyAuroraQuote(body)) throw new Error("invalid-signature");
   } catch {
     throw new HttpError(502, "aurora-quote-invalid");
   }
@@ -174,11 +187,11 @@ const statusSchema = z.object({
 export async function requestAuroraStatus(quote: OneClickQuoteResponse) {
   const depositAddress = quote.quote.depositAddress;
   if (!depositAddress || !sourceAddress.safeParse(depositAddress).success) throw new HttpError(502, "aurora-status-invalid");
-  const url = new URL("https://1click.chaindefuser.com/v0/status");
+  const url = providerEndpoint("/v0/status");
   url.searchParams.set("depositAddress", depositAddress);
   let response: Response;
   try {
-    response = await fetch(url, { headers: { "X-API-Key": env.auroraApiKey }, signal: AbortSignal.timeout(10_000) });
+    response = await fetch(url, { headers: { "X-API-Key": env.auroraApiKey }, signal: AbortSignal.timeout(10_000), redirect: "error" });
   } catch {
     throw new HttpError(502, "aurora-status-unavailable");
   }
@@ -186,7 +199,7 @@ export async function requestAuroraStatus(quote: OneClickQuoteResponse) {
   try {
     const status = statusSchema.parse(await response.json());
     const returnedQuote = status.quoteResponse as unknown as OneClickQuoteResponse;
-    if (!verifyQuoteSignature(returnedQuote) || quoteHash(returnedQuote) !== quoteHash(quote)) throw new Error("quote-mismatch");
+    if (!verifyAuroraQuote(returnedQuote) || quoteHash(returnedQuote) !== quoteHash(quote)) throw new Error("quote-mismatch");
     return {
       status: status.status,
       refundedAmount: status.swapDetails.refundedAmount ?? "0",

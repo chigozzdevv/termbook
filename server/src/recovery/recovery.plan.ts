@@ -1,8 +1,8 @@
-import { quoteHash, verifyQuoteSignature, type OneClickQuoteResponse } from "@defuse-protocol/one-click-sdk-typescript";
+import { quoteHash, type OneClickQuoteResponse } from "@defuse-protocol/one-click-sdk-typescript";
 import { hashTypedData, keccak256, recoverTypedDataAddress, stringToHex } from "viem";
 import { z } from "zod";
 import { env } from "../config/env.js";
-import { admittedRoute } from "../settlement/aurora.client.js";
+import { admittedRoute, verifyAuroraQuote } from "../settlement/aurora.client.js";
 import type { RecoveryFundingRecord } from "./recovery.repo.js";
 
 const address = z.string().regex(/^0x[a-fA-F0-9]{40}$/);
@@ -134,7 +134,7 @@ function operationDigest(operation: Operation): `0x${string}` {
 export function recoveryFundingPlan(input: unknown): { operation: Operation; record: RecoveryFundingRecord; funding: Funding; digest: `0x${string}` } {
   const operation = operationSchema.parse(input);
   const quote = operation.quote as OneClickQuoteResponse;
-  if (!quote || !verifyQuoteSignature(quote)) throw new Error("recovery-quote-invalid");
+  if (!quote || !verifyAuroraQuote(quote)) throw new Error("recovery-quote-invalid");
   const echoed = quote.quoteRequest;
   const terms = quote.quote;
   const quoteDeadline = Date.parse(terms?.deadline ?? "");

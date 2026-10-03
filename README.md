@@ -782,6 +782,14 @@ Governance must admit the corresponding pair and version in `RouteRegistry`, the
 set that registry on the House's `InboxFactory`. The factory address in the SDK
 and server must be the factory configured on the HouseVault.
 
+Get the partner JWT from `https://partners.near-intents.org/home` and store it as
+`AURORA_API_KEY` in the server environment. The production 1Click endpoint and
+SDK quote signing key are the defaults. Monad testnet may configure a provider's
+HTTPS sandbox origin through `AURORA_API_URL` and its verified Ed25519 quote key
+through `AURORA_QUOTE_PUBLIC_KEY`. Both are rejected outside chain 10143. Quote,
+status and recovery funding use the same pinned key; redirects are rejected.
+Sandbox token identifiers and usable routes must come from the provider.
+
 Ethereum remote collateral can use the Wormhole Guardian route described above
 or the separate native consensus route. SOL uses Wormhole Guardian attestations.
 After deploying the source

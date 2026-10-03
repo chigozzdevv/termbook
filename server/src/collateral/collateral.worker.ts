@@ -1,3 +1,4 @@
+import { assertKeeperFunding, assertSignedKeeperFunding } from "../chain/keeper-funding.js";
 import { ethereumSourceChain } from "../chain/networks.js";
 import { createWalletClient, encodeAbiParameters, encodeFunctionData, http, keccak256, parseAbi, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -150,6 +151,7 @@ export async function handleCollateralJob(job: { kind: string; payload: Record<s
     const wallet = createWalletClient({ account, transport: http(env.rpcUrl) });
     const nonce = await chain.getTransactionCount({ address: account.address, blockTag: "pending" });
     const request = await wallet.prepareTransactionRequest({ account, chain: null, to: env.core as Address, data, nonce });
+    await assertKeeperFunding(chain, account.address, request);
     const rawTx = await wallet.signTransaction({ ...request, chain: null });
     const hash = keccak256(rawTx);
     const persisted = await collateralRepo.setPrepared(lockId, proof, hash, rawTx);
@@ -174,6 +176,7 @@ async function deliver(hash: Hex, rawTx: Hex) {
   let receipt = await chain.getTransactionReceipt({ hash }).catch(() => null);
   if (!receipt) {
     try {
+      await assertSignedKeeperFunding(chain, rawTx);
       const broadcastHash = await chain.sendRawTransaction({ serializedTransaction: rawTx });
       if (broadcastHash.toLowerCase() !== hash.toLowerCase()) throw new Error("collateral-transaction-hash-mismatch");
     } catch (error) {

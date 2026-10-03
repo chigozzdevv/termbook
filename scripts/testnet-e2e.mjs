@@ -6,7 +6,7 @@ import { canonicalJson, apiAuthorizationMessage } from "../packages/schema/dist/
 import { root, viem, artifact, testnetRuntime } from "./testnet-runtime.mjs";
 
 const mode = process.argv[2];
-if (!["--begin", "--advance", "--observe"].includes(mode) || process.argv.length !== 3) throw new Error("Use --begin, --advance, or --observe");
+if (!["--begin", "--retry-default", "--advance", "--observe"].includes(mode) || process.argv.length !== 3) throw new Error("Use --begin, --retry-default, --advance, or --observe");
 const api = "http://127.0.0.1:3002";
 const erc20 = viem.parseAbi(["function approve(address,uint256) returns(bool)", "function balanceOf(address) view returns(uint256)"]);
 const wethAbi = viem.parseAbi(["function deposit() payable"]);
@@ -50,14 +50,18 @@ async function main() {
     return result.json();
   }
 
-  if (mode === "--begin") {
+  if (mode === "--begin" || mode === "--retry-default") {
     if (!(await globalThis.fetch(`${api}/ready`)).ok) throw new Error("Local services are not ready");
     await post("/houses", { house: account.address, vault: m.HouseVault, asset: usdc, manager: account.address });
     report.startedAt ??= new Date().toISOString();
     report.cases ??= {};
     persist();
     const policyHash = await monad.read("ReservationManager", m.ReservationManager, "policyHashes", [account.address, 1n]);
-    for (const kind of ["repayment", "default"]) {
+    if (mode === "--retry-default") {
+      const previous = report.cases.default;
+      if (!previous || (await coreRead("creditDetails", [previous.creditId])).facility !== 7) throw new Error("Abort the expired default setup before retrying");
+    }
+    for (const kind of mode === "--retry-default" ? ["default-retry"] : ["repayment", "default"]) {
       let test = report.cases[kind];
       if (!test) {
         const nonce = BigInt(Date.now());
@@ -65,12 +69,12 @@ async function main() {
         const creditId = viem.keccak256(viem.encodeAbiParameters(viem.parseAbiParameters("bytes32,address,address,uint256"),
           [intentId, account.address, account.address, nonce]));
         const lockId = viem.keccak256(viem.encodeAbiParameters(viem.parseAbiParameters("bytes32,string"), [creditId, "source-lock"]));
-        const setupDeadline = now + 1800n;
+        const setupDeadline = now + (kind === "default-retry" ? 2700n : 1800n);
         const quote = { borrower: account.address, owner: account.address, intentId, house: account.address,
           vault: m.HouseVault, sourceChain: 11155111n, collateralVault: s.CollateralVault,
           collateralAsset: weth, collateralAmount: amounts.collateral, returnRecipient: account.address,
           settlementAsset: usdc, limit: amounts.limit, bundleId: appSetup.bundleId,
-          setupDeadline, maturity: kind === "default" ? setupDeadline + 120n : setupDeadline + 43_200n,
+          setupDeadline, maturity: kind.startsWith("default") ? setupDeadline + 120n : setupDeadline + 43_200n,
           gracePeriod: 60n, reservationBond: amounts.bond, nonce, expiry: setupDeadline,
           termsHash: viem.keccak256(viem.stringToHex(`Termbook reference app ${kind} live test`)),
           revolving: false, aprBps: 0n, originationFee: 0n, commitmentFeeBps: 0n,
@@ -105,6 +109,13 @@ async function main() {
   if (mode === "--advance") {
     for (const test of Object.values(report.cases)) {
       let credit = await coreRead("creditDetails", [test.creditId]);
+      if ([0, 1, 2, 3].includes(credit.facility) && now > credit.setupDeadline) {
+        await monad.call("TermbookCore", m.TermbookCore, "abort", [test.creditId], `${test.kind}:abort-expired-setup`);
+        test.failure = "setup_expired_before_borrowing";
+        test.state = "setup_aborted";
+        persist();
+        credit = await coreRead("creditDetails", [test.creditId]);
+      }
       if (credit.facility === 2) {
         const commitment = await source.read("CollateralVault", s.CollateralVault, "lockCommitments", [test.lockId]);
         const key = await source.read("WormholeEthereumPublisher", s.WormholeEthereumPublisher, "snapshotKey", [1, commitment, 0n]);
@@ -137,7 +148,7 @@ async function main() {
         if (health.debt !== amounts.draw || health.appValue !== amounts.draw || position !== amounts.draw
           || cash !== 0n || health.sourceValue >= health.debt || health.healthBps < 12_500n) throw new Error("Live draw or valuation mismatch");
         test.drawVerified = { at: new Date().toISOString(), ...JSON.parse(canonicalJson(health)), appPosition: String(position), accountCash: String(cash) };
-        test.state = test.kind === "default" ? "awaiting_default" : "repayment_pending";
+        test.state = test.kind.startsWith("default") ? "awaiting_default" : "repayment_pending";
         persist();
         credit = await coreRead("creditDetails", [test.creditId]);
       }
@@ -147,8 +158,8 @@ async function main() {
         await monad.call("TermbookCore", m.TermbookCore, "startClosing", [test.creditId], "repayment:start-closing");
         credit = await coreRead("creditDetails", [test.creditId]);
       }
-      const returnAllowed = test.drawVerified && credit.debt === 0n && !credit.collateralReturned
-        && (credit.facility === 5 || [8, 9].includes(credit.facility));
+      const returnAllowed = credit.debt === 0n && !credit.collateralReturned
+        && (credit.facility === 7 || test.drawVerified && (credit.facility === 5 || [8, 9].includes(credit.facility)));
       if (returnAllowed && !test.returnTx) {
         const wormhole = await coreRead("ethereumWormholeCore");
         const fee = await monad.client.readContract({ address: wormhole,
@@ -160,16 +171,26 @@ async function main() {
       if (test.returnTx && !credit.collateralReturned) {
         await post("/collateral/actions", { creditId: test.creditId, kind: "release", authorizationTxHash: test.returnTx });
         test.state = "awaiting_collateral_return";
+        test.returnActionHash ??= await coreRead("remoteReturnActionHash", [test.creditId]);
         persist();
+        if (await source.read("RemoteCollateralController", s.RemoteCollateralController, "consumed", [test.returnActionHash])) {
+          const key = await source.read("WormholeEthereumPublisher", s.WormholeEthereumPublisher, "snapshotKey", [2, test.returnActionHash, 0n]);
+          if (!await source.read("WormholeEthereumPublisher", s.WormholeEthereumPublisher, "published", [key])) {
+            const wormhole = await source.read("WormholeEthereumPublisher", s.WormholeEthereumPublisher, "wormhole");
+            const fee = await source.client.readContract({ address: wormhole,
+              abi: viem.parseAbi(["function messageFee() view returns(uint256)"]), functionName: "messageFee" });
+            await source.send(`${test.kind}:publish-applied`, encode("WormholeEthereumPublisher", "publishApplied", [test.returnActionHash]), s.WormholeEthereumPublisher, fee);
+          }
+        }
       }
       credit = await coreRead("creditDetails", [test.creditId]);
       if (credit.collateralReturned && credit.facility === 5) {
         await monad.call("TermbookCore", m.TermbookCore, "finishClose", [test.creditId], `${test.kind}:finish-close`);
       }
-      if (test.kind === "default" && test.drawVerified && credit.debt === 0n && credit.collateralReturned && [8, 9].includes(credit.facility)) {
-        await monad.call("HouseVault", m.HouseVault, "finalizeRecovery", [test.creditId], "default:finalize-recovery");
-        await monad.call("TermbookCore", m.TermbookCore, "finishLiquidation", [test.creditId], "default:finish-liquidation");
-        await monad.call("TermbookCore", m.TermbookCore, "releaseLiquidatedAccount", [test.creditId], "default:release-account");
+      if (test.kind.startsWith("default") && test.drawVerified && credit.debt === 0n && credit.collateralReturned && [8, 9].includes(credit.facility)) {
+        await monad.call("HouseVault", m.HouseVault, "finalizeRecovery", [test.creditId], `${test.kind}:finalize-recovery`);
+        await monad.call("TermbookCore", m.TermbookCore, "finishLiquidation", [test.creditId], `${test.kind}:finish-liquidation`);
+        await monad.call("TermbookCore", m.TermbookCore, "releaseLiquidatedAccount", [test.creditId], `${test.kind}:release-account`);
       }
     }
   }
@@ -181,14 +202,15 @@ async function main() {
     const position = await monad.read("ReferenceAssetApp", app, "positions", [test.account]);
     const completed = [6, 10].includes(credit.facility) && credit.debt === 0n && credit.collateralReturned && position === 0n && sourceLock[2] === 0n;
     if (completed) test.state = "completed";
+    if (credit.facility === 7 && credit.collateralReturned && sourceLock[2] === 0n) test.state = "aborted_collateral_returned";
     observations.push({ kind: test.kind, creditId: test.creditId, lockId: test.lockId, account: test.account,
       state: test.state, facility: credit.facility, payment: credit.payment, debt: String(credit.debt),
       collateralReturned: credit.collateralReturned, sourceLockedAmount: String(sourceLock[2]), appPosition: String(position),
-      maturity: String(credit.maturity), grace: String(credit.grace), drawVerified: test.drawVerified, completed });
+      maturity: String(credit.maturity), grace: String(credit.grace), drawVerified: test.drawVerified, failure: test.failure, completed });
   }
   report.observedAt = new Date().toISOString();
   report.observations = observations;
-  persist();
+  if (mode !== "--observe") persist();
   fs.writeFileSync(path.join(root, "deployments/testnet-e2e.json"), JSON.stringify({ network: "testnet", observedAt: report.observedAt,
     scope: "Real Sepolia WETH custody, Wormhole proofs, Monad USDC borrowing and reference app recovery",
     excluded: "Aurora conversions and real perps venue behavior", core: m.TermbookCore, app, observations,

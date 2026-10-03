@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { keccak256, TransactionReceiptNotFoundError } from "viem";
+import { keccak256, TransactionReceiptNotFoundError, type Hex } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 import { keeperTransaction, reconcileKeeperWallet } from "../../src/chain/keeper.js";
 import { keeperRepo, type PendingTransaction } from "../../src/chain/keeper.repo.js";
 
@@ -8,25 +9,32 @@ vi.mock("viem", async (load) => ({ ...await load<typeof import("viem")>(), creat
 vi.mock("../../src/chain/keeper.repo.js", () => ({ keeperRepo: {
   claim: vi.fn(), renew: vi.fn(), prepared: vi.fn(), result: vi.fn(), completed: vi.fn(), release: vi.fn(),
 } }));
-const raw = "0x1234" as const;
-const hash = keccak256(raw);
+let raw: Hex;
+let hash: Hex;
 const blockHash = `0x${"b".repeat(64)}` as const;
-const address = `0x${"1".repeat(40)}` as const;
+const account = privateKeyToAccount(`0x${"11".repeat(32)}`);
+const address = account.address;
+const request = { chainId: 143, type: "legacy" as const, nonce: 7, to: address,
+  data: "0xaabbccdd" as const, gas: 40_000n, gasPrice: 10n };
+const balance = vi.fn();
 const receipt = vi.fn();
 const send = vi.fn();
 const block = vi.fn();
 const count = vi.fn();
 const input = { client: { getChainId: async () => 143, getTransactionCount: count,
-  getTransactionReceipt: receipt, sendRawTransaction: send, getBlock: block } as never,
-rpcUrl: "http://127.0.0.1", chainId: 143, account: { address } as never,
+  getTransactionReceipt: receipt, sendRawTransaction: send, getBlock: block, getBalance: balance } as never,
+rpcUrl: "http://127.0.0.1", chainId: 143, account,
 operation: "credit:4:recover", to: address, data: "0xaabbccdd" as const };
 let pending: PendingTransaction | undefined;
-beforeEach(() => {
+beforeEach(async () => {
   vi.resetAllMocks(); pending = undefined;
+  raw = await account.signTransaction(request);
+  hash = keccak256(raw);
+  balance.mockResolvedValue(1_000_000n);
   vi.mocked(keeperRepo.claim).mockImplementation(async () => ({ lease: "lease", ...(pending ? { pending } : {}) }));
   vi.mocked(keeperRepo.renew).mockResolvedValue(true);
   vi.mocked(keeperRepo.prepared).mockImplementation(async (_key, _lease, value) => { pending = value; });
-  wallet.prepareTransactionRequest.mockResolvedValue({ nonce: 7 });
+  wallet.prepareTransactionRequest.mockResolvedValue(request);
   wallet.signTransaction.mockResolvedValue(raw);
   count.mockResolvedValue(7);
   receipt.mockRejectedValue(new TransactionReceiptNotFoundError({ hash }));
@@ -35,6 +43,20 @@ beforeEach(() => {
 });
 
 describe("durable keeper transactions", () => {
+  it("keeps an unfunded journal intact and rebroadcasts the same bytes after a top-up", async () => {
+    await keeperTransaction(input);
+    const original = pending;
+    balance.mockResolvedValue(1n);
+    await expect(keeperTransaction(input)).rejects.toThrow("keeper-funding-insufficient");
+    expect(pending).toBe(original);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(keeperRepo.completed).not.toHaveBeenCalled();
+    balance.mockResolvedValue(1_000_000n);
+    expect(await keeperTransaction(input)).toBe("pending");
+    expect(wallet.signTransaction).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenLastCalledWith({ serializedTransaction: raw });
+  });
+
   it("reconciles an existing transaction without rerunning or signing its original action", async () => {
     await keeperTransaction(input);
     receipt.mockResolvedValue({ transactionHash: hash, blockNumber: 100n, blockHash,
@@ -105,7 +127,7 @@ describe("durable keeper transactions", () => {
 
   it("recognizes the original transaction if it wins a replacement race", async () => {
     await keeperTransaction(input);
-    const replacement = "0x5678" as const;
+    const replacement = await account.signTransaction({ ...request, gasPrice: 12n });
     pending = { ...pending!, raw: replacement, hash: keccak256(replacement), previous: [{ hash, raw }] };
     receipt.mockImplementation(async ({ hash: candidate }: { hash: string }) => {
       if (candidate !== hash) throw new TransactionReceiptNotFoundError({ hash: candidate as `0x${string}` });

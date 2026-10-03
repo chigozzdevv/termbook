@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("../../src/chain/keeper-funding.js", () => ({ assertKeeperFunding: vi.fn(), assertSignedKeeperFunding: vi.fn() }));
 vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: vi.fn() }));
 vi.mock("../../src/chain/source.client.js", () => ({ fetchProof: vi.fn() }));
 vi.mock("../../src/queue/queue.worker.js", () => ({ registerHandler: vi.fn(), drainQueue: vi.fn() }));

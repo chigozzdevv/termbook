@@ -1,3 +1,4 @@
+import { assertKeeperFunding, assertSignedKeeperFunding } from "./keeper-funding.js";
 import { createHash } from "node:crypto";
 import { createWalletClient, http, keccak256, TransactionReceiptNotFoundError,
   type Address, type Hex, type LocalAccount, type PublicClient } from "viem";
@@ -23,6 +24,7 @@ export async function keeperTransaction(input: {
       const wallet = createWalletClient({ account, transport: http(input.rpcUrl) });
       const request = await wallet.prepareTransactionRequest({ account, chain: null,
         chainId, to: input.to, data: input.data, nonce, value: input.value ?? 0n });
+      await assertKeeperFunding(client, account.address, request);
       const raw = await wallet.signTransaction({ ...request, account, chain: null });
       pending = { id, hash: keccak256(raw), raw, nonce, to: input.to, data: input.data };
       assertLease();
@@ -88,6 +90,7 @@ async function reconcile(client: PublicClient, pending: PendingTransaction): Pro
   }
   if (!receipt) {
     try {
+      await assertSignedKeeperFunding(client, pending.raw);
       const hash = await client.sendRawTransaction({ serializedTransaction: pending.raw });
       if (hash !== pending.hash) throw new Error("keeper-transaction-hash-mismatch");
     } catch (sendError) {

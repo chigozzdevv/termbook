@@ -3,6 +3,7 @@ import { keccak256 } from "viem";
 import { NATIVE_SOL_ASSET_BYTES } from "@termbook/schema";
 import { solanaAlias } from "../../src/quote/solana.js";
 
+vi.mock("../../src/chain/keeper-funding.js", () => ({ assertKeeperFunding: vi.fn(), assertSignedKeeperFunding: vi.fn() }));
 vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: vi.fn() }));
 vi.mock("../../src/collateral/solana.config.js", () => ({ solanaProofConfig: vi.fn() }));
 vi.mock("../../src/collateral/solana-proof.js", () => ({ fetchSolanaProof: vi.fn() }));

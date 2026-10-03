@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   config: vi.fn(), listPending: vi.fn(), claim: vi.fn(), prepare: vi.fn(), state: vi.fn(), release: vi.fn(),
   acquireFunder: vi.fn(), releaseFunder: vi.fn(),
 }));
+vi.mock("../../src/chain/keeper-funding.js", () => ({ assertKeeperFunding: vi.fn(), assertSignedKeeperFunding: vi.fn() }));
 vi.mock("viem", async (load) => ({
   ...await load<typeof import("viem")>(), createPublicClient: () => mocks.source,
   createWalletClient: mocks.wallet,

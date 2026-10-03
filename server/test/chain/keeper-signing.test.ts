@@ -26,11 +26,24 @@ beforeEach(() => {
   vi.mocked(keeperRepo.claim).mockResolvedValue({ lease: "lease" });
 });
 describe("keeper local transaction signing", () => {
+  it("does not journal or broadcast when the maximum gas charge is unfunded", async () => {
+    rpc.chainId = 10143;
+    const account = privateKeyToAccount(`0x${"11".repeat(32)}`);
+    const sendRawTransaction = vi.fn();
+    const client = { getChainId: async () => 10143, getTransactionCount: async () => 0,
+      getBalance: async () => 1n, sendRawTransaction };
+    await expect(keeperTransaction({ client: client as never, rpcUrl: "http://unused", chainId: 10143,
+      account, operation: "update", to: account.address, data: "0x1234" })).rejects.toThrow("keeper-funding-insufficient");
+    expect(keeperRepo.prepared).not.toHaveBeenCalled();
+    expect(sendRawTransaction).not.toHaveBeenCalled();
+    expect(keeperRepo.release).toHaveBeenCalledOnce();
+  });
+
   it.each([10143, 11155111])("signs and journals a valid transaction for chain %i without a configured viem chain", async (chainId) => {
     rpc.chainId = chainId;
     const account = privateKeyToAccount(`0x${"11".repeat(32)}`);
     const sendRawTransaction = vi.fn(async ({ serializedTransaction }: { serializedTransaction: `0x${string}` }) => keccak256(serializedTransaction));
-    const client = { getChainId: async () => chainId, getTransactionCount: async () => 0,
+    const client = { getChainId: async () => chainId, getBalance: async () => 10n ** 20n, getTransactionCount: async () => 0,
       getTransactionReceipt: async () => { throw new TransactionReceiptNotFoundError({ hash: keccak256("0x1234") }); }, sendRawTransaction };
     expect(await keeperTransaction({ client: client as never, rpcUrl: "http://unused", chainId,
       account, operation: "update", to: account.address, data: "0x1234" })).toBe("pending");

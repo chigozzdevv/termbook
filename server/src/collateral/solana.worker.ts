@@ -1,3 +1,4 @@
+import { assertKeeperFunding, assertSignedKeeperFunding } from "../chain/keeper-funding.js";
 import { createWalletClient, encodeFunctionData, http, keccak256, parseAbi, type Address, type Hex } from "viem";
 import { termbookCoreAbi, verifierRegistryAbi } from "@termbook/bindings";
 import { monadClient } from "../chain/monad.client.js";
@@ -40,6 +41,7 @@ async function deliver(hash: Hex, rawTx: Hex) {
   let receipt = await chain.getTransactionReceipt({ hash }).catch(() => null);
   if (!receipt) {
     try {
+      await assertSignedKeeperFunding(chain, rawTx);
       const sent = await chain.sendRawTransaction({ serializedTransaction: rawTx });
       if (!same(sent, hash)) throw new Error("solana-proof-tx-hash-mismatch");
     } catch (error) {
@@ -166,6 +168,7 @@ async function processSolanaLockJob(job: { kind: string; payload: Record<string,
     const wallet = createWalletClient({ account: config.keeper, transport: http(env.rpcUrl) });
     const nonce = await chain.getTransactionCount({ address: config.keeper.address, blockTag: "pending" });
     const request = await wallet.prepareTransactionRequest({ account: config.keeper, chain: null, to: core, data, nonce });
+    await assertKeeperFunding(chain, config.keeper.address, request);
     const rawTx = await wallet.signTransaction({ ...request, chain: null });
     const hash = keccak256(rawTx);
     const saved = await solanaRepo.setPrepared(lockId, proof, hash, rawTx);

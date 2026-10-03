@@ -1,3 +1,4 @@
+import { assertKeeperFunding, assertSignedKeeperFunding } from "../chain/keeper-funding.js";
 import {
   createPublicClient, createWalletClient, encodeAbiParameters, encodeFunctionData, http,
   keccak256, parseAbi, recoverTypedDataAddress, stringToHex, type Address, type Hex,
@@ -105,6 +106,7 @@ async function reconcileRefund(refundTxHash: string): Promise<boolean> {
           bump(prior?.maxPriorityFeePerGas)),
           maxPriorityFeePerGas: max(feeRequest.maxPriorityFeePerGas ?? 0n,
             bump(prior?.maxPriorityFeePerGas)) };
+      await assertKeeperFunding(source, config.funder.address, { ...request, ...feeOverride });
       const rawTx = await wallet.signTransaction({ ...request, ...feeOverride, chain: null } as never);
       const txHash = keccak256(rawTx);
       await refundRepo.prepare(record.refundTxHash, claim.token, txHash, rawTx, nonce);
@@ -120,6 +122,7 @@ async function reconcileRefund(refundTxHash: string): Promise<boolean> {
     let receipt = await source.getTransactionReceipt({ hash: record.txHash as Hex }).catch(() => null);
     if (!receipt) {
       try {
+        await assertSignedKeeperFunding(source, record.rawTx as Hex);
         const submitted = await source.sendRawTransaction({ serializedTransaction: record.rawTx as Hex });
         if (submitted.toLowerCase() !== record.txHash.toLowerCase()) throw new Error("recovery-refund-tx-hash-mismatch");
         await refundRepo.state(record.refundTxHash, claim.token, "submitted");

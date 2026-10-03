@@ -73,6 +73,10 @@ live Sepolia WETH credits. `--advance` executes verified-ready credits and
 progresses repayment, collateral return, and default recovery; `--observe` reads
 their current state. Receipts and measured outcomes are recorded in
 `deployments/testnet-e2e.json`. This uses a fully redeemable USDC reference app.
+Expired setup cases are aborted and their collateral returned. `--retry-default`
+creates a separate replacement credit with a 45-minute setup window; its default
+test runs after maturity and grace. Fund each keeper for its maximum gas charge,
+not just its expected fee. Workers check this before signing and retrying.
 Aurora conversions and real perps behavior require their own live exercises.
 
 ## API authorization
@@ -473,11 +477,14 @@ Four Monad contracts and the immutable Solana program were reused. The original
 deployment is archived in `deployments/testnet-original.json`. The current record
 includes receipt verification and finality status.
 
-Collateral price feeds and policies, House risk policies, integration bundles and
-settlement routes still require configuration and admission. Testnet governance
-configuration executes without a waiting period. The source controller remains
-paused, and no LP funds have been deposited. API and keeper hosting and live lock,
-repayment, return and recovery tests remain operational setup work.
+The ETH/USDC ratio feed, ETH collateral policy, House risk and reservation policies,
+reference integration, and keeper roles are active. The House received 10 test USDC,
+and the Sepolia controller is unpaused. The API and keepers run locally. Live WETH
+custody, proof verification, app funding, valuation and repayment were exercised;
+return confirmation and default recovery are tracked in `deployments/testnet-e2e.json`.
+MON and SOL price admission and Aurora settlement routes remain unconfigured.
+The public 1Click token catalog does not list these testnets; those settlement
+exercises require provider sandbox routes. Testnet governance has no waiting period.
 
 Recompute reviewed runtime code hashes when rebuilding from this layout;
 Solidity source paths and remappings affect bytecode metadata.

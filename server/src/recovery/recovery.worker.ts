@@ -1,3 +1,4 @@
+import { assertKeeperFunding, assertSignedKeeperFunding } from "../chain/keeper-funding.js";
 import {
   createPublicClient, createWalletClient, decodeFunctionData, encodeAbiParameters, encodeFunctionData,
   http, keccak256, parseAbi, type Address, type Hex, type PublicClient,
@@ -181,6 +182,7 @@ async function reconcileSignedFunding(
       return false;
     }
     try {
+      await assertSignedKeeperFunding(source, rawTx);
       const sent = await source.sendRawTransaction({ serializedTransaction: rawTx });
       if (!equal(sent, hash)) throw new Error("recovery-funding-tx-hash-mismatch");
       await recoveryRepo.markSubmitted(operation.operationId, claim.token);
@@ -367,6 +369,7 @@ async function reconcile(operation: Operation, record: RecoveryFundingRecord, fu
         account: config.funder, chain: null, to: vault,
         data: encodeFunctionData({ abi: sourceAbi, functionName: "fund", args: fundArgs }), nonce,
       });
+      await assertKeeperFunding(source, config.funder.address, request);
       const rawTx = await wallet.signTransaction({ ...request, chain: null });
       const hash = keccak256(rawTx);
       const result = await recoveryRepo.prepareSubmission(

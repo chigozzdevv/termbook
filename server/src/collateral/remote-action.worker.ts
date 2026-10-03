@@ -1,3 +1,4 @@
+import { assertKeeperFunding, assertSignedKeeperFunding } from "../chain/keeper-funding.js";
 import { ethereumSourceChain } from "../chain/networks.js";
 import {
   createPublicClient, createWalletClient, encodeAbiParameters, encodeFunctionData, http, keccak256, parseAbi,
@@ -115,6 +116,7 @@ async function deliver(source: PublicClient, actionHash: string, hash: Hex, rawT
   let receipt = await source.getTransactionReceipt({ hash }).catch(() => null);
   if (!receipt) {
     try {
+      await assertSignedKeeperFunding(source, rawTx);
       const sent = await source.sendRawTransaction({ serializedTransaction: rawTx });
       if (!equal(sent, hash)) throw new Error("remote-action-transaction-hash-mismatch");
       await remoteActionRepo.state(actionHash, "submitted", hash);
@@ -172,6 +174,7 @@ async function deliverConfirmation(actionHash: string, hash: Hex, rawTx: Hex) {
   let receipt = await chain.getTransactionReceipt({ hash }).catch(() => null);
   if (!receipt) {
     try {
+      await assertSignedKeeperFunding(chain, rawTx);
       const sent = await chain.sendRawTransaction({ serializedTransaction: rawTx });
       if (!equal(sent, hash)) throw new Error("remote-action-confirm-transaction-hash-mismatch");
       await remoteActionRepo.confirmationState(actionHash, "confirm_submitted", hash);
@@ -288,6 +291,7 @@ async function confirmSourceAction(action: RemoteAction, actionHash: Hex): Promi
       const request = await wallet.prepareTransactionRequest({
         account, chain: null, to: env.core as Address, data, nonce,
       });
+      await assertKeeperFunding(chain, account.address, request);
       const rawTx = await wallet.signTransaction({ ...request, chain: null });
       const hash = keccak256(rawTx);
       const stored = await remoteActionRepo.prepareConfirmation(actionHash, hash, rawTx, nonce);
@@ -459,6 +463,7 @@ export async function handleRemoteActionJob(job: { kind: string; payload: Record
           abi: controllerAbi, functionName: "execute", args: [action, authorization.header, authorization.proof],
         }), nonce,
       });
+      await assertKeeperFunding(source, account.address, request);
       const rawTx = await wallet.signTransaction({ ...request, chain: null });
       const hash = keccak256(rawTx);
       const stored = await remoteActionRepo.prepare(actionHash, hash, rawTx, nonce);

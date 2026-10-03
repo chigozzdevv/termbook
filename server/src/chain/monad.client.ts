@@ -21,9 +21,10 @@ export async function readCore(data: `0x${string}`): Promise<`0x${string}`> {
 
 export async function* streamEvents(from: bigint, step = 5000n): AsyncGenerator<ChainEvent> {
   if (from < 0n || step <= 0n || step > 5000n) throw new Error("event-range-invalid");
+  const range = step > 100n ? 100n : step;
   const tip = (await monadClient().getBlock({ blockTag: "finalized" })).number;
-  for (let b = from; b <= tip; b += step) {
-    const to = b + step - 1n > tip ? tip : b + step - 1n;
+  for (let b = from; b <= tip; b += range) {
+    const to = b + range - 1n > tip ? tip : b + range - 1n;
     const logs = await monadClient()
       .getLogs({ address: env.core as `0x${string}`, fromBlock: b, toBlock: to });
     for (const l of logs) {

@@ -1,0 +1,33 @@
+name: termbook-testnet
+
+services:
+  mongo:
+    image: mongo:8.0
+    command: [mongod, --replSet, rs0, --bind_ip_all]
+    ports:
+      - "127.0.0.1:27018:27017"
+    volumes:
+      - mongo:/data/db
+    healthcheck:
+      test: [CMD, mongosh, --quiet, --eval, "quit(db.adminCommand({ping: 1}).ok ? 0 : 1)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  mongo-init:
+    image: mongo:8.0
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: [mongosh, --host, mongo:27017, --quiet, --eval]
+    command:
+      - "try { rs.status(); } catch (error) { if (error.codeName !== 'NotYetInitialized') throw error; rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'mongo:27017'}]}); }"
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:6380:6379"
+
+volumes:
+  mongo:

@@ -45,7 +45,12 @@ export async function runIndexerWorker(start: bigint = indexerStart()): Promise<
     }
     const to = from + 499n < finalized.number ? from + 499n : finalized.number;
     const boundary = await chain.getBlock({ blockNumber: to });
-    const logs = await chain.getLogs({ address: env.core as Address, fromBlock: from, toBlock: to });
+    const ranges = Array.from({ length: Number((to - from) / 100n) + 1 }, (_, index) => {
+      const fromBlock = from + BigInt(index) * 100n;
+      return { fromBlock, toBlock: fromBlock + 99n < to ? fromBlock + 99n : to };
+    });
+    const logs = (await Promise.all(ranges.map((range) =>
+      chain.getLogs({ address: env.core as Address, ...range })))).flat();
     const headers = new Map<string, string>();
     for (const log of logs) {
       if (log.removed || log.blockNumber < from || log.blockNumber > to

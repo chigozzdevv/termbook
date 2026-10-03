@@ -37,6 +37,28 @@ beforeEach(() => {
 });
 
 describe("durable finalized Core index", () => {
+  it("indexes a full checkpoint through the public RPC's bounded log windows", async () => {
+    getBlock.mockImplementation(async ({ blockNumber }: { blockNumber?: bigint }) => ({ number: blockNumber ?? 500n, hash: word("b") }));
+    getLogs.mockImplementation(async ({ fromBlock, toBlock }: { fromBlock: bigint; toBlock: bigint }) => {
+      if (toBlock - fromBlock >= 100n) throw new Error("rpc-range-limit");
+      return [];
+    });
+    await runIndexerWorker(1n);
+    expect(getLogs).toHaveBeenCalledTimes(5);
+    expect(indexerRepo.advance).toHaveBeenCalledWith(expect.any(String), "lease", 501n, word("b"));
+  });
+
+  it("preserves the checkpoint if one bounded log window is unavailable", async () => {
+    getBlock.mockImplementation(async ({ blockNumber }: { blockNumber?: bigint }) => ({ number: blockNumber ?? 500n, hash: word("b") }));
+    getLogs.mockImplementation(async ({ fromBlock }: { fromBlock: bigint }) => {
+      if (fromBlock === 201n) throw new Error("rpc-gap");
+      return [];
+    });
+    await expect(runIndexerWorker(1n)).rejects.toThrow("rpc-gap");
+    expect(indexerRepo.advance).not.toHaveBeenCalled();
+    expect(indexerRepo.record).not.toHaveBeenCalled();
+  });
+
   it("refreshes readiness when a caught-up chain has no new blocks", async () => {
     vi.mocked(indexerRepo.claim).mockResolvedValue({ nextBlock: "3", lease: "lease", lastBlockHash: word("b") });
     expect(await runIndexerWorker(1n)).toBe(0);

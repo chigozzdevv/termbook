@@ -68,6 +68,13 @@ This wrapper checks factory provenance and identity before any health or cash
 reading can authorize funding. Use `--simulate` first, then `--broadcast`.
 Production price-age and risk parameters require their own admission.
 
+After app and keeper setup, `node scripts/testnet-e2e.mjs --begin` creates two
+live Sepolia WETH credits. `--advance` executes verified-ready credits and
+progresses repayment, collateral return, and default recovery; `--observe` reads
+their current state. Receipts and measured outcomes are recorded in
+`deployments/testnet-e2e.json`. This uses a fully redeemable USDC reference app.
+Aurora conversions and real perps behavior require their own live exercises.
+
 ## API authorization
 
 Each POST has its own wallet authorization. Manual clients request `/auth/nonce`

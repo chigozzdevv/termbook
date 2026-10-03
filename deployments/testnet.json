@@ -15,7 +15,7 @@
       "PriceProtection": "0xa5ad4c207b31ab784ce0d16ef4794e8f064aeae6",
       "TermbookCore": "0xbbfa006d8b5621db17fe06e9f59dd6ddbfe7c056",
       "RiskEngine": "0xfe2bfa5efa4ba340d1024907fecef8b7c7e1aed5",
-      "AccountFactory": "0xb600e2412867286724d4e0929697ce6ae614936f",
+      "AccountFactory": "0xed40057da544ff6f6fb9dd8fb385f79fb45c4092",
       "IntegrationRegistry": "0x506bc56000bd82a99096543e41f826c45556da53",
       "InboxFactory": "0xe9be81e17110c538eac53680e3410bb411878ed6",
       "OracleRegistry": "0x5e6fadbfeb6fc9e996840fa0c0d370f36ee37d91",
@@ -27,7 +27,8 @@
       "WormholeEvmMessageClient": "0xd5b28e827e0f6a4eecb9d0a8a463b838441c9f55",
       "WormholeEthereumVerifier": "0x2d8594d73c36ab1f69bf386f0c2d02a239333e49",
       "WormholeSolanaAccountClient": "0xe1b80f54499e981aa5bb90b39ea6333bb96dc095",
-      "SolanaVerifier": "0x8f31f37ffd1fe41d05c916eb096a06a5860ff1bb"
+      "SolanaVerifier": "0x8f31f37ffd1fe41d05c916eb096a06a5860ff1bb",
+      "AccountHealthSource": "0x21202bd032daf48dac7407dc929b6c14c430fcac"
     },
     "11155111": {
       "ProtocolGovernance": "0xb600e2412867286724d4e0929697ce6ae614936f",
@@ -1555,5 +1556,10 @@
         "finalizedHash": "0x536953b40451b768f8fc4203e5739553d2023a56e5883705768834a49d7a4d1b"
       }
     }
+  },
+  "accountAuthentication": {
+    "previousFactory": "0xb600e2412867286724d4e0929697ce6ae614936f",
+    "report": "testnet-account-health.json",
+    "activatedAt": "2026-10-03T15:48:40.062Z"
   }
 }

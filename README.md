@@ -382,33 +382,34 @@ Solana devnet Core and accepts Monad testnet VAAs. Deploy it immutably before
 admitting its program hash on Monad. `scripts/deploy-testnet.mjs --simulate`
 uses local Monad testnet and Sepolia forks on ports `18545` and `18546`.
 `--broadcast` uses the dedicated wallet in `.testnet/evm.json` and preserves a
-resumable receipt journal in `.testnet/deployment.json`. New deployments queue
-governance configuration with a five-minute timelock; they do not activate markets
-or deposit LP funds. The local keys and journals are ignored by Git.
+resumable receipt journal in `.testnet/deployment.json`. New deployments execute
+their initial governance configuration immediately with a zero-second delay.
+They do not admit collateral policies or deposit LP funds. The local keys and
+journals are ignored by Git.
 Signed transactions are journaled before broadcast. Resuming a pending
 transaction can raise an outdated fee by at least 25 percent, preserving its
 nonce, call and gas limit; at most three replacements are permitted.
-After the recorded timelock expires, run
-`node scripts/deploy-testnet.mjs --broadcast --activate` to execute the queued
-configuration. It checks each onchain action and skips actions that are still
-timelocked or already executed.
+`node scripts/deploy-testnet.mjs --broadcast --activate` resumes queued
+configuration on an existing deployment. It checks each onchain action and skips
+actions that are still timelocked or already executed.
 
 `ProtocolGovernance` takes an explicit delay at construction. Monad testnet and
-Sepolia allow a minimum of five minutes; other chains require at least two days.
+Sepolia allow zero delay; other chains require at least two days.
 The protocol deployment script reads `GOVERNANCE_TIMELOCK` in seconds and defaults
-to two days. Existing deployed delays cannot be changed.
+to zero on those testnets and two days elsewhere. Existing deployed delays cannot
+be changed.
 
 To replace the original testnet deployment, run `--simulate --redeploy` on the
-local forks, advance those forks past the delay, and run
-`--simulate --redeploy --activate`. Once that succeeds, `--broadcast --redeploy`
-checks the same build and the gas budget before sending its first transaction.
-Run `--broadcast --redeploy --activate` after five minutes. The replacement
-requires zero accepted Credits and zero House settlement-token balance in the
+local forks. Deployment and initial activation complete in that single run.
+Once that succeeds, `--broadcast --redeploy` checks the same build and the gas
+budget before sending its first transaction, then activates configuration
+immediately. The replacement requires zero accepted Credits and zero House
+settlement-token balance in the
 original deployment. It reuses Guardian, AccountFactory, the Solana proof
 contracts and the immutable Solana program, and archives the public original
 record in `deployments/testnet-original.json`. Replacement journals use the
-`-redeploy` suffix. ETH custody bindings and SOL program identity are queued with
-the initial replacement setup.
+`-redeploy` suffix. ETH custody bindings and SOL program identity are configured
+with the initial replacement setup.
 
 The deployed testnet addresses, receipts and code hashes are recorded in
 [`deployments/testnet.json`](deployments/testnet.json).
@@ -427,10 +428,10 @@ controller binding were checked against their successful receipts. The deploymen
 record includes the verification time and each transaction's finality status.
 
 Collateral markets, feeds, House policies, integration bundles and settlement
-routes still require admission. Additional governance-controlled settings use
-the same two-day timelock; queue reviewed settings together to avoid serial
-waiting periods. The source controller remains paused, and no LP funds have been
-deposited. API and keeper hosting and live lock, repayment, return and recovery
+routes still require admission. The original deployment retains its two-day
+timelock until replaced; the replacement uses zero delay for testnet governance.
+The source controller remains paused, and no LP funds have been deposited.
+API and keeper hosting and live lock, repayment, return and recovery
 tests remain operational setup work.
 
 Recompute reviewed runtime code hashes when rebuilding from this layout;

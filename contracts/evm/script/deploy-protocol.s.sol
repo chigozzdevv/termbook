@@ -43,7 +43,8 @@ contract DeployProtocol is Script {
         address guardian = vm.envAddress("GUARDIAN");
         address manager = vm.envAddress("HOUSE_MANAGER");
         address asset = vm.envAddress("SETTLEMENT_ASSET");
-        uint256 timelock = vm.envOr("GOVERNANCE_TIMELOCK", uint256(2 days));
+        uint256 defaultTimelock = block.chainid == 10143 || block.chainid == 11155111 ? 0 : 2 days;
+        uint256 timelock = vm.envOr("GOVERNANCE_TIMELOCK", defaultTimelock);
         require(asset.code.length != 0, "settlement-asset-missing");
         vm.startBroadcast(key);
         protocolGovernance = new ProtocolGovernance(governance, timelock);

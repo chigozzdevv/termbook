@@ -212,7 +212,7 @@ if (previous) {
     const planFile = path.join(directory, "simulation-redeploy.json");
     if (!fs.existsSync(planFile)) throw new Error("Simulate the replacement before broadcasting");
     const plan = JSON.parse(fs.readFileSync(planFile, "utf8"));
-    if (!plan.completedAt || plan.governanceDelaySeconds !== 300 || plan.pendingGovernance.length !== 11
+    if (!plan.completedAt || plan.governanceDelaySeconds !== 0 || plan.pendingGovernance.length !== 11
       || plan.pendingGovernance.some((action) => action.status !== "executed") || !plan.artifactHashes) {
       throw new Error("Complete the replacement deployment and activation simulation first");
     }
@@ -239,7 +239,7 @@ if (previous) {
     }
   }
 }
-if (activate) {
+async function activateGovernance() {
   for (const action of report.pendingGovernance) {
     const context = action.chainId === 10143 ? monad : action.chainId === 11155111 ? ethereum : null;
     if (!context) throw new Error("Governance network mismatch");
@@ -262,6 +262,9 @@ if (activate) {
     persist();
   }
   log(JSON.stringify({ executed: report.pendingGovernance.filter((action) => action.status === "executed").length, total: report.pendingGovernance.length }));
+}
+if (activate) {
+  await activateGovernance();
   publishManifest();
   process.exit(0);
 }
@@ -277,9 +280,9 @@ for (const [context, token] of [[monad, usdc], [monad, wrappedMon], [ethereum, w
   const code = await context.publicClient.getCode({ address: token });
   if (!code || code === "0x") throw new Error(`Token contract unavailable: ${token}`);
 }
-const governance = await monad.deploy("ProtocolGovernance", [account.address, 300n]);
-if (await monad.read("ProtocolGovernance", governance, "timelock") !== 300n) throw new Error("Testnet governance delay mismatch");
-report.governanceDelaySeconds = 300;
+const governance = await monad.deploy("ProtocolGovernance", [account.address, 0n]);
+if (await monad.read("ProtocolGovernance", governance, "timelock") !== 0n) throw new Error("Testnet governance delay mismatch");
+report.governanceDelaySeconds = 0;
 persist();
 const guardian = await monad.deploy("Guardian", [account.address, account.address]);
 const houses = await monad.deploy("HouseRegistry", [governance]);
@@ -313,8 +316,8 @@ const house = await monad.deploy("HouseVault", [usdc, core, account.address, fac
 const routes = await monad.deploy("RouteRegistry", [governance]);
 await monad.deploy("NativeCollateralVault", [wrappedMon, 10143n, core]);
 await monad.deploy("CollateralHealthReader", [core, governance, oracles]);
-const sourceGovernance = await ethereum.deploy("ProtocolGovernance", [account.address, 300n]);
-if (await ethereum.read("ProtocolGovernance", sourceGovernance, "timelock") !== 300n) throw new Error("Source governance delay mismatch");
+const sourceGovernance = await ethereum.deploy("ProtocolGovernance", [account.address, 0n]);
+if (await ethereum.read("ProtocolGovernance", sourceGovernance, "timelock") !== 0n) throw new Error("Source governance delay mismatch");
 const authorization = await ethereum.deploy("WormholeEvmMessageClient", [ethereumWormhole, 10002, 10009, 10143n, 1n, padHex(core, { size: 32 }), 7200n], "AuthorizationClient");
 const recoveryClient = await ethereum.deploy("WormholeEvmMessageClient", [ethereumWormhole, 10002, 10009, 10143n, 1n, padHex(factory, { size: 32 }), 7200n], "RecoveryClient");
 const monadVerifier = await ethereum.deploy("WormholeMonadVerifier", [authorization, recoveryClient, core, factory]);
@@ -360,6 +363,8 @@ await monad.queue(governance, houses, "HouseRegistry", "register", [account.addr
 await monad.queue(governance, core, "TermbookCore", "setSourceCollateralVault", [11155111n, weth, vault]);
 await monad.queue(governance, core, "TermbookCore", "setSourceRecoveryVault", [11155111n, weth, recovery]);
 await monad.queue(governance, core, "TermbookCore", "setSolanaMarket", [501n, genesis, programId, programHash]);
+await activateGovernance();
+if (report.pendingGovernance.some((action) => action.status !== "executed")) throw new Error("Testnet activation incomplete");
 report.completedAt ??= new Date().toISOString();
 report.tokens = { "10143": { USDC: usdc, WMON: wrappedMon }, "11155111": { WETH: weth } };
 for (const chainId of [10143, 11155111]) {

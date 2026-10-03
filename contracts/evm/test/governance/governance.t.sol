@@ -96,21 +96,54 @@ contract GovernanceTest is Test {
     function testShortDelayRejectedOutsideSupportedTestnets() public {
         vm.chainId(143);
         vm.expectRevert(ProtocolGovernance.Invalid.selector);
-        new ProtocolGovernance(governance, 5 minutes);
+        new ProtocolGovernance(governance, 0);
         vm.chainId(1);
         vm.expectRevert(ProtocolGovernance.Invalid.selector);
-        new ProtocolGovernance(governance, 5 minutes);
+        new ProtocolGovernance(governance, 2 days - 1);
         vm.chainId(31337);
         vm.expectRevert(ProtocolGovernance.Invalid.selector);
-        new ProtocolGovernance(governance, 5 minutes);
+        new ProtocolGovernance(governance, 0);
     }
 
-    function testTestnetRejectsDelayBelowFiveMinutes() public {
-        vm.chainId(11155111);
+    function testMonadTestnetExecutesAuthorizedActionImmediately() public {
+        vm.chainId(10143);
+        ProtocolGovernance testnet = new ProtocolGovernance(governance, 0);
+        bytes memory data = abi.encodeCall(TimelockTarget.setValue, (7));
+        bytes32 salt = keccak256("immediate");
         vm.expectRevert(ProtocolGovernance.Invalid.selector);
-        new ProtocolGovernance(governance, 5 minutes - 1);
-        ProtocolGovernance sepolia = new ProtocolGovernance(governance, 5 minutes);
-        assertEq(sepolia.timelock(), 5 minutes);
+        testnet.queue(address(target), 0, data, salt);
+        vm.expectRevert(ProtocolGovernance.NotReady.selector);
+        testnet.execute(address(target), 0, data, salt);
+
+        vm.prank(governance);
+        testnet.queue(address(target), 0, data, salt);
+        testnet.execute(address(target), 0, data, salt);
+        assertEq(target.value(), 7);
+        assertEq(target.lastCaller(), address(testnet));
+        assertTrue(testnet.executed(testnet.actionId(address(target), 0, data, salt)));
+
+        vm.expectRevert(ProtocolGovernance.NotReady.selector);
+        testnet.execute(address(target), 0, data, salt);
+        vm.prank(governance);
+        vm.expectRevert(ProtocolGovernance.Invalid.selector);
+        testnet.queue(address(target), 0, data, salt);
+    }
+
+    function testSepoliaZeroDelayStillEnforcesCancellation() public {
+        vm.chainId(11155111);
+        ProtocolGovernance sepolia = new ProtocolGovernance(governance, 0);
+        bytes memory data = abi.encodeCall(TimelockTarget.setValue, (7));
+        bytes32 salt = keccak256("cancel-immediate");
+        vm.prank(governance);
+        sepolia.queue(address(target), 0, data, salt);
+        vm.expectRevert(ProtocolGovernance.Unauthorized.selector);
+        sepolia.cancel(address(target), 0, data, salt);
+        vm.prank(governance);
+        sepolia.cancel(address(target), 0, data, salt);
+        vm.expectRevert(ProtocolGovernance.NotReady.selector);
+        sepolia.execute(address(target), 0, data, salt);
+        assertEq(sepolia.timelock(), 0);
+        assertEq(target.value(), 0);
     }
 
     function testGuardianCanPauseButOnlyGovernanceCanUnpause() public {

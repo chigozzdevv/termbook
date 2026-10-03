@@ -404,12 +404,17 @@ The deployed testnet addresses, receipts and code hashes are recorded in
 | Sepolia | WETH collateral vault | `0xEa1D95605B4852038105Ed098AcE314e23e2A799` |
 | Solana devnet | SOL collateral program | `FTj5kb9Z7JDpGNWD2NowGgz67zP3VxUKwLgKEFSTrYg1` |
 
-Eight governance actions are queued and become executable by
-3 October 2026 at 00:02:29 Africa/Lagos. Collateral markets, feeds, House policies,
-integration bundles and settlement routes still require admission. The source
-controller remains paused, and no LP funds have been deposited. API and keeper
-hosting and live lock, repayment, return and recovery tests remain operational
-setup work.
+All eight initial governance actions were executed on 3 October 2026. The House
+registration, Wormhole configuration, verifier admissions and source recovery
+controller binding were checked against their successful receipts. The deployment
+record includes the verification time and each transaction's finality status.
+
+Collateral markets, feeds, House policies, integration bundles and settlement
+routes still require admission. Additional governance-controlled settings use
+the same two-day timelock; queue reviewed settings together to avoid serial
+waiting periods. The source controller remains paused, and no LP funds have been
+deposited. API and keeper hosting and live lock, repayment, return and recovery
+tests remain operational setup work.
 
 Recompute reviewed runtime code hashes when rebuilding from this layout;
 Solidity source paths and remappings affect bytecode metadata.

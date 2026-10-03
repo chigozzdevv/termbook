@@ -59,6 +59,122 @@
     "immutable": true,
     "deploymentSignature": "NRtYLfojYsPnn6XfbjEwmRNHPAHxpBZLCypRCfw3eVWkoarcjG26BPJCoVYKNcVegYbJAbqDqUWqQuqHhH5KxdQ"
   },
+  "verification": {
+    "checkedAt": "2026-09-30T23:04:11.080Z",
+    "canonicalReceipts": 44,
+    "runtimeHashes": 29,
+    "bindings": "passed",
+    "solanaImmutableBinary": "passed",
+    "heads": {
+      "10143": {
+        "finalizedBlock": "67097403",
+        "finalizedHash": "0x917811ba4a672af463d0e0ee6e8ce8d1aaa532611c8cecac10c553af33a31f85"
+      },
+      "11155111": {
+        "finalizedBlock": "11817739",
+        "finalizedHash": "0x666cd522bf1493c0dd4d26a56b3224f6f40aceb65b0aa0fed13f5ff90add0637"
+      }
+    },
+    "solanaDeploymentSignatureFinalized": true,
+    "activation": {
+      "checkedAt": "2026-10-03T12:25:30.502Z",
+      "executedActions": 8,
+      "canonicalReceipts": 8,
+      "finalizedReceipts": 7,
+      "runtimeHashes": 7,
+      "bindings": "passed",
+      "heads": {
+        "10143": {
+          "finalizedBlock": "67828684",
+          "finalizedHash": "0x769a7cfce741ad7a368312c06e3e3bac3808e11d4cde8efaad214124ccae678a"
+        },
+        "11155111": {
+          "finalizedBlock": "11835655",
+          "finalizedHash": "0xb17436ae7d87f944dff6504e74c3bf8a67e607ec2367f94ae5e1ab6b16d98327"
+        }
+      },
+      "remainingBalances": {
+        "10143": "3.10001161",
+        "11155111": "0.036642194856648085"
+      },
+      "nativeCost": {
+        "10143": "0.14626851",
+        "11155111": "0.000102672156092771"
+      },
+      "readiness": {
+        "acceptedCredits": "0",
+        "houseUsdcBaseUnits": "0",
+        "wethSourcePaused": true,
+        "houseRiskConfigured": false
+      },
+      "transactions": [
+        {
+          "chainId": 11155111,
+          "action": "SourceRecoveryVault.setController",
+          "hash": "0xd06f1d80c06b361e40949caaa3cad9b0e340416f85584528378417ea3552f465",
+          "block": "11835691",
+          "blockHash": "0x9c862884558e7e6a483d8f3c0960ebd8858fc49cf8bfb8c090114d8885221834",
+          "finalized": false
+        },
+        {
+          "chainId": 10143,
+          "action": "InboxFactory.setRouteRegistry",
+          "hash": "0xed6e85d5770c6e0d6aebd5cb8db7034b4911ff97a9f155e6127527b78a4f724c",
+          "block": "67827614",
+          "blockHash": "0x2a4334793d284f309f61f5f0e046ccda0cc8221b09a8254923f3e8727fe98f3c",
+          "finalized": true
+        },
+        {
+          "chainId": 10143,
+          "action": "InboxFactory.configureEthereumWormhole",
+          "hash": "0xaa65d5eadf513ed059b94eaa135b63b02917a4a5aaf938f97a4adc67ce1b35af",
+          "block": "67827625",
+          "blockHash": "0x9d7c2df223899baf9975437cdd0db56a24ebefcc1be42df7a83ad960e35d9953",
+          "finalized": true
+        },
+        {
+          "chainId": 10143,
+          "action": "TermbookCore.configureEthereumWormhole",
+          "hash": "0x4b28125233fa20a62bed937a75e08bc8cf729ce9963652a7cc16498b47973f31",
+          "block": "67827636",
+          "blockHash": "0xfa4f09917a34cd9839fb706abcb97b1d850994909fa0a2f0b2d2ffa301300fbb",
+          "finalized": true
+        },
+        {
+          "chainId": 10143,
+          "action": "TermbookCore.configureSolanaWormhole",
+          "hash": "0x3de2cddc2e6a7f2bf1197fc6d2fc78cc0094d048261861496d6f075601866d9a",
+          "block": "67827648",
+          "blockHash": "0x044f7ec3667caaf5591254245f3ac7b8ae3550d8ff48a3462f2fd6ab088dc680",
+          "finalized": true
+        },
+        {
+          "chainId": 10143,
+          "action": "VerifierRegistry.setVerifier",
+          "hash": "0xd171f7d92051a024b9a6516948ba4eeb90ee16d6c8181533ecdc07d11ddfec4f",
+          "block": "67827659",
+          "blockHash": "0xaed37d418df8cb103c789028ba52f1b9ce1f72629bc84ec8689046ed7ed9abac",
+          "finalized": true
+        },
+        {
+          "chainId": 10143,
+          "action": "VerifierRegistry.setVerifier",
+          "hash": "0x4dcd43138ef0f154cb6245585e0901de9a3427d5619d60bab5568bea1fe3eff0",
+          "block": "67827667",
+          "blockHash": "0x681a3337b54c541cf1920f4ae819628bdc829024bff3a7a22dc75c44bc9b634d",
+          "finalized": true
+        },
+        {
+          "chainId": 10143,
+          "action": "HouseRegistry.register",
+          "hash": "0x23f092f2b159cdc6c9152f612f6f1aa18b10b2fdae96d667c48ed440a359ede6",
+          "block": "67827678",
+          "blockHash": "0x0c1481757369ec8bb400e916e20bb1564fedb6ef3c55be63b6ea0dbec0df5f85",
+          "finalized": true
+        }
+      ]
+    }
+  },
   "transactions": [
     {
       "chainId": 10143,
@@ -725,6 +841,126 @@
       "gasUsed": "86308",
       "block": "67097223",
       "blockHash": "0x0112c66e02a22f6a540dc0f3f57a646730bf64411975570a2b29bbd0c1d33ee7"
+    },
+    {
+      "chainId": 11155111,
+      "name": "execute:0x783422130b38587be0c5c4a841f8de9f6f402c97a4e5b65320471f83b5a2d04d",
+      "inputHash": "0x67fa34bee5c18d6cb87dae4e98bf554365f1523a62e9e54dd39c3c9e8dccdf03",
+      "to": "0xc6d1ec8c0b410cb089a110685ba19ee9954be37c",
+      "hash": "0xd06f1d80c06b361e40949caaa3cad9b0e340416f85584528378417ea3552f465",
+      "nonce": 8,
+      "gasLimit": "95349",
+      "gasPrice": "1309744181",
+      "status": "success",
+      "address": null,
+      "gasUsed": "78391",
+      "block": "11835691",
+      "blockHash": "0x9c862884558e7e6a483d8f3c0960ebd8858fc49cf8bfb8c090114d8885221834"
+    },
+    {
+      "chainId": 10143,
+      "name": "execute:0xc013b059bd9f73b9cb4ebf11ca5ebb94b03c53d5d3856914cac4ed0db56cfdb1",
+      "inputHash": "0x4afe3fba4da606f40b7d63846f3d5a51815707162e5527d17aa4f27f396a402e",
+      "to": "0xc6d1ec8c0b410cb089a110685ba19ee9954be37c",
+      "hash": "0xed6e85d5770c6e0d6aebd5cb8db7034b4911ff97a9f155e6127527b78a4f724c",
+      "nonce": 36,
+      "gasLimit": "128740",
+      "gasPrice": "102000000000",
+      "status": "success",
+      "address": null,
+      "gasUsed": "128740",
+      "block": "67827614",
+      "blockHash": "0x2a4334793d284f309f61f5f0e046ccda0cc8221b09a8254923f3e8727fe98f3c"
+    },
+    {
+      "chainId": 10143,
+      "name": "execute:0x68d3e93bfd5666d66e02a0e62015c3de5faf0040733fb0a20d3fda5904f20bbc",
+      "inputHash": "0xb7cbec9351fa6b7a98020cb154a6ab998359085947d152a6769c90d214346a79",
+      "to": "0xc6d1ec8c0b410cb089a110685ba19ee9954be37c",
+      "hash": "0xaa65d5eadf513ed059b94eaa135b63b02917a4a5aaf938f97a4adc67ce1b35af",
+      "nonce": 37,
+      "gasLimit": "174338",
+      "gasPrice": "102000000000",
+      "status": "success",
+      "address": null,
+      "gasUsed": "174338",
+      "block": "67827625",
+      "blockHash": "0x9d7c2df223899baf9975437cdd0db56a24ebefcc1be42df7a83ad960e35d9953"
+    },
+    {
+      "chainId": 10143,
+      "name": "execute:0x6e3dcf71af597fa11e9f61e216f2f59effdcd73dc5787ac32aba420cb3055647",
+      "inputHash": "0xbfe222d4f93e9a89b4a3b3008d1e3b263e15e826cc54efe75bee029a96260641",
+      "to": "0xc6d1ec8c0b410cb089a110685ba19ee9954be37c",
+      "hash": "0x4b28125233fa20a62bed937a75e08bc8cf729ce9963652a7cc16498b47973f31",
+      "nonce": 38,
+      "gasLimit": "176095",
+      "gasPrice": "102000000000",
+      "status": "success",
+      "address": null,
+      "gasUsed": "176095",
+      "block": "67827636",
+      "blockHash": "0xfa4f09917a34cd9839fb706abcb97b1d850994909fa0a2f0b2d2ffa301300fbb"
+    },
+    {
+      "chainId": 10143,
+      "name": "execute:0x6ebf1083e834ef91771a5b9b410e8ab2a2585102a4aeb9fc2a8967a39f7c5120",
+      "inputHash": "0x4b47653de409607922ddf977ca3dbf8ad5863c0cb11d3d8d677b777f5c2f9c94",
+      "to": "0xc6d1ec8c0b410cb089a110685ba19ee9954be37c",
+      "hash": "0x3de2cddc2e6a7f2bf1197fc6d2fc78cc0094d048261861496d6f075601866d9a",
+      "nonce": 39,
+      "gasLimit": "178953",
+      "gasPrice": "102000000000",
+      "status": "success",
+      "address": null,
+      "gasUsed": "178953",
+      "block": "67827648",
+      "blockHash": "0x044f7ec3667caaf5591254245f3ac7b8ae3550d8ff48a3462f2fd6ab088dc680"
+    },
+    {
+      "chainId": 10143,
+      "name": "execute:0xef2ba7220c894a04245d0513128d3a3c08172fd4733437b6d2c6cf9f478c7b71",
+      "inputHash": "0x8f11f926036d4fc48267326710bf3dadde447656775d9cdbf938dbefccccc734",
+      "to": "0xc6d1ec8c0b410cb089a110685ba19ee9954be37c",
+      "hash": "0xd171f7d92051a024b9a6516948ba4eeb90ee16d6c8181533ecdc07d11ddfec4f",
+      "nonce": 40,
+      "gasLimit": "283204",
+      "gasPrice": "102000000000",
+      "status": "success",
+      "address": null,
+      "gasUsed": "283204",
+      "block": "67827659",
+      "blockHash": "0xaed37d418df8cb103c789028ba52f1b9ce1f72629bc84ec8689046ed7ed9abac"
+    },
+    {
+      "chainId": 10143,
+      "name": "execute:0xe5ac75502bd1f2a74d28e555a59f55edab27c9289d20f68f5134c6fbbf8f94ed",
+      "inputHash": "0x5f447b860c762792b7fe04e9ddaab79f23f85a5fae83c980e43d8b58d0a9c0c5",
+      "to": "0xc6d1ec8c0b410cb089a110685ba19ee9954be37c",
+      "hash": "0x4dcd43138ef0f154cb6245585e0901de9a3427d5619d60bab5568bea1fe3eff0",
+      "nonce": 41,
+      "gasLimit": "283397",
+      "gasPrice": "102000000000",
+      "status": "success",
+      "address": null,
+      "gasUsed": "283397",
+      "block": "67827667",
+      "blockHash": "0x681a3337b54c541cf1920f4ae819628bdc829024bff3a7a22dc75c44bc9b634d"
+    },
+    {
+      "chainId": 10143,
+      "name": "execute:0xf57fe0fad0b5a852e408ffca5b4bcebca0acb26e86f022ecde976aa5b7c84f09",
+      "inputHash": "0xe891b792124a3d7853ef69bc6a32ea6fce9fe88328eabcb0d9bca77137cbeb37",
+      "to": "0xc6d1ec8c0b410cb089a110685ba19ee9954be37c",
+      "hash": "0x23f092f2b159cdc6c9152f612f6f1aa18b10b2fdae96d667c48ed440a359ede6",
+      "nonce": 42,
+      "gasLimit": "209278",
+      "gasPrice": "102000000000",
+      "status": "success",
+      "address": null,
+      "gasUsed": "209278",
+      "block": "67827678",
+      "blockHash": "0x0c1481757369ec8bb400e916e20bb1564fedb6ef3c55be63b6ea0dbec0df5f85"
     }
   ],
   "governance": [
@@ -737,7 +973,8 @@
       "data": "0x92eefe9b0000000000000000000000004420a2a6fc90e6551baf50d93448dff3a927483f",
       "salt": "0xe7d8058b2cfaf2bb4bfdd83753244bc71cb470ab0afd7175c51e3d2a4155ce65",
       "id": "0x783422130b38587be0c5c4a841f8de9f6f402c97a4e5b65320471f83b5a2d04d",
-      "eta": "1790982132"
+      "eta": "1790982132",
+      "status": "executed"
     },
     {
       "chainId": 10143,
@@ -748,7 +985,8 @@
       "data": "0x6099d6ff0000000000000000000000003d8d8b7c03371ad791830fb5f63c5fbd28386a1e",
       "salt": "0x4d3b2fdbabddbf843ef82907762c96caab84ee04655bf6bc6903b9bae1c5fc63",
       "id": "0xc013b059bd9f73b9cb4ebf11ca5ebb94b03c53d5d3856914cac4ed0db56cfdb1",
-      "eta": "1790982135"
+      "eta": "1790982135",
+      "status": "executed"
     },
     {
       "chainId": 10143,
@@ -759,7 +997,8 @@
       "data": "0x4b781700000000000000000000000000abf89de706b583424328b54dd05a8fc986750da8",
       "salt": "0x631f24569a301990249caa1e9dc26f795eb2dbce4aa9f08af7e12e2981f82794",
       "id": "0x68d3e93bfd5666d66e02a0e62015c3de5faf0040733fb0a20d3fda5904f20bbc",
-      "eta": "1790982137"
+      "eta": "1790982137",
+      "status": "executed"
     },
     {
       "chainId": 10143,
@@ -770,7 +1009,8 @@
       "data": "0x4b781700000000000000000000000000abf89de706b583424328b54dd05a8fc986750da8",
       "salt": "0x631f24569a301990249caa1e9dc26f795eb2dbce4aa9f08af7e12e2981f82794",
       "id": "0x6e3dcf71af597fa11e9f61e216f2f59effdcd73dc5787ac32aba420cb3055647",
-      "eta": "1790982140"
+      "eta": "1790982140",
+      "status": "executed"
     },
     {
       "chainId": 10143,
@@ -781,7 +1021,8 @@
       "data": "0x98cc825c000000000000000000000000abf89de706b583424328b54dd05a8fc986750da8",
       "salt": "0x028a01d2bd313bbecb2bf88197c2073747dbf44343ee21929383ea54956133dc",
       "id": "0x6ebf1083e834ef91771a5b9b410e8ab2a2585102a4aeb9fc2a8967a39f7c5120",
-      "eta": "1790982142"
+      "eta": "1790982142",
+      "status": "executed"
     },
     {
       "chainId": 10143,
@@ -792,7 +1033,8 @@
       "data": "0xcfa49f810000000000000000000000000000000000000000000000000000000000aa36a700000000000000000000000067c24977eea89716f8dd1668a8cb73fc9ba1c96d00000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000001c20",
       "salt": "0x0dd0f50b6024ee2af50e78ac5e6357564da8672c01ad72da3d3494d6071d3ac0",
       "id": "0xef2ba7220c894a04245d0513128d3a3c08172fd4733437b6d2c6cf9f478c7b71",
-      "eta": "1790982144"
+      "eta": "1790982144",
+      "status": "executed"
     },
     {
       "chainId": 10143,
@@ -803,7 +1045,8 @@
       "data": "0xcfa49f8100000000000000000000000000000000000000000000000000000000000001f50000000000000000000000008f31f37ffd1fe41d05c916eb096a06a5860ff1bb00000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000001c20",
       "salt": "0x26e2335acb34934bcd71be2f11468abdae3b5bfa9105c3786f6bf805f2cc4a12",
       "id": "0xe5ac75502bd1f2a74d28e555a59f55edab27c9289d20f68f5134c6fbbf8f94ed",
-      "eta": "1790982146"
+      "eta": "1790982146",
+      "status": "executed"
     },
     {
       "chainId": 10143,
@@ -814,30 +1057,8 @@
       "data": "0xc1f7f9670000000000000000000000004dbaba93dfdeeab43ce5bdc3335aa6e2dda449200000000000000000000000009a38097d9ee21b5e6a6f3b74358ce2ead2105c90000000000000000000000000534b2f3a21130d7a60830c2df862319e593943a30000000000000000000000004dbaba93dfdeeab43ce5bdc3335aa6e2dda44920",
       "salt": "0x90ef614a8631c6817d582b95ba17981c90c2b53aed210d6de1ce106390116130",
       "id": "0xf57fe0fad0b5a852e408ffca5b4bcebca0acb26e86f022ecde976aa5b7c84f09",
-      "eta": "1790982149"
+      "eta": "1790982149",
+      "status": "executed"
     }
-  ],
-  "verification": {
-    "checkedAt": "2026-09-30T23:04:11.080Z",
-    "canonicalReceipts": 44,
-    "runtimeHashes": 29,
-    "bindings": "passed",
-    "solanaImmutableBinary": "passed",
-    "heads": {
-      "10143": {
-        "finalizedBlock": "67097403",
-        "finalizedHash": "0x917811ba4a672af463d0e0ee6e8ce8d1aaa532611c8cecac10c553af33a31f85"
-      },
-      "11155111": {
-        "finalizedBlock": "11817739",
-        "finalizedHash": "0x666cd522bf1493c0dd4d26a56b3224f6f40aceb65b0aa0fed13f5ff90add0637"
-      }
-    },
-    "solanaDeploymentSignatureFinalized": true
-  },
-  "remainingBalances": {
-    "10143": "3.24628012",
-    "11155111": "0.036744867012740856",
-    "solana": "4.08826001"
-  }
+  ]
 }

@@ -161,6 +161,9 @@ nondelegating contracts with pinned code hashes.
 `StaticCallValidator` covers fixed-width ABI calls with exact, account, range,
 and spend bounds. Calls with dynamic arguments or app-specific state checks need
 a reviewed validator implementing `IAppCallValidator`.
+`LinkedLibraryGuard` pins an implementation and its fixed external Solidity
+libraries, rejecting further library delegation. Review must establish that every
+delegate target is a fixed registered library; mutable targets need a custom guard.
 `steps` defines up to seven preceding calls before the primary call. Every
 `fundingPath` contributes to the required settlement-token input, including
 separately funded execution fees. `marketPath` and `exposurePath` bind the market

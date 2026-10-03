@@ -52,6 +52,7 @@ const contracts = {
   IAppExitPlanner: "app-exit-planner",
   IAppDeploymentGuard: "app-deployment-guard",
   ImplementationGuard: "implementation-guard",
+  LinkedLibraryGuard: "linked-library-guard",
   FlowExecutor: "flow-executor",
   ExecutionManager: "execution-manager",
   IExecutionPolicy: "execution-policy",

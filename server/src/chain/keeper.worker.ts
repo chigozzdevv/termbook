@@ -4,13 +4,14 @@ import { env } from "../config/env.js";
 import { logger } from "../logging/logger.js";
 import { monadClient } from "./monad.client.js";
 import { reconcileKeeperWallet } from "./keeper.js";
+import { ethereumSourceChain } from "./networks.js";
 
 export async function runKeeperWorker(): Promise<number> {
   const wallets = new Map<string, { client: PublicClient; chainId: number; address: Address }>();
   for (const [chainId, rpcUrl, keys] of [
     [env.monadChainId, env.rpcUrl, [env.settlementKeeperKey,
       process.env["RISK_KEEPER_KEY"], process.env["RECOVERY_RELAY_KEY"]]],
-    [1, env.sourceRpcUrl, [env.sourceWormholePublisherKey, process.env["SOURCE_RECOVERY_RELAY_KEY"]]],
+    [ethereumSourceChain(), env.sourceRpcUrl, [env.sourceWormholePublisherKey, process.env["SOURCE_RECOVERY_RELAY_KEY"]]],
   ] as const) {
     if (!rpcUrl) continue;
     for (const key of keys) {

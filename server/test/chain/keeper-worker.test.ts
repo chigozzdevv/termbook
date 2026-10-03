@@ -16,6 +16,7 @@ vi.mock("../../src/logging/logger.js", () => ({ logger: { warn: vi.fn() } }));
 
 beforeEach(() => {
   vi.resetAllMocks();
+  env.monadChainId = 143;
   env.settlementKeeperKey = "";
   env.sourceWormholePublisherKey = "";
   for (const name of ["RISK_KEEPER_KEY", "RECOVERY_RELAY_KEY", "SOURCE_RECOVERY_RELAY_KEY"]) vi.stubEnv(name, "");
@@ -23,6 +24,14 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("keeper reconciliation loop", () => {
+  it("reconciles Ethereum testnet transactions on Sepolia", async () => {
+    env.monadChainId = 10143;
+    const key = `0x${"2".repeat(64)}` as const;
+    env.sourceWormholePublisherKey = key;
+    vi.mocked(reconcileKeeperWallet).mockResolvedValue("success");
+    expect(await runKeeperWorker()).toBe(1);
+    expect(reconcileKeeperWallet).toHaveBeenCalledWith(clients.ethereum, 11155111, privateKeyToAccount(key).address);
+  });
   it("does nothing when no durable keeper wallet is configured", async () => {
     expect(await runKeeperWorker()).toBe(0);
     expect(reconcileKeeperWallet).not.toHaveBeenCalled();

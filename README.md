@@ -416,23 +416,25 @@ The deployed testnet addresses, receipts and code hashes are recorded in
 
 | Network | Contract | Address |
 | --- | --- | --- |
-| Monad testnet | TermbookCore | `0xd12d4abf4df27c58623abb0a74f203f4216c1bbd` |
-| Monad testnet | USDC HouseVault | `0x9a38097d9ee21b5e6a6f3b74358ce2ead2105c90` |
-| Monad testnet | MON collateral vault | `0x02815928275683afe4e5e3f37f5bdb500f53df88` |
-| Sepolia | WETH collateral vault | `0xEa1D95605B4852038105Ed098AcE314e23e2A799` |
+| Monad testnet | TermbookCore | `0xbbfa006d8b5621db17fe06e9f59dd6ddbfe7c056` |
+| Monad testnet | USDC HouseVault | `0x32c130518fd5334e1f0a1ed16150fb53a6a12148` |
+| Monad testnet | MON collateral vault | `0xfbcef51f4477a4ba382c8f652913eccc7f5b9522` |
+| Sepolia | WETH collateral vault | `0xf7A7c4Cf2AFe66a0AcF94388daa3770654474411` |
 | Solana devnet | SOL collateral program | `FTj5kb9Z7JDpGNWD2NowGgz67zP3VxUKwLgKEFSTrYg1` |
 
-All eight initial governance actions were executed on 3 October 2026. The House
-registration, Wormhole configuration, verifier admissions and source recovery
-controller binding were checked against their successful receipts. The deployment
-record includes the verification time and each transaction's finality status.
+The original testnet deployment was replaced on 3 October 2026 with zero-delay
+governance. All 54 replacement EVM transactions succeeded, and all 11 initial
+governance actions executed. House registration, Wormhole configuration, verifier
+admissions, ETH custody bindings and SOL program identity were checked onchain.
+Four Monad contracts and the immutable Solana program were reused. The original
+deployment is archived in `deployments/testnet-original.json`. The current record
+includes receipt verification and finality status.
 
-Collateral markets, feeds, House policies, integration bundles and settlement
-routes still require admission. The original deployment retains its two-day
-timelock until replaced; the replacement uses zero delay for testnet governance.
-The source controller remains paused, and no LP funds have been deposited.
-API and keeper hosting and live lock, repayment, return and recovery
-tests remain operational setup work.
+Collateral price feeds and policies, House risk policies, integration bundles and
+settlement routes still require configuration and admission. Testnet governance
+configuration executes without a waiting period. The source controller remains
+paused, and no LP funds have been deposited. API and keeper hosting and live lock,
+repayment, return and recovery tests remain operational setup work.
 
 Recompute reviewed runtime code hashes when rebuilding from this layout;
 Solidity source paths and remappings affect bytecode metadata.

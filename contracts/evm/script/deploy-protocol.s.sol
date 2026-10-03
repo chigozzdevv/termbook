@@ -43,9 +43,10 @@ contract DeployProtocol is Script {
         address guardian = vm.envAddress("GUARDIAN");
         address manager = vm.envAddress("HOUSE_MANAGER");
         address asset = vm.envAddress("SETTLEMENT_ASSET");
+        uint256 timelock = vm.envOr("GOVERNANCE_TIMELOCK", uint256(2 days));
         require(asset.code.length != 0, "settlement-asset-missing");
         vm.startBroadcast(key);
-        protocolGovernance = new ProtocolGovernance(governance);
+        protocolGovernance = new ProtocolGovernance(governance, timelock);
         guardianController = new Guardian(guardian, governance);
         houseRegistry = new HouseRegistry(address(protocolGovernance));
         verifierRegistry = new VerifierRegistry(address(protocolGovernance));

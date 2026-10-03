@@ -382,8 +382,8 @@ Solana devnet Core and accepts Monad testnet VAAs. Deploy it immutably before
 admitting its program hash on Monad. `scripts/deploy-testnet.mjs --simulate`
 uses local Monad testnet and Sepolia forks on ports `18545` and `18546`.
 `--broadcast` uses the dedicated wallet in `.testnet/evm.json` and preserves a
-resumable receipt journal in `.testnet/deployment.json`. It queues governance
-configuration for the existing two-day timelock; it does not activate markets
+resumable receipt journal in `.testnet/deployment.json`. New deployments queue
+governance configuration with a five-minute timelock; they do not activate markets
 or deposit LP funds. The local keys and journals are ignored by Git.
 Signed transactions are journaled before broadcast. Resuming a pending
 transaction can raise an outdated fee by at least 25 percent, preserving its
@@ -392,6 +392,23 @@ After the recorded timelock expires, run
 `node scripts/deploy-testnet.mjs --broadcast --activate` to execute the queued
 configuration. It checks each onchain action and skips actions that are still
 timelocked or already executed.
+
+`ProtocolGovernance` takes an explicit delay at construction. Monad testnet and
+Sepolia allow a minimum of five minutes; other chains require at least two days.
+The protocol deployment script reads `GOVERNANCE_TIMELOCK` in seconds and defaults
+to two days. Existing deployed delays cannot be changed.
+
+To replace the original testnet deployment, run `--simulate --redeploy` on the
+local forks, advance those forks past the delay, and run
+`--simulate --redeploy --activate`. Once that succeeds, `--broadcast --redeploy`
+checks the same build and the gas budget before sending its first transaction.
+Run `--broadcast --redeploy --activate` after five minutes. The replacement
+requires zero accepted Credits and zero House settlement-token balance in the
+original deployment. It reuses Guardian, AccountFactory, the Solana proof
+contracts and the immutable Solana program, and archives the public original
+record in `deployments/testnet-original.json`. Replacement journals use the
+`-redeploy` suffix. ETH custody bindings and SOL program identity are queued with
+the initial replacement setup.
 
 The deployed testnet addresses, receipts and code hashes are recorded in
 [`deployments/testnet.json`](deployments/testnet.json).

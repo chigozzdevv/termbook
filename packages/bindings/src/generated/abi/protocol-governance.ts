@@ -6,6 +6,11 @@ export const protocolGovernanceAbi = [
         "name": "governance_",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "timelock_",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "nonpayable"

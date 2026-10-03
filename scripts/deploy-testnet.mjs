@@ -18,11 +18,18 @@ const { Connection, Keypair, PublicKey } = require("@solana/web3.js");
 const broadcast = process.argv.includes("--broadcast");
 const simulate = process.argv.includes("--simulate");
 const activate = process.argv.includes("--activate");
-if (process.argv.slice(2).some((argument) => !["--broadcast", "--simulate", "--activate"].includes(argument))) throw new Error("Unknown deployment argument");
+const redeploy = process.argv.includes("--redeploy");
+if (process.argv.slice(2).some((argument) => !["--broadcast", "--simulate", "--activate", "--redeploy"].includes(argument))) throw new Error("Unknown deployment argument");
 if (broadcast === simulate) throw new Error("Use --simulate or --broadcast");
 const directory = path.join(root, ".testnet");
 fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
-const reportFile = path.join(directory, simulate ? "simulation.json" : "deployment.json");
+const previousFile = path.join(root, "deployments/testnet-original.json");
+if (redeploy && !fs.existsSync(previousFile)) {
+  fs.copyFileSync(path.join(root, "deployments/testnet.json"), previousFile, fs.constants.COPYFILE_EXCL);
+}
+const previous = redeploy ? JSON.parse(fs.readFileSync(previousFile, "utf8")) : null;
+if (previous && previous.network !== "testnet") throw new Error("Replacement requires an existing testnet deployment");
+const reportFile = path.join(directory, `${simulate ? "simulation" : "deployment"}${redeploy ? "-redeploy" : ""}.json`);
 const report = fs.existsSync(reportFile) ? JSON.parse(fs.readFileSync(reportFile, "utf8"))
   : { network: "testnet", transactions: [], addresses: {}, pendingGovernance: [] };
 if (activate && !report.transactions.length) throw new Error("Deploy before activating governance actions");
@@ -34,6 +41,9 @@ function publishManifest() {
   const manifest = {
     network: report.network, sourceCommit: report.sourceCommit, deployedAt: report.completedAt, deployer: report.deployer,
     recoveryRiskSigner: report.recoveryRiskSigner, addresses: report.addresses,
+    governanceDelaySeconds: report.governanceDelaySeconds,
+    previousDeployment: redeploy ? "testnet-original.json" : undefined,
+    reusedContracts: report.reusedContracts,
     tokens: report.tokens, solana: report.solana, verification: report.verification,
     transactions: report.transactions.map((transaction) => Object.fromEntries(Object.entries(transaction).filter(([key]) => key !== "rawTransaction"))),
     governance: report.pendingGovernance,
@@ -43,6 +53,7 @@ function publishManifest() {
 const account = privateKeyToAccount(simulate ? `0x${"1".padStart(64, "0")}`
   : JSON.parse(fs.readFileSync(path.join(directory, "evm.json"), "utf8")).privateKey);
 if (report.deployer && report.deployer.toLowerCase() !== account.address.toLowerCase()) throw new Error("Deployment wallet mismatch");
+if (previous && broadcast && previous.deployer.toLowerCase() !== account.address.toLowerCase()) throw new Error("Replacement wallet mismatch");
 const riskFile = path.join(directory, "recovery-risk.json");
 if (!activate && !fs.existsSync(riskFile)) fs.writeFileSync(riskFile, JSON.stringify({ privateKey: generatePrivateKey() }), { mode: 0o600 });
 const riskSigner = activate ? report.recoveryRiskSigner : privateKeyToAccount(JSON.parse(fs.readFileSync(riskFile, "utf8")).privateKey).address;
@@ -138,7 +149,25 @@ async function context(chainId, url) {
     return entry;
   }
   async function deploy(name, args = [], label = name) {
+    if (previous && chainId === 10143 && ["Guardian", "AccountFactory", "WormholeSolanaAccountClient", "SolanaVerifier"].includes(label)) {
+      const address = previous.addresses[chainId][label];
+      const original = previous.transactions.find((transaction) => transaction.chainId === chainId
+        && transaction.address?.toLowerCase() === address?.toLowerCase());
+      const code = address ? await publicClient.getCode({ address }) : null;
+      if (!original?.codeHash || !code || keccak256(code) !== original.codeHash) throw new Error(`Reusable contract mismatch: ${label}`);
+      report.reusedContracts ??= [];
+      if (!report.reusedContracts.some((entry) => entry.chainId === chainId && entry.name === label)) {
+        report.reusedContracts.push({ chainId, name: label, address, codeHash: original.codeHash });
+      }
+      addresses[label] = address;
+      persist();
+      return address;
+    }
     const contract = artifact(name);
+    report.artifactHashes ??= {};
+    const artifactHash = keccak256(contract.bytecode.object);
+    if (report.artifactHashes[name] && report.artifactHashes[name] !== artifactHash) throw new Error(`Deployment build changed: ${name}`);
+    report.artifactHashes[name] = artifactHash;
     const entry = await send(label, encodeDeployData({ abi: contract.abi, bytecode: contract.bytecode.object, args }));
     if (!entry.address) throw new Error(`Missing deployed address: ${label}`);
     const code = await publicClient.getCode({ address: entry.address });
@@ -169,6 +198,47 @@ async function context(chainId, url) {
 
 const monad = await context(10143, simulate ? "http://127.0.0.1:18545" : "https://testnet-rpc.monad.xyz");
 const ethereum = await context(11155111, simulate ? "http://127.0.0.1:18546" : "https://ethereum-sepolia-rpc.publicnode.com");
+if (previous) {
+  if (await monad.read("TermbookCore", previous.addresses[10143].TermbookCore, "acceptedCredits") !== 0n) {
+    throw new Error("Replacement requires migration of existing Credits");
+  }
+  const balance = await monad.publicClient.readContract({
+    address: previous.tokens[10143].USDC,
+    abi: [{ type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] }],
+    functionName: "balanceOf", args: [previous.addresses[10143].HouseVault],
+  });
+  if (balance !== 0n) throw new Error("Replacement requires migration of existing House liquidity");
+  if (broadcast && !activate && report.transactions.length === 0) {
+    const planFile = path.join(directory, "simulation-redeploy.json");
+    if (!fs.existsSync(planFile)) throw new Error("Simulate the replacement before broadcasting");
+    const plan = JSON.parse(fs.readFileSync(planFile, "utf8"));
+    if (!plan.completedAt || plan.governanceDelaySeconds !== 300 || plan.pendingGovernance.length !== 11
+      || plan.pendingGovernance.some((action) => action.status !== "executed") || !plan.artifactHashes) {
+      throw new Error("Complete the replacement deployment and activation simulation first");
+    }
+    for (const [name, expected] of Object.entries(plan.artifactHashes)) {
+      if (keccak256(artifact(name).bytecode.object) !== expected) throw new Error(`Simulation build changed: ${name}`);
+    }
+    const solanaBinary = fs.readFileSync(path.join(root, "contracts/solana/target/testnet/deploy/sol_collateral.so"));
+    if (keccak256(`0x${solanaBinary.toString("hex")}`) !== previous.solana.programDataHash) throw new Error("Solana replacement binary mismatch");
+    const funding = [];
+    for (const [context, chainId] of [[monad, 10143], [ethereum, 11155111]]) {
+      let gasPrice = await context.publicClient.getGasPrice();
+      if (chainId === 10143 && gasPrice < 100_000_000_000n) gasPrice = 100_000_000_000n;
+      if (chainId === 11155111) gasPrice += gasPrice / 4n;
+      const gas = plan.transactions.filter((transaction) => transaction.chainId === chainId)
+        .reduce((sum, transaction) => sum + BigInt(transaction.gasLimit), 0n);
+      const required = gas * gasPrice + 10_000_000_000_000_000n;
+      const available = await context.publicClient.getBalance({ address: account.address });
+      funding.push({ chainId, required: formatEther(required), available: formatEther(available),
+        missing: formatEther(required > available ? required - available : 0n) });
+    }
+    if (funding.some((entry) => entry.missing !== "0")) {
+      log(JSON.stringify({ status: "funding-required", wallet: account.address, funding }));
+      process.exit(2);
+    }
+  }
+}
 if (activate) {
   for (const action of report.pendingGovernance) {
     const context = action.chainId === 10143 ? monad : action.chainId === 11155111 ? ethereum : null;
@@ -207,7 +277,10 @@ for (const [context, token] of [[monad, usdc], [monad, wrappedMon], [ethereum, w
   const code = await context.publicClient.getCode({ address: token });
   if (!code || code === "0x") throw new Error(`Token contract unavailable: ${token}`);
 }
-const governance = await monad.deploy("ProtocolGovernance", [account.address]);
+const governance = await monad.deploy("ProtocolGovernance", [account.address, 300n]);
+if (await monad.read("ProtocolGovernance", governance, "timelock") !== 300n) throw new Error("Testnet governance delay mismatch");
+report.governanceDelaySeconds = 300;
+persist();
 const guardian = await monad.deploy("Guardian", [account.address, account.address]);
 const houses = await monad.deploy("HouseRegistry", [governance]);
 const verifiers = await monad.deploy("VerifierRegistry", [governance]);
@@ -240,7 +313,8 @@ const house = await monad.deploy("HouseVault", [usdc, core, account.address, fac
 const routes = await monad.deploy("RouteRegistry", [governance]);
 await monad.deploy("NativeCollateralVault", [wrappedMon, 10143n, core]);
 await monad.deploy("CollateralHealthReader", [core, governance, oracles]);
-const sourceGovernance = await ethereum.deploy("ProtocolGovernance", [account.address]);
+const sourceGovernance = await ethereum.deploy("ProtocolGovernance", [account.address, 300n]);
+if (await ethereum.read("ProtocolGovernance", sourceGovernance, "timelock") !== 300n) throw new Error("Source governance delay mismatch");
 const authorization = await ethereum.deploy("WormholeEvmMessageClient", [ethereumWormhole, 10002, 10009, 10143n, 1n, padHex(core, { size: 32 }), 7200n], "AuthorizationClient");
 const recoveryClient = await ethereum.deploy("WormholeEvmMessageClient", [ethereumWormhole, 10002, 10009, 10143n, 1n, padHex(factory, { size: 32 }), 7200n], "RecoveryClient");
 const monadVerifier = await ethereum.deploy("WormholeMonadVerifier", [authorization, recoveryClient, core, factory]);
@@ -267,7 +341,7 @@ if (broadcast) {
   const programData = await solana.getAccountInfo(new PublicKey(deployed.data.subarray(4, 36)));
   if (!programData || programData.owner.toBase58() !== loader || programData.data.readUInt32LE(0) !== 3
     || programData.data[12] !== 0 || keccak256(solanaHex(programData.data.subarray(45))) !== programHash) throw new Error("Solana immutable binary mismatch");
-  report.solana = { network: "devnet", genesis: "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
+  report.solana = { ...previous?.solana, network: "devnet", genesis: "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
     programId: program.toBase58(), programDataAddress: new PublicKey(deployed.data.subarray(4, 36)).toBase58(),
     programDataHash: programHash, emitter: PublicKey.findProgramAddressSync([Buffer.from("emitter")], program)[0].toBase58(),
     immutable: true };
@@ -283,6 +357,9 @@ await monad.queue(governance, core, "TermbookCore", "configureSolanaWormhole", [
 await monad.queue(governance, verifiers, "VerifierRegistry", "setVerifier", [11155111n, ethereumVerifier, 1n, 7200n]);
 await monad.queue(governance, verifiers, "VerifierRegistry", "setVerifier", [501n, solanaVerifier, 1n, 7200n]);
 await monad.queue(governance, houses, "HouseRegistry", "register", [account.address, house, usdc, account.address]);
+await monad.queue(governance, core, "TermbookCore", "setSourceCollateralVault", [11155111n, weth, vault]);
+await monad.queue(governance, core, "TermbookCore", "setSourceRecoveryVault", [11155111n, weth, recovery]);
+await monad.queue(governance, core, "TermbookCore", "setSolanaMarket", [501n, genesis, programId, programHash]);
 report.completedAt ??= new Date().toISOString();
 report.tokens = { "10143": { USDC: usdc, WMON: wrappedMon }, "11155111": { WETH: weth } };
 for (const chainId of [10143, 11155111]) {

@@ -34,7 +34,7 @@ contract GovernanceTest is Test {
     PausableTarget pausable;
 
     function setUp() public {
-        protocolGovernance = new ProtocolGovernance(governance);
+        protocolGovernance = new ProtocolGovernance(governance, 2 days);
         guardian = new Guardian(guardianSigner, governance);
         target = new TimelockTarget();
         pausable = new PausableTarget();
@@ -74,6 +74,43 @@ contract GovernanceTest is Test {
         vm.prank(governance);
         protocolGovernance.cancel(address(target), 0, data, salt);
         assertEq(protocolGovernance.queuedAt(protocolGovernance.actionId(address(target), 0, data, salt)), 0);
+    }
+
+    function testShortTestnetDelayStillBlocksEarlyExecution() public {
+        vm.chainId(10143);
+        ProtocolGovernance testnet = new ProtocolGovernance(governance, 5 minutes);
+        bytes memory data = abi.encodeCall(TimelockTarget.setValue, (7));
+        bytes32 salt = keccak256("testnet");
+        vm.prank(governance);
+        testnet.queue(address(target), 0, data, salt);
+        uint256 eta = testnet.queuedAt(testnet.actionId(address(target), 0, data, salt));
+        vm.warp(eta - 1);
+        vm.expectRevert(ProtocolGovernance.NotReady.selector);
+        testnet.execute(address(target), 0, data, salt);
+        vm.warp(eta);
+        testnet.execute(address(target), 0, data, salt);
+        assertEq(target.value(), 7);
+        assertEq(target.lastCaller(), address(testnet));
+    }
+
+    function testShortDelayRejectedOutsideSupportedTestnets() public {
+        vm.chainId(143);
+        vm.expectRevert(ProtocolGovernance.Invalid.selector);
+        new ProtocolGovernance(governance, 5 minutes);
+        vm.chainId(1);
+        vm.expectRevert(ProtocolGovernance.Invalid.selector);
+        new ProtocolGovernance(governance, 5 minutes);
+        vm.chainId(31337);
+        vm.expectRevert(ProtocolGovernance.Invalid.selector);
+        new ProtocolGovernance(governance, 5 minutes);
+    }
+
+    function testTestnetRejectsDelayBelowFiveMinutes() public {
+        vm.chainId(11155111);
+        vm.expectRevert(ProtocolGovernance.Invalid.selector);
+        new ProtocolGovernance(governance, 5 minutes - 1);
+        ProtocolGovernance sepolia = new ProtocolGovernance(governance, 5 minutes);
+        assertEq(sepolia.timelock(), 5 minutes);
     }
 
     function testGuardianCanPauseButOnlyGovernanceCanUnpause() public {

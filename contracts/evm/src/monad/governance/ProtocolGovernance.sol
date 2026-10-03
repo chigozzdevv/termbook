@@ -20,10 +20,12 @@ contract ProtocolGovernance {
     event ActionCancelled(bytes32 indexed actionId);
     event ActionExecuted(bytes32 indexed actionId, address indexed target, uint256 value);
 
-    constructor(address governance_) {
+    constructor(address governance_, uint256 timelock_) {
         if (governance_ == address(0)) revert Unauthorized();
+        uint256 minimum = block.chainid == 10143 || block.chainid == 11155111 ? 5 minutes : 2 days;
+        if (timelock_ < minimum) revert Invalid();
         governance = governance_;
-        timelock = 2 days;
+        timelock = timelock_;
     }
 
     receive() external payable {}

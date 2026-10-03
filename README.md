@@ -35,6 +35,32 @@ forge test --root contracts/evm
 Foundry pins Solidity 0.8.24 and Cancun bytecode while running tests on Prague,
 so the Ethereum BLS precompile tests execute locally instead of being skipped.
 
+## Local testnet services
+
+`docker compose -f docker-compose.testnet.yml up -d` starts an isolated MongoDB
+replica set on port 27018 and Redis on port 6380. Configure the server in the
+ignored `.testnet/server.env` with the current deployment addresses and
+`CORE_DEPLOYMENT_BLOCK`, then build the workspace and run these in separate terminals:
+
+```sh
+node --env-file=.testnet/server.env server/dist/server.js
+node --env-file=.testnet/server.env server/dist/worker.js
+```
+
+Use `mongodb://127.0.0.1:27018/termbook_testnet?replicaSet=rs0&directConnection=true`
+and `redis://127.0.0.1:6380`. The local API uses port 3002. `/health` checks the API;
+`/ready` requires current finalized indexing and healthy risk scans.
+
+`node scripts/setup-testnet.mjs --simulate` runs feed admission, House policies,
+and a 10 USDC LP deposit against a Monad testnet fork on port 18545. Use
+`--broadcast` for the deployed testnet. The runner journals signed transactions
+privately before submission and records public results in `deployments/testnet-setup.json`.
+The ETH/USDC ratio uses admitted Chainlink ETH/USD and USDC/USD feeds, pins their
+aggregators, and preserves the older observation timestamp. Its permissionless
+`update()` must run when either underlying round changes. The testnet feeds have
+a 24-hour heartbeat; this setup uses a 25-hour age limit for testnet exercises.
+Production price-age and risk parameters require their own admission.
+
 ## API authorization
 
 Each POST has its own wallet authorization. Manual clients request `/auth/nonce`

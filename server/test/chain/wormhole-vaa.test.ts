@@ -30,6 +30,14 @@ afterEach(() => {
 });
 
 describe("EVM Wormhole proof retrieval", () => {
+  it("accepts the live by-ID response object and rejects an incorrect sequence", async () => {
+    env.wormholeScanUrl = "https://scan.example";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ data: {
+      id: `48/${padHex(emitter, { size: 32 }).slice(2)}/7`, vaa: Buffer.from(signedVaa()).toString("base64"),
+    } }), { status: 200 })));
+    expect((await fetchWormholeVaaById({ chain: 48, emitter, sequence: 7n, payload })).header).toBeTruthy();
+    await expect(fetchWormholeVaaById({ chain: 48, emitter, sequence: 8n, payload })).rejects.toThrow("wormhole-vaa-unavailable");
+  });
   it("pins the source emitter, finalized consistency, and exact payload", async () => {
     env.wormholeScanUrl = "https://scan.example";
     let vaa = signedVaa();

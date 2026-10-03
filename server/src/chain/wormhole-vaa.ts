@@ -35,8 +35,10 @@ async function request(url: URL, chain: number, emitter: Hex, payload: Hex, sequ
   let data: unknown;
   try { data = JSON.parse(body); } catch { throw new Error("wormhole-vaa-invalid"); }
   if (!data || typeof data !== "object") throw new Error("wormhole-vaa-invalid");
-  const entries = (data as Record<string, unknown>)["data"];
-  if (!Array.isArray(entries) || entries.length > 100) throw new Error("wormhole-vaa-invalid");
+  const result = (data as Record<string, unknown>)["data"];
+  const entries = Array.isArray(result) ? result
+    : result && typeof result === "object" ? [result] : [];
+  if (entries.length === 0 || entries.length > 100) throw new Error("wormhole-vaa-invalid");
   const matches = entries.flatMap((entry) => {
     if (!entry || typeof entry !== "object") return [];
     const item = entry as Record<string, unknown>;

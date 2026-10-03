@@ -1,8 +1,18 @@
+function serialize(value: unknown): string {
+  return JSON.stringify(value, (key, item: unknown) => {
+    if (/^(?:privateKey|raw|rawTransaction|signature|apiKey|secret|authorization|password)$/i.test(key)) return "[redacted]";
+    if (item instanceof Error) return { name: item.name };
+    if (typeof item === "bigint") return item.toString();
+    if (typeof item === "string" && item.length > 512) return "[truncated]";
+    return item;
+  });
+}
+
 export const logger = {
   info: (msg: string, extra?: unknown) =>
-    console.log(JSON.stringify({ level: "info", msg, extra })),
+    console.log(serialize({ level: "info", msg, extra })),
   warn: (msg: string, extra?: unknown) =>
-    console.warn(JSON.stringify({ level: "warn", msg, extra })),
+    console.warn(serialize({ level: "warn", msg, extra })),
   error: (msg: string, extra?: unknown) =>
-    console.error(JSON.stringify({ level: "error", msg, extra })),
+    console.error(serialize({ level: "error", msg, extra })),
 };

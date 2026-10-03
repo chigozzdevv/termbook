@@ -1,12 +1,13 @@
-import { createPublicClient, http, type PublicClient } from "viem";
+import { createPublicClient, type PublicClient } from "viem";
 import { env } from "../config/env.js";
+import { pacedHttp } from "./rpc.transport.js";
 
 export type ChainEvent = { name: string; block: number; tx: string; blockHash?: string; parentHash?: string; logIndex?: number; data: Record<string, unknown> };
 
 let client: PublicClient | null = null;
 
 export function monadClient(): PublicClient {
-  if (!client) client = createPublicClient({ transport: http(env.rpcUrl) });
+  if (!client) client = createPublicClient({ transport: pacedHttp(env.rpcUrl) });
   return client;
 }
 

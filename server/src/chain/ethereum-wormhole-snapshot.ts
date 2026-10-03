@@ -8,6 +8,7 @@ import { env } from "../config/env.js";
 import { collateralRepo } from "../collateral/collateral.repo.js";
 import { fetchWormholeVaaById } from "./wormhole-vaa.js";
 import { keeperTransaction } from "./keeper.js";
+import { monadClient } from "./monad.client.js";
 
 const verifierAbi = parseAbi([
   "function wormholeMode() pure returns (bool)",
@@ -34,7 +35,7 @@ const snapshotDomain = keccak256(stringToHex("Termbook Wormhole Ethereum snapsho
 
 export async function ethereumWormholeMode(verifier: Address): Promise<boolean> {
   try {
-    return await createPublicClient({ transport: http(env.rpcUrl) }).readContract({
+    return await monadClient().readContract({
       address: verifier, abi: verifierAbi, functionName: "wormholeMode",
     });
   } catch {
@@ -58,7 +59,7 @@ export async function fetchEthereumSnapshot(input: {
   }
   const source = createPublicClient({ transport: http(env.sourceRpcUrl) });
   if (await source.getChainId() !== ethereumSourceChain()) throw new Error("ethereum-wormhole-chain-mismatch");
-  const monad = createPublicClient({ transport: http(env.rpcUrl) });
+  const monad = monadClient();
   const [publisher, expectedCodeHash] = await Promise.all([
     monad.readContract({ address: input.verifier, abi: verifierAbi, functionName: "publisher" }),
     monad.readContract({ address: input.verifier, abi: verifierAbi, functionName: "publisherCodeHash" }),

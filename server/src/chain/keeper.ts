@@ -21,9 +21,9 @@ export async function keeperTransaction(input: {
     if (!pending) {
       const nonce = await client.getTransactionCount({ address: account.address, blockTag: "pending" });
       const wallet = createWalletClient({ account, transport: http(input.rpcUrl) });
-      const request = await wallet.prepareTransactionRequest({ account, chain: undefined,
+      const request = await wallet.prepareTransactionRequest({ account, chain: null,
         chainId, to: input.to, data: input.data, nonce, value: input.value ?? 0n });
-      const raw = await wallet.signTransaction({ ...request, account, chain: undefined });
+      const raw = await wallet.signTransaction({ ...request, account, chain: null });
       pending = { id, hash: keccak256(raw), raw, nonce, to: input.to, data: input.data };
       assertLease();
       await keeperRepo.prepared(key, claim.lease, pending);

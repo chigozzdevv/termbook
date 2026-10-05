@@ -1,4 +1,4 @@
-import { auroraProductionOrigin, validateAuroraProvider } from "../settlement/aurora.provider.js";
+import { auroraProductionOrigin, validateAuroraApiKey, validateAuroraProvider } from "../settlement/aurora.provider.js";
 
 export const env = {
   port: Number(process.env["PORT"] ?? 3001),
@@ -33,6 +33,7 @@ export const env = {
 
 export function assertRuntimeConfig(): void {
   validateAuroraProvider({ apiUrl: env.auroraApiUrl, publicKey: env.auroraQuotePublicKey, chainId: env.monadChainId });
+  if (env.auroraApiKey) validateAuroraApiKey(env.auroraApiKey);
   if (!/^0x[a-fA-F0-9]{40}$/.test(env.core) || /^0x0{40}$/.test(env.core)) throw new Error("CORE_ADDRESS is required");
   if (!Number.isSafeInteger(env.port) || env.port <= 0 || !Number.isSafeInteger(env.authTtlSeconds) || env.authTtlSeconds <= 0) throw new Error("server-config-invalid");
   if (!Number.isSafeInteger(env.monadChainId) || env.monadChainId <= 0 || !/^0x[a-fA-F0-9]{64}$/.test(env.coreDomain)) {

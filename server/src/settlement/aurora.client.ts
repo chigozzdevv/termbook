@@ -3,11 +3,11 @@ import { z } from "zod";
 import { env } from "../config/env.js";
 import { HttpError } from "../http/http.errors.js";
 import { solanaBase58Bytes } from "../collateral/solana-proof.js";
-import { validateAuroraProvider, verifyAuroraProviderQuote } from "./aurora.provider.js";
+import { auroraProviderEndpoint, validateAuroraProvider, verifyAuroraProviderQuote } from "./aurora.provider.js";
 
-function providerEndpoint(path: string): URL {
-  const origin = validateAuroraProvider({ apiUrl: env.auroraApiUrl, publicKey: env.auroraQuotePublicKey, chainId: env.monadChainId });
-  return new URL(path, origin);
+function providerEndpoint(operation: "quote" | "status"): URL {
+  return auroraProviderEndpoint({ apiUrl: env.auroraApiUrl, publicKey: env.auroraQuotePublicKey,
+    chainId: env.monadChainId, apiKey: env.auroraApiKey }, operation);
 }
 
 export function verifyAuroraQuote(quote: OneClickQuoteResponse): boolean {
@@ -132,11 +132,11 @@ export async function requestAuroraQuote(input: {
     depositMode: "SIMPLE",
   } as const;
   let response: Response;
-  const endpoint = providerEndpoint("/v0/quote");
+  const endpoint = providerEndpoint("quote");
   try {
     response = await fetch(endpoint, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-API-Key": env.auroraApiKey },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(request),
       signal: AbortSignal.timeout(15_000),
       redirect: "error",
@@ -178,7 +178,7 @@ const statusSchema = z.object({
   status: z.enum(["KNOWN_DEPOSIT_TX", "PENDING_DEPOSIT", "INCOMPLETE_DEPOSIT", "PROCESSING", "SUCCESS", "REFUNDED", "FAILED"]),
   quoteResponse: quoteSchema,
   swapDetails: z.object({
-    refundedAmount: z.string().regex(/^\d+$/).optional(),
+    refundedAmount: z.string().regex(/^\d+$/).nullish(),
     originChainTxHashes: z.array(z.object({ hash: z.string() })).optional(),
     destinationChainTxHashes: z.array(z.object({ hash: z.string() })).optional(),
   }).passthrough(),
@@ -187,11 +187,11 @@ const statusSchema = z.object({
 export async function requestAuroraStatus(quote: OneClickQuoteResponse) {
   const depositAddress = quote.quote.depositAddress;
   if (!depositAddress || !sourceAddress.safeParse(depositAddress).success) throw new HttpError(502, "aurora-status-invalid");
-  const url = providerEndpoint("/v0/status");
+  const url = providerEndpoint("status");
   url.searchParams.set("depositAddress", depositAddress);
   let response: Response;
   try {
-    response = await fetch(url, { headers: { "X-API-Key": env.auroraApiKey }, signal: AbortSignal.timeout(10_000), redirect: "error" });
+    response = await fetch(url, { signal: AbortSignal.timeout(10_000), redirect: "error" });
   } catch {
     throw new HttpError(502, "aurora-status-unavailable");
   }

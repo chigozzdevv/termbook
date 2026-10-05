@@ -495,8 +495,8 @@ attempt was aborted and its unused WETH returned. Public receipts are recorded i
 `deployments/testnet-e2e-verification.json`. These exercises did not use Aurora
 conversion or a real perps venue.
 MON and SOL price admission and Aurora settlement routes remain unconfigured.
-The public 1Click token catalog does not list these testnets; those settlement
-exercises require provider sandbox routes. Testnet governance has no waiting period.
+Aurora settlement exercises require a Studio application key and confirmed
+sandbox asset pairs for these testnets. Testnet governance has no waiting period.
 
 Recompute reviewed runtime code hashes when rebuilding from this layout;
 Solidity source paths and remappings affect bytecode metadata.
@@ -705,7 +705,7 @@ blockhash expires. An unfunded expired quote raises `PaymentExpiredError`.
 
 ## Aurora value routing
 
-The settlement adapter uses Aurora Intents 1Click to quote an admitted ERC-20
+The settlement adapter uses the Aurora Intents Swap API to quote an admitted ERC-20
 source asset into a House's settlement asset on Monad. The payer signs a route
 bound `InboxFactory` operation on Monad, then funds the returned source-chain
 deposit address. The settlement worker observes the actual Monad inbox balance
@@ -789,9 +789,14 @@ Governance must admit the corresponding pair and version in `RouteRegistry`, the
 set that registry on the House's `InboxFactory`. The factory address in the SDK
 and server must be the factory configured on the HouseVault.
 
-Get the partner JWT from `https://partners.near-intents.org/home` and store it as
-`AURORA_API_KEY` in the server environment. The production 1Click endpoint and
-SDK quote signing key are the defaults. Monad testnet may configure a provider's
+Create the application key in [Aurora Intents Studio](https://studio.aurora.dev/)
+and store it as `AURORA_API_KEY` in the server environment. The default origin is
+`https://intents-api.aurora.dev`; quotes use `/api/quote/{key}` and status uses
+`/api/status/{key}`. The key is encoded as one path segment. Aurora's responses
+carry the underlying 1Click service's signed quote, verified with its SDK key.
+See [Aurora's API key guide](https://docs.intents.aurora.dev/getting-started/api-keys-and-fees)
+and [Swap API reference](https://docs.intents.aurora.dev/api-reference/swap-api-reference).
+Monad testnet may configure a provider's
 HTTPS sandbox origin through `AURORA_API_URL` and its verified Ed25519 quote key
 through `AURORA_QUOTE_PUBLIC_KEY`. Both are rejected outside chain 10143. Quote,
 status and recovery funding use the same pinned key; redirects are rejected.

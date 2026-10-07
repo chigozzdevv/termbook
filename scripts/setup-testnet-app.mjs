@@ -3,6 +3,7 @@ import path from "node:path";
 import process from "node:process";
 import { log, error } from "node:console";
 import { root, viem, testnetRuntime } from "./testnet-runtime.mjs";
+import { reuseGuard } from "./testnet-guards.mjs";
 
 const simulate = process.argv.includes("--simulate");
 if (simulate === process.argv.includes("--broadcast")
@@ -40,8 +41,10 @@ async function main() {
   const implementation = await monad.client.readContract({ address: token,
     abi: viem.parseAbi(["function implementation() view returns(address)"]), functionName: "implementation" });
   if (implementation.toLowerCase() !== "0x21240161521d6854be79f7d3a0a65c6beddb42fb") throw new Error("Test USDC implementation changed");
-  const tokenGuard = await monad.deploy("LinkedLibraryGuard", [token, implementation, viem.toFunctionSelector("implementation()"),
-    ["0x3f6a0d6a83e50219626aa6a84fd237cb1877884d"]], "USDCImplementationGuard");
+  const getter = viem.toFunctionSelector("implementation()");
+  const libraries = ["0x3f6a0d6a83e50219626aa6a84fd237cb1877884d"];
+  const tokenGuard = await reuseGuard(runtime, monad, "app", "USDCImplementationGuard", "LinkedLibraryGuard", token, implementation, getter, libraries)
+    ?? await monad.deploy("LinkedLibraryGuard", [token, implementation, getter, libraries], "USDCImplementationGuard");
   await monad.govern("IntegrationRegistry", m.IntegrationRegistry, "setDependencyGuard", [bundleId, token, tokenGuard]);
   await monad.govern("IntegrationRegistry", m.IntegrationRegistry, "activate", [bundleId]);
   if (!await monad.read("IntegrationRegistry", m.IntegrationRegistry, "isActive", [bundleId])) throw new Error("Reference integration inactive");
@@ -52,7 +55,7 @@ async function main() {
   if (!simulate) fs.writeFileSync(path.join(root, "deployments/testnet-app.json"), JSON.stringify({ network: "testnet",
     purpose: "Reference application for live custody, valuation, execution, and recovery tests; not a perps venue",
     core: m.TermbookCore, bundleId, codeHash, completedAt: report.completedAt, addresses: report.addresses,
-    governance: report.governance, transactions: report.transactions.map((tx) => Object.fromEntries(
+    governance: report.governance, reusedContracts: report.reusedContracts, transactions: report.transactions.map((tx) => Object.fromEntries(
       Object.entries(tx).filter(([key]) => key !== "rawTransaction"))) }, null, 2) + "\n");
   const cost = report.transactions.reduce((sum, tx) => sum + BigInt(tx.gasUsed) * BigInt(tx.effectiveGasPrice), 0n);
   log(JSON.stringify({ simulated: simulate, transactions: report.transactions.length, costMON: viem.formatEther(cost), bundleId, app }));

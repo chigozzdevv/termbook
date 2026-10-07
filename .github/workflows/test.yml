@@ -47,6 +47,12 @@ jobs:
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: v1.5.1
+      - uses: actions/cache@v4
+        with:
+          path: |
+            contracts/evm/cache
+            contracts/evm/out
+          key: ${{ runner.os }}-foundry-v1.5.1-${{ hashFiles('contracts/evm/src/**/*.sol', 'contracts/evm/test/**/*.sol', 'contracts/evm/foundry.toml', 'contracts/evm/remappings.txt', 'pnpm-lock.yaml', 'lib/forge-std/**/*.sol') }}
       - run: FOUNDRY_VIA_IR=true forge test --root contracts/evm -j 1
       - run: sh scripts/check-contracts.sh
   solana:

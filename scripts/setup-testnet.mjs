@@ -4,6 +4,7 @@ import process from "node:process";
 import { log, error } from "node:console";
 import { execFileSync } from "node:child_process";
 import { root, viem, testnetRuntime } from "./testnet-runtime.mjs";
+import { reuseGuard } from "./testnet-guards.mjs";
 
 const simulate = process.argv.includes("--simulate");
 if (simulate === process.argv.includes("--broadcast")
@@ -29,7 +30,9 @@ async function main() {
   const weth = deployment.tokens[11155111].WETH;
   report.sourceCommit ??= execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
   for (const [name, feed] of Object.entries(feeds)) {
-    const guard = await monad.deploy("ImplementationGuard", [feed.address, feed.implementation, viem.toFunctionSelector("aggregator()")], `${name}FeedGuard`);
+    const getter = viem.toFunctionSelector("aggregator()");
+    const guard = await reuseGuard(runtime, monad, "setup", `${name}FeedGuard`, "ImplementationGuard", feed.address, feed.implementation, getter)
+      ?? await monad.deploy("ImplementationGuard", [feed.address, feed.implementation, getter], `${name}FeedGuard`);
     await monad.govern("OracleRegistry", m.OracleRegistry, "setFeed", [feed.id, feed.address, maxAge, 8]);
     await monad.govern("OracleRegistry", m.OracleRegistry, "setFeedGuard", [feed.id, guard]);
     const price = await monad.read("OracleRegistry", m.OracleRegistry, "read", [feed.id]);
@@ -67,7 +70,7 @@ async function main() {
     completedAt: report.completedAt, core: m.TermbookCore, addresses: report.addresses,
     feeds, priceId, maxAgeSeconds: Number(maxAge), housePolicyVersion: 1,
     transactions: report.transactions.map((tx) => Object.fromEntries(Object.entries(tx).filter(([key]) => key !== "rawTransaction"))),
-    governance: report.governance, verification: report.verification };
+    governance: report.governance, reusedContracts: report.reusedContracts, verification: report.verification };
   if (!simulate) fs.writeFileSync(path.join(root, "deployments/testnet-setup.json"), JSON.stringify(publicReport, null, 2) + "\n");
   const cost = report.transactions.reduce((sum, tx) => sum + BigInt(tx.gasUsed) * BigInt(tx.effectiveGasPrice), 0n);
   log(JSON.stringify({ simulated: simulate, transactions: report.transactions.length,

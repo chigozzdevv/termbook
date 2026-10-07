@@ -31,6 +31,11 @@ if (redeploy && !fs.existsSync(previousFile)) {
   fs.copyFileSync(path.join(root, "deployments/testnet.json"), previousFile, fs.constants.COPYFILE_EXCL);
 }
 const previous = redeploy ? JSON.parse(fs.readFileSync(previousFile, "utf8")) : null;
+for (const name of ["setup", "app", "keepers", "account-health", "e2e-verification"]) {
+  const source = path.join(root, `deployments/testnet-${name}.json`);
+  const archive = path.join(root, `deployments/testnet-pre-upgrade-${name}.json`);
+  if (redeploy && fs.existsSync(source) && !fs.existsSync(archive)) fs.copyFileSync(source, archive, fs.constants.COPYFILE_EXCL);
+}
 const previousEvidenceFile = path.join(root, "deployments/testnet-pre-upgrade-e2e.json");
 if (redeploy && !fs.existsSync(previousEvidenceFile) && fs.existsSync(path.join(root, "deployments/testnet-e2e.json"))) {
   fs.copyFileSync(path.join(root, "deployments/testnet-e2e.json"), previousEvidenceFile, fs.constants.COPYFILE_EXCL);

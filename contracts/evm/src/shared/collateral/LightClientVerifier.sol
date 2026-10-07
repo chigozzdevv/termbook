@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {ProxyInitializable} from "../ProxyInitializable.sol";
+
 import {IVerifier, IVerifierAdmission, IConsensusLightClient} from "./IVerifier.sol";
 import {EvmReceiptProof} from "./EvmReceiptProof.sol";
 
@@ -8,17 +10,21 @@ interface IExecutionReceiptsLightClient {
     function finalizedExecutionReceiptsRoot(bytes calldata header) external view returns (bytes32);
 }
 
-abstract contract LightClientVerifier is IVerifier, IVerifierAdmission {
-    address public immutable lightClient;
-    bytes32 public immutable lightClientCodeHash;
-    uint256 public immutable sourceChainId;
-    uint256 public immutable consensusVersion;
-    bytes32 public immutable bootstrapHash;
-    uint256 public immutable proofMaxAge;
+abstract contract LightClientVerifier is IVerifier, IVerifierAdmission, ProxyInitializable {
+    address public lightClient;
+    bytes32 public lightClientCodeHash;
+    uint256 public sourceChainId;
+    uint256 public consensusVersion;
+    bytes32 public bootstrapHash;
+    uint256 public proofMaxAge;
 
     error InvalidLightClient();
 
     constructor(address lightClient_) {
+        if (lightClient_ != address(0)) _initializeLightClient(lightClient_);
+    }
+
+    function _initializeLightClient(address lightClient_) internal {
         if (lightClient_ == address(0) || lightClient_.code.length == 0) revert InvalidLightClient();
         lightClient = lightClient_;
         lightClientCodeHash = lightClient_.codehash;

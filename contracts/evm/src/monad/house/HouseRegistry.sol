@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {ProxyInitializable} from "../../shared/ProxyInitializable.sol";
+
 interface IHouseRegistryVault {
     function asset() external view returns (address);
     function manager() external view returns (address);
 }
 
-contract HouseRegistry {
+contract HouseRegistry is ProxyInitializable {
     struct House {
         address vault;
         address asset;
@@ -35,7 +37,7 @@ contract HouseRegistry {
     mapping(address => Policy) public policies;
     mapping(address => address) public houseOfVault;
     mapping(address => address) public policyGovernors;
-    address public immutable governance;
+    address public governance;
     error Unauthorized();
     error Invalid();
     event HouseRegistered(address indexed house, address vault);
@@ -47,6 +49,18 @@ contract HouseRegistry {
     uint256 private constant PROTOCOL_FLOOR_BPS = 11_000;
 
     constructor(address governance_) {
+        if (governance_ != address(0)) _initializeHouseRegistry(governance_);
+    }
+
+    function initialize(address governance_) external initializer {
+        _initializeHouseRegistry(governance_);
+    }
+
+    function upgradeContractId() external pure override returns (bytes32) {
+        return keccak256("termbook.HouseRegistry.v1");
+    }
+
+    function _initializeHouseRegistry(address governance_) private {
         if (governance_ == address(0)) revert Unauthorized();
         governance = governance_;
     }

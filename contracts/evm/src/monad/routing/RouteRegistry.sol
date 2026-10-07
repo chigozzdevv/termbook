@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-contract RouteRegistry {
+import {ProxyInitializable} from "../../shared/ProxyInitializable.sol";
+
+contract RouteRegistry is ProxyInitializable {
     struct Route {
         address adapter;
         bytes32 assetPair;
@@ -11,13 +13,25 @@ contract RouteRegistry {
     }
 
     mapping(bytes32 => Route) public routes;
-    address public immutable governance;
+    address public governance;
     error Unauthorized();
     error Invalid();
     event RouteSet(bytes32 indexed id, address adapter, uint256 version);
     event RouteDisabled(bytes32 indexed id);
 
     constructor(address governance_) {
+        if (governance_ != address(0)) _initializeRouteRegistry(governance_);
+    }
+
+    function initialize(address governance_) external initializer {
+        _initializeRouteRegistry(governance_);
+    }
+
+    function upgradeContractId() external pure override returns (bytes32) {
+        return keccak256("termbook.RouteRegistry.v1");
+    }
+
+    function _initializeRouteRegistry(address governance_) private {
         if (governance_ == address(0)) revert Unauthorized();
         governance = governance_;
     }

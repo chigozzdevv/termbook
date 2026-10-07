@@ -2,7 +2,8 @@
 pragma solidity ^0.8.24;
 
 contract ProtocolGovernance {
-    address public immutable governance;
+    address public governance;
+    address public pendingGovernance;
     uint256 public immutable timelock;
     mapping(address => bool) public cores;
     mapping(bytes32 => uint256) public queuedAt;
@@ -19,6 +20,8 @@ contract ProtocolGovernance {
     event ActionQueued(bytes32 indexed actionId, address indexed target, uint256 value, uint256 eta);
     event ActionCancelled(bytes32 indexed actionId);
     event ActionExecuted(bytes32 indexed actionId, address indexed target, uint256 value);
+    event GovernanceTransferStarted(address indexed current, address indexed pending);
+    event GovernanceTransferred(address indexed previous, address indexed current);
 
     constructor(address governance_, uint256 timelock_) {
         if (governance_ == address(0)) revert Unauthorized();
@@ -29,6 +32,20 @@ contract ProtocolGovernance {
     }
 
     receive() external payable {}
+
+    function transferGovernance(address next) external {
+        if (msg.sender != governance) revert Unauthorized();
+        pendingGovernance = next;
+        emit GovernanceTransferStarted(governance, next);
+    }
+
+    function acceptGovernance() external {
+        if (msg.sender != pendingGovernance || pendingGovernance == address(0)) revert Unauthorized();
+        address previous = governance;
+        governance = pendingGovernance;
+        pendingGovernance = address(0);
+        emit GovernanceTransferred(previous, governance);
+    }
 
     function addCore(address core) external {
         if (msg.sender != governance || core == address(0) || core.code.length == 0) revert Invalid();

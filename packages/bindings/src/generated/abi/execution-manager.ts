@@ -373,6 +373,19 @@ export const executionManagerAbi = [
   },
   {
     "type": "function",
+    "name": "initialize",
+    "inputs": [
+      {
+        "name": "core_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "pendingAt",
     "inputs": [
       {
@@ -824,6 +837,19 @@ export const executionManagerAbi = [
     "stateMutability": "nonpayable"
   },
   {
+    "type": "function",
+    "name": "upgradeContractId",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
     "type": "event",
     "name": "ActionPending",
     "inputs": [
@@ -918,6 +944,19 @@ export const executionManagerAbi = [
   },
   {
     "type": "event",
+    "name": "Initialized",
+    "inputs": [
+      {
+        "name": "version",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "SessionConfigured",
     "inputs": [
       {
@@ -949,6 +988,16 @@ export const executionManagerAbi = [
   {
     "type": "error",
     "name": "Invalid",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidInitialization",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotInitializing",
     "inputs": []
   },
   {

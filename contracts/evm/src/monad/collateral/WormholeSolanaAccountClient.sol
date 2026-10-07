@@ -1,26 +1,28 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {ProxyInitializable} from "../../shared/ProxyInitializable.sol";
+
 import {WormholeNetworks} from "../../shared/collateral/WormholeNetworks.sol";
 
 import {IWormholeCore} from "../../shared/collateral/IWormholeCore.sol";
 
-contract WormholeSolanaAccountClient {
+contract WormholeSolanaAccountClient is ProxyInitializable {
     bytes32 private constant SNAPSHOT_DOMAIN = keccak256("Termbook Solana snapshot v1");
     uint16 private constant SOLANA_WORMHOLE_CHAIN = 1;
     uint8 private constant FINALIZED = 1;
     uint256 private constant MAX_VAA_SIZE = 96_000;
     uint256 private constant MAX_ACCOUNT_SIZE = 1_024;
 
-    IWormholeCore public immutable wormhole;
-    bytes32 public immutable sourceGenesis;
-    bytes32 public immutable sourceProgram;
-    bytes32 public immutable sourceEmitter;
-    bytes32 public immutable sourceProgramDataHash;
-    uint256 public immutable chainId;
-    uint256 public immutable consensusVersion;
-    bytes32 public immutable bootstrapHash;
-    uint256 public immutable proofMaxAge;
+    IWormholeCore public wormhole;
+    bytes32 public sourceGenesis;
+    bytes32 public sourceProgram;
+    bytes32 public sourceEmitter;
+    bytes32 public sourceProgramDataHash;
+    uint256 public chainId;
+    uint256 public consensusVersion;
+    bytes32 public bootstrapHash;
+    uint256 public proofMaxAge;
 
     error InvalidWormholeMessage();
 
@@ -34,6 +36,49 @@ contract WormholeSolanaAccountClient {
         bytes32 programDataHash_,
         uint256 maxAge_
     ) {
+        if (!(
+            wormhole_ == address(0)
+            && sourceChain_ == 0
+            && version_ == 0
+            && genesis_ == bytes32(0)
+            && program_ == bytes32(0)
+            && emitter_ == bytes32(0)
+            && programDataHash_ == bytes32(0)
+            && maxAge_ == 0
+        )) {
+            _initializeWormholeSolanaAccountClient(
+                wormhole_, sourceChain_, version_, genesis_, program_, emitter_, programDataHash_, maxAge_
+            );
+        }
+    }
+
+    function initialize(
+        address wormhole_,
+        uint256 sourceChain_,
+        uint256 version_,
+        bytes32 genesis_,
+        bytes32 program_,
+        bytes32 emitter_,
+        bytes32 programDataHash_,
+        uint256 maxAge_
+    ) external initializer {
+        _initializeWormholeSolanaAccountClient(wormhole_, sourceChain_, version_, genesis_, program_, emitter_, programDataHash_, maxAge_);
+    }
+
+    function upgradeContractId() external pure override returns (bytes32) {
+        return keccak256("termbook.WormholeSolanaAccountClient.v1");
+    }
+
+    function _initializeWormholeSolanaAccountClient(
+        address wormhole_,
+        uint256 sourceChain_,
+        uint256 version_,
+        bytes32 genesis_,
+        bytes32 program_,
+        bytes32 emitter_,
+        bytes32 programDataHash_,
+        uint256 maxAge_
+    ) private {
         if (
             wormhole_.code.length == 0 || IWormholeCore(wormhole_).chainId() != WormholeNetworks.monadWormholeChain(block.chainid)
                 || sourceChain_ == 0 || version_ == 0 || genesis_ == bytes32(0)

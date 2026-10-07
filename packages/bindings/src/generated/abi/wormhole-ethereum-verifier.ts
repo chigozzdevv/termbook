@@ -110,6 +110,49 @@ export const wormholeEthereumVerifierAbi = [
   },
   {
     "type": "function",
+    "name": "initialize",
+    "inputs": [
+      {
+        "name": "client_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "publisher_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "publisherCodeHash_",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "vault_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "vaultCodeHash_",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "controller_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "controllerCodeHash_",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "lightClient",
     "inputs": [],
     "outputs": [
@@ -256,6 +299,19 @@ export const wormholeEthereumVerifierAbi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "upgradeContractId",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "pure"
   },
   {
     "type": "function",
@@ -562,6 +618,24 @@ export const wormholeEthereumVerifierAbi = [
     "stateMutability": "pure"
   },
   {
+    "type": "event",
+    "name": "Initialized",
+    "inputs": [
+      {
+        "name": "version",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "InvalidInitialization",
+    "inputs": []
+  },
+  {
     "type": "error",
     "name": "InvalidLightClient",
     "inputs": []
@@ -569,6 +643,11 @@ export const wormholeEthereumVerifierAbi = [
   {
     "type": "error",
     "name": "InvalidProof",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotInitializing",
     "inputs": []
   }
 ] as const;

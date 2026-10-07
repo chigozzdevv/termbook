@@ -13,6 +13,8 @@ export * from "./abi/account-factory.js";
 export * from "./abi/inbox-factory.js";
 export * from "./abi/integration-registry.js";
 export * from "./abi/protocol-governance.js";
+export * from "./abi/upgrade-controller.js";
+export * from "./abi/testnet-proxy.js";
 export * from "./abi/guardian.js";
 export * from "./abi/house-registry.js";
 export * from "./abi/price-protection.js";

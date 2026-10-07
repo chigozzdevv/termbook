@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {ProxyInitializable} from "../../shared/ProxyInitializable.sol";
+
 interface IGuardianPausable {
     function setPaused(bool value) external;
 }
 
-contract Guardian {
-    address public immutable guardian;
-    address public immutable governance;
+contract Guardian is ProxyInitializable {
+    address public guardian;
+    address public governance;
     mapping(address => bool) public paused;
 
     error Unauthorized();
@@ -16,6 +18,23 @@ contract Guardian {
     event PausedSet(address indexed target, bool value);
 
     constructor(address guardian_, address governance_) {
+        if (!(
+            guardian_ == address(0)
+            && governance_ == address(0)
+        )) {
+            _initializeGuardian(guardian_, governance_);
+        }
+    }
+
+    function initialize(address guardian_, address governance_) external initializer {
+        _initializeGuardian(guardian_, governance_);
+    }
+
+    function upgradeContractId() external pure override returns (bytes32) {
+        return keccak256("termbook.Guardian.v1");
+    }
+
+    function _initializeGuardian(address guardian_, address governance_) private {
         if (guardian_ == address(0) || governance_ == address(0)) revert Unauthorized();
         guardian = guardian_;
         governance = governance_;

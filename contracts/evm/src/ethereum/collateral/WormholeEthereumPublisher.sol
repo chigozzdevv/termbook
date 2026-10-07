@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {ProxyInitializable} from "../../shared/ProxyInitializable.sol";
+
 import {WormholeNetworks} from "../../shared/collateral/WormholeNetworks.sol";
 
 import {CollateralVault} from "../../shared/collateral/CollateralVault.sol";
@@ -9,13 +11,13 @@ import {IWormholeCore} from "../../shared/collateral/IWormholeCore.sol";
 import {WormholeTermbookMessages as Messages} from "../../shared/collateral/WormholeTermbookMessages.sol";
 import {SourceRecoveryVault} from "./SourceRecoveryVault.sol";
 
-contract WormholeEthereumPublisher {
-    CollateralVault public immutable vault;
-    RemoteCollateralController public immutable controller;
-    IWormholeCore public immutable wormhole;
-    bytes32 public immutable vaultCodeHash;
-    bytes32 public immutable controllerCodeHash;
-    bytes32 public immutable wormholeCodeHash;
+contract WormholeEthereumPublisher is ProxyInitializable {
+    CollateralVault public vault;
+    RemoteCollateralController public controller;
+    IWormholeCore public wormhole;
+    bytes32 public vaultCodeHash;
+    bytes32 public controllerCodeHash;
+    bytes32 public wormholeCodeHash;
     mapping(bytes32 => bool) public published;
     mapping(bytes32 => uint64) public sequenceOf;
     mapping(bytes32 => uint256) public snapshotPublishedAt;
@@ -23,6 +25,24 @@ contract WormholeEthereumPublisher {
     error Invalid();
 
     constructor(address vault_, address controller_, address wormhole_) {
+        if (!(
+            vault_ == address(0)
+            && controller_ == address(0)
+            && wormhole_ == address(0)
+        )) {
+            _initializeWormholeEthereumPublisher(vault_, controller_, wormhole_);
+        }
+    }
+
+    function initialize(address vault_, address controller_, address wormhole_) external initializer {
+        _initializeWormholeEthereumPublisher(vault_, controller_, wormhole_);
+    }
+
+    function upgradeContractId() external pure override returns (bytes32) {
+        return keccak256("termbook.WormholeEthereumPublisher.v1");
+    }
+
+    function _initializeWormholeEthereumPublisher(address vault_, address controller_, address wormhole_) private {
         if (
             (block.chainid != 1 && block.chainid != 11155111) || vault_.code.length == 0 || controller_.code.length == 0 || wormhole_.code.length == 0
                 || IWormholeCore(wormhole_).chainId() != WormholeNetworks.ethereumWormholeChain(block.chainid)

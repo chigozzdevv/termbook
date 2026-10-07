@@ -3,6 +3,7 @@ import { hexToBytes, bytesToHex } from "viem";
 import type { TxHash } from "../types/client.types.js";
 import { collateralSetupHash, type SourceLockObservation, type SourceLockWallet } from "./setup.js";
 import { solanaPubkeyBase58, solanaPubkeyBytes } from "./solana.js";
+import { verifySolanaProgramAuthority } from "./solana-program.js";
 import { prepareSolanaWormhole, type WormholeNetwork, type SolanaWormholeContext } from "./solana-wormhole.js";
 
 const systemProgram = "11111111111111111111111111111111";
@@ -19,6 +20,7 @@ export type SolanaInstruction = {
 };
 
 export type SolanaWalletPort = {
+  testnetUpgradeAuthority?: string;
   wormholeNetwork?: WormholeNetwork;
   publicKey: string;
   sendInstruction(instruction: SolanaInstruction): Promise<string>;
@@ -384,8 +386,9 @@ export class SolanaSourceLockWallet implements SourceLockWallet {
     const programData = await this.rpc.getAccountInfo(programDataAddress);
     if (!programData || programData.owner !== upgradeableLoader
       || programData.data.length < 45
-      || new DataView(programData.data.buffer, programData.data.byteOffset).getUint32(0, true) !== 3
-      || programData.data[12] !== 0) throw new Error("solana-program-not-immutable");
+      || new DataView(programData.data.buffer, programData.data.byteOffset).getUint32(0, true) !== 3) throw new Error("solana-program-not-immutable");
+    verifySolanaProgramAuthority(programData.data, binding.asset.reference, BigInt(binding.monadChainId),
+      this.config.wallet.testnetUpgradeAuthority);
     const instruction: SolanaInstruction = {
       programId,
       keys: [

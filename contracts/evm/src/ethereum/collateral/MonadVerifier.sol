@@ -5,7 +5,18 @@ import {LightClientVerifier, IExecutionReceiptsLightClient} from "../../shared/c
 import {EvmReceiptProof} from "../../shared/collateral/EvmReceiptProof.sol";
 
 contract MonadVerifier is LightClientVerifier {
-    constructor(address lightClient_) LightClientVerifier(lightClient_) {}
+    constructor(address lightClient_) LightClientVerifier(lightClient_) {
+        if (lightClient_ != address(0)) _initializeMonadVerifier(lightClient_);
+    }
+
+    function initialize(address lightClient_) external initializer {
+        _initializeLightClient(lightClient_);
+        _initializeMonadVerifier(lightClient_);
+    }
+
+    function upgradeContractId() external pure override returns (bytes32) { return keccak256("termbook.MonadVerifier.v1"); }
+
+    function _initializeMonadVerifier(address lightClient_) private {}
 
     function verifyEvent(bytes calldata header, bytes calldata proof, address emitter, bytes32 eventDigest)
         external

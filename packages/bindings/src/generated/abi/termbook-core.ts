@@ -3653,6 +3653,44 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "initialize",
+    "inputs": [
+      {
+        "name": "governance_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "guardian_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "risk_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "execution_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "reservations_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "prices_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "integrationRegistry",
     "inputs": [],
     "outputs": [
@@ -7632,6 +7670,19 @@ export const termbookCoreAbi = [
   },
   {
     "type": "function",
+    "name": "upgradeContractId",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
     "name": "vaultEverUsed",
     "inputs": [
       {
@@ -8088,6 +8139,19 @@ export const termbookCoreAbi = [
         "type": "bytes32",
         "indexed": true,
         "internalType": "bytes32"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "Initialized",
+    "inputs": [
+      {
+        "name": "version",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
       }
     ],
     "anonymous": false
@@ -8885,6 +8949,11 @@ export const termbookCoreAbi = [
   },
   {
     "type": "error",
+    "name": "InvalidInitialization",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "InvalidTerms",
     "inputs": []
   },
@@ -8896,6 +8965,11 @@ export const termbookCoreAbi = [
   {
     "type": "error",
     "name": "InvalidVault",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotInitializing",
     "inputs": []
   },
   {

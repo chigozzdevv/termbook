@@ -1,6 +1,7 @@
 import { bytesToHex, encodeAbiParameters, hexToBytes, keccak256, stringToHex } from "viem";
 import { solanaPubkeyBase58 } from "./solana.js";
 import { solanaPubkeyBytes } from "./solana.js";
+import { verifySolanaProgramAuthority } from "./solana-program.js";
 import { decodeSolanaLockRecord, type SolanaInstruction, type SolanaRpcPort, type SolanaWalletPort } from "./solana-source.js";
 import { prepareSolanaWormhole, submitSolanaLockCheckpoint } from "./solana-wormhole.js";
 
@@ -166,7 +167,8 @@ export async function submitSolanaAction(planValue: unknown, wallet: SolanaWalle
     const programData = await rpc.getAccountInfo(solanaPubkeyBase58(bytesToHex(program.data.subarray(4))));
     if (!programData || programData.owner !== program.owner || programData.executable || programData.data.length < 45
       || new DataView(programData.data.buffer, programData.data.byteOffset).getUint32(0, true) !== 3
-      || programData.data[12] !== 0 || keccak256(programData.data) !== plan.programDataHash) throw new Error("solana-program-code-mismatch");
+      || keccak256(programData.data.subarray(45)) !== plan.programDataHash) throw new Error("solana-program-code-mismatch");
+    verifySolanaProgramAuthority(programData.data, action.sourceGenesis, action.monadChain, wallet.testnetUpgradeAuthority);
   }
   const record = decodeSolanaLockRecord(vault.data);
   if (record.version !== 3 || record.monadChain !== action.monadChain

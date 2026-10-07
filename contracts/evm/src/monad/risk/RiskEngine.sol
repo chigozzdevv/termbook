@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {ProxyInitializable} from "../../shared/ProxyInitializable.sol";
+
 import {Types} from "../../shared/Types.sol";
 import {HealthMath} from "./HealthMath.sol";
 import {IRiskEngine} from "./IRiskEngine.sol";
 
-contract RiskEngine is IRiskEngine {
+contract RiskEngine is IRiskEngine, ProxyInitializable {
     uint256 public protocolFloorBps = 11_000;
     mapping(bytes32 => Types.HealthSnapshot) internal _snaps;
     mapping(bytes32 => uint256) public initialBps;
@@ -13,7 +15,7 @@ contract RiskEngine is IRiskEngine {
     mapping(bytes32 => uint256) public watchBps;
     mapping(bytes32 => uint256) public freezeBps;
     mapping(bytes32 => uint256) public liquidationBps;
-    address public immutable core;
+    address public core;
 
     error Unauthorized();
     error BadOrder();
@@ -24,6 +26,20 @@ contract RiskEngine is IRiskEngine {
     error Unconfigured();
 
     constructor(address core_) {
+        if (core_ != address(0)) _initializeRiskEngine(core_);
+    }
+
+    function initialize(address core_) external initializer {
+        _initializeRiskEngine(core_);
+    }
+
+    function upgradeContractId() external pure override returns (bytes32) {
+        return keccak256("termbook.RiskEngine.v1");
+    }
+
+    function _initializeRiskEngine(address core_) private {
+        if (core_ == address(0)) revert Unauthorized();
+        protocolFloorBps = 11_000;
         core = core_;
     }
 

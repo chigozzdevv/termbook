@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {ProxyInitializable} from "../../shared/ProxyInitializable.sol";
+
 import {IHealthReader, ICashReader, HealthReading} from "./IHealthSource.sol";
 import {TermbookCore} from "../credit/TermbookCore.sol";
 
@@ -17,7 +19,7 @@ interface ICollateralHouseVault {
     function asset() external view returns (address);
 }
 
-contract CollateralHealthReader is IHealthReader, ICashReader {
+contract CollateralHealthReader is IHealthReader, ICashReader, ProxyInitializable {
     struct Market {
         bytes32 priceId;
         bytes32 settlementCodeHash;
@@ -29,9 +31,9 @@ contract CollateralHealthReader is IHealthReader, ICashReader {
         bool active;
     }
 
-    TermbookCore public immutable core;
-    address public immutable governance;
-    address public immutable oracleRegistry;
+    TermbookCore public core;
+    address public governance;
+    address public oracleRegistry;
     mapping(bytes32 => Market) public markets;
 
     error Unauthorized();
@@ -42,6 +44,24 @@ contract CollateralHealthReader is IHealthReader, ICashReader {
     event MarketDisabled(bytes32 indexed marketId);
 
     constructor(address core_, address governance_, address oracleRegistry_) {
+        if (!(
+            core_ == address(0)
+            && governance_ == address(0)
+            && oracleRegistry_ == address(0)
+        )) {
+            _initializeCollateralHealthReader(core_, governance_, oracleRegistry_);
+        }
+    }
+
+    function initialize(address core_, address governance_, address oracleRegistry_) external initializer {
+        _initializeCollateralHealthReader(core_, governance_, oracleRegistry_);
+    }
+
+    function upgradeContractId() external pure override returns (bytes32) {
+        return keccak256("termbook.CollateralHealthReader.v1");
+    }
+
+    function _initializeCollateralHealthReader(address core_, address governance_, address oracleRegistry_) private {
         if (core_.code.length == 0 || governance_ == address(0) || oracleRegistry_.code.length == 0) {
             revert InvalidMarket();
         }

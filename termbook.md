@@ -871,6 +871,22 @@ the authorized migration path. Core and verifier upgrades deploy new versions;
 they cannot overwrite implementation code or custody rules for a live Credit,
 or bypass its accounting through an administrative update.
 
+For testnet validation, an explicitly disclosed administrator upgrade mode may
+replace logic at stable proxy addresses while preserving storage and interfaces.
+The shipped proxy mode is restricted to Monad testnet and Sepolia. Its controller
+owns all proxy administrators, and ProtocolGovernance authorizes exact
+implementation hashes and initialization calls. Governance ownership transfers
+require acceptance by the nominated owner, allowing a single testnet wallet to
+be replaced by a multisig. Storage checks prevent incompatible layouts; they do
+not prove economic compatibility or remove administrator trust.
+
+Solana's `testnet-upgrades` build permits retained devnet loader authority with
+explicit expected-authority checks in the SDK and keeper. Mainnet rejects mutable
+programs. Changing a program binary requires reviewed proof/version configuration.
+This testnet mode deliberately accepts administrator trust and does not establish
+the production custody and servicing guarantees described here. Production
+versions and migrations continue to require the protections below.
+
 HouseVault custody guards authenticate the House-authorized Credit allocation,
 its servicing Core, draw limits, and repayment accounting. CollateralVault guards
 enforce the bound verification version, lock consumption, release authority, and

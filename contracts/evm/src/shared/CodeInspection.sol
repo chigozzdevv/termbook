@@ -1,7 +1,21 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {TestnetProxy} from "../monad/governance/TestnetProxy.sol";
+import {UpgradeController} from "../monad/governance/UpgradeController.sol";
+import {ProxyAdmin} from "@openzeppelin/contracts/proxy/transparent/ProxyAdmin.sol";
+
 library CodeInspection {
+    function registeredTestnetProxy(address target) internal view returns (bool) {
+        if (block.chainid != 10143 && block.chainid != 11155111) return false;
+        try TestnetProxy(payable(target)).proxyAdmin() returns (address admin) {
+            try ProxyAdmin(admin).owner() returns (address controller) {
+                try UpgradeController(controller).contractIds(target) returns (bytes32 id) { return id != bytes32(0); }
+                catch { return false; }
+            } catch { return false; }
+        } catch { return false; }
+    }
+
     function delegates(address target) internal view returns (bool) {
         bytes memory code = target.code;
         uint256 length = code.length;

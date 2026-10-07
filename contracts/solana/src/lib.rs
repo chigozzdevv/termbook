@@ -274,7 +274,7 @@ fn process_lock(
         &record.monad_core,
         &solana_lock_digest(&record)?,
     )?;
-    verify_immutable_program(program_id, program, program_data)?;
+    verify_program_authority(program_id, program, program_data)?;
     let recovery_record = RecoveryRecord {
         version: RECOVERY_VERSION,
         bump: recovery_bump,
@@ -328,7 +328,7 @@ fn process_lock(
     Ok(())
 }
 
-fn verify_immutable_program(
+fn verify_program_authority(
     program_id: &Pubkey,
     program: &AccountInfo,
     program_data: &AccountInfo,
@@ -350,9 +350,17 @@ fn verify_immutable_program(
         || program_bytes[..4] != 2u32.to_le_bytes()
         || data_bytes[..4] != 3u32.to_le_bytes()
         || program_bytes[4..36] != program_data.key.as_ref()[..]
-        || data_bytes[12] != 0
+        || data_bytes[12] > 1
     {
         return Err(VaultError::InvalidBinding.into());
+    }
+    if data_bytes[12] == 1 {
+        #[cfg(not(feature = "testnet-upgrades"))]
+        return Err(VaultError::InvalidBinding.into());
+        #[cfg(feature = "testnet-upgrades")]
+        if data_bytes[13..45] == [0; 32] {
+            return Err(VaultError::InvalidBinding.into());
+        }
     }
     Ok(())
 }
@@ -1555,7 +1563,7 @@ mod tests {
             false,
         );
         assert_eq!(
-            verify_immutable_program(&program_id, &program, &data),
+            verify_program_authority(&program_id, &program, &data),
             Ok(())
         );
         drop(data);
@@ -1569,7 +1577,25 @@ mod tests {
             &loader,
             false,
         );
-        assert!(verify_immutable_program(&program_id, &program, &data).is_err());
+        assert!(verify_program_authority(&program_id, &program, &data).is_err());
+        drop(data);
+        data_bytes[13..45].copy_from_slice(Pubkey::new_unique().as_ref());
+        let data = AccountInfo::new(
+            &data_key,
+            false,
+            false,
+            &mut data_lamports,
+            &mut data_bytes,
+            &loader,
+            false,
+        );
+        #[cfg(feature = "testnet-upgrades")]
+        assert_eq!(
+            verify_program_authority(&program_id, &program, &data),
+            Ok(())
+        );
+        #[cfg(not(feature = "testnet-upgrades"))]
+        assert!(verify_program_authority(&program_id, &program, &data).is_err());
     }
 
     #[test]

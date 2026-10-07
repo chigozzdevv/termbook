@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {ProxyInitializable} from "../../shared/ProxyInitializable.sol";
+
 import {IAppCallValidator} from "./IAppCallValidator.sol";
 import {IAppDeploymentGuard} from "./IAppDeploymentGuard.sol";
 import {CodeInspection} from "../../shared/CodeInspection.sol";
 
-contract IntegrationRegistry {
+contract IntegrationRegistry is ProxyInitializable {
     struct Dependency {
         bytes32 codeHash;
         address guard;
@@ -55,7 +57,7 @@ contract IntegrationRegistry {
     mapping(bytes32 => mapping(address => mapping(bytes4 => bytes32))) public callCodeHashes;
     mapping(bytes32 => mapping(address => mapping(bytes4 => CallPolicy))) public callPolicies;
     mapping(bytes32 => mapping(address => mapping(bytes4 => RecoveryCallPolicy))) public recoveryCallPolicies;
-    address public immutable reviewer;
+    address public reviewer;
     error Unauthorized();
     error Invalid();
     error Frozen();
@@ -73,6 +75,18 @@ contract IntegrationRegistry {
     event NativeValueRegistered(bytes32 indexed id, address indexed target, bytes4 selector, bool recovery, uint256 maxValue, uint8 amountArg);
 
     constructor(address reviewer_) {
+        if (reviewer_ != address(0)) _initializeIntegrationRegistry(reviewer_);
+    }
+
+    function initialize(address reviewer_) external initializer {
+        _initializeIntegrationRegistry(reviewer_);
+    }
+
+    function upgradeContractId() external pure override returns (bytes32) {
+        return keccak256("termbook.IntegrationRegistry.v1");
+    }
+
+    function _initializeIntegrationRegistry(address reviewer_) private {
         reviewer = reviewer_;
     }
 

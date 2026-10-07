@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {ProxyInitializable} from "../../shared/ProxyInitializable.sol";
+
 import {AuthLib} from "../../shared/AuthLib.sol";
 import {SafeTransferLib} from "../../shared/SafeTransferLib.sol";
 import {InboxFactory} from "../../monad/routing/InboxFactory.sol";
@@ -24,7 +26,7 @@ interface IRemoteRecoveryControllerIdentity {
     function paused() external view returns (bool);
 }
 
-contract SourceRecoveryVault {
+contract SourceRecoveryVault is ProxyInitializable {
     using SafeTransferLib for address;
 
     struct Funding {
@@ -58,13 +60,13 @@ contract SourceRecoveryVault {
     bytes32 private constant NAME_HASH = keccak256("Termbook");
     bytes32 private constant VERSION_HASH = keccak256("1");
 
-    address public immutable asset;
-    address public immutable governance;
-    address public immutable routeSigner;
-    address public immutable riskSigner;
-    uint256 public immutable monadChain;
-    address public immutable monadFactory;
-    IRecoveryOperationVerifier public immutable verifier;
+    address public asset;
+    address public governance;
+    address public routeSigner;
+    address public riskSigner;
+    uint256 public monadChain;
+    address public monadFactory;
+    IRecoveryOperationVerifier public verifier;
     address public controller;
     address public pauseGuardian;
     bool public fundingPaused;
@@ -102,6 +104,46 @@ contract SourceRecoveryVault {
         address routeSigner_,
         address riskSigner_
     ) {
+        if (!(
+            asset_ == address(0)
+            && monadChain_ == 0
+            && monadFactory_ == address(0)
+            && verifier_ == address(0)
+            && governance_ == address(0)
+            && routeSigner_ == address(0)
+            && riskSigner_ == address(0)
+        )) {
+            _initializeSourceRecoveryVault(
+                asset_, monadChain_, monadFactory_, verifier_, governance_, routeSigner_, riskSigner_
+            );
+        }
+    }
+
+    function initialize(
+        address asset_,
+        uint256 monadChain_,
+        address monadFactory_,
+        address verifier_,
+        address governance_,
+        address routeSigner_,
+        address riskSigner_
+    ) external initializer {
+        _initializeSourceRecoveryVault(asset_, monadChain_, monadFactory_, verifier_, governance_, routeSigner_, riskSigner_);
+    }
+
+    function upgradeContractId() external pure override returns (bytes32) {
+        return keccak256("termbook.SourceRecoveryVault.v1");
+    }
+
+    function _initializeSourceRecoveryVault(
+        address asset_,
+        uint256 monadChain_,
+        address monadFactory_,
+        address verifier_,
+        address governance_,
+        address routeSigner_,
+        address riskSigner_
+    ) private {
         if (
             asset_.code.length == 0 || monadChain_ == 0 || monadChain_ == block.chainid
                 || monadFactory_ == address(0) || verifier_.code.length == 0 || governance_ == address(0)

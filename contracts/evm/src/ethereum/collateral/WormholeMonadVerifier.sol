@@ -8,14 +8,30 @@ import {WormholeEvmMessageClient} from "../../shared/collateral/WormholeEvmMessa
 import {WormholeTermbookMessages as Messages} from "../../shared/collateral/WormholeTermbookMessages.sol";
 
 contract WormholeMonadVerifier is LightClientVerifier {
-    address public immutable monadCore;
-    address public immutable monadFactory;
-    address public immutable recoveryClient;
-    bytes32 public immutable recoveryClientCodeHash;
+    address public monadCore;
+    address public monadFactory;
+    address public recoveryClient;
+    bytes32 public recoveryClientCodeHash;
 
-    constructor(address authorizationClient_, address recoveryClient_, address core_, address factory_)
-        LightClientVerifier(authorizationClient_)
-    {
+    constructor(address authorizationClient_, address recoveryClient_, address core_, address factory_) LightClientVerifier(authorizationClient_) {
+        if (!(
+            authorizationClient_ == address(0)
+            && recoveryClient_ == address(0)
+            && core_ == address(0)
+            && factory_ == address(0)
+        )) {
+            _initializeWormholeMonadVerifier(authorizationClient_, recoveryClient_, core_, factory_);
+        }
+    }
+
+    function initialize(address authorizationClient_, address recoveryClient_, address core_, address factory_) external initializer {
+        _initializeLightClient(authorizationClient_);
+        _initializeWormholeMonadVerifier(authorizationClient_, recoveryClient_, core_, factory_);
+    }
+
+    function upgradeContractId() external pure override returns (bytes32) { return keccak256("termbook.WormholeMonadVerifier.v1"); }
+
+    function _initializeWormholeMonadVerifier(address authorizationClient_, address recoveryClient_, address core_, address factory_) private {
         if (
             sourceChainId != WormholeNetworks.monadChain(block.chainid) || core_ == address(0) || factory_ == address(0)
                 || recoveryClient_.code.length == 0

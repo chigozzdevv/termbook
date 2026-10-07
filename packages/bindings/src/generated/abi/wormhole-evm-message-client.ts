@@ -119,6 +119,49 @@ export const wormholeEvmMessageClientAbi = [
   },
   {
     "type": "function",
+    "name": "initialize",
+    "inputs": [
+      {
+        "name": "wormhole_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "destinationWormholeChain_",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "sourceWormholeChain_",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "sourceEvmChain_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "version_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "emitter_",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "maxAge_",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "proofLeaf",
     "inputs": [
       {
@@ -174,6 +217,19 @@ export const wormholeEvmMessageClientAbi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "upgradeContractId",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "pure"
   },
   {
     "type": "function",
@@ -332,8 +388,31 @@ export const wormholeEvmMessageClientAbi = [
     "stateMutability": "view"
   },
   {
+    "type": "event",
+    "name": "Initialized",
+    "inputs": [
+      {
+        "name": "version",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "InvalidInitialization",
+    "inputs": []
+  },
+  {
     "type": "error",
     "name": "InvalidMessage",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotInitializing",
     "inputs": []
   }
 ] as const;

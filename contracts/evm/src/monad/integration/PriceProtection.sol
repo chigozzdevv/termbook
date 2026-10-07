@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {ProxyInitializable} from "../../shared/ProxyInitializable.sol";
+
 import {ExecutionTypes} from "./IExecutionPolicy.sol";
 import {OracleRegistry} from "../risk/OracleRegistry.sol";
 import {CodeInspection} from "../../shared/CodeInspection.sol";
@@ -11,7 +13,7 @@ import {IntegrationRegistry} from "./IntegrationRegistry.sol";
 
 interface IPriceToken { function decimals() external view returns (uint8); }
 
-contract PriceProtection {
+contract PriceProtection is ProxyInitializable {
     struct Rule {
         address oracle;
         bytes32 feedId;
@@ -46,7 +48,7 @@ contract PriceProtection {
         address inputAsset;
         address outputAsset;
     }
-    address public immutable core;
+    address public core;
     mapping(bytes32 => Rule) private rules;
     mapping(bytes32 => AmountRule) public amountRules;
     mapping(bytes32 => bytes32) public ruleHashes;
@@ -58,7 +60,19 @@ contract PriceProtection {
     error Invalid();
     error Stale();
     event RuleConfigured(bytes32 indexed bundleId, bytes32 indexed capability, bytes32 indexed market, bytes32 ruleHash);
-    constructor(address core_) { if (core_ == address(0)) revert Invalid(); core = core_; }
+    constructor(address core_) {
+        if (core_ != address(0)) _initializePriceProtection(core_);
+    }
+
+    function initialize(address core_) external initializer {
+        _initializePriceProtection(core_);
+    }
+
+    function upgradeContractId() external pure override returns (bytes32) {
+        return keccak256("termbook.PriceProtection.v1");
+    }
+
+    function _initializePriceProtection(address core_) private { if (core_ == address(0)) revert Invalid(); core = core_; }
     modifier onlyCore() { if (msg.sender != core) revert Unauthorized(); _; }
 
     function key(bytes32 bundle, bytes32 capability, bytes32 market) public pure returns (bytes32) {

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {ProxyInitializable} from "../../shared/ProxyInitializable.sol";
+
 import {ICollateralVault} from "../../shared/collateral/ICollateralVault.sol";
 import {SafeTransferLib} from "../../shared/SafeTransferLib.sol";
 
@@ -9,7 +11,7 @@ interface IWrappedNative {
     function withdraw(uint256 amount) external;
 }
 
-contract NativeCollateralVault is ICollateralVault {
+contract NativeCollateralVault is ICollateralVault, ProxyInitializable {
     using SafeTransferLib for address;
 
     struct Lock {
@@ -21,9 +23,9 @@ contract NativeCollateralVault is ICollateralVault {
         bool seized;
     }
 
-    address public immutable asset;
-    uint256 public immutable chainId_;
-    address public immutable core;
+    address public asset;
+    uint256 public chainId_;
+    address public core;
     address public pauseGuardian;
     bool public paused;
     mapping(bytes32 => Lock) public locks;
@@ -63,6 +65,24 @@ contract NativeCollateralVault is ICollateralVault {
     }
 
     constructor(address wrappedNative, uint256 sourceChain, address core_) {
+        if (!(
+            wrappedNative == address(0)
+            && sourceChain == 0
+            && core_ == address(0)
+        )) {
+            _initializeNativeCollateralVault(wrappedNative, sourceChain, core_);
+        }
+    }
+
+    function initialize(address wrappedNative, uint256 sourceChain, address core_) external initializer {
+        _initializeNativeCollateralVault(wrappedNative, sourceChain, core_);
+    }
+
+    function upgradeContractId() external pure override returns (bytes32) {
+        return keccak256("termbook.NativeCollateralVault.v1");
+    }
+
+    function _initializeNativeCollateralVault(address wrappedNative, uint256 sourceChain, address core_) private {
         if (wrappedNative.code.length == 0 || core_ == address(0) || sourceChain == 0) revert InvalidAsset();
         if (sourceChain != block.chainid) revert InvalidChain();
         asset = wrappedNative;

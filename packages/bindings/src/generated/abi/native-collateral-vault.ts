@@ -84,6 +84,29 @@ export const nativeCollateralVaultAbi = [
   },
   {
     "type": "function",
+    "name": "initialize",
+    "inputs": [
+      {
+        "name": "wrappedNative",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "sourceChain",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "core_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "isNativeCollateralVault",
     "inputs": [],
     "outputs": [
@@ -520,6 +543,32 @@ export const nativeCollateralVaultAbi = [
     "stateMutability": "payable"
   },
   {
+    "type": "function",
+    "name": "upgradeContractId",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "event",
+    "name": "Initialized",
+    "inputs": [
+      {
+        "name": "version",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
     "type": "event",
     "name": "Locked",
     "inputs": [
@@ -670,6 +719,11 @@ export const nativeCollateralVaultAbi = [
   },
   {
     "type": "error",
+    "name": "InvalidInitialization",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "InvalidRecipient",
     "inputs": []
   },
@@ -686,6 +740,11 @@ export const nativeCollateralVaultAbi = [
   {
     "type": "error",
     "name": "NativeTransferFailed",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotInitializing",
     "inputs": []
   },
   {

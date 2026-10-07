@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {ProxyInitializable} from "../../shared/ProxyInitializable.sol";
+
 import {CollateralVault} from "../../shared/collateral/CollateralVault.sol";
 import {RemoteAction} from "../../shared/collateral/RemoteAction.sol";
 import {IVerifier, IVerifierAdmission} from "../../shared/collateral/IVerifier.sol";
@@ -12,15 +14,15 @@ interface ISourceRecoveryVault {
     function recordSeizure(bytes32 creditId, uint256 amount) external;
 }
 
-contract RemoteCollateralController {
-    CollateralVault public immutable vault;
-    address public immutable monadCore;
-    uint256 public immutable monadChain;
-    address public immutable recoveryVault;
-    IVerifier public immutable verifier;
+contract RemoteCollateralController is ProxyInitializable {
+    CollateralVault public vault;
+    address public monadCore;
+    uint256 public monadChain;
+    address public recoveryVault;
+    IVerifier public verifier;
     mapping(bytes32 => bool) public consumed;
     mapping(bytes32 => bytes32) public lastSeizureHash;
-    address public immutable governance;
+    address public governance;
     address public pauseGuardian;
     bool public paused;
 
@@ -40,6 +42,46 @@ contract RemoteCollateralController {
         address governance_,
         address pauseGuardian_
     ) {
+        if (!(
+            asset == address(0)
+            && monadChain_ == 0
+            && monadCore_ == address(0)
+            && recoveryVault_ == address(0)
+            && verifier_ == address(0)
+            && governance_ == address(0)
+            && pauseGuardian_ == address(0)
+        )) {
+            _initializeRemoteCollateralController(
+                asset, monadChain_, monadCore_, recoveryVault_, verifier_, governance_, pauseGuardian_
+            );
+        }
+    }
+
+    function initialize(
+        address asset,
+        uint256 monadChain_,
+        address monadCore_,
+        address recoveryVault_,
+        address verifier_,
+        address governance_,
+        address pauseGuardian_
+    ) external initializer {
+        _initializeRemoteCollateralController(asset, monadChain_, monadCore_, recoveryVault_, verifier_, governance_, pauseGuardian_);
+    }
+
+    function upgradeContractId() external pure override returns (bytes32) {
+        return keccak256("termbook.RemoteCollateralController.v1");
+    }
+
+    function _initializeRemoteCollateralController(
+        address asset,
+        uint256 monadChain_,
+        address monadCore_,
+        address recoveryVault_,
+        address verifier_,
+        address governance_,
+        address pauseGuardian_
+    ) private {
         if (
             asset.code.length == 0 || monadChain_ == 0 || monadChain_ == block.chainid || monadCore_ == address(0)
                 || recoveryVault_.code.length == 0 || verifier_.code.length == 0 || governance_.code.length == 0

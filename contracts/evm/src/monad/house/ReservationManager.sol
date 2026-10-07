@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-contract ReservationManager {
+import {ProxyInitializable} from "../../shared/ProxyInitializable.sol";
+
+contract ReservationManager is ProxyInitializable {
     struct Policy {
         address vault;
         uint32 maxSetupDuration;
@@ -39,7 +41,7 @@ contract ReservationManager {
         bool active;
     }
     enum Outcome { Ready, Abandoned, Expired, ProtocolFailure }
-    address public immutable core;
+    address public core;
     uint256 public constant MINIMUM_ANNUAL_RATE_BPS = 100;
     mapping(address => mapping(uint256 => Policy)) public policies;
     mapping(address => mapping(uint256 => bytes32)) public policyHashes;
@@ -57,7 +59,19 @@ contract ReservationManager {
     event SponsorAuthorized(bytes32 indexed creditId, address indexed payer, uint256 maxBond, uint256 expiry);
     event ReservationSettled(bytes32 indexed creditId, Outcome outcome, uint256 charge, uint256 refund);
     modifier onlyCore() { if (msg.sender != core) revert Unauthorized(); _; }
-    constructor(address core_) { if (core_ == address(0)) revert Invalid(); core = core_; }
+    constructor(address core_) {
+        if (core_ != address(0)) _initializeReservationManager(core_);
+    }
+
+    function initialize(address core_) external initializer {
+        _initializeReservationManager(core_);
+    }
+
+    function upgradeContractId() external pure override returns (bytes32) {
+        return keccak256("termbook.ReservationManager.v1");
+    }
+
+    function _initializeReservationManager(address core_) private { if (core_ == address(0)) revert Invalid(); core = core_; }
 
     function configure(address house, uint256 version, Policy calldata policy) external onlyCore {
         if (house == address(0) || version == 0 || policy.vault.code.length == 0

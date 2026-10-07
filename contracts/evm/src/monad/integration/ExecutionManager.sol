@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {ProxyInitializable} from "../../shared/ProxyInitializable.sol";
+
 import {ExecutionTypes, IExecutionPolicy} from "./IExecutionPolicy.sol";
 import {IAppStateReader} from "./IAppStateReader.sol";
 import {CodeInspection} from "../../shared/CodeInspection.sol";
 
-contract ExecutionManager {
+contract ExecutionManager is ProxyInitializable {
     struct Bundle {
         address policy;
         address reader;
@@ -39,7 +41,7 @@ contract ExecutionManager {
     }
     struct Permission { bytes32 capability; bytes32 market; }
 
-    address public immutable core;
+    address public core;
     mapping(bytes32 => Bundle) public bundles;
     mapping(bytes32 => mapping(bytes32 => Record)) public records;
     mapping(bytes32 => bytes32[]) private pendingIds;
@@ -60,7 +62,19 @@ contract ExecutionManager {
     event SessionConfigured(bytes32 indexed creditId, address indexed key, bytes32 permissionsHash);
 
     modifier onlyCore() { if (msg.sender != core) revert Unauthorized(); _; }
-    constructor(address core_) { if (core_ == address(0)) revert Invalid(); core = core_; }
+    constructor(address core_) {
+        if (core_ != address(0)) _initializeExecutionManager(core_);
+    }
+
+    function initialize(address core_) external initializer {
+        _initializeExecutionManager(core_);
+    }
+
+    function upgradeContractId() external pure override returns (bytes32) {
+        return keccak256("termbook.ExecutionManager.v1");
+    }
+
+    function _initializeExecutionManager(address core_) private { if (core_ == address(0)) revert Invalid(); core = core_; }
 
     function configure(bytes32 bundleId, address policy, uint8 maxPositions, uint8 maxPending, uint32 maxAge)
         external onlyCore {

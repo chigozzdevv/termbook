@@ -8,6 +8,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { upgradeArtifactLoader } from "./upgrade-validation.mjs";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const require = createRequire(path.join(root, "packages/sdk/package.json"));
@@ -23,15 +24,16 @@ if (process.argv.slice(2).some((argument) => !["--broadcast", "--simulate", "--a
 if (broadcast === simulate) throw new Error("Use --simulate or --broadcast");
 const directory = path.join(root, ".testnet");
 fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
-const previousFile = path.join(root, "deployments/testnet-original.json");
+const previousFile = path.join(root, "deployments/testnet-pre-upgrade.json");
 if (redeploy && !fs.existsSync(previousFile)) {
   fs.copyFileSync(path.join(root, "deployments/testnet.json"), previousFile, fs.constants.COPYFILE_EXCL);
 }
 const previous = redeploy ? JSON.parse(fs.readFileSync(previousFile, "utf8")) : null;
 if (previous && previous.network !== "testnet") throw new Error("Replacement requires an existing testnet deployment");
-const reportFile = path.join(directory, `${simulate ? "simulation" : "deployment"}${redeploy ? "-redeploy" : ""}.json`);
+const reportFile = path.join(directory, `${simulate ? "simulation" : "deployment"}-upgradeable${redeploy ? "-redeploy" : ""}.json`);
 const report = fs.existsSync(reportFile) ? JSON.parse(fs.readFileSync(reportFile, "utf8"))
-  : { network: "testnet", transactions: [], addresses: {}, pendingGovernance: [] };
+  : { network: "testnet", upgradeMode: "testnet-administrator", proxies: {}, transactions: [], addresses: {}, pendingGovernance: [] };
+if (report.upgradeMode !== "testnet-administrator") throw new Error("Legacy deployment journal; use a fresh replacement journal");
 if (activate && !report.transactions.length) throw new Error("Deploy before activating governance actions");
 const persist = () => fs.writeFileSync(reportFile, JSON.stringify(report, null, 2), { mode: 0o600 });
 function publishManifest() {
@@ -42,9 +44,10 @@ function publishManifest() {
     network: report.network, sourceCommit: report.sourceCommit, deployedAt: report.completedAt, deployer: report.deployer,
     recoveryRiskSigner: report.recoveryRiskSigner, addresses: report.addresses,
     governanceDelaySeconds: report.governanceDelaySeconds,
-    previousDeployment: redeploy ? "testnet-original.json" : undefined,
+    previousDeployment: redeploy ? "testnet-pre-upgrade.json" : undefined,
     reusedContracts: report.reusedContracts,
     tokens: report.tokens, solana: report.solana, verification: report.verification,
+    upgradeMode: report.upgradeMode, proxies: report.proxies,
     transactions: report.transactions.map((transaction) => Object.fromEntries(Object.entries(transaction).filter(([key]) => key !== "rawTransaction"))),
     governance: report.pendingGovernance,
   };
@@ -62,8 +65,22 @@ report.deployer = account.address;
 report.recoveryRiskSigner = riskSigner;
 report.sourceCommit ??= execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
 const abi = (name) => artifact(name).abi;
-const artifact = (name) => JSON.parse(fs.readFileSync(path.join(root, `contracts/evm/out/${name}.sol/${name}.json`), "utf8"));
+const artifact = upgradeArtifactLoader(path.join(root, "contracts/evm/out"));
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const upgradeAuthority = process.env["SOLANA_TESTNET_UPGRADE_AUTHORITY"];
+if (upgradeAuthority && new PublicKey(upgradeAuthority).equals(PublicKey.default)) throw new Error("Invalid Solana upgrade authority");
+const proxyNames = new Set(["FlowExecutor", "ReservationManager", "PriceProtection", "TermbookCore",
+  "Guardian", "RiskEngine", "AccountFactory", "IntegrationRegistry", "HouseRegistry", "VerifierRegistry",
+  "OracleRegistry", "HealthSource", "AccountHealthSource", "InboxFactory", "RouteRegistry", "HouseVault",
+  "NativeCollateralVault", "SourceRecoveryVault", "RemoteCollateralController", "WormholeEthereumPublisher",
+  "WormholeEvmMessageClient", "WormholeEthereumVerifier", "WormholeMonadVerifier",
+  "WormholeSolanaAccountClient", "SolanaVerifier"]);
+const zeroArgument = (input) => {
+  if (input.type === "address") return zeroAddress;
+  if (/^bytes\d+$/.test(input.type)) return `0x${"00".repeat(Number(input.type.slice(5)))}`;
+  if (/^u?int\d*$/.test(input.type)) return 0n;
+  throw new Error(`Unsupported implementation constructor: ${input.type}`);
+};
 
 async function context(chainId, url) {
   const parsed = new URL(url);
@@ -148,20 +165,22 @@ async function context(chainId, url) {
     }
     return entry;
   }
-  async function deploy(name, args = [], label = name) {
-    if (previous && chainId === 10143 && ["Guardian", "WormholeSolanaAccountClient", "SolanaVerifier"].includes(label)) {
-      const address = previous.addresses[chainId][label];
-      const original = previous.transactions.find((transaction) => transaction.chainId === chainId
-        && transaction.address?.toLowerCase() === address?.toLowerCase());
-      const code = address ? await publicClient.getCode({ address }) : null;
-      if (!original?.codeHash || !code || keccak256(code) !== original.codeHash) throw new Error(`Reusable contract mismatch: ${label}`);
-      report.reusedContracts ??= [];
-      if (!report.reusedContracts.some((entry) => entry.chainId === chainId && entry.name === label)) {
-        report.reusedContracts.push({ chainId, name: label, address, codeHash: original.codeHash });
-      }
-      addresses[label] = address;
+  async function deploy(name, args = [], label = name, direct = false) {
+    if (!direct && proxyNames.has(name)) {
+      const controller = addresses["UpgradeController"];
+      if (!controller) throw new Error("Deploy the upgrade controller first");
+      const implementation = await deploy(name,
+        (abi(name).find((entry) => entry.type === "constructor")?.inputs ?? []).map(zeroArgument), `${label}Implementation`, true);
+      const initialization = encodeFunctionData({ abi: abi(name), functionName: "initialize", args });
+      const proxy = await deploy("TestnetProxy", [implementation, controller, initialization], label, true);
+      await call("UpgradeController", controller, "register", [proxy], `register:${label}`);
+      report.proxies ??= {};
+      report.proxies[chainId] ??= {};
+      report.proxies[chainId][label] = { implementation, admin: await read("TestnetProxy", proxy, "proxyAdmin"),
+        contractId: await read(name, implementation, "upgradeContractId"), implementationCodeHash: keccak256(await publicClient.getCode({ address: implementation })),
+        storageLayout: artifact(name).storageLayout, abi: abi(name) };
       persist();
-      return address;
+      return proxy;
     }
     const contract = artifact(name);
     report.artifactHashes ??= {};
@@ -196,6 +215,31 @@ async function context(chainId, url) {
   return { publicClient, addresses, read, deploy, call, queue };
 }
 
+const program = process.env["SOLANA_PROGRAM_ID"] ? new PublicKey(process.env["SOLANA_PROGRAM_ID"])
+  : Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(path.join(root, "contracts/solana/target/deploy/sol_collateral-keypair.json"), "utf8")))).publicKey;
+const solanaHex = (bytes) => `0x${Buffer.from(bytes).toString("hex")}`;
+const genesis = solanaHex(new PublicKey("EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG").toBytes());
+const programId = solanaHex(program.toBytes());
+const emitter = solanaHex(PublicKey.findProgramAddressSync([Buffer.from("emitter")], program)[0].toBytes());
+const programHash = keccak256(solanaHex(fs.readFileSync(path.join(root, "contracts/solana/target/testnet/deploy/sol_collateral.so"))));
+if (broadcast) {
+  const solana = new Connection("https://api.devnet.solana.com", "finalized");
+  if (await solana.getGenesisHash() !== "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG") throw new Error("Solana network mismatch");
+  const deployed = await solana.getAccountInfo(program);
+  const loader = "BPFLoaderUpgradeab1e11111111111111111111111";
+  if (!deployed?.executable || deployed.owner.toBase58() !== loader || deployed.data.length !== 36 || deployed.data.readUInt32LE(0) !== 2) throw new Error("Solana program unavailable");
+  const programData = await solana.getAccountInfo(new PublicKey(deployed.data.subarray(4, 36)));
+  if (!programData || programData.executable || programData.owner.toBase58() !== loader
+    || programData.data.length <= 45 || programData.data.readUInt32LE(0) !== 3
+    || programData.data[12] > 1 || (programData.data[12] === 1 && (!upgradeAuthority
+      || new PublicKey(programData.data.subarray(13, 45)).toBase58() !== upgradeAuthority))
+    || keccak256(solanaHex(programData.data.subarray(45))) !== programHash) throw new Error("Solana admitted binary or upgrade authority mismatch");
+  report.solana = { ...previous?.solana, network: "devnet", genesis: "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
+    programId: program.toBase58(), programDataAddress: new PublicKey(deployed.data.subarray(4, 36)).toBase58(),
+    programDataHash: programHash, emitter: PublicKey.findProgramAddressSync([Buffer.from("emitter")], program)[0].toBase58(),
+    immutable: programData.data[12] === 0, upgradeAuthority: programData.data[12] === 1 ? upgradeAuthority : undefined };
+}
+
 const monad = await context(10143, simulate ? "http://127.0.0.1:18545" : "https://testnet-rpc.monad.xyz");
 const ethereum = await context(11155111, simulate ? "http://127.0.0.1:18546" : "https://ethereum-sepolia-rpc.publicnode.com");
 if (previous) {
@@ -209,10 +253,10 @@ if (previous) {
   });
   if (balance !== 0n) throw new Error("Replacement requires migration of existing House liquidity");
   if (broadcast && !activate && report.transactions.length === 0) {
-    const planFile = path.join(directory, "simulation-redeploy.json");
+    const planFile = path.join(directory, "simulation-upgradeable-redeploy.json");
     if (!fs.existsSync(planFile)) throw new Error("Simulate the replacement before broadcasting");
     const plan = JSON.parse(fs.readFileSync(planFile, "utf8"));
-    if (!plan.completedAt || plan.governanceDelaySeconds !== 0 || plan.pendingGovernance.length !== 11
+    if (!plan.completedAt || plan.governanceDelaySeconds !== 0 || plan.pendingGovernance.length !== 13
       || plan.pendingGovernance.some((action) => action.status !== "executed") || !plan.artifactHashes) {
       throw new Error("Complete the replacement deployment and activation simulation first");
     }
@@ -220,7 +264,7 @@ if (previous) {
       if (keccak256(artifact(name).bytecode.object) !== expected) throw new Error(`Simulation build changed: ${name}`);
     }
     const solanaBinary = fs.readFileSync(path.join(root, "contracts/solana/target/testnet/deploy/sol_collateral.so"));
-    if (keccak256(`0x${solanaBinary.toString("hex")}`) !== previous.solana.programDataHash) throw new Error("Solana replacement binary mismatch");
+    if (!upgradeAuthority && keccak256(`0x${solanaBinary.toString("hex")}`) !== previous.solana.programDataHash) throw new Error("Solana replacement binary mismatch");
     const funding = [];
     for (const [context, chainId] of [[monad, 10143], [ethereum, 11155111]]) {
       let gasPrice = await context.publicClient.getGasPrice();
@@ -284,12 +328,13 @@ const governance = await monad.deploy("ProtocolGovernance", [account.address, 0n
 if (await monad.read("ProtocolGovernance", governance, "timelock") !== 0n) throw new Error("Testnet governance delay mismatch");
 report.governanceDelaySeconds = 0;
 persist();
-const guardian = await monad.deploy("Guardian", [account.address, account.address]);
+const upgrades = await monad.deploy("UpgradeController", [account.address]);
+const guardian = await monad.deploy("Guardian", [account.address, governance]);
 const houses = await monad.deploy("HouseRegistry", [governance]);
 const verifiers = await monad.deploy("VerifierRegistry", [governance]);
 if (!report.predictedCore) {
   const nonce = await monad.publicClient.getTransactionCount({ address: account.address, blockTag: "pending" });
-  report.predictedCore = getContractAddress({ from: account.address, nonce: BigInt(nonce + 3) });
+  report.predictedCore = getContractAddress({ from: account.address, nonce: BigInt(nonce + 10) });
   persist();
 }
 const execution = await monad.deploy("FlowExecutor", [report.predictedCore]);
@@ -318,6 +363,7 @@ const routes = await monad.deploy("RouteRegistry", [governance]);
 await monad.deploy("NativeCollateralVault", [wrappedMon, 10143n, core]);
 await monad.deploy("CollateralHealthReader", [core, governance, oracles]);
 const sourceGovernance = await ethereum.deploy("ProtocolGovernance", [account.address, 0n]);
+const sourceUpgrades = await ethereum.deploy("UpgradeController", [account.address]);
 if (await ethereum.read("ProtocolGovernance", sourceGovernance, "timelock") !== 0n) throw new Error("Source governance delay mismatch");
 const authorization = await ethereum.deploy("WormholeEvmMessageClient", [ethereumWormhole, 10002, 10009, 10143n, 1n, padHex(core, { size: 32 }), 7200n], "AuthorizationClient");
 const recoveryClient = await ethereum.deploy("WormholeEvmMessageClient", [ethereumWormhole, 10002, 10009, 10143n, 1n, padHex(factory, { size: 32 }), 7200n], "RecoveryClient");
@@ -330,28 +376,13 @@ const publisher = await ethereum.deploy("WormholeEthereumPublisher", [vault, con
 const ethereumClient = await monad.deploy("WormholeEvmMessageClient", [monadWormhole, 10009, 10002, 11155111n, 1n, padHex(publisher, { size: 32 }), 7200n]);
 const sourceHash = async (address) => keccak256(await ethereum.publicClient.getCode({ address }));
 const ethereumVerifier = await monad.deploy("WormholeEthereumVerifier", [ethereumClient, publisher, await sourceHash(publisher), vault, await sourceHash(vault), controller, await sourceHash(controller)]);
-const program = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(path.join(root, "contracts/solana/target/deploy/sol_collateral-keypair.json"), "utf8")))).publicKey;
-const solanaHex = (bytes) => `0x${Buffer.from(bytes).toString("hex")}`;
-const genesis = solanaHex(new PublicKey("EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG").toBytes());
-const programId = solanaHex(program.toBytes());
-const emitter = solanaHex(PublicKey.findProgramAddressSync([Buffer.from("emitter")], program)[0].toBytes());
-const programHash = keccak256(solanaHex(fs.readFileSync(path.join(root, "contracts/solana/target/testnet/deploy/sol_collateral.so"))));
-if (broadcast) {
-  const solana = new Connection("https://api.devnet.solana.com", "finalized");
-  if (await solana.getGenesisHash() !== "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG") throw new Error("Solana network mismatch");
-  const deployed = await solana.getAccountInfo(program);
-  const loader = "BPFLoaderUpgradeab1e11111111111111111111111";
-  if (!deployed?.executable || deployed.owner.toBase58() !== loader || deployed.data.length !== 36 || deployed.data.readUInt32LE(0) !== 2) throw new Error("Solana program unavailable");
-  const programData = await solana.getAccountInfo(new PublicKey(deployed.data.subarray(4, 36)));
-  if (!programData || programData.owner.toBase58() !== loader || programData.data.readUInt32LE(0) !== 3
-    || programData.data[12] !== 0 || keccak256(solanaHex(programData.data.subarray(45))) !== programHash) throw new Error("Solana immutable binary mismatch");
-  report.solana = { ...previous?.solana, network: "devnet", genesis: "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
-    programId: program.toBase58(), programDataAddress: new PublicKey(deployed.data.subarray(4, 36)).toBase58(),
-    programDataHash: programHash, emitter: PublicKey.findProgramAddressSync([Buffer.from("emitter")], program)[0].toBase58(),
-    immutable: true };
-}
 const solanaClient = await monad.deploy("WormholeSolanaAccountClient", [monadWormhole, 501n, 1n, genesis, programId, emitter, programHash, 7200n]);
 const solanaVerifier = await monad.deploy("SolanaVerifier", [solanaClient, genesis, programId, programHash]);
+for (const [network, controller, authority] of [[monad, upgrades, governance], [ethereum, sourceUpgrades, sourceGovernance]]) {
+  await network.call("UpgradeController", controller, "transferOwnership", [authority]);
+  await network.queue(authority, controller, "UpgradeController", "acceptOwnership");
+}
+report.upgradeMode = "testnet-administrator";
 await monad.call("ProtocolGovernance", governance, "addCore", [core]);
 await ethereum.queue(sourceGovernance, recovery, "SourceRecoveryVault", "setController", [controller]);
 await monad.queue(governance, factory, "InboxFactory", "setRouteRegistry", [routes]);

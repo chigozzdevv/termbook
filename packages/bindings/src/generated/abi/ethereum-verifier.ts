@@ -100,6 +100,39 @@ export const ethereumVerifierAbi = [
   },
   {
     "type": "function",
+    "name": "initialize",
+    "inputs": [
+      {
+        "name": "lightClient_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "sourceVault_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "sourceVaultCodeHash_",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "sourceController_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "sourceControllerCodeHash_",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "lightClient",
     "inputs": [],
     "outputs": [
@@ -220,6 +253,19 @@ export const ethereumVerifierAbi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "upgradeContractId",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "pure"
   },
   {
     "type": "function",
@@ -600,8 +646,26 @@ export const ethereumVerifierAbi = [
     "stateMutability": "view"
   },
   {
+    "type": "event",
+    "name": "Initialized",
+    "inputs": [
+      {
+        "name": "version",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
     "type": "error",
     "name": "InvalidHeader",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidInitialization",
     "inputs": []
   },
   {
@@ -617,6 +681,11 @@ export const ethereumVerifierAbi = [
   {
     "type": "error",
     "name": "InvalidProof",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotInitializing",
     "inputs": []
   }
 ] as const;

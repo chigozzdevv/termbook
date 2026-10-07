@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {TermbookCore} from "../src/monad/credit/TermbookCore.sol";
 
 abstract contract CoreFixture is Test {
-    function _deployCore(address governance, address guardian, address risk) internal returns (TermbookCore core) {
+    function _deployCore(address governance, address guardian, address risk) internal virtual returns (TermbookCore core) {
         return TermbookCore(_deployCoreArtifact("TermbookCore.sol:TermbookCore", governance, guardian, risk));
     }
 

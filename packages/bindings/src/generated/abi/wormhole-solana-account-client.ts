@@ -124,6 +124,54 @@ export const wormholeSolanaAccountClientAbi = [
   },
   {
     "type": "function",
+    "name": "initialize",
+    "inputs": [
+      {
+        "name": "wormhole_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "sourceChain_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "version_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "genesis_",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "program_",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "emitter_",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "programDataHash_",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "maxAge_",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "proofLeaf",
     "inputs": [
       {
@@ -205,6 +253,19 @@ export const wormholeSolanaAccountClientAbi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "upgradeContractId",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "pure"
   },
   {
     "type": "function",
@@ -423,8 +484,31 @@ export const wormholeSolanaAccountClientAbi = [
     "stateMutability": "view"
   },
   {
+    "type": "event",
+    "name": "Initialized",
+    "inputs": [
+      {
+        "name": "version",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "InvalidInitialization",
+    "inputs": []
+  },
+  {
     "type": "error",
     "name": "InvalidWormholeMessage",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotInitializing",
     "inputs": []
   }
 ] as const;

@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {ProxyInitializable} from "../../shared/ProxyInitializable.sol";
+
 import {IVerifierAdmission, IConsensusLightClient} from "../../shared/collateral/IVerifier.sol";
 
-contract VerifierRegistry {
+contract VerifierRegistry is ProxyInitializable {
     struct Verifier {
         address impl;
         uint256 version;
@@ -22,6 +24,18 @@ contract VerifierRegistry {
     error Invalid();
 
     constructor(address governance_) {
+        if (governance_ != address(0)) _initializeVerifierRegistry(governance_);
+    }
+
+    function initialize(address governance_) external initializer {
+        _initializeVerifierRegistry(governance_);
+    }
+
+    function upgradeContractId() external pure override returns (bytes32) {
+        return keccak256("termbook.VerifierRegistry.v1");
+    }
+
+    function _initializeVerifierRegistry(address governance_) private {
         if (governance_ == address(0)) revert Unauthorized();
         governance = governance_;
     }

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {ProxyInitializable} from "../../shared/ProxyInitializable.sol";
+
 import {IHouseVault} from "./IHouseVault.sol";
 import {SafeTransferLib} from "../../shared/SafeTransferLib.sol";
 import {RecoveryReserve} from "./RecoveryReserve.sol";
@@ -29,7 +31,7 @@ interface ISettlementCore {
     function finishLiquidation(bytes32 creditId) external;
 }
 
-contract HouseVault is IHouseVault {
+contract HouseVault is IHouseVault, ProxyInitializable {
     using SafeTransferLib for address;
 
     struct Withdrawal {
@@ -58,11 +60,11 @@ contract HouseVault is IHouseVault {
         uint256 covered;
     }
 
-    address public immutable asset;
-    address public immutable core;
-    address public immutable manager;
-    address public immutable inboxFactory;
-    RecoveryReserve public immutable recoveryReserve;
+    address public asset;
+    address public core;
+    address public manager;
+    address public inboxFactory;
+    RecoveryReserve public recoveryReserve;
     address public pauseGuardian;
     uint256 public freeCash;
     uint256 public committedCash;
@@ -153,6 +155,27 @@ contract HouseVault is IHouseVault {
     event CreditImpairmentSet(bytes32 indexed creditId, uint256 amount);
 
     constructor(address asset_, address core_, address manager_, address inboxFactory_, address pauseGuardian_) {
+        if (!(
+            asset_ == address(0)
+            && core_ == address(0)
+            && manager_ == address(0)
+            && inboxFactory_ == address(0)
+            && pauseGuardian_ == address(0)
+        )) {
+            _initializeHouseVault(asset_, core_, manager_, inboxFactory_, pauseGuardian_);
+        }
+    }
+
+    function initialize(address asset_, address core_, address manager_, address inboxFactory_, address pauseGuardian_) external initializer {
+        _initializeHouseVault(asset_, core_, manager_, inboxFactory_, pauseGuardian_);
+    }
+
+    function upgradeContractId() external pure override returns (bytes32) {
+        return keccak256("termbook.HouseVault.v1");
+    }
+
+    function _initializeHouseVault(address asset_, address core_, address manager_, address inboxFactory_, address pauseGuardian_) private {
+        depositsOpen = true;
         if (
             asset_.code.length == 0 || core_ == address(0) || manager_ == address(0)
                 || (inboxFactory_ != address(0) && inboxFactory_.code.length == 0)

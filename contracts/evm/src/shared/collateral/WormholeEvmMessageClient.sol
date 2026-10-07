@@ -1,17 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {ProxyInitializable} from "../ProxyInitializable.sol";
+
 import {IWormholeCore} from "./IWormholeCore.sol";
 
-contract WormholeEvmMessageClient {
-    IWormholeCore public immutable wormhole;
-    uint256 public immutable chainId;
-    uint256 public immutable consensusVersion;
-    bytes32 public immutable bootstrapHash;
-    uint256 public immutable proofMaxAge;
-    uint16 public immutable sourceWormholeChain;
-    bytes32 public immutable sourceEmitter;
-    bytes32 public immutable wormholeCodeHash;
+contract WormholeEvmMessageClient is ProxyInitializable {
+    IWormholeCore public wormhole;
+    uint256 public chainId;
+    uint256 public consensusVersion;
+    bytes32 public bootstrapHash;
+    uint256 public proofMaxAge;
+    uint16 public sourceWormholeChain;
+    bytes32 public sourceEmitter;
+    bytes32 public wormholeCodeHash;
 
     error InvalidMessage();
 
@@ -24,6 +26,46 @@ contract WormholeEvmMessageClient {
         bytes32 emitter_,
         uint256 maxAge_
     ) {
+        if (!(
+            wormhole_ == address(0)
+            && destinationWormholeChain_ == 0
+            && sourceWormholeChain_ == 0
+            && sourceEvmChain_ == 0
+            && version_ == 0
+            && emitter_ == bytes32(0)
+            && maxAge_ == 0
+        )) {
+            _initializeWormholeEvmMessageClient(
+                wormhole_, destinationWormholeChain_, sourceWormholeChain_, sourceEvmChain_, version_, emitter_, maxAge_
+            );
+        }
+    }
+
+    function initialize(
+        address wormhole_,
+        uint16 destinationWormholeChain_,
+        uint16 sourceWormholeChain_,
+        uint256 sourceEvmChain_,
+        uint256 version_,
+        bytes32 emitter_,
+        uint256 maxAge_
+    ) external initializer {
+        _initializeWormholeEvmMessageClient(wormhole_, destinationWormholeChain_, sourceWormholeChain_, sourceEvmChain_, version_, emitter_, maxAge_);
+    }
+
+    function upgradeContractId() external pure override returns (bytes32) {
+        return keccak256("termbook.WormholeEvmMessageClient.v1");
+    }
+
+    function _initializeWormholeEvmMessageClient(
+        address wormhole_,
+        uint16 destinationWormholeChain_,
+        uint16 sourceWormholeChain_,
+        uint256 sourceEvmChain_,
+        uint256 version_,
+        bytes32 emitter_,
+        uint256 maxAge_
+    ) private {
         if (
             wormhole_.code.length == 0 || IWormholeCore(wormhole_).chainId() != destinationWormholeChain_
                 || destinationWormholeChain_ == sourceWormholeChain_ || sourceWormholeChain_ == 0

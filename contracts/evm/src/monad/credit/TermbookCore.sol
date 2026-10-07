@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {ProxyInitializable} from "../../shared/ProxyInitializable.sol";
+
 import {WormholeNetworks} from "../../shared/collateral/WormholeNetworks.sol";
 
 import {Types} from "../../shared/Types.sol";
@@ -306,7 +308,7 @@ interface IUnconsumedRemoteActionVerifier {
     ) external view returns (bool);
 }
 
-contract TermbookCore is ITermbookCore {
+contract TermbookCore is ITermbookCore, ProxyInitializable {
     using SafeTransferLib for address;
 
     struct Credit {
@@ -443,10 +445,10 @@ contract TermbookCore is ITermbookCore {
     address public verifierRegistry;
     address public houseRegistry;
     address public healthSource;
-    bytes32 public immutable domain;
-    ExecutionManager public immutable executionManager;
-    ReservationManager public immutable reservationManager;
-    PriceProtection public immutable priceProtection;
+    bytes32 public domain;
+    ExecutionManager public executionManager;
+    ReservationManager public reservationManager;
+    PriceProtection public priceProtection;
     mapping(bytes32 => bytes32) public setupFailureEvidence;
     event SetupProtocolFailure(bytes32 indexed creditId, bytes32 evidenceHash);
     mapping(bytes32 => bool) public managedBundle;
@@ -654,6 +656,42 @@ contract TermbookCore is ITermbookCore {
         address reservations_,
         address prices_
     ) {
+        if (!(
+            governance_ == address(0)
+            && guardian_ == address(0)
+            && risk_ == address(0)
+            && execution_ == address(0)
+            && reservations_ == address(0)
+            && prices_ == address(0)
+        )) {
+            _initializeTermbookCore(governance_, guardian_, risk_, execution_, reservations_, prices_);
+        }
+    }
+
+    function initialize(
+        address governance_,
+        address guardian_,
+        address risk_,
+        address execution_,
+        address reservations_,
+        address prices_
+    ) external initializer {
+        _initializeTermbookCore(governance_, guardian_, risk_, execution_, reservations_, prices_);
+    }
+
+    function upgradeContractId() external pure override returns (bytes32) {
+        return keccak256("termbook.TermbookCore.v1");
+    }
+
+    function _initializeTermbookCore(
+        address governance_,
+        address guardian_,
+        address risk_,
+        address execution_,
+        address reservations_,
+        address prices_
+    ) private {
+        healthMaxAge = 1 days;
         if (governance_ == address(0) || guardian_ == address(0)) revert Unauthorized();
         governance = governance_;
         guardian = guardian_;

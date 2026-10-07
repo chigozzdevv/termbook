@@ -464,6 +464,49 @@ export const sourceRecoveryVaultAbi = [
   },
   {
     "type": "function",
+    "name": "initialize",
+    "inputs": [
+      {
+        "name": "asset_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "monadChain_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "monadFactory_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "verifier_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "governance_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "routeSigner_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "riskSigner_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "monadChain",
     "inputs": [],
     "outputs": [
@@ -938,6 +981,19 @@ export const sourceRecoveryVaultAbi = [
   },
   {
     "type": "function",
+    "name": "upgradeContractId",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
     "name": "usedOperation",
     "inputs": [
       {
@@ -1103,6 +1159,19 @@ export const sourceRecoveryVaultAbi = [
   },
   {
     "type": "event",
+    "name": "Initialized",
+    "inputs": [
+      {
+        "name": "version",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "PauseGuardianSet",
     "inputs": [
       {
@@ -1209,7 +1278,17 @@ export const sourceRecoveryVaultAbi = [
   },
   {
     "type": "error",
+    "name": "InvalidInitialization",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "InvalidToken",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotInitializing",
     "inputs": []
   },
   {

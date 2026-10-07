@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {ProxyInitializable} from "../../shared/ProxyInitializable.sol";
+
 import {IAppDeploymentGuard} from "../integration/IAppDeploymentGuard.sol";
 import {CodeInspection} from "../../shared/CodeInspection.sol";
 
@@ -17,7 +19,7 @@ interface IAggregatorRounds {
         returns (uint80, int256, uint256, uint256, uint80);
 }
 
-contract OracleRegistry {
+contract OracleRegistry is ProxyInitializable {
     address public governance;
     mapping(bytes32 => address) public feeds;
     mapping(bytes32 => uint256) public maxAge;
@@ -36,6 +38,18 @@ contract OracleRegistry {
     error StaleFeed();
 
     constructor(address governance_) {
+        if (governance_ != address(0)) _initializeOracleRegistry(governance_);
+    }
+
+    function initialize(address governance_) external initializer {
+        _initializeOracleRegistry(governance_);
+    }
+
+    function upgradeContractId() external pure override returns (bytes32) {
+        return keccak256("termbook.OracleRegistry.v1");
+    }
+
+    function _initializeOracleRegistry(address governance_) private {
         require(governance_ != address(0), "invalid-governance");
         governance = governance_;
     }

@@ -26,6 +26,7 @@ export { SOLANA_WORMHOLE_CORE, fetchMonadAuthorizationVaa, prepareSolanaSnapshot
 export type { SolanaWormholeContext } from "./collateral/solana-wormhole.js";
 export { solanaActionHash, solanaActionInstruction, parseSolanaActionPlan, submitSolanaAction } from "./collateral/solana-action.js";
 export type { SolanaRemoteAuthorization, SolanaActionPlan } from "./collateral/solana-action.js";
+export { verifySolanaProgramAuthority, SOLANA_DEVNET_GENESIS } from "./collateral/solana-program.js";
 export { solanaRecoveryFundingHash, solanaRecoveryFundingInstruction, parseSolanaRecoveryFundingPlan,
   submitSolanaRecoveryFunding } from "./collateral/solana-recovery.js";
 export type { SolanaRecoveryFunding, SolanaRecoveryFundingPlan } from "./collateral/solana-recovery.js";

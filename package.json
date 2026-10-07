@@ -14,6 +14,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@openzeppelin/contracts": "5.4.0",
+    "@openzeppelin/upgrades-core": "1.44.2",
     "eslint": "^10.10.0",
     "prettier": "^3.9.6",
     "tsup": "^8.5.1",

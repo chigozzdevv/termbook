@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {ProxyInitializable} from "../../shared/ProxyInitializable.sol";
+
 import {WormholeNetworks} from "../../shared/collateral/WormholeNetworks.sol";
 
 import {SettlementInbox} from "./SettlementInbox.sol";
@@ -34,9 +36,9 @@ interface IRouteCreditCore {
         returns (uint256 sourceChain, address sourceAsset, address recoveryVault);
 }
 
-contract InboxFactory {
+contract InboxFactory is ProxyInitializable {
     using SafeTransferLib for address;
-    address public immutable governance;
+    address public governance;
     address public registrar;
     address public routeRegistry;
     address public ethereumWormholeCore;
@@ -91,6 +93,18 @@ contract InboxFactory {
     event EthereumWormholeConfigured(address indexed wormhole);
 
     constructor(address governance_) {
+        if (governance_ != address(0)) _initializeInboxFactory(governance_);
+    }
+
+    function initialize(address governance_) external initializer {
+        _initializeInboxFactory(governance_);
+    }
+
+    function upgradeContractId() external pure override returns (bytes32) {
+        return keccak256("termbook.InboxFactory.v1");
+    }
+
+    function _initializeInboxFactory(address governance_) private {
         if (governance_ == address(0)) revert Unauthorized();
         governance = governance_;
         registrar = governance_;

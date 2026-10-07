@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
+
+import {ProxyInitializable} from "../../shared/ProxyInitializable.sol";
 import {CodeInspection} from "../../shared/CodeInspection.sol";
 
 import {Types} from "../../shared/Types.sol";
 import {HealthMath} from "./HealthMath.sol";
 import {IHealthReader, IHealthSource, ICashReader, HealthReading} from "./IHealthSource.sol";
 
-contract HealthSource is IHealthSource {
+contract HealthSource is IHealthSource, ProxyInitializable {
     struct Reader {
         address impl;
         uint256 version;
@@ -15,8 +17,8 @@ contract HealthSource is IHealthSource {
         bytes32 codeHash;
     }
 
-    address public immutable governance;
-    address public immutable oracleRegistry;
+    address public governance;
+    address public oracleRegistry;
     mapping(bytes32 => Reader) public readers;
 
     event ReaderSet(bytes32 indexed bundleId, address indexed reader, uint256 version, uint256 maxAge);
@@ -28,6 +30,23 @@ contract HealthSource is IHealthSource {
     error BadReading();
 
     constructor(address governance_, address oracleRegistry_) {
+        if (!(
+            governance_ == address(0)
+            && oracleRegistry_ == address(0)
+        )) {
+            _initializeHealthSource(governance_, oracleRegistry_);
+        }
+    }
+
+    function initialize(address governance_, address oracleRegistry_) external initializer {
+        _initializeHealthSource(governance_, oracleRegistry_);
+    }
+
+    function upgradeContractId() external pure override returns (bytes32) {
+        return keccak256("termbook.HealthSource.v1");
+    }
+
+    function _initializeHealthSource(address governance_, address oracleRegistry_) private {
         if (governance_ == address(0) || oracleRegistry_ == address(0) || oracleRegistry_.code.length == 0) {
             revert Invalid();
         }

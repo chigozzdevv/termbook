@@ -19,15 +19,31 @@ contract SolanaVerifier is LightClientVerifier {
     bytes32 internal constant LOCK_DOMAIN = keccak256("Termbook Solana lock v1");
     bytes32 internal constant NATIVE_SOL_ASSET_ID = 0x0101010101010101010101010101010101010101010101010101010101010101;
 
-    bytes32 public immutable sourceGenesis;
-    bytes32 public immutable sourceProgram;
-    bytes32 public immutable sourceProgramDataHash;
+    bytes32 public sourceGenesis;
+    bytes32 public sourceProgram;
+    bytes32 public sourceProgramDataHash;
 
     error InvalidSolanaProof();
 
-    constructor(address lightClient_, bytes32 sourceGenesis_, bytes32 sourceProgram_, bytes32 sourceProgramDataHash_)
-        LightClientVerifier(lightClient_)
-    {
+    constructor(address lightClient_, bytes32 sourceGenesis_, bytes32 sourceProgram_, bytes32 sourceProgramDataHash_) LightClientVerifier(lightClient_) {
+        if (!(
+            lightClient_ == address(0)
+            && sourceGenesis_ == bytes32(0)
+            && sourceProgram_ == bytes32(0)
+            && sourceProgramDataHash_ == bytes32(0)
+        )) {
+            _initializeSolanaVerifier(lightClient_, sourceGenesis_, sourceProgram_, sourceProgramDataHash_);
+        }
+    }
+
+    function initialize(address lightClient_, bytes32 sourceGenesis_, bytes32 sourceProgram_, bytes32 sourceProgramDataHash_) external initializer {
+        _initializeLightClient(lightClient_);
+        _initializeSolanaVerifier(lightClient_, sourceGenesis_, sourceProgram_, sourceProgramDataHash_);
+    }
+
+    function upgradeContractId() external pure override returns (bytes32) { return keccak256("termbook.SolanaVerifier.v1"); }
+
+    function _initializeSolanaVerifier(address lightClient_, bytes32 sourceGenesis_, bytes32 sourceProgram_, bytes32 sourceProgramDataHash_) private {
         if (
             sourceGenesis_ == bytes32(0) || sourceProgram_ == bytes32(0)
                 || sourceProgramDataHash_ == bytes32(0)

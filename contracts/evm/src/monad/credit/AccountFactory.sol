@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {ProxyInitializable} from "../../shared/ProxyInitializable.sol";
+
 import {CreditAccount} from "./CreditAccount.sol";
 
-contract AccountFactory {
+contract AccountFactory is ProxyInitializable {
+    function initialize() external initializer {}
+    function upgradeContractId() external pure override returns (bytes32) { return keccak256("termbook.AccountFactory.v1"); }
     mapping(bytes32 => address) public accountOf;
     event AccountCreated(bytes32 indexed creditId, address account, address borrower);
     error Exists();

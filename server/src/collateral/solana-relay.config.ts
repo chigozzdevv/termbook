@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { Keypair } from "@solana/web3.js";
+import { Keypair, PublicKey } from "@solana/web3.js";
 import { solanaProofConfig } from "./solana.config.js";
 import { env } from "../config/env.js";
 
@@ -19,5 +19,11 @@ export async function solanaRelayConfig() {
   try { signer = Keypair.fromSecretKey(Uint8Array.from(data)); } catch { throw new Error("solana-relay-key-invalid"); }
   const maxTransactions = Number(process.env["SOLANA_SOURCE_MAX_TRANSACTIONS"] ?? 64);
   if (!Number.isInteger(maxTransactions) || maxTransactions < 8 || maxTransactions > 128) throw new Error("solana-relay-budget-invalid");
-  return { ...proof, signer, maxTransactions, wormholeScanUrl: env.wormholeScanUrl };
+  const testnetUpgradeAuthority = process.env["SOLANA_TESTNET_UPGRADE_AUTHORITY"];
+  if (testnetUpgradeAuthority) {
+    if (env.monadChainId !== 10143) throw new Error("solana-testnet-upgrade-authority-invalid");
+    try { if (new PublicKey(testnetUpgradeAuthority).equals(PublicKey.default)) throw new Error(); }
+    catch { throw new Error("solana-testnet-upgrade-authority-invalid"); }
+  }
+  return { ...proof, signer, maxTransactions, wormholeScanUrl: env.wormholeScanUrl, testnetUpgradeAuthority };
 }

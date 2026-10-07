@@ -20,6 +20,8 @@ const contracts = {
   InboxFactory: "inbox-factory",
   IntegrationRegistry: "integration-registry",
   ProtocolGovernance: "protocol-governance",
+  UpgradeController: "upgrade-controller",
+  TestnetProxy: "testnet-proxy",
   Guardian: "guardian",
   HouseRegistry: "house-registry",
   PriceProtection: "price-protection",

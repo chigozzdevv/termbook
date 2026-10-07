@@ -8,12 +8,12 @@ import {WormholeEvmMessageClient} from "../../shared/collateral/WormholeEvmMessa
 import {WormholeTermbookMessages as Messages} from "../../shared/collateral/WormholeTermbookMessages.sol";
 
 contract WormholeEthereumVerifier is LightClientVerifier {
-    address public immutable publisher;
-    bytes32 public immutable publisherCodeHash;
-    address public immutable sourceVault;
-    address public immutable sourceController;
-    bytes32 public immutable sourceVaultCodeHash;
-    bytes32 public immutable sourceControllerCodeHash;
+    address public publisher;
+    bytes32 public publisherCodeHash;
+    address public sourceVault;
+    address public sourceController;
+    bytes32 public sourceVaultCodeHash;
+    bytes32 public sourceControllerCodeHash;
 
     constructor(
         address client_,
@@ -24,6 +24,45 @@ contract WormholeEthereumVerifier is LightClientVerifier {
         address controller_,
         bytes32 controllerCodeHash_
     ) LightClientVerifier(client_) {
+        if (!(
+            client_ == address(0)
+            && publisher_ == address(0)
+            && publisherCodeHash_ == bytes32(0)
+            && vault_ == address(0)
+            && vaultCodeHash_ == bytes32(0)
+            && controller_ == address(0)
+            && controllerCodeHash_ == bytes32(0)
+        )) {
+            _initializeWormholeEthereumVerifier(
+                client_, publisher_, publisherCodeHash_, vault_, vaultCodeHash_, controller_, controllerCodeHash_
+            );
+        }
+    }
+
+    function initialize(
+        address client_,
+        address publisher_,
+        bytes32 publisherCodeHash_,
+        address vault_,
+        bytes32 vaultCodeHash_,
+        address controller_,
+        bytes32 controllerCodeHash_
+    ) external initializer {
+        _initializeLightClient(client_);
+        _initializeWormholeEthereumVerifier(client_, publisher_, publisherCodeHash_, vault_, vaultCodeHash_, controller_, controllerCodeHash_);
+    }
+
+    function upgradeContractId() external pure override returns (bytes32) { return keccak256("termbook.WormholeEthereumVerifier.v1"); }
+
+    function _initializeWormholeEthereumVerifier(
+        address client_,
+        address publisher_,
+        bytes32 publisherCodeHash_,
+        address vault_,
+        bytes32 vaultCodeHash_,
+        address controller_,
+        bytes32 controllerCodeHash_
+    ) private {
         if (
             sourceChainId != WormholeNetworks.ethereumChain(block.chainid) || publisher_ == address(0) || publisherCodeHash_ == bytes32(0) || vault_ == address(0)
                 || vaultCodeHash_ == bytes32(0) || controller_ == address(0) || controllerCodeHash_ == bytes32(0)

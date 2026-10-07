@@ -487,8 +487,9 @@ and `10009`/`10002`, respectively. Native Beacon stages require mainnet.
 Every stage checks the connected chain before broadcasting.
 
 Core's execution, reservation, and price helpers deploy in separate transactions
-and bind to the predicted Core address. Core validates those immutable bindings
-at construction. Keep the deployer nonce sequence intact between these stages.
+and bind to the predicted Core address. Direct deployments validate those bindings
+at construction; proxies validate them during atomic initialization. Keep the
+deployer nonce sequence intact between these stages.
 The Monad wrapper uses a 100 percent gas estimate multiplier to avoid exceeding
 the transaction cap with Foundry's default margin.
 
@@ -500,11 +501,13 @@ cargo build-sbf --manifest-path contracts/solana/Cargo.toml --offline \
 ```
 
 The default build retains mainnet Wormhole identities. The devnet build pins the
-Solana devnet Core and accepts Monad testnet VAAs. Deploy it immutably before
-admitting its program hash on Monad. `scripts/deploy-testnet.mjs --simulate`
+Solana devnet Core and accepts Monad testnet VAAs. The `testnet` feature requires
+immutable deployment. Use `--features testnet-upgrades` for a devnet program
+with retained upgrade authority, and explicitly configure that authority as
+described below. `scripts/deploy-testnet.mjs --simulate`
 uses local Monad testnet and Sepolia forks on ports `18545` and `18546`.
 `--broadcast` uses the dedicated wallet in `.testnet/evm.json` and preserves a
-resumable receipt journal in `.testnet/deployment.json`. New deployments execute
+resumable receipt journal in `.testnet/deployment-upgradeable.json`. New deployments execute
 their initial governance configuration immediately with a zero-second delay.
 They do not admit collateral policies or deposit LP funds. The local keys and
 journals are ignored by Git.
@@ -521,15 +524,75 @@ The protocol deployment script reads `GOVERNANCE_TIMELOCK` in seconds and defaul
 to zero on those testnets and two days elsewhere. Existing deployed delays cannot
 be changed.
 
+### Testnet upgrades
+
+`deploy-testnet.mjs` deploys Core, execution/reservation/price helpers, Guardian, RiskEngine,
+HouseVault, registries, account/inbox factories, health sources, native collateral,
+and the Wormhole source/verification modules behind OpenZeppelin transparent
+proxies. Initialization is atomic, implementation initializers are disabled,
+and `UpgradeController` checks each implementation's contract identity.
+Credit Accounts, SettlementInboxes, recovery reserves, and individual source
+collateral vaults retain fixed custody code. App readers and recovery plugins
+retain their existing version admission rules.
+
+Each chain's controller owns the proxy administrators and is handed to
+`ProtocolGovernance` during activation. The testnet deployer remains the initial
+governance owner with zero delay. `transferGovernance(next)` nominates a wallet or
+multisig; that address must call `acceptGovernance()`. Passing the zero address
+cancels a pending nomination. The controller also supports two-step ownership
+transfer. These transfers preserve public contract addresses.
+
+These proxies permit administrator replacement of live testnet logic. They are
+restricted to Monad testnet and Sepolia; production uses the version and custody
+protections in `termbook.md`. A multisig or storage check does not remove the
+administrator trust of a mutable implementation. Existing immutable testnet
+addresses require an initial replacement deployment.
+
+Build contracts, then prepare and execute a compatible update:
+
+```sh
+FOUNDRY_VIA_IR=true forge build --root contracts/evm
+node scripts/upgrade-testnet.mjs 10143 PriceProtection PriceProtectionV2 --prepare
+node scripts/upgrade-testnet.mjs 10143 PriceProtection PriceProtectionV2 --broadcast
+```
+
+The candidate artifact must preserve existing storage and function interfaces,
+avoid reserved proxy selectors, and retain its contract identity. Preparation
+stores a reviewable plan under `.testnet/upgrades/`. Execution validates the live
+baseline and reviewed bytecode hash, journals signed transactions before
+broadcasting, and updates `deployments/testnet.json` after confirming the new
+implementation. Initialization calldata may be supplied as the final argument.
+`TERMBOOK_UPGRADE_RPC_URL` optionally selects another RPC for the requested chain.
+After governance ownership moves to a multisig, approve the prepared queue
+transaction through that multisig, then resume `--broadcast`.
+
+For an upgradeable Solana devnet deployment, build with `testnet-upgrades`, deploy
+with a retained native loader authority, and set `SOLANA_PROGRAM_ID` and
+`SOLANA_TESTNET_UPGRADE_AUTHORITY` before the EVM deployment. The SDK wallet port's
+`testnetUpgradeAuthority` and the source keeper's environment must specify the
+same expected authority. Binary hashes remain checked; a changed binary requires
+reviewed proof/version configuration before use. Mainnet and the ordinary
+`testnet` binary require immutability.
+
+```sh
+cargo build-sbf --manifest-path contracts/solana/Cargo.toml --offline \
+  --features testnet-upgrades --sbf-out-dir contracts/solana/target/testnet/deploy
+solana program deploy contracts/solana/target/testnet/deploy/sol_collateral.so \
+  --url devnet --program-id <new-program-keypair> --upgrade-authority <authority-keypair>
+```
+
+The current immutable devnet program needs a new program ID for this initial
+replacement. Subsequent native loader upgrades retain that replacement ID.
+
 To replace the original testnet deployment, run `--simulate --redeploy` on the
 local forks. Deployment and initial activation complete in that single run.
 Once that succeeds, `--broadcast --redeploy` checks the same build and the gas
 budget before sending its first transaction, then activates configuration
 immediately. The replacement requires zero accepted Credits and zero House
 settlement-token balance in the
-original deployment. It reuses Guardian, AccountFactory, the Solana proof
-contracts and the immutable Solana program, and archives the public original
-record in `deployments/testnet-original.json`. Replacement journals use the
+original deployment. It reuses the admitted Solana program when no replacement is configured, and
+archives the prior public record in `deployments/testnet-pre-upgrade.json`.
+Replacement journals use the
 `-redeploy` suffix. ETH custody bindings and SOL program identity are configured
 with the initial replacement setup.
 
@@ -694,8 +757,9 @@ and confirms the signed custody snapshot on Monad. Expired authorizations use
 verified cancellation snapshots; a timeout alone does not release collateral.
 
 The Solana program pins Wormhole Core and the emission shim. `Lock` checks its
-executing program and ProgramData accounts and rejects an active upgrade
-authority. The shim accounts are payer, bridge, message, emitter, sequence, fee
+executing program and ProgramData accounts. Mainnet and ordinary testnet builds
+reject an active upgrade authority; `testnet-upgrades` permits a nonzero devnet
+authority with explicit SDK and keeper opt-in. The shim accounts are payer, bridge, message, emitter, sequence, fee
 collector, clock, system program, Wormhole Core, event authority, and emission shim.
 `CheckpointLock` and `CheckpointRecovery` publish fresh custody snapshots without
 repeating a completed transfer. `ReconcileRecoveryRefund` records only SOL

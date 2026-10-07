@@ -14,10 +14,10 @@ interface IEthereumFinalizedBlockClient {
 contract EthereumVerifier is LightClientVerifier {
     uint256 internal constant LOCK_COMMITMENTS_SLOT = 6;
     uint256 internal constant MAX_PROOF_BYTES = 96_000;
-    address public immutable sourceVault;
-    bytes32 public immutable sourceVaultCodeHash;
-    address public immutable sourceController;
-    bytes32 public immutable sourceControllerCodeHash;
+    address public sourceVault;
+    bytes32 public sourceVaultCodeHash;
+    address public sourceController;
+    bytes32 public sourceControllerCodeHash;
 
     constructor(
         address lightClient_,
@@ -26,6 +26,39 @@ contract EthereumVerifier is LightClientVerifier {
         address sourceController_,
         bytes32 sourceControllerCodeHash_
     ) LightClientVerifier(lightClient_) {
+        if (!(
+            lightClient_ == address(0)
+            && sourceVault_ == address(0)
+            && sourceVaultCodeHash_ == bytes32(0)
+            && sourceController_ == address(0)
+            && sourceControllerCodeHash_ == bytes32(0)
+        )) {
+            _initializeEthereumVerifier(
+                lightClient_, sourceVault_, sourceVaultCodeHash_, sourceController_, sourceControllerCodeHash_
+            );
+        }
+    }
+
+    function initialize(
+        address lightClient_,
+        address sourceVault_,
+        bytes32 sourceVaultCodeHash_,
+        address sourceController_,
+        bytes32 sourceControllerCodeHash_
+    ) external initializer {
+        _initializeLightClient(lightClient_);
+        _initializeEthereumVerifier(lightClient_, sourceVault_, sourceVaultCodeHash_, sourceController_, sourceControllerCodeHash_);
+    }
+
+    function upgradeContractId() external pure override returns (bytes32) { return keccak256("termbook.EthereumVerifier.v1"); }
+
+    function _initializeEthereumVerifier(
+        address lightClient_,
+        address sourceVault_,
+        bytes32 sourceVaultCodeHash_,
+        address sourceController_,
+        bytes32 sourceControllerCodeHash_
+    ) private {
         if (
             sourceChainId != 1 || sourceVault_ == address(0) || sourceVaultCodeHash_ == bytes32(0)
                 || sourceController_ == address(0) || sourceController_ == sourceVault_

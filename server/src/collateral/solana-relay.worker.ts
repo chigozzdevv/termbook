@@ -30,7 +30,7 @@ export async function processSolanaRelay(input: RelayAction, lease: string, conf
   const kind = input.kind === 2 ? "topup" : input.kind === 0 ? "release" : "seize";
   const { action, programId, programDataHash } = await readSolanaAction({ creditId: input.creditId, kind });
   const connection = new Connection(config.rpcUrl, { commitment: "finalized", confirmTransactionInitialTimeout: 30_000 });
-  await verifySolanaRelayProgram(connection, programId, action.sourceGenesis, programDataHash);
+  await verifySolanaRelayProgram(connection, programId, action.sourceGenesis, programDataHash, config.testnetUpgradeAuthority);
   for (const tx of await solanaRelayRepo.transactions(input._id)) {
     if (await deliverSolanaRelay(connection, tx) === "pending") throw new Error("solana-relay-transaction-pending");
   }
@@ -60,7 +60,7 @@ export async function processSolanaRelay(input: RelayAction, lease: string, conf
       network: env.monadChainId === 10143 ? "Testnet" : "Mainnet",
       sendSigned: (tx) => sendSolanaRelay(connection, input._id, lease, tx, config.maxTransactions),
     });
-    sourceTx = await submitSolanaAction(plan, wallet, sourceRpc);
+    sourceTx = await submitSolanaAction(plan, Object.assign(wallet, { testnetUpgradeAuthority: config.testnetUpgradeAuthority }), sourceRpc);
     await solanaRelayRepo.sourced(input._id, lease, sourceTx, mode);
   }
   if (!mode) throw new Error("solana-relay-mode-invalid");

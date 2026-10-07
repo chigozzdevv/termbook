@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {ProxyInitializable} from "../../shared/ProxyInitializable.sol";
+
 import {Types} from "../../shared/Types.sol";
 import {CodeInspection} from "../../shared/CodeInspection.sol";
 import {IHealthSource} from "./IHealthSource.sol";
@@ -13,17 +15,36 @@ interface IAccountHealthCore {
     function creditBorrower(bytes32) external view returns (address);
 }
 
-contract AccountHealthSource is IHealthSource {
-    address public immutable core;
-    HealthSource public immutable source;
-    AccountFactory public immutable accountFactory;
-    bytes32 public immutable sourceCodeHash;
-    bytes32 public immutable factoryCodeHash;
+contract AccountHealthSource is IHealthSource, ProxyInitializable {
+    address public core;
+    HealthSource public source;
+    AccountFactory public accountFactory;
+    bytes32 public sourceCodeHash;
+    bytes32 public factoryCodeHash;
     error InvalidAccount();
 
     constructor(address core_, address source_, address factory_) {
+        if (!(
+            core_ == address(0)
+            && source_ == address(0)
+            && factory_ == address(0)
+        )) {
+            _initializeAccountHealthSource(core_, source_, factory_);
+        }
+    }
+
+    function initialize(address core_, address source_, address factory_) external initializer {
+        _initializeAccountHealthSource(core_, source_, factory_);
+    }
+
+    function upgradeContractId() external pure override returns (bytes32) {
+        return keccak256("termbook.AccountHealthSource.v1");
+    }
+
+    function _initializeAccountHealthSource(address core_, address source_, address factory_) private {
         if (core_.code.length == 0 || source_.code.length == 0 || factory_.code.length == 0
-            || CodeInspection.delegates(source_) || CodeInspection.delegates(factory_)) revert InvalidAccount();
+            || (CodeInspection.delegates(source_) && !CodeInspection.registeredTestnetProxy(source_))
+            || (CodeInspection.delegates(factory_) && !CodeInspection.registeredTestnetProxy(factory_))) revert InvalidAccount();
         core = core_;
         source = HealthSource(source_);
         accountFactory = AccountFactory(factory_);

@@ -24,12 +24,12 @@ afterEach(() => {
 });
 
 describe("public SDK configuration", () => {
-  function setup(active = true) {
+  function setup(active = true, overrides: Record<string, unknown> = {}) {
     vi.stubEnv("TERMBOOK_PUBLIC_API_BASE", "https://api.termbook.example");
     const fetcher = vi.fn(async () => ({ ok: true, json: async () => ({
       appToken: token, versionId, core: address("2"), chainId: 143,
       rpcUrl: "https://rpc.termbook.example", apiBase: "https://api.termbook.example",
-      accountFactory: address("3"), riskEngine: address("4"), settlementAsset: address("7"), actions,
+      accountFactory: address("3"), riskEngine: address("4"), settlementAsset: address("7"), use_case: "perps", actions, ...overrides,
     }) }));
     vi.stubGlobal("fetch", fetcher);
     const chain = {
@@ -53,8 +53,36 @@ describe("public SDK configuration", () => {
     expect(client.config.core).toBe(address("2"));
     expect(client.config.riskEngine).toBe(address("4"));
     expect(client.config.settlementAsset).toBe(address("7"));
+    expect(client.config.use_case).toBe("perps");
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(chain.readContract).toHaveBeenCalledWith(expect.objectContaining({ functionName: "isActive", blockTag: "finalized" }));
+  });
+
+  it("rejects missing or unknown integration use cases", async () => {
+    for (const use_case of [undefined, "unknown"]) {
+      setup(true, { use_case });
+      await expect(create_termbook({ app_token: token, wallet }).ready()).rejects.toThrow("sdk-config-invalid");
+    }
+    expect(createPublicClient).not.toHaveBeenCalled();
+  });
+
+  it("rejects an override of the published use case", async () => {
+    setup();
+    await expect(create_termbook({ app_token: token, wallet, use_case: "spot" }).ready()).rejects.toThrow("sdk-config-invalid");
+    expect(createPublicClient).not.toHaveBeenCalled();
+  });
+
+  it("checks preceding calls and accepts approved payable calls", async () => {
+    const { chain } = setup(true, { use_case: "spot", actions: [{ capability: "wrap", label: "Wrap MON", target: address("6"),
+      signature: "function deposit() payable", arguments: [], valuePath: "amount", settlement: "atomic",
+      steps: [{ target: address("8"), signature: "function configure(address account)", arguments: [{ source: "credit_account" }] }] }] });
+    const client = create_termbook({ app_token: token, wallet });
+    await client.ready();
+    expect(client.config.use_case).toBe("spot");
+    expect(chain.readContract.mock.calls.filter(([request]) => request.functionName === "isCallAllowed")).toHaveLength(2);
+    chain.readContract.mockImplementation(async (request) => request.functionName === "isCallAllowed" ? false :
+      request.functionName === "integrationRegistry" ? address("5") : request.functionName === "riskEngine" ? address("4") : true);
+    await expect(create_termbook({ app_token: token, wallet }).ready()).rejects.toThrow("sdk-config-invalid");
   });
 
   it("rejects a revoked integration", async () => {

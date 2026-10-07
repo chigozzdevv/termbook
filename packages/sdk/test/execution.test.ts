@@ -54,6 +54,22 @@ function fixture(pending = true) {
 }
 
 describe("managed SDK execution", () => {
+  it("keeps place_order unprefixed and validates its use case before reading or signing", async () => {
+    const { client, rpc, app, action } = fixture(false);
+    client.config.use_case = "perps";
+    await expect(app.execute({ ...action, use_case: "spot" })).rejects.toThrow("action-use-case-mismatch");
+    expect(rpc.creditDetails).not.toHaveBeenCalled();
+    expect(client.signer.signDigest).not.toHaveBeenCalled();
+    expect(rpc.coreWrite).not.toHaveBeenCalled();
+    await expect(app.execute({ ...action, use_case: "perps" })).resolves.toMatchObject({ status: "settled", draw: 105n });
+  });
+
+  it("requires a known integration use case for an explicitly typed action", async () => {
+    const { app, rpc, action } = fixture(false);
+    await expect(app.review({ ...action, use_case: "perps" })).rejects.toThrow("action-use-case-unavailable");
+    expect(rpc.creditDetails).not.toHaveBeenCalled();
+  });
+
   it("spends owned USDC without authorizing another loan", async () => {
     const { client, rpc, app } = fixture(false);
     client.config.actions = [{ capability: "spend", label: "Spend USDC", target: address("f"), signature: "function spend(uint256 amount)",

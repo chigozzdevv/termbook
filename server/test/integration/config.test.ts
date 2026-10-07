@@ -129,18 +129,18 @@ describe("integration app token", () => {
   it("resolves only an active token and returns Core derived risk config", async () => {
     const result = await integrationService.approve({ applicationId, category: "perps", versionId, codeHash, settlementAsset, actions,
       verifiedSources, acceptance });
-    vi.mocked(integrationRepo.byTokenHash).mockResolvedValue({ versionId, codeHash, settlementAsset, actions,
+    vi.mocked(integrationRepo.byTokenHash).mockResolvedValue({ category: "perps", versionId, codeHash, settlementAsset, actions,
       acceptance, review: { evidenceHash: acceptance.evidenceHash, mode: suite.mode }, sourcePins, accepted: true, active: true, frozen: false } as never);
     const resolved = await integrationService.resolve(result.appToken);
     expect(resolved).toMatchObject({ appToken: result.appToken, core: address("1"), riskEngine: address("6"),
-      accountFactory: address("2"), settlementAsset, chainId: 143 });
+      accountFactory: address("2"), settlementAsset, chainId: 143, use_case: "perps" });
     expect(integrationRepo.byTokenHash).toHaveBeenCalledWith(expect.stringMatching(/^[a-f0-9]{64}$/));
   });
 
   it("rejects a frozen local integration before returning deployment config", async () => {
     const result = await integrationService.approve({ applicationId, category: "perps", versionId, codeHash, settlementAsset, actions,
       verifiedSources, acceptance });
-    vi.mocked(integrationRepo.byTokenHash).mockResolvedValue({ versionId, codeHash, settlementAsset, actions,
+    vi.mocked(integrationRepo.byTokenHash).mockResolvedValue({ category: "perps", versionId, codeHash, settlementAsset, actions,
       acceptance, review: { evidenceHash: acceptance.evidenceHash, mode: suite.mode }, sourcePins, accepted: true, active: true, frozen: true } as never);
     await expect(integrationService.resolve(result.appToken)).rejects.toThrow("integration-not-found");
   });
@@ -148,7 +148,7 @@ describe("integration app token", () => {
   it("rejects a legacy token without acceptance evidence", async () => {
     const result = await integrationService.approve({ applicationId, category: "perps", versionId, codeHash, settlementAsset, actions,
       verifiedSources, acceptance });
-    vi.mocked(integrationRepo.byTokenHash).mockResolvedValue({ versionId, codeHash, settlementAsset, actions,
+    vi.mocked(integrationRepo.byTokenHash).mockResolvedValue({ category: "perps", versionId, codeHash, settlementAsset, actions,
       sourcePins, active: true, frozen: false } as never);
     await expect(integrationService.resolve(result.appToken)).rejects.toThrow("integration-not-found");
   });
@@ -163,7 +163,7 @@ describe("integration app token", () => {
   it("rejects a changed source pin when resolving an app token", async () => {
     const result = await integrationService.approve({ applicationId, category: "perps", versionId, codeHash, settlementAsset, actions,
       verifiedSources, acceptance });
-    vi.mocked(integrationRepo.byTokenHash).mockResolvedValue({ versionId, codeHash, settlementAsset, actions,
+    vi.mocked(integrationRepo.byTokenHash).mockResolvedValue({ category: "perps", versionId, codeHash, settlementAsset, actions,
       acceptance, review: { evidenceHash: acceptance.evidenceHash, mode: suite.mode }, sourcePins, accepted: true, active: true, frozen: false } as never);
     vi.mocked(verifyIntegrationSourcePins).mockResolvedValue(false);
     await expect(integrationService.resolve(result.appToken)).rejects.toThrow("integration-not-found");

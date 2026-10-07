@@ -2,8 +2,11 @@ import { z } from "zod";
 import { addressSchema, bytes32Schema } from "./auth.js";
 
 export const capabilitySchema = z.string().regex(/^[a-z][a-z0-9_]{0,63}$/);
+export const useCaseSchema = z.enum(["perps", "staking", "vault", "liquidity", "spot"]);
+export type UseCase = z.infer<typeof useCaseSchema>;
 
 export const actionSchema = z.strictObject({
+  use_case: useCaseSchema.optional(),
   capability: capabilitySchema,
   params: z.record(z.string(), z.unknown()),
 });
@@ -153,3 +156,10 @@ export const bundleSchema = z.object({
 });
 
 export type TermAction = z.infer<typeof actionSchema>;
+
+export function assertActionUseCase(action: TermAction, expected?: UseCase): void {
+  if (action.use_case === undefined) return;
+  if (!useCaseSchema.safeParse(action.use_case).success) throw new Error("action-use-case-invalid");
+  if (!expected) throw new Error("action-use-case-unavailable");
+  if (action.use_case !== expected) throw new Error("action-use-case-mismatch");
+}

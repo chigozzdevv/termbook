@@ -1,5 +1,5 @@
 import { createPublicClient, http, parseAbi, parseAbiItem, toFunctionSelector } from "viem";
-import { capabilityDefinitionSchema } from "@termbook/schema";
+import { capabilityCalls, capabilityDefinitionSchema, useCaseSchema } from "@termbook/schema";
 import type { ClientConfig, ResolvedClientConfig } from "../types/client.types.js";
 
 const tokenPattern = /^tbk_[a-f0-9]{64}$/;
@@ -34,11 +34,13 @@ export async function resolveClientConfig(input: ClientConfig): Promise<Resolved
   }).catch(() => null);
   if (!response?.ok) throw new Error("app-config-unavailable");
   const data = await response.json() as Record<string, unknown>;
+  const useCase = useCaseSchema.safeParse(data["use_case"]);
   if (data["appToken"] !== appToken || publicUrl(data["apiBase"]) !== apiBase
     || !addressPattern.test(String(data["core"])) || /^0x0{40}$/i.test(String(data["core"]))
     || !addressPattern.test(String(data["accountFactory"])) || /^0x0{40}$/i.test(String(data["accountFactory"]))
     || !addressPattern.test(String(data["settlementAsset"])) || /^0x0{40}$/i.test(String(data["settlementAsset"]))
-    || !wordPattern.test(String(data["versionId"]))
+    || !wordPattern.test(String(data["versionId"])) || !useCase.success
+    || input.use_case !== undefined && input.use_case !== useCase.data
     || !Number.isSafeInteger(data["chainId"]) || Number(data["chainId"]) <= 0) {
     throw new Error("sdk-config-invalid");
   }
@@ -68,9 +70,10 @@ export async function resolveClientConfig(input: ClientConfig): Promise<Resolved
     || /^0x0{40}$/i.test(registry)) throw new Error("sdk-config-invalid");
   const [active, allowed] = await Promise.all([
     chain.readContract({ address: registry, abi: registryAbi, functionName: "isActive", args: [versionId], blockTag: "finalized" }),
-    Promise.all(actions.map(async (action) => {
+    Promise.all(actions.flatMap(capabilityCalls).map(async (action) => {
       const item = parseAbiItem(action.signature);
-      if (item.type !== "function" || item.stateMutability !== "nonpayable" || item.inputs.length !== action.arguments.length) return false;
+      if (item.type !== "function" || !["nonpayable", "payable"].includes(item.stateMutability) || item.inputs.length !== action.arguments.length
+        || (action.valuePath || action.valueFromBound) && item.stateMutability !== "payable") return false;
       return chain.readContract({ address: registry, abi: registryAbi, functionName: "isCallAllowed",
         args: [versionId, action.target as `0x${string}`, toFunctionSelector(item)], blockTag: "finalized" });
     })),
@@ -78,5 +81,5 @@ export async function resolveClientConfig(input: ClientConfig): Promise<Resolved
   if (!active || !allowed.every(Boolean) || input.wallet.getChainId && await input.wallet.getChainId() !== chainId) throw new Error("sdk-config-invalid");
   return { appToken, versionId, wallet: input.wallet, core, rpcUrl, chainId, apiBase, accountFactory,
     riskEngine: riskEngine as `0x${string}`, settlementFactory: settlementFactory as `0x${string}` | undefined,
-    settlementAsset: data["settlementAsset"] as `0x${string}`, actions };
+    settlementAsset: data["settlementAsset"] as `0x${string}`, use_case: useCase.data, actions };
 }

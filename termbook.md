@@ -27,6 +27,7 @@ application support require implementation and validation before use.
 | IntegrationVersion      | A reviewed, immutable manifest for an application deployment and its execution, valuation, and recovery rules.                        |
 | Integration bundle      | A primary IntegrationVersion and its approved dependencies, such as an asset conversion route.                                        |
 | Capability              | A typed operation, such as placing an order or redeeming vault shares.                                                                |
+| Use case                | The application category: `spot`, `perps`, `staking`, `vault`, or `liquidity`. It distinguishes shared capability names.                |
 | Action                  | One authorized use of a capability.                                                                                                   |
 | Flow                    | A tracked operation that may span several transactions.                                                                               |
 | Keeper                  | Relays proofs or submits eligible settlement and recovery transactions.                                                               |
@@ -1025,10 +1026,22 @@ cap before funding a Credit.
 | Staking   | `stake`, `claim_rewards`, `request_unstake`, `complete_unstake`, `withdraw_to_credit_account`                            | Own the receipt or enforceable withdrawal claim. Account for slashing, queues, and unbonding delay.                                         |
 | Vault     | `deposit_vault`, `redeem_vault`, `claim_rewards`, `withdraw_to_credit_account`                                           | Own shares and redeemable claims. Verify fees, liquidity limits, queues, and withdrawal recipients.                                         |
 | Liquidity | `add_liquidity`, `remove_liquidity`, `stake_lp`, `unstake_lp`, `claim_rewards`, `collect_fees`                           | Own LP tokens or position NFTs and their proceeds. Value the full unwind under stressed liquidity.                                          |
-| Spot      | `swap_exact_in`, `swap_exact_out`, `sell_to_settlement`                                                                  | Return outputs to the Credit Account. Require approved pricing and an executable recovery market.                                           |
+| Spot      | `swap_exact_in`, `swap_exact_out`, `sell_to_settlement`, `place_order`, `modify_order`, `cancel_order`                       | Return outputs to the Credit Account. Require approved pricing and an executable recovery market.                                           |
 
 Capability names describe economic effects. An integration may map several
 capabilities to one application function with different validated parameters.
+Actions identify their category with `use_case`. The SDK and API check it against
+the integration resolved by the app token. `place_order` remains the same name
+for spot and perps; its inputs follow the bound integration. Actions without an
+explicit use case retain their existing integration binding.
+
+Spot swaps immediately convert one account asset into another. Exact input fixes
+the spending amount and bounds the minimum output; exact output fixes the output
+target and caps spending. Orderbook trades instead place an order and track its
+fills, refunds, and cancellation. Approved conversions can also prepare assets for
+other application actions or turn recovery proceeds into the House settlement
+asset. They remain declared steps or dependencies of the registered bundle.
+
 The SDK example uses `place_order` to open a perps position.
 
 Perps inputs use one sizing mode: margin plus notional, or margin plus leverage.
@@ -1328,6 +1341,7 @@ const trade = {
 
 termbook.open({
   action: {
+    use_case: "perps",
     capability: "place_order",
     params: {
       market_id: trade.market_id,
@@ -1420,6 +1434,7 @@ Increase an existing position. Both amounts are additions:
 
 ```ts
 await credit.app.execute({
+  use_case: "perps",
   capability: "increase_position",
   params: {
     position_id: selected_position.id,
@@ -1436,6 +1451,7 @@ Reduce the specified notional:
 
 ```ts
 await credit.app.execute({
+  use_case: "perps",
   capability: "decrease_position",
   params: {
     position_id: selected_position.id,
@@ -1451,6 +1467,7 @@ Add margin without increasing notional:
 
 ```ts
 await credit.app.execute({
+  use_case: "perps",
   capability: "add_margin",
   params: {
     position_id: selected_position.id,
@@ -1463,6 +1480,7 @@ Return safely removable margin to the Credit Account:
 
 ```ts
 await credit.app.execute({
+  use_case: "perps",
   capability: "remove_margin",
   params: {
     position_id: selected_position.id,
@@ -1475,6 +1493,7 @@ Cancel an order's unfilled remainder and return refundable funds:
 
 ```ts
 await credit.app.execute({
+  use_case: "perps",
   capability: "cancel_order",
   params: {
     order_id: selected_order.id,
@@ -1486,6 +1505,7 @@ Close the entire position and return its released settlement funds:
 
 ```ts
 await credit.app.execute({
+  use_case: "perps",
   capability: "close_position",
   params: {
     position_id: selected_position.id,

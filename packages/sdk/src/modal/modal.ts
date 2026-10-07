@@ -1,5 +1,5 @@
 import type { CollateralMarket, CapabilityDefinition, CapabilityCall } from "@termbook/schema";
-import { capabilityCalls } from "@termbook/schema";
+import { assertActionUseCase, capabilityCalls } from "@termbook/schema";
 import { formatEther, parseAbiItem, parseUnits } from "viem";
 import type { TermbookClient } from "../client/client.js";
 import type { AppAction, ActionReview } from "../types/app.types.js";
@@ -95,7 +95,7 @@ export class TermbookModal {
   constructor(client: TermbookClient, options: OpenOptions = {}) {
     if (typeof document === "undefined" || !document.body) throw new Error("modal-dom-unavailable");
     this.client = client;
-    this.action = options.action ? { capability: options.action.capability, params: { ...options.action.params } } : undefined;
+    this.action = options.action ? { ...options.action, params: { ...options.action.params } } : undefined;
     this.preparedAction = !!options.action;
     this.requestedTab = options.tab;
     this.tab = options.tab ?? (options.action ? "app" : "account");
@@ -216,6 +216,7 @@ export class TermbookModal {
 
   private async load(preferred?: `0x${string}`): Promise<void> {
     await this.client.ready();
+    if (this.action) assertActionUseCase(this.action, this.client.config.use_case);
     const http = new HttpClient(this.client.config.apiBase!);
     const [markets, serverRows] = await Promise.all([
       this.client.catalog.collateralMarkets(),
@@ -565,7 +566,7 @@ export class TermbookModal {
         const option = element("option", definition.label);
         option.value = definition.capability; option.selected = this.action?.capability === definition.capability; picker.append(option);
       }
-      picker.addEventListener("change", () => { this.action = picker.value ? { capability: picker.value, params: {} } : undefined; this.review = undefined; this.render(); });
+      picker.addEventListener("change", () => { this.action = picker.value ? { use_case: this.client.config.use_case, capability: picker.value, params: {} } : undefined; this.review = undefined; this.render(); });
       this.body.append(element("label", "Application action"), picker);
     }
     if (!this.action) return;

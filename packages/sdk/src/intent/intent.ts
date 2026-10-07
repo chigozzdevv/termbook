@@ -5,7 +5,7 @@ import { HttpClient } from "../transport/http.js";
 import { encodeAbiParameters, keccak256, parseAbi, stringToHex } from "viem";
 import type { Wallet } from "../types/client.types.js";
 import { RpcClient } from "../transport/rpc.js";
-import { collateralSelectionSchema, NATIVE_SOL_ASSET_BYTES, type CollateralSetupBinding, type CollateralSetupCheckpoint } from "@termbook/schema";
+import { assertActionUseCase, collateralSelectionSchema, NATIVE_SOL_ASSET_BYTES, type CollateralSetupBinding, type CollateralSetupCheckpoint } from "@termbook/schema";
 import { CollateralChainNotIntegratedError, CollateralSetup, CollateralSetupInterruptedError, type CollateralProofSource, type SourceLockWallet } from "../collateral/setup.js";
 import { EvmSourceLockWallet, type EvmSourceWalletConfig } from "../collateral/evm-source.js";
 import { solanaAlias } from "../collateral/solana.js";
@@ -248,6 +248,7 @@ export class Intent {
     await this.client.ready();
     if (this.intentId) return this.intentId;
     const request = this.requiredRequest();
+    if (request.action) assertActionUseCase(request.action, this.client.config.use_case);
     const base = this.client.config.apiBase;
     if (!base) throw new Error("api-required");
     const selection = request.collateral;

@@ -18,6 +18,7 @@ export function registerErrors(app: FastifyInstance): void {
       "solana-action-unavailable", "remote-action-unavailable"].includes(message)) return reply.status(503).send({ error: message });
     if (message.endsWith("-not-found")) return reply.status(404).send({ error: message });
     if (message.startsWith("offer-") || message.startsWith("operation-") || message.startsWith("param-")
+      || message.startsWith("action-use-case-")
       || message.startsWith("quote-") || message.startsWith("integration-")
       || message.startsWith("application-") || message === "auth-expired") return reply.status(400).send({ error: message });
     return reply.status(500).send({ error: "internal" });

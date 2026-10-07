@@ -203,8 +203,13 @@ closure mappings require these rules before publication. Feeds used for executio
 need a pinned deployment guard that verifies their implementation and material
 configuration, including any feed-specific confidence checks. The server checks each target and selector against the
 finalized IntegrationRegistry policy before publishing the app token. The SDK
-builds calldata from this manifest; an app passes only a capability and typed
-parameters to `open({ action })`. For example:
+builds calldata from this manifest; an app passes `use_case`, a capability, and
+typed parameters to `open({ action })`. `use_case` is `spot`, `perps`, `staking`,
+`vault`, or `liquidity` and must match the integration resolved by the app token.
+Capability names remain shared: both spot and perps can use `place_order`.
+The SDK and API reject a mismatched use case before authorization or funding.
+Existing actions that omit the field remain bound to their registered integration.
+For example, the capability mapping is:
 
 ```json
 {

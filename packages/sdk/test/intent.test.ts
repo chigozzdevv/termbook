@@ -1,8 +1,27 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { requiredDraw, fundingNeed, checkCapacity } from "../src/credit/draw.js";
 import { unconsumed, reportShortfall } from "../src/settlement/receipt.js";
 import { slippageBound } from "../src/app/app.js";
 import { operationId, checkQuoteForOperation } from "../src/settlement/operation.js";
+import { Intent } from "../src/intent/intent.js";
+import type { TermbookClient } from "../src/client/client.js";
+
+describe("intent use case", () => {
+  it("rejects a mismatch before requesting API authorization and preserves matching actions", async () => {
+    const address = `0x${"1".repeat(40)}` as const;
+    const id = `0x${"2".repeat(64)}` as const;
+    const authenticatedPost = vi.fn(async () => ({ intentId: id }));
+    const client = { ready: async () => {}, config: { use_case: "perps", apiBase: "https://api.termbook.example" },
+      signer: { address: () => address }, authenticatedPost } as unknown as TermbookClient;
+    const request = { collateral: { chainId: 143, asset: address, amount: 100n }, credit: { duration: 86400 },
+      action: { use_case: "spot" as const, capability: "place_order", params: { amount: "100" } } };
+    await expect(new Intent(client, request).submit()).rejects.toThrow("action-use-case-mismatch");
+    expect(authenticatedPost).not.toHaveBeenCalled();
+    const action = { ...request.action, use_case: "perps" as const };
+    await expect(new Intent(client, { ...request, action }).submit()).resolves.toBe(id);
+    expect(authenticatedPost).toHaveBeenCalledWith("/intents", expect.objectContaining({ action }));
+  });
+});
 
 describe("draw", () => {
   it("computes required draw", () => {

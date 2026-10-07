@@ -1,7 +1,7 @@
-export type AppAction = {
-  capability: string;
-  params: Record<string, unknown>;
-};
+import type { TermAction } from "@termbook/schema";
+export type { UseCase } from "@termbook/schema";
+
+export type AppAction = TermAction;
 
 export type AppPosition = { positionId: `0x${string}`; marketId: `0x${string}` };
 export type AppPendingAction = { actionId: `0x${string}`; positionId: `0x${string}`;

@@ -1,10 +1,5 @@
 import { z } from "zod";
-import { solanaIntentCollateralSchema } from "@termbook/schema";
-
-const actionSchema = z.strictObject({
-  capability: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/),
-  params: z.record(z.string(), z.unknown()),
-});
+import { actionSchema, solanaIntentCollateralSchema } from "@termbook/schema";
 
 const evmIntentSchema = z.strictObject({
   borrower: z.string().regex(/^0x[a-fA-F0-9]{40}$/),

@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { keccak256, parseAbi, parseAbiItem, toFunctionSelector } from "viem";
-import { capabilityCalls, type CapabilityDefinition } from "@termbook/schema";
+import { capabilityCalls, useCaseSchema, type CapabilityDefinition } from "@termbook/schema";
 import { monadClient } from "../chain/monad.client.js";
 import { env } from "../config/env.js";
 import { integrationRepo } from "./integration.repo.js";
@@ -190,10 +190,11 @@ export const integrationService = {
   async resolve(appToken: string) {
     if (!tokenPattern.test(appToken)) throw new Error("integration-not-found");
     const row = await integrationRepo.byTokenHash(tokenHash(appToken));
+    const useCase = useCaseSchema.safeParse(row?.["category"]);
     const actions = row?.["actions"] as CapabilityDefinition[] | undefined;
     const sourcePins = row?.["sourcePins"] as SourcePin[] | undefined;
     const actionTargets = Array.isArray(actions) ? new Set(actions.flatMap(capabilityCalls).map((action) => action.target.toLowerCase())) : null;
-    if (!row || row["active"] !== true || row["accepted"] !== true
+    if (!row || !useCase.success || row["active"] !== true || row["accepted"] !== true
       || row["frozen"] === true || !Array.isArray(actions)
       || !integrationAcceptanceSchema.safeParse(row["acceptance"]).success
       || !Array.isArray(sourcePins) || sourcePins.length !== actionTargets?.size
@@ -234,7 +235,7 @@ export const integrationService = {
       || !addressPattern.test(riskEngine) || /^0x0{40}$/i.test(riskEngine)) throw new Error("integration-config-unavailable");
     return { appToken, versionId: String(row["versionId"]), settlementAsset: String(row["settlementAsset"]), core: env.core,
       chainId: env.monadChainId, rpcUrl: publicUrl(env.publicRpcUrl), apiBase: publicUrl(env.publicApiBase),
-      accountFactory: env.accountFactory, riskEngine, settlementFactory, actions };
+      accountFactory: env.accountFactory, riskEngine, settlementFactory, use_case: useCase.data, actions };
   },
   async list() {
     return integrationRepo.list();

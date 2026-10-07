@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { capabilityCalls, capabilityDefinitionSchema, integrationSuiteSchema } from "@termbook/schema";
+import { capabilityCalls, capabilityDefinitionSchema, integrationSuiteSchema, useCaseSchema } from "@termbook/schema";
 import { parseAbiItem } from "viem";
 import { applicationIdSchema } from "./application.schema.js";
 
@@ -30,7 +30,7 @@ export const integrationDraftRequestSchema = integrationDraftSchema.extend({ app
 
 export const integrationMappingSchema = z.strictObject({
   applicationId: applicationIdSchema,
-  category: z.enum(["perps", "staking", "vault", "liquidity", "spot"]),
+  category: useCaseSchema,
   versionId: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
   codeHash: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
   settlementAsset: z.string().regex(/^0x[a-fA-F0-9]{40}$/).refine((value) => !/^0x0{40}$/i.test(value)),

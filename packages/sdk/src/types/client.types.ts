@@ -1,4 +1,4 @@
-import type { CapabilityDefinition } from "@termbook/schema";
+import type { CapabilityDefinition, UseCase } from "@termbook/schema";
 import type { CollateralMarket } from "@termbook/schema";
 import type { SourceLockWallet } from "../collateral/setup.js";
 
@@ -43,6 +43,7 @@ export type ClientConfig = {
   riskEngine?: `0x${string}`;
   confirmations?: number;
   actions?: CapabilityDefinition[];
+  use_case?: UseCase;
   settlementAsset?: `0x${string}`;
   paymentWalletResolver?: (route: import("../settlement/payment-types.js").PaymentRoute) => Promise<import("../settlement/payment-types.js").PaymentSourceWallet>;
   sourceWalletResolver?: (market: CollateralMarket) => Promise<SourceLockWallet>;

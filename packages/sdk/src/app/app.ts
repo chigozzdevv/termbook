@@ -11,6 +11,7 @@ import { buildExecution, emptyExecutionPrice, priceTuple, executionCoreAbi, exec
 import { executionPrice } from "./price.js";
 import { Signer } from "../wallet/signer.js";
 import type { Wallet } from "../types/client.types.js";
+import { assertActionUseCase } from "@termbook/schema";
 
 const coreRegistryAbi = parseAbi(["function integrationRegistry() view returns (address)"]);
 const registryAbi = parseAbi(["function validateCall(bytes32,address,bytes,address,uint256) view returns (bool)",
@@ -35,6 +36,7 @@ export class CreditApp {
 
   private async prepare(action: AppAction, previousPrice?: ExecutionPrice) {
     await this.client.ready();
+    assertActionUseCase(action, this.client.config.use_case);
     const definition = this.client.config.actions?.find((entry) => entry.capability === action.capability);
     if (!definition) throw new Error("capability-denied");
     const details = await this.client.rpc.creditDetails(this.creditId);
@@ -49,7 +51,7 @@ export class CreditApp {
       throw new Error("credit-action-unavailable");
     }
     const price = await executionPrice(this.client, this.creditId, bundleId, definition, action, previousPrice);
-    const context = { borrower, account, creditId: this.creditId, ...(price ? { priceBound: price.bound } : {}) };
+    const context = { borrower, account, creditId: this.creditId, use_case: this.client.config.use_case, ...(price ? { priceBound: price.bound } : {}) };
     const { target, data, requiredInput: fundingInput } = buildAction(definition, action, context);
     const asset = await this.client.rpc.read<`0x${string}`>(vault, [{ type: "function", name: "asset", inputs: [], outputs: [{ type: "address" }], stateMutability: "view" }] as const, "asset");
     const currentDebt = BigInt(String(field("debt", 11)));

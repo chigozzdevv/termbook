@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { keccak256, parseAbi, parseAbiItem, toFunctionSelector } from "viem";
-import { capabilityCalls, useCaseSchema, type CapabilityDefinition } from "@termbook/schema";
+import { assertActionRoutes, assertStandardDefinition, capabilityCalls, capabilityDependencies, useCaseSchema, type CapabilityDefinition } from "@termbook/schema";
 import { monadClient } from "../chain/monad.client.js";
 import { env } from "../config/env.js";
 import { integrationRepo } from "./integration.repo.js";
@@ -132,19 +132,36 @@ async function admitted(versionId: `0x${string}`, codeHash: string): Promise<boo
 
 async function admittedActions(versionId: `0x${string}`, actions: CapabilityDefinition[], category?: string, settlementAsset?: string): Promise<boolean> {
   if (actions.length === 0) return false;
+  const parsedCategory = useCaseSchema.safeParse(category);
+  if (!parsedCategory.success) return false;
+  try { assertActionRoutes(actions); actions.forEach((action) => assertStandardDefinition(action, parsedCategory.data)); }
+  catch { return false; }
   const chain = monadClient();
   const block = await chain.getBlock({ blockTag: "finalized" });
   const registry = await chain.readContract({ address: env.core as `0x${string}`, abi: coreAbi,
     functionName: "integrationRegistry", blockNumber: block.number });
   if (await chain.readContract({ address: env.core as `0x${string}`, abi: executionAbi, functionName: "executionVersion", blockNumber: block.number }).catch(() => 0n) !== 2n) return false;
+  for (const action of actions) {
+    if (action.positionState && !await chain.readContract({ address: registry, abi: executionAbi, functionName: "dependencyValid",
+      args: [versionId, action.positionState.target as `0x${string}`], blockNumber: block.number })) return false;
+    if (action.orderSizing) for (const [asset, decimals] of [[action.orderSizing.baseAsset, action.orderSizing.baseDecimals],
+      [action.orderSizing.quoteAsset, action.orderSizing.quoteDecimals]] as const) {
+      if (/^0x0{40}$/i.test(asset)) { if (decimals !== 18) return false; continue; }
+      if (!await chain.readContract({ address: registry, abi: executionAbi, functionName: "dependencyValid",
+        args: [versionId, asset as `0x${string}`], blockNumber: block.number })
+        || await chain.readContract({ address: asset as `0x${string}`, abi: parseAbi(["function decimals() view returns (uint8)"]), functionName: "decimals", blockNumber: block.number }) !== decimals) return false;
+    }
+  }
   const results = await Promise.all(actions.flatMap(capabilityCalls).map(async (action) => {
     const item = parseAbiItem(action.signature);
     if (item.type !== "function") return false;
-    if (action.valuePath || action.valueFromBound) {
+    if (action.valuePath || action.valueFromBound || action.nativeValue !== undefined) {
       if (item.stateMutability !== "payable") return false;
       const policy = await chain.readContract({ address: registry, abi: executionAbi, functionName: "nativeValuePolicies",
         args: [versionId, action.target as `0x${string}`, toFunctionSelector(item)], blockNumber: block.number });
-      if (policy[0] === 0n || policy[1] !== 255 && (action.valueFromBound ? action.arguments[policy[1]]?.source !== "price_bound"
+      if (policy[0] === 0n || action.nativeValue !== undefined && BigInt(action.nativeValue) > policy[0]
+        || policy[1] !== 255 && (action.nativeValue !== undefined ? action.arguments[policy[1]]?.source !== "constant"
+          || action.arguments[policy[1]]?.value !== action.nativeValue : action.valueFromBound ? action.arguments[policy[1]]?.source !== "price_bound"
         : action.arguments[policy[1]]?.source !== "input" || action.arguments[policy[1]]?.path !== action.valuePath)) return false;
     }
     return chain.readContract({ address: registry, abi: callAbi, functionName: "isCallAllowed",
@@ -193,7 +210,7 @@ export const integrationService = {
     const useCase = useCaseSchema.safeParse(row?.["category"]);
     const actions = row?.["actions"] as CapabilityDefinition[] | undefined;
     const sourcePins = row?.["sourcePins"] as SourcePin[] | undefined;
-    const actionTargets = Array.isArray(actions) ? new Set(actions.flatMap(capabilityCalls).map((action) => action.target.toLowerCase())) : null;
+    const actionTargets = Array.isArray(actions) ? new Set(actions.flatMap(capabilityDependencies).map((action) => action.target.toLowerCase())) : null;
     if (!row || !useCase.success || row["active"] !== true || row["accepted"] !== true
       || row["frozen"] === true || !Array.isArray(actions)
       || !integrationAcceptanceSchema.safeParse(row["acceptance"]).success

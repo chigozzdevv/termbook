@@ -1,7 +1,7 @@
-import { capabilityCalls, type CapabilityDefinition } from "@termbook/schema";
+import { actionInputs, capabilityCalls, executionKey, type CapabilityDefinition } from "@termbook/schema";
 import { keccak256, padHex, parseAbi, stringToHex, toHex } from "viem";
 import { buildAction, buildCapabilityCall, type ActionContext } from "./action.js";
-import type { AppAction } from "../types/app.types.js";
+import type { TermAction } from "@termbook/schema";
 
 export type ExecutionCall = { target: `0x${string}`; spendToken: `0x${string}`; spendAmount: bigint; data: `0x${string}`; nativeValue: bigint };
 export type ExecutionAction = { capability: `0x${string}`; market: `0x${string}`; calls: ExecutionCall[];
@@ -38,7 +38,7 @@ const zeroAddress = `0x${"0".repeat(40)}` as const;
 function at(params: Record<string, unknown>, path: string): unknown {
   let value: unknown = params;
   for (const key of path.split(".")) {
-    if (!value || typeof value !== "object" || Array.isArray(value) || !Object.prototype.hasOwnProperty.call(value, key)) {
+    if (!value || typeof value !== "object" || Array.isArray(value) && !/^(?:[0-9]|1[0-5])$/.test(key) || !Object.prototype.hasOwnProperty.call(value, key)) {
       throw new Error("action-input-required");
     }
     value = (value as Record<string, unknown>)[key];
@@ -62,28 +62,32 @@ export function executionMarket(value: unknown): `0x${string}` {
   if (typeof value !== "string" || !value || value.length > 128) throw new Error("action-input-invalid");
   return keccak256(stringToHex(value));
 }
-export function buildExecution(definition: CapabilityDefinition, action: AppAction, context: ActionContext,
+export function buildExecution(definition: CapabilityDefinition, action: TermAction, context: ActionContext,
   settlementAsset: `0x${string}`): ExecutionAction {
   buildAction(definition, action, context);
+  const params = { ...actionInputs(definition, action), ...(context.state ? { _state: context.state } : {}) };
+  context = { ...context, inputs: params };
   if (capabilityCalls(definition).length > 8) throw new Error("action-definition-invalid");
   const calls = capabilityCalls(definition).map((call) => {
     if ((call.fundingFromBound || call.spendFromBound || call.valueFromBound)
       && (definition.price?.kind !== "max_input" || !call.arguments.some((arg) => arg.source === "price_bound"))) throw new Error("action-definition-invalid");
     const path = call.spendPath ?? call.fundingPath;
     if ((call.spendFromBound && path) || (call.valueFromBound && call.valuePath)) throw new Error("action-definition-invalid");
-    const spendAmount = call.spendFromBound || call.fundingFromBound ? amount(context.priceBound) : path ? amount(at(action.params, path)) : 0n;
+    if ([call.spendAmount, path, call.spendFromBound || call.fundingFromBound || undefined].filter((value) => value !== undefined).length > 1
+      || [call.nativeValue, call.valuePath, call.valueFromBound || undefined].filter((value) => value !== undefined).length > 1) throw new Error("action-definition-invalid");
+    const spendAmount = call.spendFromBound || call.fundingFromBound ? amount(context.priceBound) : path ? amount(at(params, path)) : amount(call.spendAmount ?? call.fundingAmount ?? "0");
     const spendToken = call.spendToken ?? settlementAsset;
-    const funding = call.fundingFromBound ? amount(context.priceBound) : call.fundingPath ? amount(at(action.params, call.fundingPath)) : 0n;
+    const funding = call.fundingFromBound ? amount(context.priceBound) : call.fundingPath ? amount(at(params, call.fundingPath)) : amount(call.fundingAmount ?? "0");
     if (spendToken.toLowerCase() === settlementAsset.toLowerCase() ? funding > spendAmount : funding !== 0n) {
       throw new Error("action-funding-token-mismatch");
     }
     return { ...buildCapabilityCall(call, action, context), spendAmount,
-      nativeValue: call.valueFromBound ? amount(context.priceBound) : call.valuePath ? amount(at(action.params, call.valuePath)) : 0n,
+      nativeValue: call.valueFromBound ? amount(context.priceBound) : call.valuePath ? amount(at(params, call.valuePath)) : amount(call.nativeValue ?? "0"),
       spendToken: (spendAmount === 0n ? zeroAddress : spendToken) as `0x${string}` };
   });
   const requiredInput = calls.reduce((total, call) => total + (call.spendToken.toLowerCase() === settlementAsset.toLowerCase() ? call.spendAmount : 0n), 0n);
   if (requiredInput >= 2n ** 256n) throw new Error("action-input-invalid");
-  return { capability: keccak256(stringToHex(definition.capability)),
-    market: definition.marketPath ? executionMarket(at(action.params, definition.marketPath)) : padHex("0x", { size: 32 }),
-    requiredInput, exposureLimit: definition.exposurePath ? amount(at(action.params, definition.exposurePath)) : requiredInput, calls };
+  return { capability: keccak256(stringToHex(executionKey(definition))),
+    market: definition.marketPath ? executionMarket(at(params, definition.marketPath)) : padHex("0x", { size: 32 }),
+    requiredInput, exposureLimit: definition.exposurePath ? amount(at(params, definition.exposurePath)) : requiredInput, calls };
 }

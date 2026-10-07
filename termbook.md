@@ -1026,27 +1026,27 @@ cap before funding a Credit.
 | Staking   | `stake`, `claim_rewards`, `request_unstake`, `complete_unstake`, `withdraw_to_credit_account`                            | Own the receipt or enforceable withdrawal claim. Account for slashing, queues, and unbonding delay.                                         |
 | Vault     | `deposit_vault`, `redeem_vault`, `claim_rewards`, `withdraw_to_credit_account`                                           | Own shares and redeemable claims. Verify fees, liquidity limits, queues, and withdrawal recipients.                                         |
 | Liquidity | `add_liquidity`, `remove_liquidity`, `stake_lp`, `unstake_lp`, `claim_rewards`, `collect_fees`                           | Own LP tokens or position NFTs and their proceeds. Value the full unwind under stressed liquidity.                                          |
-| Spot      | `swap_exact_in`, `swap_exact_out`, `place_order`, `modify_order`, `cancel_order`                                             | Return outputs to the Credit Account. Require approved pricing and an executable recovery market.                                           |
+| Spot      | `place_order`, `modify_order`, `cancel_order`                                                                             | Return outputs to the Credit Account. Require approved pricing and an executable recovery market.                                           |
 
 Capability names describe economic effects. An integration may map several
 capabilities to one application function with different validated parameters.
 Actions identify their category with `use_case`. The SDK and API check it against
 the integration resolved by the app token. `place_order` remains the same name
-for spot and perps; its inputs follow the bound integration. Actions without an
-explicit use case retain their existing integration binding.
+for spot and perps. Termbook defines their public inputs below; plugins map those
+inputs to approved application calls. An omitted use case is inferred from the
+app token and still receives the same parameter validation.
 
-Spot swaps immediately convert one account asset into another. Exact input fixes
-the spending amount and bounds the minimum output; exact output fixes the output
-target and caps spending. Orderbook trades instead place an order and track its
-fills, refunds, and cancellation. Approved conversions can also prepare assets for
+Spot actions express buy or sell, with a spending budget or a receipt target.
+The plugin selects an approved swap or orderbook route. An immediate trade checks
+the actual account output and spending. Orderbook trades track fills, refunds,
+expiry, and cancellation. Approved conversions can also prepare assets for
 other application actions or turn recovery proceeds into the House settlement
 asset. They remain declared steps or dependencies of the registered bundle.
 
 The SDK example uses `place_order` to open a perps position.
 
-Perps inputs use one sizing mode: margin plus notional, or margin plus leverage.
-The third value is derived. Applications with different sizing rules must define
-their units and calculation explicitly.
+Public perps inputs specify margin and notional. A plugin derives the application's
+other sizing values from these inputs using its approved rules.
 
 The public perps shape groups amounts under `amount: { margin, notional }` for
 opening and increasing a position. An increase specifies additions, not new totals.
@@ -1062,6 +1062,101 @@ available only when application and Termbook health permit it.
 Standard vault interfaces can reduce mapping work. Each deployed vault and its
 asset, share token, limits, fees, and upgrade controls still require approval.
 Assets without approved pricing and an executable exit have zero recovery value.
+
+### Standard action parameters
+
+Every action has `{ use_case, capability, params }`. IDs come from the published
+integration and its account state. Token amounts use smallest token units.
+`slippage_bps` is an integer checked against integration and House limits.
+`limit_price` uses 18 decimals of quote asset per base token. `expires_at` is Unix
+time in seconds, later than the current time and at most 30 days away. There are
+no borrower-supplied targets, calldata, recipients, execution fees, or proof fields.
+
+#### Spot
+
+| Capability | Parameters | Effect |
+| ---------- | ---------- | ------ |
+| `place_order` | `market_id`, `direction: "buy" \| "sell"`, `order_type: "market" \| "limit"`, `amount` and protection below | Buy or sell using account funds. |
+| `modify_order` | `order_id`, `market_id`, `direction`, `amount`, `limit_price`, `expires_at` | Replace the unfilled remainder of a limit order through the approved amendment or cancel-and-replace flow. |
+| `cancel_order` | `order_id` | Cancel the unfilled remainder and return refundable funds to the account. |
+
+`amount` contains exactly one of `spend` or `receive`. Market orders require
+`slippage_bps`; limit orders require `limit_price` and `expires_at` instead.
+
+| Direction | `amount.spend` | `amount.receive` | Limit price |
+| --------- | -------------- | ---------------- | ----------- |
+| Buy | Quote asset budget | Base token quantity target | Maximum quote per base token |
+| Sell | Base token quantity | Quote asset proceeds target | Minimum quote per base token |
+
+For example, a TOKEN-USDC market buy can spend 100 USDC, while a limit buy can
+request 10 TOKEN at no more than 2.5 USDC each. Either sizing mode can be supported
+for either order type. Each plugin explicitly declares the modes it implements.
+Limit sizing uses the approved token decimals, fee cap, and lot size: budgets
+round quantities down; receipt targets round quantities up. Unused funds remain
+in the account. A limit order can remain unfilled or fill partially; a receipt
+target describes the full order, not a guarantee of immediate proceeds.
+
+The reviewed limit is signed and encoded into the application call. It must be
+at least as protective as the oracle bound permitted by the House and integration.
+An order outside that policy is rejected before signing. Sale proceeds return to
+the Credit Account; repayment remains a separate account operation.
+
+#### Perps
+
+| Capability | Parameters | Effect |
+| ---------- | ---------- | ------ |
+| `place_order` | `market_id`, `direction: "long" \| "short"`, `order_type`, `amount: { margin, notional }`, protection | Open a position. Market protection is `slippage_bps`; limit protection is `limit_price`, `expires_at`. |
+| `increase_position` | `position_id`, `amount: { margin, notional }`, `slippage_bps` | Add margin and notional to an existing position. |
+| `decrease_position` | `position_id`, `amount: { notional }`, `slippage_bps` | Remove the specified notional. |
+| `add_margin` | `position_id`, `amount` | Add margin without increasing notional. |
+| `remove_margin` | `position_id`, `amount` | Return safely removable margin to the account. |
+| `cancel_order` | `order_id` | Cancel and collect refunds. |
+| `close_position` | `position_id`, `slippage_bps` | Close the whole position and collect released funds. |
+
+Position actions resolve their market and direction through a registered getter
+bound to the Credit Account and position ID. The plugin maps execution direction
+according to the action's economic effect, including closing a long versus
+opening one. Margin and notional use the integration's declared settlement units.
+
+#### Vault
+
+| Capability | Parameters | Effect |
+| ---------- | ---------- | ------ |
+| `deposit_vault` | `market_id`, `amount_in`, `min_shares` | Deposit assets for at least the requested shares. |
+| `redeem_vault` | `position_id`, `shares_in`, `min_amount_out` | Redeem shares with a minimum asset return. |
+| `claim_rewards` | `position_id` | Collect rewards into the account. |
+| `withdraw_to_credit_account` | `request_id` | Collect an approved queued withdrawal. |
+
+#### Staking
+
+| Capability | Parameters | Effect |
+| ---------- | ---------- | ------ |
+| `stake` | `market_id`, `amount_in`, `min_receipt_out` where the receipt rate varies | Stake and retain the receipt or withdrawal claim. |
+| `claim_rewards` | `position_id` | Collect rewards. |
+| `request_unstake` | `position_id`, `amount` | Start an unstaking request. |
+| `complete_unstake` | `request_id` | Complete a matured request. |
+| `withdraw_to_credit_account` | `position_id`, `amount` | Collect withdrawable funds. |
+
+#### Liquidity
+
+| Capability | Parameters | Effect |
+| ---------- | ---------- | ------ |
+| `add_liquidity` | `market_id`, `amounts_in: [{ asset_id, amount_in }]`, `min_liquidity_out`; `tick_lower`, `tick_upper` together where supported | Add assets and receive LP units or a position NFT. |
+| `remove_liquidity` | `position_id`, `liquidity_in`, `min_amounts_out: [{ asset_id, min_amount_out }]` | Remove liquidity with minimum returns for each asset. |
+| `stake_lp` | `position_id`, `amount` for fungible LP units | Stake the LP position. An NFT uses its position ID alone. |
+| `unstake_lp` | `position_id`, `amount` for fungible LP units | Unstake the LP position. |
+| `claim_rewards` | `position_id` | Collect incentives. |
+| `collect_fees` | `position_id` | Collect earned fees. |
+
+Asset lists contain at most 16 distinct asset IDs. The integration defines each
+asset's units, LP precision, NFT identity, and allowed ranges. Unsupported optional
+fields are rejected instead of ignored. A plugin may publish a subset of the
+catalogue; publishing a capability requires its mapped inputs, runtime controls,
+position readers, recovery path, and acceptance evidence.
+
+`credit.repay()` and `credit.close()` handle debt repayment and facility closure.
+Closing orchestrates the approved unwind, repayment, surplus, and collateral
+return flow. Registered conversions remain part of those flows.
 
 ### Account permissions and runtime state
 
@@ -1337,7 +1432,7 @@ const trade = {
   direction: "long",
   margin: 700_000_000n,
   notional: 1_050_000_000n,
-};
+} as const;
 
 termbook.open({
   action: {

@@ -1,7 +1,7 @@
-import type { CapabilityDefinition } from "@termbook/schema";
+import { executionKey, type CapabilityDefinition } from "@termbook/schema";
 import { encodeAbiParameters, keccak256, parseAbi, stringToHex } from "viem";
 import type { TermbookClient } from "../client/client.js";
-import type { AppAction } from "../types/app.types.js";
+import type { TermAction } from "@termbook/schema";
 import { executionMarket, type ExecutionPrice } from "./execution.js";
 
 const coreAbi = parseAbi(["function priceProtection() view returns (address)"]);
@@ -14,7 +14,7 @@ const oracleAbi = parseAbi(["function read(bytes32) view returns (uint256 value,
 function input(params: Record<string, unknown>, path: string): unknown {
   let value: unknown = params;
   for (const key of path.split(".")) {
-    if (!value || typeof value !== "object" || Array.isArray(value) || !Object.prototype.hasOwnProperty.call(value, key)) throw new Error("action-input-required");
+    if (!value || typeof value !== "object" || Array.isArray(value) && !/^(?:[0-9]|1[0-5])$/.test(key) || !Object.prototype.hasOwnProperty.call(value, key)) throw new Error("action-input-required");
     value = (value as Record<string, unknown>)[key];
   }
   return value;
@@ -31,29 +31,43 @@ export function deriveExecutionBound(referencePrice: bigint, bps: number, isMax:
   return bound;
 }
 export async function executionPrice(client: TermbookClient, creditId: `0x${string}`, bundle: `0x${string}`,
-  definition: CapabilityDefinition, action: AppAction, previous?: ExecutionPrice): Promise<ExecutionPrice | undefined> {
+  definition: CapabilityDefinition, action: TermAction, previous?: ExecutionPrice, state?: { market_id: unknown; direction: string }): Promise<ExecutionPrice | undefined> {
   if (!definition.price) return;
   if (!definition.marketPath) throw new Error("action-price-unavailable");
-  const market = executionMarket(input(action.params, definition.marketPath));
+  const params = { ...action.params, ...(state ? { _state: state } : {}) };
+  const market = executionMarket(input(params, definition.marketPath));
   if (!definition.price.markets.some((id) => id.toLowerCase() === market.toLowerCase())) throw new Error("action-price-unavailable");
   const kind = definition.price.kind ?? "price";
-  const direction = definition.price.directionPath ? String(input(action.params, definition.price.directionPath)) : "";
+  const direction = definition.price.directionPath ? String(input(params, definition.price.directionPath)) : "";
   const isMax = kind === "price" ? !!definition.price.maximumDirections?.includes(direction) : kind === "max_input";
   if (kind === "price" && !isMax && !definition.price.minimumDirections?.includes(direction)) throw new Error("action-price-invalid");
-  const rawSlippage = input(action.params, definition.price.slippagePath);
+  const limit = action.params.order_type === "limit" || action.capability === "modify_order";
+  const rawSlippage = definition.price.slippagePath ? input(params, definition.price.slippagePath) : 0;
   if (!/^\d+$/.test(String(rawSlippage))) throw new Error("action-price-invalid");
-  const slippageBps = Number(rawSlippage);
+  let slippageBps = Number(rawSlippage);
   const protection = await client.rpc.read<`0x${string}`>(client.config.core, coreAbi, "priceProtection");
   const rule = await client.rpc.read<{ oracle: `0x${string}`; feedId: `0x${string}`; priceDecimals: number;
     maxSlippageBps: number; maxAuthorizationAge: number }>(protection, protectionAbi, "rule",
-      [bundle, keccak256(stringToHex(definition.capability)), market]);
+      [bundle, keccak256(stringToHex(executionKey(definition))), market]);
   const houseCap = await client.rpc.read<number>(protection, protectionAbi, "houseSlippage", [creditId]);
+  if (limit) slippageBps = Math.min(houseCap, rule.maxSlippageBps);
   if (!rule || /^0x0{40}$/i.test(rule.oracle) || !Number.isInteger(slippageBps)
     || slippageBps < 0 || slippageBps > Math.min(houseCap, rule.maxSlippageBps)) throw new Error("action-slippage-denied");
   let derive = (price: bigint) => deriveExecutionBound(price, slippageBps, isMax, rule.priceDecimals);
+  if (limit) {
+    if (kind !== "price" || definition.price.slippagePath) throw new Error("action-limit-definition-invalid");
+    const requested = BigInt(String(action.params.limit_price));
+    const scale = 10n ** BigInt(Math.abs(rule.priceDecimals - 18));
+    const bound = rule.priceDecimals >= 18 ? requested * scale : isMax ? requested / scale : (requested + scale - 1n) / scale;
+    derive = (price) => {
+      const approved = deriveExecutionBound(price, slippageBps, isMax, rule.priceDecimals);
+      if (bound <= 0n || bound >= 2n ** 256n || (isMax ? bound > approved : bound < approved)) throw new Error("action-limit-price-denied");
+      return bound;
+    };
+  }
   if (kind !== "price") {
     const id = keccak256(encodeAbiParameters([{ type: "bytes32" }, { type: "bytes32" }, { type: "bytes32" }],
-      [bundle, keccak256(stringToHex(definition.capability)), market]));
+      [bundle, keccak256(stringToHex(executionKey(definition))), market]));
     const config = await client.rpc.read<readonly [number, number, number, boolean, boolean, boolean, `0x${string}`, `0x${string}`]>(
       protection, protectionAbi, "amountRules", [id]);
     if (!config[5] || config[4] !== isMax || !definition.price.amountPath) throw new Error("action-price-unavailable");

@@ -1,5 +1,5 @@
-import type { CollateralMarket, CapabilityDefinition, CapabilityCall } from "@termbook/schema";
-import { assertActionUseCase, capabilityCalls } from "@termbook/schema";
+import type { CollateralMarket, CapabilityDefinition, CapabilityCall, TermAction } from "@termbook/schema";
+import { assertActionUseCase, assertStandardAction, capabilityCalls, matchesAction, standardActionFields } from "@termbook/schema";
 import { formatEther, parseAbiItem, parseUnits } from "viem";
 import type { TermbookClient } from "../client/client.js";
 import type { AppAction, ActionReview } from "../types/app.types.js";
@@ -80,7 +80,7 @@ export class TermbookModal {
   private intent?: Intent;
   private offers: Offer[] = [];
   private offer?: Offer;
-  private action?: AppAction;
+  private action?: TermAction;
   private readonly preparedAction: boolean;
   private editingAction = false;
   private review?: ActionReview;
@@ -216,7 +216,7 @@ export class TermbookModal {
 
   private async load(preferred?: `0x${string}`): Promise<void> {
     await this.client.ready();
-    if (this.action) assertActionUseCase(this.action, this.client.config.use_case);
+    if (this.action) { assertActionUseCase(this.action, this.client.config.use_case); assertStandardAction(this.action, this.client.config.use_case); }
     const http = new HttpClient(this.client.config.apiBase!);
     const [markets, serverRows] = await Promise.all([
       this.client.catalog.collateralMarkets(),
@@ -420,7 +420,7 @@ export class TermbookModal {
         returnRecipient: { namespace: "solana" as const, reference: this.market.genesis as `0x${string}`,
           accountBytes: owner.accountBytes as `0x${string}` } };
     this.showStatus("Requesting House offers…");
-    this.intent = this.client.intent({ collateral, credit: { duration: days * 86400, limit }, action: this.action });
+    this.intent = this.client.intent({ collateral, credit: { duration: days * 86400, limit }, action: this.action ? this.validatedAction() : undefined });
     this.offers = await this.intent.offers();
     this.offer = undefined;
     this.showStatus(this.offers.length ? "Select an offer to review its terms." : "No compatible House offer is available.");
@@ -562,7 +562,7 @@ export class TermbookModal {
     if (!this.preparedAction || this.editingAction) {
       const picker = element("select");
       const placeholder = element("option", "Select an action"); placeholder.value = ""; picker.append(placeholder);
-      for (const definition of definitions) {
+      for (const definition of definitions.filter((item, index) => definitions.findIndex((entry) => entry.capability === item.capability) === index)) {
         const option = element("option", definition.label);
         option.value = definition.capability; option.selected = this.action?.capability === definition.capability; picker.append(option);
       }
@@ -570,7 +570,7 @@ export class TermbookModal {
       this.body.append(element("label", "Application action"), picker);
     }
     if (!this.action) return;
-    const definition = definitions.find((item) => item.capability === this.action!.capability);
+    const definition = definitions.find((item) => matchesAction(item, this.action!)) ?? definitions.find((item) => item.capability === this.action!.capability);
     if (!definition) { this.body.append(element("p", "This action is no longer available.", "error")); return; }
     const form = element("div", undefined, "card");
     form.append(element("h3", definition.label));
@@ -580,7 +580,7 @@ export class TermbookModal {
     } else this.renderActionFields(form, definition);
     const controls = element("div", undefined, "actions");
     controls.append(this.button("Review action", async () => {
-      this.review = await this.credit!.app.review(this.action!);
+      this.review = await this.credit!.app.review(this.validatedAction());
       this.showStatus("Review the fresh funding and debt amounts before confirming."); this.render();
     }));
     form.append(controls);
@@ -604,7 +604,7 @@ export class TermbookModal {
       review.append(element("small", `Settlement asset ${this.review.settlementAsset}. Amounts shown in smallest token units.`));
       if (this.review.canExecute) review.append(this.button("Confirm action", async () => {
         if (!this.review) throw new Error("action-review-required");
-        const result = await this.credit!.app.execute(this.action!, this.review, undefined, {
+        const result = await this.credit!.app.execute(this.validatedAction(), this.review, undefined, {
           signal: this.operationAbort.signal, onProgress: (checkpoint, outcomes) => this.executionProgress(checkpoint, outcomes),
         });
         this.saveRecentAction(result);
@@ -619,6 +619,7 @@ export class TermbookModal {
   }
 
   private renderActionFields(container: HTMLElement, definition: CapabilityDefinition): void {
+    if (this.client.config.use_case) { this.renderStandardFields(container); return; }
     const fields = capabilityCalls(definition).flatMap((call) => {
       const item = parseAbiItem(call.signature);
       return item.type !== "function" ? [] : call.arguments.map((argument, index) => ({ argument, type: item.inputs[index]?.type }));
@@ -677,5 +678,77 @@ export class TermbookModal {
       container.append(label, input);
       if (argument.min || argument.max) container.append(element("small", `Allowed ${argument.min ?? "0"}–${argument.max ?? "contract limit"}`));
     }
+  }
+
+  private renderStandardFields(container: HTMLElement): void {
+    const action = this.action!;
+    const category = this.client.config.use_case!;
+    const routes = this.client.config.actions!.filter((route) => route.capability === action.capability);
+    const paths = routes.flatMap((route) => capabilityCalls(route).flatMap((call) => call.arguments.filter((argument) => argument.source === "input").map((argument) => argument.path!)));
+    const fields = standardActionFields(category, action.capability, action.params).filter((field) => !field.optional
+      || paths.some((path) => path === field.path || path.startsWith(`${field.path}.`)));
+    const change = (path: string, value: unknown, rerender = false) => {
+      this.action = { ...this.action!, params: setValue(this.action!.params, path, value) };
+      this.review = undefined;
+      if (rerender) this.render();
+    };
+    const select = (path: string, choices: string[], selected: unknown, onChange: (value: string) => void) => {
+      const input = element("select");
+      for (const value of ["", ...choices]) {
+        const option = element("option", value || "Select"); option.value = value; option.selected = selected === value; input.append(option);
+      }
+      const id = `termbook-field-${++this.fieldSeq}`;
+      const label = element("label", path.replaceAll("_", " ")); label.htmlFor = id; input.id = id;
+      input.addEventListener("change", () => onChange(input.value));
+      container.append(label, input);
+    };
+    for (const field of fields) {
+      let path = field.path;
+      if (category === "spot" && path === "amount") {
+        const eligible = routes.filter((route) => ["direction", "order_type"].every((key) => !action.params[key]
+          || !route.when?.[key as "direction" | "order_type"] || route.when[key as "direction" | "order_type"] === action.params[key]));
+        const modes = [...new Set(eligible.map((route) => route.when?.sizing).filter((mode): mode is "spend" | "receive" => !!mode))];
+        const amount = action.params.amount as Record<string, unknown> | undefined;
+        const mode = amount && "receive" in amount ? "receive" : amount && "spend" in amount ? "spend" : "";
+        select("Sizing", modes, mode, (next) => change("amount", next ? { [next]: "" } : {}, true));
+        if (!mode) continue;
+        path = `amount.${mode}`;
+      }
+      if (field.choices) {
+        const key = path as "direction" | "order_type";
+        const available = field.choices.filter((choice) => routes.some((route) => !route.when?.[key] || route.when[key] === choice));
+        select(path, available, valueAt(action.params, path), (next) => {
+          if (path === "order_type") {
+            const params = { ...this.action!.params }; delete params.slippage_bps; delete params.limit_price; delete params.expires_at;
+            this.action = { ...this.action!, params };
+          }
+          change(path, next, true);
+        });
+        continue;
+      }
+      const input = field.type === "json" && path === field.path ? element("textarea") : element("input");
+      const value = valueAt(action.params, path);
+      input.value = value === undefined ? "" : typeof value === "object" ? stringify(value) : String(value);
+      const id = `termbook-field-${++this.fieldSeq}`;
+      const label = element("label", `${path.replaceAll("_", " ")}${field.optional ? " (optional)" : ""}`);
+      label.htmlFor = id; input.id = id;
+      input.addEventListener("input", () => {
+        if (field.optional && input.value === "") {
+          const params = { ...this.action!.params }; delete params[path]; this.action = { ...this.action!, params }; this.review = undefined; return;
+        }
+        let next: unknown = input.value;
+        if (input instanceof HTMLTextAreaElement) { try { next = JSON.parse(input.value); } catch { /* Review rejects incomplete JSON. */ } }
+        else if (path === "expires_at" || path.startsWith("tick_")) next = Number(input.value);
+        change(path, next);
+      });
+      container.append(label, input);
+    }
+    container.append(element("small", "Amounts use smallest token units. Limit prices use 18 decimals of quote per base token. Expiry is Unix time in seconds."));
+  }
+
+  private validatedAction(): AppAction {
+    if (!this.action) throw new Error("action-input-required");
+    assertStandardAction(this.action, this.client.config.use_case);
+    return this.action as AppAction;
   }
 }

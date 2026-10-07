@@ -141,8 +141,11 @@ contract PriceProtection {
             if (quote.isMax != amount.maxInput || quote.bound != deriveAmountBound(refPrice,
                 specified, quote.slippageBps, amount.inputDecimals,
                 amount.outputDecimals, amount.inverse, amount.maxInput)) revert Invalid();
-        } else if (quote.bound != deriveBound(refPrice, quote.slippageBps, quote.isMax, value.priceDecimals)
-            || _word(call_.data, value.directionWord) != (quote.isMax ? value.maximumDirection : value.minimumDirection)) revert Invalid();
+        } else {
+            uint256 approved = deriveBound(refPrice, quote.slippageBps, quote.isMax, value.priceDecimals);
+            if (quote.bound == 0 || (quote.isMax ? quote.bound > approved : quote.bound < approved)
+                || _word(call_.data, value.directionWord) != (quote.isMax ? value.maximumDirection : value.minimumDirection)) revert Invalid();
+        }
     }
     function validFunding(ExecutionTypes.Action calldata action, address settlementAsset) external pure returns (bool) {
         uint256 required;

@@ -11,7 +11,8 @@ import { buildExecution, emptyExecutionPrice, priceTuple, executionCoreAbi, exec
 import { executionPrice } from "./price.js";
 import { Signer } from "../wallet/signer.js";
 import type { Wallet } from "../types/client.types.js";
-import { assertActionUseCase } from "@termbook/schema";
+import { assertActionUseCase, assertStandardAction, executionKey, selectCapability, type TermAction } from "@termbook/schema";
+import { readActionState } from "./state.js";
 
 const coreRegistryAbi = parseAbi(["function integrationRegistry() view returns (address)"]);
 const registryAbi = parseAbi(["function validateCall(bytes32,address,bytes,address,uint256) view returns (bool)",
@@ -34,11 +35,12 @@ export class CreditApp {
     this.creditId = creditId;
   }
 
-  private async prepare(action: AppAction, previousPrice?: ExecutionPrice) {
+  private async prepare(action: TermAction, previousPrice?: ExecutionPrice) {
     await this.client.ready();
     assertActionUseCase(action, this.client.config.use_case);
-    const definition = this.client.config.actions?.find((entry) => entry.capability === action.capability);
-    if (!definition) throw new Error("capability-denied");
+    assertStandardAction(action, this.client.config.use_case);
+    if (this.client.config.use_case) action = { ...action, use_case: this.client.config.use_case };
+    const definition = selectCapability(this.client.config.actions ?? [], action);
     const details = await this.client.rpc.creditDetails(this.creditId);
     const field = (key: string, index: number) => Array.isArray(details) ? details[index] : details[key];
     const account = field("account", 5) as `0x${string}`;
@@ -50,8 +52,9 @@ export class CreditApp {
       || !this.client.config.versionId || bundleId?.toLowerCase() !== this.client.config.versionId.toLowerCase()) {
       throw new Error("credit-action-unavailable");
     }
-    const price = await executionPrice(this.client, this.creditId, bundleId, definition, action, previousPrice);
-    const context = { borrower, account, creditId: this.creditId, use_case: this.client.config.use_case, ...(price ? { priceBound: price.bound } : {}) };
+    const state = await readActionState(this.client, definition, action, { borrower, account, creditId: this.creditId });
+    const price = await executionPrice(this.client, this.creditId, bundleId, definition, action, previousPrice, state);
+    const context = { borrower, account, creditId: this.creditId, use_case: this.client.config.use_case, state, ...(price ? { priceBound: price.bound } : {}) };
     const { target, data, requiredInput: fundingInput } = buildAction(definition, action, context);
     const asset = await this.client.rpc.read<`0x${string}`>(vault, [{ type: "function", name: "asset", inputs: [], outputs: [{ type: "address" }], stateMutability: "view" }] as const, "asset");
     const currentDebt = BigInt(String(field("debt", 11)));
@@ -61,7 +64,8 @@ export class CreditApp {
     const nonce = BigInt(String(field("nonce", 18))) + 1n;
     const managed = await this.client.rpc.read<boolean>(this.client.config.core, executionCoreAbi, "managedBundle", [bundleId]);
     if (!managed && (definition.steps?.length || definition.settlement === "asynchronous"
-      || definition.spendPath || definition.valuePath || definition.valueFromBound || definition.spendFromBound || definition.fundingFromBound || definition.price)) {
+      || definition.spendPath || definition.spendAmount !== undefined || definition.fundingAmount !== undefined || definition.nativeValue !== undefined
+      || definition.valuePath || definition.valueFromBound || definition.spendFromBound || definition.fundingFromBound || definition.price)) {
       throw new Error("integration-execution-unavailable");
     }
     const plan = managed ? buildExecution(definition, action, context, asset) : undefined;
@@ -140,7 +144,7 @@ export class CreditApp {
       authorization.signature = await signer.signDigest(digest);
       const tx = await this.client.rpc.coreWrite("executePlan", [this.creditId, plan, authorization]);
       return this.resumeExecution({ ...options, checkpoint: { chainId: this.client.config.chainId, core: this.client.config.core,
-        creditId: this.creditId, tx, capability: action.capability, stage: "submitted" } });
+        creditId: this.creditId, tx, capability: action.capability, executionKey: executionKey(definition), stage: "submitted" } });
     }
     if (sessionWallet) throw new Error("session-unavailable");
     const digest = this.client.signer.fundedActionDigest(
@@ -208,10 +212,14 @@ export class CreditApp {
       || scope.maxExposure <= 0n || scope.aggregateExposure < scope.maxExposure
       || [scope.total, scope.aggregateExposure].some((value) => value >= 2n ** 256n)
       || !Number.isSafeInteger(scope.expiry) || scope.expiry <= Math.floor(Date.now() / 1000)) throw new Error("param-invalid");
-    const permissions = scope.permissions.map((permission) => {
+    const permissions = scope.permissions.flatMap((permission) => {
       if (!/^[a-z][a-z0-9_]{0,63}$/.test(permission.capability) || !/^0x[a-fA-F0-9]{64}$/.test(permission.market)) throw new Error("param-invalid");
-      return { capability: keccak256(stringToHex(permission.capability)), market: permission.market };
+      const routes = this.client.config.actions?.filter((action) => action.capability === permission.capability
+        && (!action.price || action.price.markets.some((market) => market.toLowerCase() === permission.market.toLowerCase()))) ?? [];
+      if (!routes.length) throw new Error("capability-denied");
+      return routes.map((route) => ({ capability: keccak256(stringToHex(executionKey(route))), market: permission.market }));
     });
+    if (permissions.length > 16 || new Set(permissions.map((permission) => `${permission.capability}:${permission.market}`)).size !== permissions.length) throw new Error("param-invalid");
     const tx = await this.client.rpc.coreWrite("configureExecutionSession", [this.creditId, key, permissions,
       scope.perAction, scope.total, scope.maxExposure, scope.aggregateExposure, BigInt(scope.expiry)]);
     await this.client.rpc.wait(tx);
@@ -228,7 +236,7 @@ export class CreditApp {
 
   async capabilities(): Promise<string[]> {
     await this.client.ready();
-    return this.client.config.actions?.map((entry) => entry.capability) ?? [];
+    return [...new Set(this.client.config.actions?.map((entry) => entry.capability) ?? [])];
   }
 
   async exit(instruction: `0x${string}`): Promise<{ tx: `0x${string}` }> {

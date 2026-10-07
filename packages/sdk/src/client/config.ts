@@ -1,5 +1,5 @@
 import { createPublicClient, http, parseAbi, parseAbiItem, toFunctionSelector } from "viem";
-import { capabilityCalls, capabilityDefinitionSchema, useCaseSchema } from "@termbook/schema";
+import { assertActionRoutes, assertStandardDefinition, capabilityCalls, capabilityDefinitionSchema, useCaseSchema } from "@termbook/schema";
 import type { ClientConfig, ResolvedClientConfig } from "../types/client.types.js";
 
 const tokenPattern = /^tbk_[a-f0-9]{64}$/;
@@ -49,7 +49,8 @@ export async function resolveClientConfig(input: ClientConfig): Promise<Resolved
   const versionId = data["versionId"] as `0x${string}`;
   if (!Array.isArray(data["actions"]) || data["actions"].length === 0 || data["actions"].length > 32) throw new Error("sdk-config-invalid");
   const actions = data["actions"].map((action) => capabilityDefinitionSchema.parse(action));
-  if (new Set(actions.map((action) => action.capability)).size !== actions.length) throw new Error("sdk-config-invalid");
+  try { assertActionRoutes(actions); actions.forEach((action) => assertStandardDefinition(action, useCase.data)); }
+  catch { throw new Error("sdk-config-invalid"); }
   const accountFactory = data["accountFactory"] as `0x${string}`;
   const riskEngine = data["riskEngine"];
   const settlementFactory = data["settlementFactory"];
@@ -73,7 +74,7 @@ export async function resolveClientConfig(input: ClientConfig): Promise<Resolved
     Promise.all(actions.flatMap(capabilityCalls).map(async (action) => {
       const item = parseAbiItem(action.signature);
       if (item.type !== "function" || !["nonpayable", "payable"].includes(item.stateMutability) || item.inputs.length !== action.arguments.length
-        || (action.valuePath || action.valueFromBound) && item.stateMutability !== "payable") return false;
+        || (action.valuePath || action.valueFromBound || action.nativeValue !== undefined) && item.stateMutability !== "payable") return false;
       return chain.readContract({ address: registry, abi: registryAbi, functionName: "isCallAllowed",
         args: [versionId, action.target as `0x${string}`, toFunctionSelector(item)], blockTag: "finalized" });
     })),

@@ -2,7 +2,7 @@ import {
   decodeAbiParameters, decodeFunctionData, keccak256, parseAbi, parseAbiItem, padHex, stringToHex, toFunctionSelector,
   type Address, type Hex,
 } from "viem";
-import { capabilityCalls, type CapabilityDefinition } from "@termbook/schema";
+import { capabilityCalls, capabilityDependencies, executionKey, type CapabilityDefinition } from "@termbook/schema";
 import { termbookCoreAbi } from "@termbook/bindings";
 import { monadClient } from "../chain/monad.client.js";
 import { env } from "../config/env.js";
@@ -45,7 +45,7 @@ export async function validateIntegrationAcceptance(
 ): Promise<void> {
   const chain = monadClient();
   const suite = await validateIntegrationSuite(chain, versionId, manifestHash, acceptance.suite, acceptance.evidenceHash, actions);
-  const actionNames = actions.map((action) => action.capability);
+  const actionNames = actions.map(executionKey);
   if (Object.keys(acceptance.actionTransactions).length !== actions.length
     || actionNames.some((name) => !acceptance.actionTransactions[name])) {
     throw new Error("integration-action-evidence-incomplete");
@@ -98,7 +98,7 @@ export async function validateIntegrationAcceptance(
   if (equal(appReader, zero)) throw new Error("integration-reader-evidence-invalid");
   const pins = new Set(suite.contracts.map((pin) => pin.target.toLowerCase()));
   if ([core, health, adapter, readerConfig[0], appReader, activeCredit.account, recoveredCredit.account,
-    activeCredit.vault, recoveredCredit.vault, settlementAsset, ...actions.flatMap(capabilityCalls).map((call) => call.target)]
+    activeCredit.vault, recoveredCredit.vault, settlementAsset, ...actions.flatMap(capabilityDependencies).map((call) => call.target)]
     .some((target) => !pins.has(target.toLowerCase()))) throw new Error("integration-suite-pin-missing");
   if (suite.exclusions.some((item) => item.id === "retention_authorization")
     && await chain.readContract({ address: core, abi: termbookCoreAbi, functionName: "retentionSupported", args: [versionId], blockNumber: finalized.number })) {
@@ -133,7 +133,7 @@ export async function validateIntegrationAcceptance(
   };
   let recoverySetupBlock = 0n;
   for (const action of actions) {
-    const evidence = acceptance.actionTransactions[action.capability]!;
+    const evidence = acceptance.actionTransactions[executionKey(action)]!;
     const hash = evidence.txHash as Hex;
     const [receipt, transaction, actionCredit] = await Promise.all([
       canonicalReceipt(hash), chain.getTransaction({ hash }),
@@ -154,10 +154,12 @@ export async function validateIntegrationAcceptance(
     const expected = capabilityCalls(action);
     if (!equal(creditId, evidence.creditId) || !equal(actionCredit.bundleId, versionId)
       || calls.length !== expected.length
-      || decoded.capability && !equal(decoded.capability, keccak256(stringToHex(action.capability)))
+      || action.executionKey && !decoded.capability
+      || decoded.capability && !equal(decoded.capability, keccak256(stringToHex(executionKey(action))))
       || calls.some((call, index) => {
         const item = parseAbiItem(expected[index]!.signature);
-        return item.type !== "function" || (expected[index]!.valuePath || expected[index]!.valueFromBound ? call.nativeValue <= 0n : call.nativeValue !== 0n)
+        return item.type !== "function" || (expected[index]!.nativeValue !== undefined ? call.nativeValue !== BigInt(expected[index]!.nativeValue!)
+          : expected[index]!.valuePath || expected[index]!.valueFromBound ? call.nativeValue <= 0n : call.nativeValue !== 0n)
           || !equal(call.target, expected[index]!.target)
           || !equal(call.data.slice(0, 10), toFunctionSelector(item));
       })) {

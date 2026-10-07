@@ -21,10 +21,13 @@ const context = { borrower: address("2"), account: address("3"), creditId };
 
 describe("registered application action mapping", () => {
   it("matches the use case without changing the capability name", () => {
-    const action = { use_case: "perps" as const, capability: "place_order", params: { market_id: "7", direction: "long", amount: { margin: "100" } } };
-    expect(buildAction(definition, action, { ...context, use_case: "perps" }).requiredInput).toBe(100n);
-    expect(() => buildAction(definition, action, { ...context, use_case: "spot" })).toThrow("action-use-case-mismatch");
-    expect(() => buildAction(definition, action, context)).toThrow("action-use-case-unavailable");
+    const action = { use_case: "perps" as const, capability: "place_order", params: { market_id: "7", direction: "long", order_type: "market",
+      amount: { margin: "100", notional: "500" }, slippage_bps: 50 } };
+    const standard = { ...definition, when: { order_type: "market" as const }, exposurePath: "amount.notional",
+      price: { slippagePath: "slippage_bps", directionPath: "direction", maximumDirections: ["long"], minimumDirections: ["short"], markets: [creditId] } };
+    expect(buildAction(standard, action, { ...context, use_case: "perps" }).requiredInput).toBe(100n);
+    expect(() => buildAction(standard, action, { ...context, use_case: "spot" })).toThrow("action-use-case-mismatch");
+    expect(() => buildAction(standard, action, context)).toThrow("action-use-case-unavailable");
   });
 
   it("spends owned tokens without requesting a USDC draw", () => {

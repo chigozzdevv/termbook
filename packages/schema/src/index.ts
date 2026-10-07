@@ -8,6 +8,8 @@ export * from "./collateral-setup.js";
 export * from "./settlement.js";
 export * from "./liquidity.js";
 export * from "./integration.js";
+export * from "./actions.js";
+export * from "./action-definition.js";
 export * from "./recovery.js";
 export * from "./catalog.js";
 export * from "./errors.js";

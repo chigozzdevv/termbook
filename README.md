@@ -128,7 +128,7 @@ target, ABI function, and argument source (`input`, `borrower`,
 closure. The candidate stays inactive in `ready_to_test` until the owner submits
 an `acceptance` record to `POST /integrations/candidates/:id/evidence`. It
 includes the complete `suite`, its canonical `evidenceHash`, active and recovered
-Credit IDs, one actual Core action transaction per declared capability, recovery
+Credit IDs, one actual Core action transaction per declared execution route, recovery
 transaction hashes, and an account-funded House repayment hash. `GET
 /integrations/validation` lists the cases covering the specification's 16 acceptance
 requirements. Each applicable case records pinned contract identities, canonical
@@ -208,19 +208,28 @@ typed parameters to `open({ action })`. `use_case` is `spot`, `perps`, `staking`
 `vault`, or `liquidity` and must match the integration resolved by the app token.
 Capability names remain shared: both spot and perps can use `place_order`.
 The SDK and API reject a mismatched use case before authorization or funding.
-Existing actions that omit the field remain bound to their registered integration.
+Actions that omit the field infer it from their registered integration and still
+use the standard parameters. The complete catalogue is in
+[termbook.md](termbook.md#standard-action-parameters). Spot exposes `place_order`,
+`modify_order`, and `cancel_order`; buy/sell, market/limit, and spend/receive are
+inputs to those operations. Public swap-specific capability names are not admitted.
+Each published mapping must consume the standard inputs. Unknown fields,
+unsupported sizing modes, mixed spend/receive amounts, and invalid protection or
+expiry values are rejected before authorization. SDK action types are discriminated
+by use case and capability.
 For example, the capability mapping is:
 
 ```json
 {
   "capability": "place_order",
   "label": "Place order",
+  "when": { "order_type": "market" },
   "target": "0x0000000000000000000000000000000000000001",
   "signature": "function placeOrder(uint256 market,uint8 direction,uint8 orderType,uint256 margin,uint256 notional,uint256 priceBound,address account)",
   "arguments": [
     { "source": "input", "path": "market_id", "label": "Market ID in base units" },
     { "source": "input", "path": "direction", "choices": { "long": "1", "short": "2" } },
-    { "source": "input", "path": "order_type", "choices": { "market": "1", "limit": "2" } },
+    { "source": "input", "path": "order_type", "choices": { "market": "1" } },
     { "source": "input", "path": "amount.margin", "label": "Margin in base units", "min": "1" },
     { "source": "input", "path": "amount.notional", "label": "Notional in base units", "min": "1" },
     { "source": "price_bound" },
@@ -242,6 +251,48 @@ For example, the capability mapping is:
 
 The address and function above illustrate the manifest format; admission
 requires the actual deployed target and matching onchain call policy.
+Multiple routes may share a public capability. Their `when` conditions select
+`market_id`, `direction`, `order_type`, and/or `sizing` (`spend` or `receive`).
+Conditions must be disjoint. Each route has a distinct `executionKey`, used by
+the onchain policy, price rules, session permissions, and acceptance evidence;
+the borrower continues to call the public capability. The default key is the
+capability name when it has one route. Every route needs its own executed sample
+and approval. Checkpoints retain the selected execution key when resuming.
+
+Market spot routes use `min_output` for spending budgets and `max_input` for
+receipt targets. Limit routes are asynchronous, map `expires_at` to the actual
+application deadline, and encode the signed `limit_price` through `price_bound`.
+They omit `price.slippagePath`. The price must be at least as protective as the
+House and integration oracle bound. `orderSizing` declares `baseAsset`,
+`quoteAsset`, `baseDecimals`, `quoteDecimals`, `feeBps`, and `lotSize`.
+`_derived.order_quantity` and `_derived.order_spend` are computed privately;
+callers cannot submit them. Budgets round quantity down after the fee reserve,
+while quantity and proceeds targets round up to a lot. Decimals and asset
+dependencies are checked onchain during admission. Application validators and
+acceptance tests must establish the fee cap and limit-order semantics.
+
+Perps position actions use `positionState`: a pinned view function taking the
+Credit Account and `position_id`, with `marketIndex`, `directionIndex`, and
+`directions: { long, short }` describing its results. `marketPath` becomes
+`_state.market_id`; `price.directionPath` becomes `_state.direction`; arguments
+use `{ source: "state", path: "market_id" }` or `direction`. Reads use finalized
+state, and execution is still constrained by the approved onchain validator.
+The getter's code, account ownership checks, direction mapping, and dependencies
+must pass source review and the integration suite.
+
+Internal fixed arguments use `{ source: "constant", value: "5" }`. Fixed costs
+use `fundingAmount`, `spendAmount`, or `nativeValue`; each excludes the corresponding
+path or bound source. Costs appear in the execution review and remain subject to
+onchain spending policies. Arrays can map individual slots such as
+`amounts_in.0.amount_in`, or use a reviewed validator for the whole ABI array.
+Tuple component names in that mapping match the standard object fields; ABI
+selectors and encoded types still match the application's deployed function.
+Unsupported slots and optional fields cannot be silently ignored.
+
+Existing manifests with arbitrary parameter names must be replaced and pass
+admission before resolving through the SDK. These source changes do not alter
+an existing deployment; the updated PriceProtection must be included in the
+next deployment for stricter signed limit prices.
 Application position valuation, forced unwind, and exit verification must be
 reviewed for each integration before it is admitted. The repository's
 `CollateralHealthReader` values collateral and Credit Account cash only.

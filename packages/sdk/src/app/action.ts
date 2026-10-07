@@ -1,13 +1,14 @@
-import { actionFunding, assertActionUseCase, type CapabilityDefinition, type CapabilityCall, type UseCase } from "@termbook/schema";
+import { actionFunding, actionInputs, assertActionUseCase, type CapabilityDefinition, type CapabilityCall, type UseCase } from "@termbook/schema";
 import { encodeFunctionData, parseAbiItem, type AbiParameter } from "viem";
-import type { AppAction } from "../types/app.types.js";
+import type { TermAction } from "@termbook/schema";
 
-export type ActionContext = { borrower: `0x${string}`; account: `0x${string}`; creditId: `0x${string}`; priceBound?: bigint; use_case?: UseCase };
+export type ActionContext = { borrower: `0x${string}`; account: `0x${string}`; creditId: `0x${string}`; priceBound?: bigint; use_case?: UseCase;
+  state?: { market_id: unknown; direction: string }; inputs?: Record<string, unknown> };
 
 function atPath(value: Record<string, unknown>, path: string): unknown {
   let current: unknown = value;
   for (const part of path.split(".")) {
-    if (!current || typeof current !== "object" || Array.isArray(current)
+    if (!current || typeof current !== "object" || Array.isArray(current) && !/^(?:[0-9]|1[0-5])$/.test(part)
       || !Object.prototype.hasOwnProperty.call(current, part)) throw new Error("action-input-required");
     current = (current as Record<string, unknown>)[part];
   }
@@ -62,30 +63,31 @@ function coerce(parameter: AbiParameter, value: unknown, depth = 0): unknown {
   throw new Error("action-type-unsupported");
 }
 
-export function buildAction(definition: CapabilityDefinition, action: AppAction, context: ActionContext): {
+export function buildAction(definition: CapabilityDefinition, action: TermAction, context: ActionContext): {
   target: `0x${string}`; data: `0x${string}`; requiredInput: bigint;
 } {
   assertActionUseCase(action, context.use_case);
   if (definition.capability !== action.capability || "target" in action || "data" in action
     || "encoded_params" in action.params || "encodedParams" in action.params) throw new Error("capability-denied");
   const requiredInput = actionFunding(definition, action, context.priceBound);
-  return { ...buildCapabilityCall(definition, action, context), requiredInput };
+  return { ...buildCapabilityCall(definition, action, { ...context, inputs: actionInputs(definition, action) }), requiredInput };
 }
 
-export function buildCapabilityCall(definition: CapabilityCall, action: AppAction, context: ActionContext): {
+export function buildCapabilityCall(definition: CapabilityCall, action: TermAction, context: ActionContext): {
   target: `0x${string}`; data: `0x${string}`;
 } {
   const item = parseAbiItem(definition.signature);
   if (item.type !== "function" || item.inputs.length !== definition.arguments.length) throw new Error("action-definition-invalid");
   const values = definition.arguments.map((argument, index) => {
     let value: unknown;
-    if (argument.source === "input") {
-      value = atPath(action.params, argument.path!);
+    if (argument.source === "input" || argument.source === "state") {
+      value = atPath(argument.source === "state" ? context.state ?? {} : context.inputs ?? action.params, argument.path!);
       if (argument.choices) {
         if (typeof value !== "string" || !Object.prototype.hasOwnProperty.call(argument.choices, value)) throw new Error("action-input-invalid");
         value = argument.choices[value];
       }
-    } else if (argument.source === "borrower") value = context.borrower;
+    } else if (argument.source === "constant") value = argument.value;
+    else if (argument.source === "borrower") value = context.borrower;
     else if (argument.source === "credit_account") value = context.account;
     else if (argument.source === "credit_id") value = context.creditId;
     else {

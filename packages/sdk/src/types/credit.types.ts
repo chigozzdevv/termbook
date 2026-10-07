@@ -30,7 +30,7 @@ export type ActionOutcome = {
 };
 export type ExecutionCheckpoint = {
   chainId: number; core: `0x${string}`; creditId: `0x${string}`; tx: `0x${string}`;
-  capability: string; stage: "submitted" | "pending" | "complete";
+  capability: string; executionKey?: string; stage: "submitted" | "pending" | "complete";
 };
 export type ExecuteOptions = {
   checkpoint?: ExecutionCheckpoint; timeoutMs?: number; pollIntervalMs?: number; signal?: AbortSignal;

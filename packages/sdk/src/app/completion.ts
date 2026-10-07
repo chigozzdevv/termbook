@@ -1,5 +1,6 @@
 import { decodeEventLog, decodeFunctionData, keccak256, stringToHex, type TransactionReceipt } from "viem";
 import { termbookCoreAbi } from "@termbook/bindings";
+import { executionKey } from "@termbook/schema";
 import type { TermbookClient } from "../client/client.js";
 import type { ActionOutcome, ExecuteOptions, ExecuteResult, ExecutionCheckpoint } from "../types/credit.types.js";
 import { executionCoreAbi, executionManagerAbi } from "./execution.js";
@@ -62,6 +63,7 @@ export async function completeExecution(client: TermbookClient, creditId: `0x${s
   if (!word.test(checkpoint.tx) || !word.test(checkpoint.creditId) || !equal(checkpoint.creditId, creditId)
     || checkpoint.chainId !== client.config.chainId || !equal(checkpoint.core, client.config.core)
     || !/^[a-z][a-z0-9_]{0,63}$/.test(checkpoint.capability)
+    || checkpoint.executionKey !== undefined && !/^[a-z][a-z0-9_]{0,63}$/.test(checkpoint.executionKey)
     || !["submitted", "pending", "complete"].includes(checkpoint.stage)) throw new Error("action-checkpoint-invalid");
   if (!Number.isSafeInteger(timeout) || timeout <= 0 || !Number.isSafeInteger(interval) || interval <= 0
     || !Number.isInteger(budget) || budget < 0 || budget > 32) throw new Error("param-invalid");
@@ -72,7 +74,10 @@ export async function completeExecution(client: TermbookClient, creditId: `0x${s
   };
   const until = Date.now() + timeout;
   try {
-    await client.ready(); await progress();
+    await client.ready();
+    if (checkpoint.executionKey !== undefined && !client.config.actions?.some((route) => route.capability === checkpoint.capability
+      && executionKey(route) === checkpoint.executionKey)) throw new Error("action-checkpoint-invalid");
+    await progress();
     const rpc = client.rpc.client;
     if (await rpc.getChainId() !== checkpoint.chainId) throw new Error("chain-mismatch");
     let receipt: TransactionReceipt | undefined;
@@ -88,7 +93,7 @@ export async function completeExecution(client: TermbookClient, creditId: `0x${s
     if (!tx.to || !equal(tx.to, checkpoint.core)) throw new Error("action-transaction-mismatch");
     const decoded = decodeFunctionData({ abi: executionCoreAbi, data: tx.input });
     if (decoded.functionName !== "executePlan" || !equal(decoded.args[0], creditId)
-      || decoded.args[1].capability !== keccak256(stringToHex(checkpoint.capability))) throw new Error("action-transaction-mismatch");
+      || decoded.args[1].capability !== keccak256(stringToHex(checkpoint.executionKey ?? checkpoint.capability))) throw new Error("action-transaction-mismatch");
     if (receipt.status !== "success") {
       checkpoint.stage = "complete"; await progress();
       return { status: "failed", draw: 0n, tx: checkpoint.tx, error: "transaction-reverted", checkpoint };

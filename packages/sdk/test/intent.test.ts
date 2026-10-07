@@ -14,10 +14,10 @@ describe("intent use case", () => {
     const client = { ready: async () => {}, config: { use_case: "perps", apiBase: "https://api.termbook.example" },
       signer: { address: () => address }, authenticatedPost } as unknown as TermbookClient;
     const request = { collateral: { chainId: 143, asset: address, amount: 100n }, credit: { duration: 86400 },
-      action: { use_case: "spot" as const, capability: "place_order", params: { amount: "100" } } };
+      action: { use_case: "spot" as const, capability: "place_order" as const, params: { market_id: "MON-USDC", direction: "buy" as const, order_type: "market" as const, amount: { spend: "100" }, slippage_bps: 50 } } };
     await expect(new Intent(client, request).submit()).rejects.toThrow("action-use-case-mismatch");
     expect(authenticatedPost).not.toHaveBeenCalled();
-    const action = { ...request.action, use_case: "perps" as const };
+    const action = { use_case: "perps" as const, capability: "place_order" as const, params: { market_id: "MON-USDC", direction: "long" as const, order_type: "market" as const, amount: { margin: "100", notional: "500" }, slippage_bps: 50 } };
     await expect(new Intent(client, { ...request, action }).submit()).resolves.toBe(id);
     expect(authenticatedPost).toHaveBeenCalledWith("/intents", expect.objectContaining({ action }));
   });

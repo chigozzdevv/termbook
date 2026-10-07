@@ -32,6 +32,16 @@ function fixture() {
   return { checkpoint, receipt, state, transport, rpc, client };
 }
 describe("finalized action completion", () => {
+  it("binds a checkpoint's route key to its published public capability", async () => {
+    const f = fixture(); f.client.config.actions = [{ capability: "place_order", executionKey: "place_order" }] as never;
+    await expect(completeExecution(f.client, id, { ...f.checkpoint, executionKey: "unknown" }))
+      .rejects.toMatchObject({ message: "action-checkpoint-invalid" });
+    await expect(completeExecution(f.client, id, { ...f.checkpoint, capability: "cancel_order", executionKey: "place_order" }))
+      .rejects.toMatchObject({ message: "action-checkpoint-invalid" });
+    expect(f.transport.getTransaction).not.toHaveBeenCalled();
+    f.state.status = 3; f.state.filled = 100n; f.state.remaining = 0n; f.state.liability = 0n;
+    await expect(completeExecution(f.client, id, { ...f.checkpoint, executionKey: "place_order" })).resolves.toMatchObject({ status: "settled" });
+  });
   it("resumes a submitted action and reports a partial fill followed by cancellation accurately", async () => {
     const f = fixture(), reconcile = vi.fn(async () => {
       f.state.status = 4; f.state.filled = 40n; f.state.refunded = 60n; f.state.remaining = 0n; f.state.liability = 0n;

@@ -13,9 +13,12 @@ const versionId = `0x${"b".repeat(64)}`;
 const wallet = { address: address("1"), signTypedData: async () => `0x${"c".repeat(64)}` as `0x${string}`,
   getChainId: async () => 143 };
 const actions = [{ capability: "place_order", label: "Place order", target: address("6"),
-  signature: "function placeOrder(uint256 amount,address account)",
-  arguments: [{ source: "input", path: "amount", label: "Amount" }, { source: "credit_account" }],
-  fundingPath: "amount", settlement: "atomic" }];
+  signature: "function placeOrder(uint256 margin,uint256 notional,uint8 direction,uint256 price,bytes32 market,address account)",
+  arguments: [{ source: "input", path: "amount.margin" }, { source: "input", path: "amount.notional" },
+    { source: "input", path: "direction", choices: { long: "1", short: "2" } }, { source: "price_bound" },
+    { source: "input", path: "market_id" }, { source: "credit_account" }],
+  fundingPath: "amount.margin", marketPath: "market_id", when: { order_type: "market" }, settlement: "atomic",
+  price: { slippagePath: "slippage_bps", directionPath: "direction", maximumDirections: ["long"], minimumDirections: ["short"], markets: [versionId] } }];
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -73,8 +76,10 @@ describe("public SDK configuration", () => {
   });
 
   it("checks preceding calls and accepts approved payable calls", async () => {
-    const { chain } = setup(true, { use_case: "spot", actions: [{ capability: "wrap", label: "Wrap MON", target: address("6"),
-      signature: "function deposit() payable", arguments: [], valuePath: "amount", settlement: "atomic",
+    const { chain } = setup(true, { use_case: "spot", actions: [{ capability: "place_order", label: "Buy token", target: address("6"),
+      signature: "function buy(uint256 amount,uint256 minOutput,bytes32 market) payable", arguments: [{ source: "input", path: "amount.spend" }, { source: "price_bound" }, { source: "input", path: "market_id" }],
+      valuePath: "amount.spend", marketPath: "market_id", when: { direction: "buy", order_type: "market", sizing: "spend" }, settlement: "atomic",
+      price: { kind: "min_output", amountPath: "amount.spend", slippagePath: "slippage_bps", markets: [versionId] },
       steps: [{ target: address("8"), signature: "function configure(address account)", arguments: [{ source: "credit_account" }] }] }] });
     const client = create_termbook({ app_token: token, wallet });
     await client.ready();

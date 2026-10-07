@@ -9,10 +9,11 @@ vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: () => ({ readCo
 vi.mock("../../src/config/env.js", () => ({ env: { core: `0x${"1".repeat(40)}` } }));
 const address = (n: string) => `0x${n.repeat(40)}` as `0x${string}`;
 const bundle = keccak256(stringToHex("bundle")), market = keccak256(stringToHex("MON/USDC"));
-const action = capabilityDefinitionSchema.parse({ capability: "sell", label: "Sell MON", target: address("2"),
+const action = capabilityDefinitionSchema.parse({ capability: "place_order", label: "Sell MON", target: address("2"),
   signature: "function swap(uint256 amount,uint256 minimum,address account,bytes32 market)", settlement: "atomic",
-  arguments: [{ source: "input", path: "amount" }, { source: "price_bound" }, { source: "credit_account" }, { source: "input", path: "market" }],
-  spendPath: "amount", spendToken: address("3"), marketPath: "market", price: { kind: "min_output", amountPath: "amount", slippagePath: "slippage_bps", markets: [market] } });
+  arguments: [{ source: "input", path: "amount.spend" }, { source: "price_bound" }, { source: "credit_account" }, { source: "input", path: "market_id" }],
+  when: { direction: "sell", order_type: "market", sizing: "spend" },
+  spendPath: "amount.spend", spendToken: address("3"), marketPath: "market_id", price: { kind: "min_output", amountPath: "amount.spend", slippagePath: "slippage_bps", markets: [market] } });
 const mapping = { applicationId: "1f3474c2-f4c2-461d-919d-143749012e27", category: "spot", versionId: bundle, codeHash: bundle,
   settlementAsset: address("4"), actions: [action], verifiedSources: [{ target: address("2"), sourceHash: market }] };
 let amountWord = 0;
@@ -34,8 +35,11 @@ describe("shared spot admission", () => {
   it("estimates exact-output intent funding through the approved onchain conversion", async () => {
     maxInput = true;
     const exact = { ...action, spendPath: undefined, spendToken: address("4"), fundingFromBound: true,
-      price: { ...action.price!, kind: "max_input" as const } };
-    const input = { capability: "sell", params: { amount: "100000000000000000000", slippage_bps: "50", market } };
+      arguments: [{ source: "input" as const, path: "amount.receive" }, ...action.arguments.slice(1)],
+      when: { direction: "buy" as const, order_type: "market" as const, sizing: "receive" as const },
+      price: { ...action.price!, kind: "max_input" as const, amountPath: "amount.receive" } };
+    const input = { use_case: "spot" as const, capability: "place_order", params: { market_id: market, direction: "buy", order_type: "market",
+      amount: { receive: "100000000000000000000" }, slippage_bps: "50" } };
     expect(await actionFundingBound(bundle, exact, input)).toBe(100_500_000n);
     expect(mocks.read).toHaveBeenCalledWith(expect.objectContaining({ functionName: "deriveAmountBound", blockNumber: 100n,
       args: [10n ** 18n, 100n * 10n ** 18n, 50, 6, 18, true, true] }));
@@ -51,7 +55,7 @@ describe("shared spot admission", () => {
   it("rejects missing spot bounds, House funding of another token, and nonpayable native calls", () => {
     expect(integrationMappingSchema.safeParse(mapping).success).toBe(true);
     expect(integrationMappingSchema.safeParse({ ...mapping, actions: [{ ...action, price: undefined }] }).success).toBe(false);
-    expect(integrationMappingSchema.safeParse({ ...mapping, actions: [{ ...action, fundingPath: "amount" }] }).success).toBe(false);
+    expect(integrationMappingSchema.safeParse({ ...mapping, actions: [{ ...action, fundingPath: "amount.spend" }] }).success).toBe(false);
     expect(integrationMappingSchema.safeParse({ ...mapping, category: "vault", actions: [{ ...action, valuePath: "amount" }] }).success).toBe(false);
   });
 });

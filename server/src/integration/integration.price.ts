@@ -1,4 +1,4 @@
-import { actionFunding, capabilityCalls, type CapabilityDefinition, type TermAction } from "@termbook/schema";
+import { actionFunding, actionInputs, capabilityCalls, executionKey, type CapabilityDefinition, type TermAction } from "@termbook/schema";
 import { encodeAbiParameters, keccak256, parseAbi, parseAbiItem, stringToHex, toFunctionSelector, toHex } from "viem";
 import { monadClient } from "../chain/monad.client.js";
 import { env } from "../config/env.js";
@@ -20,9 +20,10 @@ function numeric(value: unknown): bigint | undefined {
 export async function actionFundingBound(bundle: `0x${string}`, definition: CapabilityDefinition, action: TermAction): Promise<bigint | undefined> {
   if (!capabilityCalls(definition).some((call) => call.fundingFromBound)) return;
   actionFunding(definition, action, 1n);
+  const params = actionInputs(definition, action);
   if (definition.price?.kind !== "max_input" || !definition.marketPath || !definition.price.amountPath) throw new Error("action-price-unavailable");
   const at = (path: string) => path.split(".").reduce<unknown>((value, part) => value && typeof value === "object"
-    && !Array.isArray(value) ? (value as Record<string, unknown>)[part] : undefined, action.params);
+    && !Array.isArray(value) ? (value as Record<string, unknown>)[part] : undefined, params);
   const integer = (value: unknown) => {
     if (typeof value !== "bigint" && typeof value !== "string" && typeof value !== "number"
       || typeof value === "number" && !Number.isSafeInteger(value) || !/^\d+$/.test(String(value))) throw new Error("action-price-invalid");
@@ -32,17 +33,19 @@ export async function actionFundingBound(bundle: `0x${string}`, definition: Capa
   };
   const rawMarket = at(definition.marketPath);
   const market = typeof rawMarket === "string" && /^0x[0-9a-fA-F]{64}$/.test(rawMarket)
-    ? rawMarket as `0x${string}` : toHex(integer(rawMarket), { size: 32 });
+    ? rawMarket as `0x${string}` : typeof rawMarket === "string" && !/^\d+$/.test(rawMarket)
+      ? keccak256(stringToHex(rawMarket)) : toHex(integer(rawMarket), { size: 32 });
   if (!definition.price.markets.some((id) => id.toLowerCase() === market.toLowerCase())) throw new Error("action-price-unavailable");
   const chain = monadClient();
   const { number: blockNumber } = await chain.getBlock({ blockTag: "finalized" });
   const protection = await chain.readContract({ address: env.core as `0x${string}`, abi: coreAbi, functionName: "priceProtection", blockNumber });
-  const capability = keccak256(stringToHex(definition.capability));
+  const capability = keccak256(stringToHex(executionKey(definition)));
   const id = keccak256(encodeAbiParameters([{ type: "bytes32" }, { type: "bytes32" }, { type: "bytes32" }], [bundle, capability, market]));
   const [rule, amount] = await Promise.all([
     chain.readContract({ address: protection, abi, functionName: "rule", args: [bundle, capability, market], blockNumber }),
     chain.readContract({ address: protection, abi, functionName: "amountRules", args: [id], blockNumber }),
   ]);
+  if (!definition.price.slippagePath) throw new Error("action-price-unavailable");
   const bps = Number(integer(at(definition.price.slippagePath)));
   if (!amount[5] || !amount[4] || bps > rule.maxSlippageBps || bps > 5000) throw new Error("action-slippage-denied");
   const price = await chain.readContract({ address: rule.oracle, abi: oracleAbi, functionName: "read", args: [rule.feedId], blockNumber });
@@ -51,8 +54,8 @@ export async function actionFundingBound(bundle: `0x${string}`, definition: Capa
 }
 export async function admittedPrices(bundle: `0x${string}`, actions: CapabilityDefinition[], blockNumber: bigint,
   category?: string, settlementAsset?: string): Promise<boolean> {
-  if (category === "perps" && actions.some((action) => ["place_order", "close_position", "reduce_position", "modify_order"].includes(action.capability) && !action.price)) return false;
-  if (category === "spot" && actions.some((action) => !["deposit", "withdraw", "cancel_order", "claim", "sync"].includes(action.capability)
+  if (category === "perps" && actions.some((action) => ["place_order", "close_position", "decrease_position", "increase_position"].includes(action.capability) && !action.price)) return false;
+  if (category === "spot" && actions.some((action) => action.capability !== "cancel_order"
     && (!action.price || action.settlement === "atomic" && (action.price.kind ?? "price") === "price"))) return false;
   const priced = actions.filter((action) => action.price);
   if (actions.some((action) => !action.price && capabilityCalls(action).some((call) => call.arguments.some((arg) => arg.source === "price_bound")))) return false;
@@ -71,13 +74,14 @@ export async function admittedPrices(bundle: `0x${string}`, actions: CapabilityD
     const item = parseAbiItem(bound.call.signature);
     if (item.type !== "function" || !item.inputs.every((arg) => /^(?:u?int(?:\d{0,3})|address|bool|bytes\d{1,2})$/.test(arg.type))
       || !/^uint(?:\d{0,3})$/.test(item.inputs[bound.index]!.type)) return false;
-    const directionIndex = bound.call.arguments.findIndex((arg) => arg.source === "input" && arg.path === action.price!.directionPath);
+    const directionIndex = bound.call.arguments.findIndex((arg) => arg.source === "input" && arg.path === action.price!.directionPath
+      || arg.source === "state" && `_state.${arg.path}` === action.price!.directionPath);
     const amountMode = (action.price.kind ?? "price") !== "price";
     if (!amountMode && directionIndex < 0) return false;
     const amountIndex = bound.call.arguments.findIndex((arg) => arg.source === "input" && arg.path === action.price!.amountPath);
     if (amountMode && (amountIndex < 0 || !/^uint(?:\d{0,3})$/.test(item.inputs[amountIndex]!.type))) return false;
     const direction = bound.call.arguments[directionIndex]!;
-    const capability = keccak256(stringToHex(action.capability));
+    const capability = keccak256(stringToHex(executionKey(action)));
     for (const market of action.price.markets) {
       const [rule, hash] = await Promise.all([
         chain.readContract({ address: protection, abi, functionName: "rule", args: [bundle, capability, market as `0x${string}`], blockNumber }),

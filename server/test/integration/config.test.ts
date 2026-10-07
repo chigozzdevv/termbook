@@ -33,17 +33,23 @@ const applicationId = "1f3474c2-f4c2-461d-919d-143749012e27";
 const codeHash = `0x${"b".repeat(64)}`;
 const settlementAsset = address("8");
 const priceArguments = [{ source: "input" as const, path: "direction", choices: { long: "1", short: "2" } },
-  { source: "price_bound" as const }, { source: "input" as const, path: "market" }];
+  { source: "price_bound" as const }, { source: "input" as const, path: "market_id" }];
 const price = { slippagePath: "slippage_bps", directionPath: "direction", maximumDirections: ["long"],
   minimumDirections: ["short"], markets: [`0x${"a".repeat(64)}`] };
 const actions = [{ capability: "place_order", label: "Place order", target: address("7"),
-  signature: "function placeOrder(uint256 amount,address account,uint256 direction,uint256 bound,uint256 market)",
-  arguments: [{ source: "input" as const, path: "amount", label: "Amount" }, { source: "credit_account" as const }, ...priceArguments],
-  marketPath: "market", price, fundingPath: "amount", settlement: "atomic" as const },
+  signature: "function placeOrder(uint256 margin,address account,uint256 direction,uint256 bound,uint256 market,uint256 notional)",
+  arguments: [{ source: "input" as const, path: "amount.margin" }, { source: "credit_account" as const }, ...priceArguments,
+    { source: "input" as const, path: "amount.notional" }],
+  when: { order_type: "market" as const }, marketPath: "market_id", price, fundingPath: "amount.margin", settlement: "atomic" as const },
   { capability: "close_position", label: "Close position", target: address("7"),
     signature: "function closePosition(uint256 positionId,address account,uint256 direction,uint256 bound,uint256 market)",
     arguments: [{ source: "input" as const, path: "position_id", label: "Position ID" },
-      { source: "credit_account" as const }, ...priceArguments], marketPath: "market", price, settlement: "atomic" as const }];
+      { source: "credit_account" as const }, { source: "state" as const, path: "direction", choices: { long: "1", short: "2" } },
+      { source: "price_bound" as const }, { source: "state" as const, path: "market_id" }],
+    marketPath: "_state.market_id", price: { ...price, directionPath: "_state.direction" },
+    positionState: { target: address("7"), signature: "function position(address account,uint256 id) view returns (uint256 market,uint8 direction)",
+      arguments: [{ source: "credit_account" as const }, { source: "input" as const, path: "position_id" }],
+      marketIndex: 0, directionIndex: 1, directions: { long: "1", short: "2" } }, settlement: "atomic" as const }];
 const suite = sampleSuite({ versionId, manifestHash: codeHash });
 const acceptance = { suite, evidenceHash: suiteHash(suite),
   activeCreditId: `0x${"c".repeat(64)}`, recoveredCreditId: `0x${"d".repeat(64)}`,

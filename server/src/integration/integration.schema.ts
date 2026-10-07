@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { capabilityCalls, capabilityDefinitionSchema, integrationSuiteSchema, useCaseSchema } from "@termbook/schema";
+import { assertActionRoutes, assertStandardDefinition, capabilityCalls, capabilityDependencies, capabilityDefinitionSchema, integrationSuiteSchema, useCaseSchema } from "@termbook/schema";
 import { parseAbiItem } from "viem";
 import { applicationIdSchema } from "./application.schema.js";
 
@@ -43,21 +43,44 @@ export const integrationMappingSchema = z.strictObject({
   })).min(1).max(32),
 }).superRefine((value, ctx) => {
   const names = new Set<string>();
+  try { assertActionRoutes(value.actions); } catch (error) {
+    ctx.addIssue({ code: "custom", path: ["actions"], message: (error as Error).message });
+  }
   for (const [index, action] of value.actions.entries()) {
-    if (names.has(action.capability)) ctx.addIssue({ code: "custom", path: ["actions", index, "capability"], message: "capability-duplicate" });
     names.add(action.capability);
     try {
+      assertStandardDefinition(action, value.category);
+      if (action.positionState) {
+        const read = parseAbiItem(action.positionState.signature);
+        if (read.type !== "function" || !["view", "pure"].includes(read.stateMutability)
+          || read.inputs.length !== action.positionState.arguments.length || !read.outputs.every((arg) => /^(?:uint(?:\d{0,3})|bytes32)$/.test(arg.type))
+          || Math.max(action.positionState.marketIndex, action.positionState.directionIndex) >= read.outputs.length
+          || action.positionState.marketIndex === action.positionState.directionIndex
+          || action.positionState.directions.long === action.positionState.directions.short
+          || action.positionState.arguments.some((arg) => !["input", "credit_account", "credit_id", "constant"].includes(arg.source))
+          || !action.positionState.arguments.some((arg) => arg.source === "credit_account")
+          || !action.positionState.arguments.some((arg) => arg.source === "input" && arg.path === "position_id")) throw new Error();
+      }
       for (const call of capabilityCalls(action)) {
+      if (action.orderSizing && [call.fundingPath, call.spendPath, call.valuePath].includes("_derived.order_spend")) {
+        const inputAsset = action.when?.direction === "buy" ? action.orderSizing.quoteAsset : action.orderSizing.baseAsset;
+        if (call.valuePath === "_derived.order_spend" ? !/^0x0{40}$/i.test(inputAsset)
+          : (call.spendToken ?? value.settlementAsset).toLowerCase() !== inputAsset.toLowerCase()) throw new Error();
+      }
       const item = parseAbiItem(call.signature);
       if (item.type !== "function" || !["nonpayable", "payable"].includes(item.stateMutability) || item.inputs.length !== call.arguments.length) throw new Error();
-      if ((call.valuePath || call.valueFromBound) && item.stateMutability !== "payable") throw new Error();
+      if ((call.valuePath || call.valueFromBound || call.nativeValue !== undefined) && item.stateMutability !== "payable") throw new Error();
       if ((call.fundingFromBound && call.fundingPath) || (call.spendFromBound && (call.spendPath || call.fundingPath))
         || (call.valueFromBound && call.valuePath)) throw new Error();
+      if ([call.fundingPath, call.fundingAmount, call.fundingFromBound || undefined].filter((v) => v !== undefined).length > 1
+        || [call.spendPath ?? call.fundingPath, call.spendAmount, call.spendFromBound || call.fundingFromBound || undefined].filter((v) => v !== undefined).length > 1
+        || [call.valuePath, call.nativeValue, call.valueFromBound || undefined].filter((v) => v !== undefined).length > 1
+        || [call.fundingAmount, call.spendAmount, call.nativeValue].some((v) => v !== undefined && BigInt(v) >= 2n ** 256n)) throw new Error();
       if ((call.fundingFromBound || call.spendFromBound || call.valueFromBound)
         && (action.price?.kind !== "max_input" || !call.arguments.some((arg) => arg.source === "price_bound"))) throw new Error();
-      if ((call.fundingPath || call.fundingFromBound) && call.spendToken && call.spendToken.toLowerCase() !== value.settlementAsset.toLowerCase()) throw new Error();
+      if ((call.fundingPath || call.fundingFromBound || call.fundingAmount !== undefined) && call.spendToken && call.spendToken.toLowerCase() !== value.settlementAsset.toLowerCase()) throw new Error();
       const fundingPath = call.fundingPath;
-      if (fundingPath && !call.arguments.some((arg) => arg.source === "input" && arg.path
+      if (fundingPath && !(action.orderSizing && fundingPath === "_derived.order_spend") && !call.arguments.some((arg) => arg.source === "input" && arg.path
         && (fundingPath === arg.path || fundingPath.startsWith(`${arg.path}.`)))) throw new Error();
       }
     } catch {
@@ -67,11 +90,11 @@ export const integrationMappingSchema = z.strictObject({
   if (value.category === "perps" && (!names.has("place_order") || !names.has("close_position"))) {
     ctx.addIssue({ code: "custom", path: ["actions"], message: "perps-lifecycle-incomplete" });
   }
-  if (value.category === "perps" && value.actions.some((action) => ["place_order", "close_position", "reduce_position", "modify_order"].includes(action.capability) && !action.price)) {
+  if (value.category === "perps" && value.actions.some((action) => ["place_order", "close_position", "decrease_position", "increase_position"].includes(action.capability) && !action.price)) {
     ctx.addIssue({ code: "custom", path: ["actions"], message: "perps-price-protection-required" });
   }
   for (const [index, action] of value.actions.entries()) {
-    if (value.category === "spot" && !["deposit", "withdraw", "cancel_order", "claim", "sync"].includes(action.capability)
+    if (value.category === "spot" && action.capability !== "cancel_order"
       && (!action.price || action.settlement === "atomic" && (action.price.kind ?? "price") === "price")) {
       ctx.addIssue({ code: "custom", path: ["actions", index], message: "spot-amount-protection-required" });
     }
@@ -80,7 +103,7 @@ export const integrationMappingSchema = z.strictObject({
       ctx.addIssue({ code: "custom", path: ["actions", index], message: "capability-price-definition-invalid" });
     }
   }
-  const targets = new Set(value.actions.flatMap(capabilityCalls).map((action) => action.target.toLowerCase()));
+  const targets = new Set(value.actions.flatMap(capabilityDependencies).map((action) => action.target.toLowerCase()));
   const sources = value.verifiedSources.map((source) => source.target.toLowerCase());
   if (new Set(sources).size !== sources.length || sources.length !== targets.size
     || sources.some((target) => !targets.has(target))) {

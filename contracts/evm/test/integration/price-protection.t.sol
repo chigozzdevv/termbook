@@ -154,6 +154,20 @@ contract PriceProtectionTest is Test {
         vm.expectRevert(PriceProtection.Invalid.selector);
         protection.validate(credit, bundle, _action(true, quote.bound + 1), quote);
     }
+    function testTighterSignedLimitPricesRetainHouseProtection() public {
+        PriceProtection.Quote memory quote = _quote(true);
+        quote.bound = 1900e8;
+        protection.validate(credit, bundle, _action(true, quote.bound), quote);
+        quote.bound = 2011e8;
+        vm.expectRevert(PriceProtection.Invalid.selector);
+        protection.validate(credit, bundle, _action(true, quote.bound), quote);
+        quote = _quote(false);
+        quote.bound = 2100e8;
+        protection.validate(credit, bundle, _action(false, quote.bound), quote);
+        quote.bound = 1989e8;
+        vm.expectRevert(PriceProtection.Invalid.selector);
+        protection.validate(credit, bundle, _action(false, quote.bound), quote);
+    }
     function testStaleAuthorizationDeviationAndInvalidFeedGuardReject() public {
         PriceProtection.Quote memory quote = _quote(true);
         ExecutionTypes.Action memory action = _action(true, quote.bound);

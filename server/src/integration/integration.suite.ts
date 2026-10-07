@@ -19,7 +19,7 @@ export function assertSuiteEnvelope(versionId: Hex, manifestHash: Hex, suiteInpu
   if (!same(suite.versionId, versionId) || !same(suite.manifestHash, manifestHash)
     || !same(suite.core, env.core) || suite.chainId !== env.monadChainId || !same(suiteHash(suite), evidenceHash)) throw new Error("integration-suite-binding-invalid");
   const asynchronous = actions.some((action) => action.settlement === "asynchronous");
-  const reducible = actions.some((action) => action.capability === "reduce_position");
+  const reducible = actions.some((action) => action.capability === "decrease_position");
   const allowedExclusions = new Set<string>([
     ...(!asynchronous ? ["forced_cancel", "asynchronous_failure", "pending_limit", "partial_fill_slots", "duplicate_claim"] : []),
     ...(!reducible ? ["forced_reduce"] : []), "retention_authorization",

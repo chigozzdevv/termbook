@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { keccak256, parseAbiItem, stringToHex, toFunctionSelector, toHex,
   type AbiFunction, type Address, type Hex } from "viem";
-import { capabilityCalls, type CapabilityDefinition } from "@termbook/schema";
+import { capabilityDependencies, type CapabilityDefinition } from "@termbook/schema";
 import { monadClient } from "../chain/monad.client.js";
 import { env } from "../config/env.js";
 
@@ -110,7 +110,7 @@ export async function validateIntegrationSources(
   const finalized = await chain.getBlock({ blockTag: "finalized" });
   if (await chain.getChainId() !== env.monadChainId) throw new Error("integration-chain-mismatch");
   const byTarget = new Map(evidence.map((item) => [item.target.toLowerCase(), item]));
-  const calls = actions.flatMap(capabilityCalls);
+  const calls = actions.flatMap(capabilityDependencies);
   const targets = new Set(calls.map((action) => action.target.toLowerCase()));
   if (byTarget.size !== evidence.length || targets.size !== evidence.length
     || [...byTarget.keys()].some((target) => !targets.has(target))) {

@@ -1,10 +1,10 @@
 import { encodeFunctionData, parseAbiItem } from "viem";
-import { capabilityCalls, type CapabilityDefinition, type TermAction } from "@termbook/schema";
+import { actionInputs, capabilityCalls, type CapabilityDefinition, type TermAction } from "@termbook/schema";
 
 function atPath(params: Record<string, unknown>, path: string): unknown {
   let value: unknown = params;
   for (const part of path.split(".")) {
-    if (!value || typeof value !== "object" || Array.isArray(value) || !Object.prototype.hasOwnProperty.call(value, part)) {
+    if (!value || typeof value !== "object" || Array.isArray(value) && !/^(?:[0-9]|1[0-5])$/.test(part) || !Object.prototype.hasOwnProperty.call(value, part)) {
       throw new Error("action-input-required");
     }
     value = (value as Record<string, unknown>)[part];
@@ -13,6 +13,7 @@ function atPath(params: Record<string, unknown>, path: string): unknown {
 }
 
 export function validateActionCall(definition: CapabilityDefinition, action: TermAction, borrower: `0x${string}`): void {
+  const params = actionInputs(definition, action);
   for (const call of capabilityCalls(definition)) {
   const item = parseAbiItem(call.signature);
   if (item.type !== "function" || item.inputs.length !== call.arguments.length) throw new Error("action-definition-invalid");
@@ -21,7 +22,9 @@ export function validateActionCall(definition: CapabilityDefinition, action: Ter
     if (argument.source === "credit_account") return `0x${"1".repeat(40)}`;
     if (argument.source === "price_bound") return 1n;
     if (argument.source === "credit_id") return `0x${"1".repeat(64)}`;
-    const value = atPath(action.params, argument.path!);
+    if (argument.source === "constant") return argument.value;
+    if (argument.source === "state") return argument.choices?.long ?? "1";
+    const value = atPath(params, argument.path!);
     return argument.choices && typeof value === "string" ? argument.choices[value] : value;
   });
   try { encodeFunctionData({ abi: [item], functionName: item.name, args: args as never }); }

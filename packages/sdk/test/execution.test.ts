@@ -57,16 +57,22 @@ describe("managed SDK execution", () => {
   it("keeps place_order unprefixed and validates its use case before reading or signing", async () => {
     const { client, rpc, app, action } = fixture(false);
     client.config.use_case = "perps";
-    await expect(app.execute({ ...action, use_case: "spot" })).rejects.toThrow("action-use-case-mismatch");
+    await expect(app.execute({ ...action, use_case: "spot" } as never)).rejects.toThrow("action-use-case-mismatch");
     expect(rpc.creditDetails).not.toHaveBeenCalled();
     expect(client.signer.signDigest).not.toHaveBeenCalled();
     expect(rpc.coreWrite).not.toHaveBeenCalled();
-    await expect(app.execute({ ...action, use_case: "perps" })).resolves.toMatchObject({ status: "settled", draw: 105n });
+    client.config.actions = [{ capability: "place_order", label: "Place", target: address("f"), settlement: "atomic",
+      signature: "function place(uint256 market,uint8 direction,uint256 margin,uint256 notional,uint256 bps)",
+      arguments: [{ source: "input", path: "market_id" }, { source: "input", path: "direction", choices: { long: "1", short: "2" } },
+        { source: "input", path: "amount.margin" }, { source: "input", path: "amount.notional" }, { source: "input", path: "slippage_bps" }],
+      when: { order_type: "market" }, fundingPath: "amount.margin", exposurePath: "amount.notional" }];
+    await expect(app.execute({ use_case: "perps", capability: "place_order", params: { market_id: "1", direction: "long", order_type: "market",
+      amount: { margin: "105", notional: "500" }, slippage_bps: 50 } })).resolves.toMatchObject({ status: "settled", draw: 105n });
   });
 
   it("requires a known integration use case for an explicitly typed action", async () => {
     const { app, rpc, action } = fixture(false);
-    await expect(app.review({ ...action, use_case: "perps" })).rejects.toThrow("action-use-case-unavailable");
+    await expect(app.review({ ...action, use_case: "perps" } as never)).rejects.toThrow("action-use-case-unavailable");
     expect(rpc.creditDetails).not.toHaveBeenCalled();
   });
 

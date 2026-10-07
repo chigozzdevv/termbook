@@ -2,7 +2,7 @@ import type { FastifyRequest } from "fastify";
 import { intentSchema } from "./intent.schema.js";
 import { intentService } from "./intent.service.js";
 import { integrationService } from "../integration/integration.service.js";
-import { actionFunding, assertActionUseCase } from "@termbook/schema";
+import { actionFunding, assertActionUseCase, assertStandardAction, selectCapability } from "@termbook/schema";
 import { validateActionCall } from "../integration/validate-action.js";
 import { actionFundingBound } from "../integration/integration.price.js";
 
@@ -14,9 +14,9 @@ export const intentController = {
     const appToken = req.headers["x-termbook-app-token"];
     if (typeof appToken !== "string") throw new Error("integration-not-found");
     const integration = await integrationService.resolve(appToken);
-    if (input.action) assertActionUseCase(input.action, integration.use_case);
-    const definition = input.action && integration.actions.find((action) => action.capability === input.action!.capability);
-    if (input.action && !definition) throw new Error("capability-denied");
+    if (input.action) { assertActionUseCase(input.action, integration.use_case); assertStandardAction(input.action, integration.use_case); }
+    const definition = input.action && selectCapability(integration.actions, input.action);
+    if (input.action) input.action.use_case = integration.use_case;
     const bound = input.action && definition ? await actionFundingBound(integration.versionId as `0x${string}`, definition, input.action) : undefined;
     const funding = input.action && definition ? actionFunding(definition, input.action, bound) : 0n;
     if (input.action && definition) validateActionCall(definition, input.action, input.borrower as `0x${string}`);

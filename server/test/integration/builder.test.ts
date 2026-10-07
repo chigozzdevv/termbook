@@ -106,6 +106,13 @@ describe("integration acceptance", () => {
     await validateIntegrationAcceptance(versionId, token, actions, acceptance, suite.manifestHash as `0x${string}`);
     expect(client.getTransactionReceipt).toHaveBeenCalledTimes(3);
   });
+  it("requires execution-plan evidence for a distinct route key", async () => {
+    vi.mocked(monadClient).mockReturnValue(chain() as never);
+    const route = { ...actions[0]!, executionKey: "buy_market" };
+    const evidence = { ...acceptance, actionTransactions: { buy_market: acceptance.actionTransactions.place_order! } };
+    await expect(validateIntegrationAcceptance(versionId, token, [route], evidence, suite.manifestHash as `0x${string}`))
+      .rejects.toThrow("integration-action-evidence-invalid");
+  });
 
   it("rejects a recovery performed by the borrower", async () => {
     vi.mocked(monadClient).mockReturnValue(chain({ recoverySender: suite.actors.borrower }) as never);

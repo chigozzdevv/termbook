@@ -13,7 +13,7 @@ import { CollateralSetup, restoreCollateralSetup, type CollateralSetupOptions } 
 import { resolveClientConfig } from "./config.js";
 import type { CollateralMarket } from "@termbook/schema";
 import type { SourceLockWallet } from "../collateral/setup.js";
-import { apiAuthorizationMessage, canonicalJson } from "@termbook/schema";
+import { apiAuthorizationMessage, canonicalJson, assertActionRoutes, assertStandardDefinition, capabilityDefinitionSchema, useCaseSchema } from "@termbook/schema";
 import { hashMessage } from "viem";
 import { connectSourceWallet } from "../modal/source-wallet.js";
 import { TermbookModal, type OpenOptions } from "../modal/modal.js";
@@ -33,9 +33,18 @@ export class TermbookClient {
     if (!appToken || !config.wallet) throw new Error("client-config-invalid");
     this.input = config;
     if (config.core || rpcUrl || chainId) {
-      if (!config.core || !rpcUrl || !chainId || chainId <= 0) throw new Error("client-config-invalid");
-      this.resolvedConfig = { ...config, appToken, core: config.core, rpcUrl, chainId };
-      this.resolvedRpc = new RpcClient(this.resolvedConfig);
+      const core = config.core;
+      if (!core || !rpcUrl || !chainId || chainId <= 0) throw new Error("client-config-invalid");
+      if (config.actions) {
+        const category = useCaseSchema.safeParse(config.use_case);
+        if (!category.success) throw new Error("client-config-invalid");
+        const actions = config.actions.map((action) => capabilityDefinitionSchema.parse(action));
+        assertActionRoutes(actions); actions.forEach((action) => assertStandardDefinition(action, category.data));
+        config = { ...config, actions };
+      }
+      const resolved: ResolvedClientConfig = { ...config, appToken, core, rpcUrl, chainId };
+      this.resolvedConfig = resolved;
+      this.resolvedRpc = new RpcClient(resolved);
     }
     this.signer = new Signer(config.wallet);
     this.settlement = new Settlement(this);

@@ -588,9 +588,9 @@ To replace the original testnet deployment, run `--simulate --redeploy` on the
 local forks. Deployment and initial activation complete in that single run.
 Once that succeeds, `--broadcast --redeploy` checks the same build and the gas
 budget before sending its first transaction, then activates configuration
-immediately. The replacement requires zero accepted Credits and zero House
-settlement-token balance in the
-original deployment. It reuses the admitted Solana program when no replacement is configured, and
+immediately. Every accepted Credit in the original deployment must be recorded,
+settled, and have its collateral returned. House liquidity must be withdrawn
+before replacement. It reuses the admitted Solana program when no replacement is configured, and
 archives the prior public record in `deployments/testnet-pre-upgrade.json`.
 Replacement journals use the
 `-redeploy` suffix. ETH custody bindings and SOL program identity are configured

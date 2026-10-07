@@ -34,7 +34,12 @@ export function writeJsonAtomic(file, value) {
 
 export async function testnetRuntime(name, simulate) {
   if (!/^[a-z0-9-]+$/.test(name) || typeof simulate !== "boolean") throw new Error("Invalid runtime arguments");
-  const deployment = JSON.parse(fs.readFileSync(path.join(root, "deployments/testnet.json"), "utf8"));
+  const override = process.env["TERMBOOK_SIMULATION_MANIFEST"];
+  const manifestFile = override ? path.resolve(root, override) : path.join(root, "deployments/testnet.json");
+  if (override && (!simulate || !manifestFile.startsWith(path.join(root, ".testnet") + path.sep))) {
+    throw new Error("Manifest override requires an isolated simulation file");
+  }
+  const deployment = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
   if (deployment.network !== "testnet" || deployment.governanceDelaySeconds !== 0) throw new Error("Testnet deployment mismatch");
   const account = simulate ? deployment.deployer : privateKeyToAccount(JSON.parse(fs.readFileSync(path.join(root, ".testnet/evm.json"), "utf8")).privateKey);
   if (!simulate && account.address.toLowerCase() !== deployment.deployer.toLowerCase()) throw new Error("Wallet mismatch");

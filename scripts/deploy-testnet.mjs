@@ -9,6 +9,8 @@ import { createRequire } from "node:module";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { upgradeArtifactLoader } from "./upgrade-validation.mjs";
+import { verifySettledCredits } from "./testnet-replacement.mjs";
+import { writeJsonAtomic } from "./testnet-runtime.mjs";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const require = createRequire(path.join(root, "packages/sdk/package.json"));
@@ -29,13 +31,17 @@ if (redeploy && !fs.existsSync(previousFile)) {
   fs.copyFileSync(path.join(root, "deployments/testnet.json"), previousFile, fs.constants.COPYFILE_EXCL);
 }
 const previous = redeploy ? JSON.parse(fs.readFileSync(previousFile, "utf8")) : null;
+const previousEvidenceFile = path.join(root, "deployments/testnet-pre-upgrade-e2e.json");
+if (redeploy && !fs.existsSync(previousEvidenceFile) && fs.existsSync(path.join(root, "deployments/testnet-e2e.json"))) {
+  fs.copyFileSync(path.join(root, "deployments/testnet-e2e.json"), previousEvidenceFile, fs.constants.COPYFILE_EXCL);
+}
 if (previous && previous.network !== "testnet") throw new Error("Replacement requires an existing testnet deployment");
 const reportFile = path.join(directory, `${simulate ? "simulation" : "deployment"}-upgradeable${redeploy ? "-redeploy" : ""}.json`);
 const report = fs.existsSync(reportFile) ? JSON.parse(fs.readFileSync(reportFile, "utf8"))
   : { network: "testnet", upgradeMode: "testnet-administrator", proxies: {}, transactions: [], addresses: {}, pendingGovernance: [] };
 if (report.upgradeMode !== "testnet-administrator") throw new Error("Legacy deployment journal; use a fresh replacement journal");
 if (activate && !report.transactions.length) throw new Error("Deploy before activating governance actions");
-const persist = () => fs.writeFileSync(reportFile, JSON.stringify(report, null, 2), { mode: 0o600 });
+const persist = () => writeJsonAtomic(reportFile, report);
 function publishManifest() {
   if (!broadcast || !report.completedAt) return;
   const output = path.join(root, "deployments");
@@ -238,14 +244,23 @@ if (broadcast) {
     programId: program.toBase58(), programDataAddress: new PublicKey(deployed.data.subarray(4, 36)).toBase58(),
     programDataHash: programHash, emitter: PublicKey.findProgramAddressSync([Buffer.from("emitter")], program)[0].toBase58(),
     immutable: programData.data[12] === 0, upgradeAuthority: programData.data[12] === 1 ? upgradeAuthority : undefined };
+  if (previous?.solana.programId !== program.toBase58()) {
+    delete report.solana.deploymentSignature;
+    const receiptFile = path.join(directory, "solana-upgradeable-deployment.json");
+    if (fs.existsSync(receiptFile)) {
+      const receipt = JSON.parse(fs.readFileSync(receiptFile, "utf8"));
+      if (receipt.programId !== program.toBase58() || receipt.programDataHash !== programHash) throw new Error("Solana deployment receipt mismatch");
+      report.solana.deploymentSignature = receipt.deploymentSignature;
+    }
+  }
 }
 
 const monad = await context(10143, simulate ? "http://127.0.0.1:18545" : "https://testnet-rpc.monad.xyz");
 const ethereum = await context(11155111, simulate ? "http://127.0.0.1:18546" : "https://ethereum-sepolia-rpc.publicnode.com");
 if (previous) {
-  if (await monad.read("TermbookCore", previous.addresses[10143].TermbookCore, "acceptedCredits") !== 0n) {
-    throw new Error("Replacement requires migration of existing Credits");
-  }
+  report.previousCredits = await verifySettledCredits(previous,
+    fs.existsSync(previousEvidenceFile) ? JSON.parse(fs.readFileSync(previousEvidenceFile, "utf8")) : null,
+    (chainId, name, address, method, args = []) => (chainId === 10143 ? monad : ethereum).read(name, address, method, args));
   const balance = await monad.publicClient.readContract({
     address: previous.tokens[10143].USDC,
     abi: [{ type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] }],
@@ -307,8 +322,59 @@ async function activateGovernance() {
   }
   log(JSON.stringify({ executed: report.pendingGovernance.filter((action) => action.status === "executed").length, total: report.pendingGovernance.length }));
 }
+async function verifyDeployment() {
+  const equal = (actual, expected, label) => {
+    if (String(actual).toLowerCase() !== String(expected).toLowerCase()) throw new Error(`Deployment verification failed: ${label}`);
+  };
+  let proxyCount = 0;
+  const finality = {};
+  for (const [network, chainId] of [[monad, 10143], [ethereum, 11155111]]) {
+    const addresses = report.addresses[chainId];
+    const controller = addresses.UpgradeController;
+    equal(await network.read("ProtocolGovernance", addresses.ProtocolGovernance, "governance"), account.address, "governance owner");
+    equal(await network.read("ProtocolGovernance", addresses.ProtocolGovernance, "timelock"), 0n, "testnet delay");
+    equal(await network.read("UpgradeController", controller, "owner"), addresses.ProtocolGovernance, "upgrade owner");
+    for (const [name, pin] of Object.entries(report.proxies[chainId])) {
+      const proxy = addresses[name];
+      equal(await network.read("TestnetProxy", proxy, "proxyImplementation"), pin.implementation, `${name} implementation`);
+      equal(await network.read("TestnetProxy", proxy, "proxyAdmin"), pin.admin, `${name} administrator`);
+      equal(await network.read("ProxyAdmin", pin.admin, "owner"), controller, `${name} administrator owner`);
+      equal(await network.read("UpgradeController", controller, "contractIds", [proxy]), pin.contractId, `${name} identity`);
+      equal(keccak256(await network.publicClient.getCode({ address: pin.implementation })), pin.implementationCodeHash, `${name} code`);
+      proxyCount++;
+    }
+    const finalized = await network.publicClient.getBlock({ blockTag: "finalized" });
+    const transactions = report.transactions.filter((tx) => tx.chainId === chainId);
+    for (const tx of transactions) {
+      const receipt = await network.publicClient.getTransactionReceipt({ hash: tx.hash });
+      equal(receipt.status, "success", `${tx.name} receipt`);
+      equal(receipt.blockHash, tx.blockHash, `${tx.name} canonical block`);
+    }
+    finality[chainId] = { finalizedBlock: finalized.number.toString(), transactions: transactions.length,
+      finalizedTransactions: transactions.filter((tx) => BigInt(tx.block) <= finalized.number).length };
+  }
+  const m = report.addresses[10143];
+  const s = report.addresses[11155111];
+  for (const [method, expected] of [["riskEngine", m.RiskEngine], ["guardian", m.Guardian],
+    ["healthSource", m.AccountHealthSource], ["houseRegistry", m.HouseRegistry],
+    ["integrationRegistry", m.IntegrationRegistry], ["verifierRegistry", m.VerifierRegistry]]) {
+    equal(await monad.read("TermbookCore", m.TermbookCore, method), expected, method);
+  }
+  equal(await monad.read("RiskEngine", m.RiskEngine, "core"), m.TermbookCore, "risk core");
+  equal(await monad.read("RiskEngine", m.RiskEngine, "protocolFloorBps"), 11_000n, "risk floor");
+  equal(await monad.read("Guardian", m.Guardian, "governance"), m.ProtocolGovernance, "guardian governance");
+  equal(await monad.read("HouseRegistry", m.HouseRegistry, "isActiveHouse", [account.address, m.HouseVault]), true, "House admission");
+  equal(await ethereum.read("RemoteCollateralController", s.RemoteCollateralController, "vault"), s.CollateralVault, "source custody");
+  equal(await ethereum.read("RemoteCollateralController", s.RemoteCollateralController, "monadCore"), m.TermbookCore, "source Core");
+  equal(await ethereum.read("SourceRecoveryVault", s.SourceRecoveryVault, "controller"), s.RemoteCollateralController, "source recovery");
+  report.verification = { checkedAt: new Date().toISOString(), proxyCount, finality,
+    governanceActionsExecuted: report.pendingGovernance.filter((action) => action.status === "executed").length };
+  persist();
+  log(JSON.stringify(report.verification));
+}
 if (activate) {
   await activateGovernance();
+  await verifyDeployment();
   publishManifest();
   process.exit(0);
 }
@@ -397,6 +463,7 @@ await monad.queue(governance, core, "TermbookCore", "setSourceRecoveryVault", [1
 await monad.queue(governance, core, "TermbookCore", "setSolanaMarket", [501n, genesis, programId, programHash]);
 await activateGovernance();
 if (report.pendingGovernance.some((action) => action.status !== "executed")) throw new Error("Testnet activation incomplete");
+await verifyDeployment();
 report.completedAt ??= new Date().toISOString();
 report.tokens = { "10143": { USDC: usdc, WMON: wrappedMon }, "11155111": { WETH: weth } };
 for (const chainId of [10143, 11155111]) {

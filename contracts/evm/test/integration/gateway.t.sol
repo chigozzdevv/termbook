@@ -15,8 +15,20 @@ contract GatewayTest is Test {
     function setUp() public {
         target = new GatewayTarget(); account = new GatewayTarget(); token = new GatewayTarget();
         AppGateway.Rule[] memory rules = new AppGateway.Rule[](1);
-        rules[0] = AppGateway.Rule(CAPABILITY, address(target), GatewayTarget.act.selector, 96, 1, 2, address(token), 0, 100);
+        rules[0] = AppGateway.Rule(CAPABILITY, address(target), GatewayTarget.act.selector, 96, 1, 2, address(token), 0, 100, 0);
         gateway = new AppGateway(rules);
+    }
+    function testNativeGatewayCapsValueWithoutAddingSettlementSpending() public {
+        AppGateway.Rule[] memory rules = new AppGateway.Rule[](1);
+        rules[0] = AppGateway.Rule(CAPABILITY, address(target), GatewayTarget.act.selector, 96, 1, 2,
+            address(0), type(uint16).max, 0, 1 ether);
+        AppGateway nativeGateway = new AppGateway(rules);
+        ExecutionTypes.Call memory call_ = nativeGateway.buildNativeCall(keccak256("credit"), address(account), CAPABILITY,
+            abi.encode(uint256(50), address(1), bytes32(0)), 1 ether);
+        assertEq(call_.nativeValue, 1 ether); assertEq(call_.spendAmount, 0);
+        vm.expectRevert(AppGateway.Bounds.selector);
+        nativeGateway.buildNativeCall(keccak256("credit"), address(account), CAPABILITY,
+            abi.encode(uint256(50), address(1), bytes32(0)), 1 ether + 1);
     }
     function testFixedMappingBindsAccountAndCreditWithoutMovingAssets() public view {
         bytes32 id = keccak256("credit");

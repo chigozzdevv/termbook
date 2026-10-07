@@ -9,6 +9,9 @@ export type AppPendingAction = { actionId: `0x${string}`; positionId: `0x${strin
 
 export type ActionReview = {
   price?: import("../app/execution.js").ExecutionPrice;
+  boundKind?: "price" | "min_output" | "max_input";
+  nativeValue?: bigint;
+  spending?: { token: `0x${string}`; amount: bigint }[];
   capability: string;
   requiredInput: bigint;
   freeAssets: bigint;

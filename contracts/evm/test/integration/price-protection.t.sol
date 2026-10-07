@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {MockERC20} from "../MockERC20.sol";
 import {Test} from "forge-std/Test.sol";
 import {PriceProtection} from "../../src/monad/integration/PriceProtection.sol";
 import {ExecutionTypes} from "../../src/monad/integration/IExecutionPolicy.sol";
@@ -32,6 +33,8 @@ contract PriceFeedGuardFixture is IAppDeploymentGuard {
     }
 }
 
+contract SpotTokenFixture is MockERC20 { constructor() { decimals = 6; } }
+
 contract PriceProtectionTest is Test {
     PriceProtection protection;
     OracleRegistry oracle;
@@ -57,12 +60,72 @@ contract PriceProtectionTest is Test {
         action.capability = capability; action.market = market;
         action.calls = new ExecutionTypes.Call[](1);
         action.calls[0] = ExecutionTypes.Call(address(feed), address(0), 0,
-            abi.encodeCall(feed.trade, (isMax ? 1 : 2, bound)));
+            abi.encodeCall(feed.trade, (isMax ? 1 : 2, bound)), 0);
     }
     function _quote(bool isMax) internal view returns (PriceProtection.Quote memory quote) {
         (uint256 refPrice, uint256 updated, uint80 round) = oracle.read(feedId);
         quote = PriceProtection.Quote(round, refPrice, updated, block.timestamp,
             protection.deriveBound(refPrice, 50, isMax, 8), 50, isMax);
+    }
+    function _spot(bool maxInput) internal returns (ExecutionTypes.Action memory action, PriceProtection.Quote memory quote, SpotTokenFixture token) {
+        token = new SpotTokenFixture();
+        bytes32 spotBundle = keccak256(abi.encode("spot", maxInput));
+        PriceProtection.Rule memory config = protection.rule(bundle, capability, market);
+        PriceProtection.AmountRule memory amount = PriceProtection.AmountRule(0, maxInput ? 6 : 18, maxInput ? 18 : 6,
+            maxInput, maxInput, true, maxInput ? address(token) : address(0), maxInput ? address(0) : address(token));
+        protection.configureAmountRule(spotBundle, capability, market, config, amount, address(0));
+        protection.bindCredit(keccak256("spot credit"), spotBundle, 75);
+        quote = _quote(maxInput);
+        quote.bound = protection.deriveAmountBound(quote.referencePrice, 1 ether, 50, amount.inputDecimals, amount.outputDecimals, amount.inverse, maxInput);
+        action = _action(maxInput, quote.bound);
+        action.calls[0].data = abi.encodeCall(feed.trade, (1 ether, quote.bound));
+        action.calls[0].nativeValue = maxInput ? 0 : 1 ether;
+        action.calls[0].spendToken = maxInput ? address(token) : address(0);
+        action.calls[0].spendAmount = maxInput ? quote.bound : 0;
+    }
+    function testSpotMinimumOutputUsesAmountAndDecimalsAndActualReceipt() public {
+        (ExecutionTypes.Action memory action, PriceProtection.Quote memory quote, SpotTokenFixture token) = _spot(false);
+        bytes32 spotBundle = keccak256(abi.encode("spot", false));
+        bytes32 spotCredit = keccak256("spot credit");
+        assertEq(quote.bound, 1990e6);
+        protection.validate(spotCredit, spotBundle, action, quote);
+        address account = address(0xA);
+        vm.deal(account, 1 ether);
+        (uint256 beforeInput, uint256 beforeOutput) = protection.captureBalances(spotBundle, action, account, 0);
+        vm.deal(account, 0); token.mint(account, quote.bound - 1);
+        vm.expectRevert(PriceProtection.Invalid.selector);
+        protection.validateAmountResult(spotBundle, action, account, 0, beforeInput, beforeOutput);
+        token.mint(account, 1);
+        protection.validateAmountResult(spotBundle, action, account, 0, beforeInput, beforeOutput);
+        action.calls[0].data = abi.encodeCall(feed.trade, (2 ether, quote.bound));
+        vm.expectRevert(PriceProtection.Invalid.selector);
+        protection.validate(spotCredit, spotBundle, action, quote);
+    }
+    function testSpotMaximumInputChecksOutputAndSpending() public {
+        (ExecutionTypes.Action memory action, PriceProtection.Quote memory quote, SpotTokenFixture token) = _spot(true);
+        bytes32 spotBundle = keccak256(abi.encode("spot", true));
+        assertEq(quote.bound, 2010e6);
+        protection.validate(keccak256("spot credit"), spotBundle, action, quote);
+        address account = address(0xA);
+        token.mint(account, quote.bound + 1);
+        (uint256 beforeInput, uint256 beforeOutput) = protection.captureBalances(spotBundle, action, account, 0);
+        vm.prank(account); token.transfer(address(1), quote.bound + 1);
+        vm.deal(account, 1 ether);
+        vm.expectRevert(PriceProtection.Invalid.selector);
+        protection.validateAmountResult(spotBundle, action, account, 0, beforeInput, beforeOutput);
+        token.mint(account, 1);
+        protection.validateAmountResult(spotBundle, action, account, 0, beforeInput, beforeOutput);
+        vm.deal(account, 1 ether - 1);
+        vm.expectRevert(PriceProtection.Invalid.selector);
+        protection.validateAmountResult(spotBundle, action, account, 0, beforeInput, beforeOutput);
+    }
+    function testSpotDirectionRoundingAndWideMultiplication() public {
+        assertEq(protection.deriveAmountBound(2000e18, 100e6, 50, 6, 18, true, false), 0.04975 ether);
+        assertEq(protection.deriveAmountBound(3e18, 1, 0, 18, 18, true, false), 1);
+        assertEq(protection.deriveAmountBound(3e18, 1, 0, 18, 18, true, true), 3);
+        assertEq(protection.deriveAmountBound(1e18, type(uint256).max, 0, 18, 18, false, false), type(uint256).max);
+        vm.expectRevert(PriceProtection.Invalid.selector);
+        protection.deriveAmountBound(1e18, 0, 50, 6, 18, true, false);
     }
     function testPriceMovementCannotRecenterTheSignedBound() public {
         PriceProtection.Quote memory quote = _quote(true);

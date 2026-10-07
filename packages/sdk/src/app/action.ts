@@ -67,7 +67,7 @@ export function buildAction(definition: CapabilityDefinition, action: AppAction,
 } {
   if (definition.capability !== action.capability || "target" in action || "data" in action
     || "encoded_params" in action.params || "encodedParams" in action.params) throw new Error("capability-denied");
-  const requiredInput = actionFunding(definition, action);
+  const requiredInput = actionFunding(definition, action, context.priceBound);
   return { ...buildCapabilityCall(definition, action, context), requiredInput };
 }
 

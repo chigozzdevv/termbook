@@ -49,7 +49,13 @@ export const integrationMappingSchema = z.strictObject({
     try {
       for (const call of capabilityCalls(action)) {
       const item = parseAbiItem(call.signature);
-      if (item.type !== "function" || item.stateMutability !== "nonpayable" || item.inputs.length !== call.arguments.length) throw new Error();
+      if (item.type !== "function" || !["nonpayable", "payable"].includes(item.stateMutability) || item.inputs.length !== call.arguments.length) throw new Error();
+      if ((call.valuePath || call.valueFromBound) && item.stateMutability !== "payable") throw new Error();
+      if ((call.fundingFromBound && call.fundingPath) || (call.spendFromBound && (call.spendPath || call.fundingPath))
+        || (call.valueFromBound && call.valuePath)) throw new Error();
+      if ((call.fundingFromBound || call.spendFromBound || call.valueFromBound)
+        && (action.price?.kind !== "max_input" || !call.arguments.some((arg) => arg.source === "price_bound"))) throw new Error();
+      if ((call.fundingPath || call.fundingFromBound) && call.spendToken && call.spendToken.toLowerCase() !== value.settlementAsset.toLowerCase()) throw new Error();
       const fundingPath = call.fundingPath;
       if (fundingPath && !call.arguments.some((arg) => arg.source === "input" && arg.path
         && (fundingPath === arg.path || fundingPath.startsWith(`${arg.path}.`)))) throw new Error();
@@ -65,6 +71,10 @@ export const integrationMappingSchema = z.strictObject({
     ctx.addIssue({ code: "custom", path: ["actions"], message: "perps-price-protection-required" });
   }
   for (const [index, action] of value.actions.entries()) {
+    if (value.category === "spot" && !["deposit", "withdraw", "cancel_order", "claim", "sync"].includes(action.capability)
+      && (!action.price || action.settlement === "atomic" && (action.price.kind ?? "price") === "price")) {
+      ctx.addIssue({ code: "custom", path: ["actions", index], message: "spot-amount-protection-required" });
+    }
     const bounds = capabilityCalls(action).flatMap((call) => call.arguments.filter((arg) => arg.source === "price_bound"));
     if (action.price ? !action.marketPath || bounds.length !== 1 : bounds.length !== 0) {
       ctx.addIssue({ code: "custom", path: ["actions", index], message: "capability-price-definition-invalid" });

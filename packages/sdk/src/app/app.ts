@@ -13,7 +13,8 @@ import { Signer } from "../wallet/signer.js";
 import type { Wallet } from "../types/client.types.js";
 
 const coreRegistryAbi = parseAbi(["function integrationRegistry() view returns (address)"]);
-const registryAbi = parseAbi(["function validateCall(bytes32,address,bytes,address,uint256) view returns (bool)"]);
+const registryAbi = parseAbi(["function validateCall(bytes32,address,bytes,address,uint256) view returns (bool)",
+  "function validateValueCall(bytes32,address,bytes,address,uint256,uint256) view returns (bool)"]);
 const stateId = /^0x[a-fA-F0-9]{64}$/;
 
 export function slippageBound(refPrice: bigint, bps: number, isMax: boolean): bigint {
@@ -49,24 +50,33 @@ export class CreditApp {
     }
     const price = await executionPrice(this.client, this.creditId, bundleId, definition, action, previousPrice);
     const context = { borrower, account, creditId: this.creditId, ...(price ? { priceBound: price.bound } : {}) };
-    const { target, data, requiredInput } = buildAction(definition, action, context);
+    const { target, data, requiredInput: fundingInput } = buildAction(definition, action, context);
     const asset = await this.client.rpc.read<`0x${string}`>(vault, [{ type: "function", name: "asset", inputs: [], outputs: [{ type: "address" }], stateMutability: "view" }] as const, "asset");
     const currentDebt = BigInt(String(field("debt", 11)));
     const originationFee = field("originationCharged", 37) ? 0n : BigInt(String(field("originationFee", 31) ?? 0));
     const revisionValue = BigInt(String(field("revision", 17)));
     const freeAssets = await this.client.rpc.creditFreeCash(this.creditId);
-    const amount = requiredDraw(requiredInput, freeAssets);
     const nonce = BigInt(String(field("nonce", 18))) + 1n;
     const managed = await this.client.rpc.read<boolean>(this.client.config.core, executionCoreAbi, "managedBundle", [bundleId]);
-    if (!managed && (definition.steps?.length || definition.settlement === "asynchronous")) {
+    if (!managed && (definition.steps?.length || definition.settlement === "asynchronous"
+      || definition.spendPath || definition.valuePath || definition.valueFromBound || definition.spendFromBound || definition.fundingFromBound || definition.price)) {
       throw new Error("integration-execution-unavailable");
     }
     const plan = managed ? buildExecution(definition, action, context, asset) : undefined;
+    const requiredInput = plan?.requiredInput ?? fundingInput;
+    const amount = requiredDraw(requiredInput, freeAssets);
+    if (amount > fundingInput) throw new Error("action-owned-cash-insufficient");
+    if (plan) {
+      const version = await this.client.rpc.read<bigint>(this.client.config.core, executionCoreAbi, "executionVersion").catch(() => 0n);
+      if (version !== 2n) throw new Error("integration-execution-version-unsupported");
+    }
     const registry = await this.client.rpc.read<`0x${string}`>(this.client.config.core, coreRegistryAbi, "integrationRegistry");
     if (!/^0x[a-fA-F0-9]{40}$/.test(registry) || /^0x0{40}$/i.test(registry)) throw new Error("capability-denied");
-    for (const call of plan?.calls ?? [{ target, data, spendAmount: requiredInput }]) {
-      if (!await this.client.rpc.read<boolean>(registry, registryAbi, "validateCall",
-        [bundleId, call.target, call.data, account, call.spendAmount])) throw new Error("capability-denied");
+    for (const call of plan?.calls ?? [{ target, data, spendAmount: requiredInput, nativeValue: 0n }]) {
+      const allowed = !plan
+        ? await this.client.rpc.read<boolean>(registry, registryAbi, "validateCall", [bundleId, call.target, call.data, account, call.spendAmount])
+        : await this.client.rpc.read<boolean>(registry, registryAbi, "validateValueCall", [bundleId, call.target, call.data, account, call.spendAmount, call.nativeValue]);
+      if (!allowed) throw new Error("capability-denied");
     }
     const health = await new CreditAccount(this.client, this.creditId).health();
     const preview = plan ? await this.client.rpc.previewPlan(this.creditId, plan, amount, nonce, price ?? emptyExecutionPrice)
@@ -87,6 +97,11 @@ export class CreditApp {
       healthBps: health.value, healthState: health.state, projectedHealthBps: preview.healthBps,
       initialHealthBps: preview.initialBps, projectedRecoveryValue: preview.recoveryValue, canExecute,
       settlementAsset: asset, revision: revisionValue, fingerprint, ...(price ? { price } : {}) };
+    if (plan) {
+      review.nativeValue = plan.calls.reduce((total, call) => total + call.nativeValue, 0n);
+      review.spending = plan.calls.filter((call) => call.spendAmount > 0n).map((call) => ({ token: call.spendToken, amount: call.spendAmount }));
+    }
+    if (price) review.boundKind = definition.price?.kind ?? "price";
     return { review, target, data, nonce, definition, plan, bundleId };
   }
 

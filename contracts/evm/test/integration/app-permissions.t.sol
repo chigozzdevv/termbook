@@ -28,6 +28,34 @@ contract BoundPermissionTarget {
 }
 
 contract AppPermissionsTest is Test {
+    function testNativeValueNeedsSeparateImmutableActionAndRecoveryApproval() public {
+        IntegrationRegistry r = new IntegrationRegistry(address(this));
+        BoundPermissionTarget target = new BoundPermissionTarget();
+        TestCallValidator validator = new TestCallValidator();
+        bytes32 id = bytes32("native"); address account = address(0xA);
+        r.approve(id, bytes32("code"));
+        r.registerCall(id, address(target), target.execute.selector, 68, 0, 1, 100);
+        r.registerRecoveryCall(id, address(target), target.execute.selector, 68, 0);
+        r.setCallValidator(id, address(target), target.execute.selector, address(validator));
+        r.setRecoveryCallValidator(id, address(target), target.execute.selector, address(validator));
+        bytes memory data = abi.encodeCall(target.execute, (account, 50));
+        assertFalse(r.validateValueCall(id, address(target), data, account, 0, 50));
+        r.registerNativeValue(id, address(target), target.execute.selector, false, 100, 1);
+        r.registerNativeValue(id, address(target), target.execute.selector, true, 60, 1);
+        r.activate(id);
+        assertTrue(r.validateValueCall(id, address(target), data, account, 0, 50));
+        assertFalse(r.validateValueCall(id, address(target), data, account, 0, 0));
+        assertFalse(r.validateValueCall(id, address(target), data, account, 0, 51));
+        assertFalse(r.validateValueCall(id, address(target), abi.encodeCall(target.execute, (account, 101)), account, 0, 101));
+        vm.expectRevert(IntegrationRegistry.Invalid.selector);
+        r.registerNativeValue(id, address(target), target.execute.selector, false, 200, 1);
+        r.freeze(id);
+        assertFalse(r.validateValueCall(id, address(target), data, account, 0, 50));
+        assertTrue(r.validateRecoveryValueCall(id, address(target), data, account, 50));
+        assertFalse(r.validateRecoveryValueCall(id, address(target), abi.encodeCall(target.execute, (account, 61)), account, 61));
+        r.disableRecoveryCall(id, address(target), target.execute.selector);
+        assertFalse(r.validateRecoveryValueCall(id, address(target), data, account, 50));
+    }
     function testFreezeBlocksUse() public {
         IntegrationRegistry r = new IntegrationRegistry(address(this));
         r.approve(bytes32("v1"), bytes32("code"));

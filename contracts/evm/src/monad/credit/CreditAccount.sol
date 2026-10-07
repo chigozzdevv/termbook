@@ -3,6 +3,9 @@ pragma solidity ^0.8.24;
 
 import {ICreditAccount} from "./ICreditAccount.sol";
 import {SafeTransferLib} from "../../shared/SafeTransferLib.sol";
+import {ExecutionTypes} from "../integration/IExecutionPolicy.sol";
+import {IntegrationRegistry} from "../integration/IntegrationRegistry.sol";
+import {PriceProtection} from "../integration/PriceProtection.sol";
 
 interface IERC20Account {
     function balanceOf(address account) external view returns (uint256);
@@ -24,6 +27,7 @@ contract CreditAccount is ICreditAccount {
     error InvalidTarget();
     error CallFailed();
     error InvalidToken();
+    error OverLimit();
 
     constructor(bytes32 creditId_, address borrower_, address core_) {
         if (creditId_ == bytes32(0) || borrower_ == address(0) || core_ == address(0)) revert Unauthorized();
@@ -40,8 +44,17 @@ contract CreditAccount is ICreditAccount {
     receive() external payable {}
 
     function execute(address target, bytes calldata data) external onlyCore returns (bytes memory result) {
+        return _execute(target, data, 0);
+    }
+
+    function executeWithValue(address target, bytes calldata data, uint256 value) external onlyCore returns (bytes memory) {
+        return _execute(target, data, value);
+    }
+
+    function _execute(address target, bytes calldata data, uint256 value) private returns (bytes memory) {
         if (target == address(0) || target == address(this) || target.code.length == 0 || data.length < 4) revert BadTarget();
-        (bool ok, bytes memory out) = target.call(data);
+        if (value > address(this).balance) revert InvalidTarget();
+        (bool ok, bytes memory out) = target.call{value: value}(data);
         if (!ok) {
             assembly {
                 revert(add(out, 32), mload(out))
@@ -51,6 +64,29 @@ contract CreditAccount is ICreditAccount {
     }
 
     function approveSpend(address token, address spender, uint256 amount) external onlyCore {
+        _approveSpend(token, spender, amount);
+    }
+
+    function executeApprovedCalls(bytes32 bundle, ExecutionTypes.Action calldata action, address registry, PriceProtection prices)
+        external onlyCore returns (bytes[] memory results) {
+        results = new bytes[](action.calls.length);
+        for (uint256 i; i < action.calls.length; ++i) {
+            ExecutionTypes.Call calldata call_ = action.calls[i];
+            if (!IntegrationRegistry(registry).validateValueCall(bundle, call_.target, call_.data, address(this),
+                call_.spendAmount, call_.nativeValue)) revert Unauthorized();
+            if (call_.spendAmount != 0) {
+                if (call_.spendAmount > call_.spendToken.balanceOf(address(this))) revert OverLimit();
+                _approveSpend(call_.spendToken, call_.target, 0);
+                _approveSpend(call_.spendToken, call_.target, call_.spendAmount);
+            }
+            (uint256 beforeInput, uint256 beforeOutput) = prices.captureBalances(bundle, action, address(this), i);
+            results[i] = _execute(call_.target, call_.data, call_.nativeValue);
+            prices.validateAmountResult(bundle, action, address(this), i, beforeInput, beforeOutput);
+            if (call_.spendAmount != 0) _approveSpend(call_.spendToken, call_.target, 0);
+        }
+    }
+
+    function _approveSpend(address token, address spender, uint256 amount) private {
         if (token.code.length == 0 || spender == address(0)) revert InvalidToken();
         uint256 previous = allowances[token][spender];
         if (previous == 0 && amount != 0) activeAllowances += 1;

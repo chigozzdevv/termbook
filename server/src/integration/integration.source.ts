@@ -20,7 +20,7 @@ function record(value: unknown): Record<string, unknown> {
 
 function selector(signature: string): Hex {
   const item = parseAbiItem(signature);
-  if (item.type !== "function" || item.stateMutability !== "nonpayable") {
+  if (item.type !== "function" || !["nonpayable", "payable"].includes(item.stateMutability)) {
     throw new Error("integration-source-selector-mismatch");
   }
   return toFunctionSelector(item);
@@ -59,7 +59,7 @@ async function limitedJson(response: Response): Promise<Record<string, unknown>>
 }
 
 export async function importVerifiedSource(
-  chainId: number, address: Address, code: Hex, selector: Hex | null,
+  chainId: number, address: Address, code: Hex, selector: Hex | null, payable?: boolean,
 ) {
   const url = `${sourceApi}/${chainId}/${address}?fields=runtimeBytecode.onchainBytecode,abi,sources,compilation`;
   const response = await fetch(url, { signal: AbortSignal.timeout(15_000), redirect: "error" })
@@ -81,8 +81,8 @@ export async function importVerifiedSource(
   if (selector !== null && !abi.some((entry) => {
     try {
       const item = record(entry) as AbiFunction;
-      return item.type === "function" && item.stateMutability === "nonpayable"
-        && toFunctionSelector(item) === selector;
+      return item.type === "function" && ["nonpayable", "payable"].includes(item.stateMutability)
+        && toFunctionSelector(item) === selector && (payable !== true || item.stateMutability === "payable");
     } catch {
       return false;
     }
@@ -138,7 +138,7 @@ export async function validateIntegrationSources(
       || !wordPattern.test(reviewed.sourceHash)) throw new Error("integration-source-evidence-invalid");
     const targetActions = calls.filter((action) => action.target.toLowerCase() === targetKey);
     const source = await importVerifiedSource(env.monadChainId, target, code,
-      implementation ? null : selector(targetActions[0]!.signature));
+      implementation ? null : selector(targetActions[0]!.signature), !!(targetActions[0]!.valuePath || targetActions[0]!.valueFromBound));
     if (source.sourceHash.toLowerCase() !== reviewed.sourceHash.toLowerCase()) {
       throw new Error("integration-source-evidence-invalid");
     }
@@ -149,7 +149,7 @@ export async function validateIntegrationSources(
       implementationCode = await chain.getBytecode({ address: implementation, blockNumber: finalized.number });
       if (!implementationCode || implementationCode === "0x") throw new Error("integration-source-proxy-invalid");
       const imported = await importVerifiedSource(env.monadChainId, implementation, implementationCode,
-        selector(targetActions[0]!.signature));
+        selector(targetActions[0]!.signature), !!(targetActions[0]!.valuePath || targetActions[0]!.valueFromBound));
       if (imported.sourceHash.toLowerCase() !== reviewed.implementationSourceHash!.toLowerCase()) {
         throw new Error("integration-source-evidence-invalid");
       }
@@ -158,7 +158,7 @@ export async function validateIntegrationSources(
     }
     for (const action of targetActions.slice(1)) {
       await importVerifiedSource(env.monadChainId, implementation ?? target,
-        implementationCode ?? code, selector(action.signature));
+        implementationCode ?? code, selector(action.signature), !!(action.valuePath || action.valueFromBound));
     }
     pins.push({ target, codeHash: keccak256(code), sourceHash: source.sourceHash as Hex,
       implementation, implementationCodeHash, implementationSourceHash });

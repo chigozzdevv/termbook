@@ -68,6 +68,7 @@ beforeEach(() => {
     getChainId: vi.fn(async () => 143),
     getBytecode: vi.fn(async () => "0x1234"),
     readContract: vi.fn(async ({ functionName, args }: { functionName: string; args?: readonly unknown[] }) => {
+      if (functionName === "executionVersion") return 2n;
       if (functionName === "priceProtection") return address("e");
       if (functionName === "ruleHashes") return codeHash;
       if (functionName === "read") return [2000n * 10n ** 18n, 1000n, 1n];

@@ -23,7 +23,7 @@ describe("action preview", () => {
     const rpc = new RpcClient({ core: address, rpcUrl: "http://localhost:8545", chainId: 143,
       wallet: { address, signTypedData: async () => creditId } } as never);
     const plan = { capability: creditId, market: creditId, requiredInput: 100n, exposureLimit: 200n,
-      calls: [{ target: address, spendToken: address, spendAmount: 100n, data: "0x12345678" as const }] };
+      calls: [{ target: address, spendToken: address, spendAmount: 100n, nativeValue: 0n, data: "0x12345678" as const }] };
     expect((await rpc.previewPlan(creditId, plan, 100n, 1n)).healthBps).toBe(20_000n);
     expect(simulateContract).toHaveBeenCalledWith(expect.objectContaining({ functionName: "previewPlan", args: [creditId, plan, 100n, 1n, expect.objectContaining({ roundId: 0n })] }));
   });

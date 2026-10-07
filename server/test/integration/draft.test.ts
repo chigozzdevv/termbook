@@ -25,7 +25,7 @@ const previous = { core: env.core, monadChainId: env.monadChainId };
 const implementationSlot = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc";
 
 function chain(options: { proxyWord?: `0x${string}`; transactionTo?: `0x${string}`;
-  transactionInput?: `0x${string}`; trace?: unknown; historicalCode?: `0x${string}` } = {}) {
+  transactionInput?: `0x${string}`; transactionValue?: bigint; trace?: unknown; historicalCode?: `0x${string}` } = {}) {
   return {
     getChainId: vi.fn(async () => 143),
     getBlock: vi.fn(async ({ blockTag }: { blockTag?: string }) =>
@@ -37,7 +37,7 @@ function chain(options: { proxyWord?: `0x${string}`; transactionTo?: `0x${string
     getTransactionReceipt: vi.fn(async () => ({ status: "success", blockNumber: 20n,
       transactionHash: txHash, blockHash, to: options.transactionTo ?? core, logs: [] })),
     getTransaction: vi.fn(async () => ({ hash: txHash, blockHash,
-      to: options.transactionTo ?? core, input: options.transactionInput ?? input })),
+      to: options.transactionTo ?? core, input: options.transactionInput ?? input, value: options.transactionValue ?? 0n })),
     request: vi.fn(async () => options.trace),
   };
 }
@@ -69,6 +69,16 @@ describe("integration draft import", () => {
       reference: { creditId, txHash, callData: appData, kind: "termbook", blockNumber: "20" } });
   });
 
+  it("preserves native value on a finalized payable application call", async () => {
+    const payable = "function deposit() payable";
+    const call = encodeFunctionData({ abi: parseAbi([payable]), functionName: "deposit" });
+    vi.mocked(monadClient).mockReturnValue(chain({ transactionTo: target, transactionInput: call, transactionValue: 10n ** 18n }) as never);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ runtimeMatch: "exact_match", chainId: "143", address: target,
+      matchId: "1", runtimeBytecode: { onchainBytecode: code }, compilation: { compilerVersion: "v0.8.24", fullyQualifiedName: "App.sol:App" },
+      sources: { "App.sol": { content: "contract App {}" } }, abi: parseAbi([payable]) }), { status: 200 })));
+    const result = await inspectIntegrationDraft({ entries: [{ ...request.entries[0]!, signature: payable }] });
+    expect(result.entries[0]!.reference.nativeValue).toBe("1000000000000000000");
+  });
   it("imports an application's own finalized trade as a draft reference", async () => {
     const client = chain({ transactionTo: target, transactionInput: appData });
     vi.mocked(monadClient).mockReturnValue(client as never);

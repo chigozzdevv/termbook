@@ -35,7 +35,7 @@ contract ReferenceAssetAppTest is Test {
         action.market = app.MARKET();
         action.calls = new ExecutionTypes.Call[](1);
         action.calls[0] = ExecutionTypes.Call(address(app), depositing ? address(token) : address(0),
-            depositing ? amount : 0, abi.encodeWithSelector(depositing ? app.deposit.selector : app.withdraw.selector, amount));
+            depositing ? amount : 0, abi.encodeWithSelector(depositing ? app.deposit.selector : app.withdraw.selector, amount), 0);
         action.requiredInput = depositing ? amount : 0;
         action.exposureLimit = 100;
     }
@@ -64,7 +64,7 @@ contract ReferenceAssetAppTest is Test {
 
     function testRecoveryVerifiesBothPositionAndReturnedAccountCash() public {
         _deposit(60);
-        (address target, bytes memory call_, bytes32 expected) = app.recoveryCall(CREDIT, ACCOUNT, abi.encode(uint256(60)));
+        (address target, bytes memory call_,, bytes32 expected) = app.recoveryCall(CREDIT, ACCOUNT, abi.encode(uint256(60)));
         assertEq(target, address(app));
         assertFalse(app.verifyRecovery(CREDIT, ACCOUNT, "", expected));
         vm.prank(ACCOUNT);

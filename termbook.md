@@ -223,6 +223,14 @@ The integration defines price units, rounding, and allowed order types. Addition
 order types must define their own typed price and trigger rules. Capability schemas
 validate slippage against the accepted House policy.
 
+Atomic spot swaps derive minimum output or maximum input from the trade amount,
+the approved oracle direction, and both assets' decimals. The bound is signed and
+checked against actual Credit Account balance changes; venue return values alone
+do not establish a successful swap. Native MON attached to a call is signed,
+capped by its reviewed function policy, and paid from the account. Required House
+funding covers settlement-token spending; spending another token already held by
+the account does not itself request a USDC loan.
+
 ### 6. Manage the facility
 
 The borrower may repeat approved actions without a new House approval. Each

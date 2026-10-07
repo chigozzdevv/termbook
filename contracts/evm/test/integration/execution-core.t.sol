@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {OracleRegistry} from "../../src/monad/risk/OracleRegistry.sol";
+import {PriceFeedFixture, PriceFeedGuardFixture} from "./price-protection.t.sol";
 import {CoreFixture} from "../CoreFixture.sol";
 import {ExecutionPolicyFixture} from "./execution-manager.t.sol";
 import {TermbookCore} from "../../src/monad/credit/TermbookCore.sol";
@@ -47,6 +49,10 @@ contract ExecutionCoreTest is CoreFixture {
     ExecutionPolicyFixture policy;
     ExecutionHealthFixture health;
     MockERC20 token;
+    MockERC20 spotOutput;
+    OracleRegistry spotOracle;
+    PriceFeedFixture spotFeed;
+    bytes32 spotFeedId = keccak256("spot ratio");
     HouseVault vault;
     CreditAccount account;
     RiskEngine risk;
@@ -82,8 +88,24 @@ contract ExecutionCoreTest is CoreFixture {
         registry.setCallValidator(bundle, address(policy), policy.noop.selector, address(validator));
         registry.setCallValidator(bundle, address(policy), policy.submit.selector, address(validator));
         registry.setRecoveryCallValidator(bundle, address(policy), policy.noop.selector, address(validator));
+        registry.registerNativeValue(bundle, address(policy), policy.noop.selector, false, 1 ether, type(uint8).max);
+        registry.registerCall(bundle, address(policy), policy.consumeOwned.selector, 68, type(uint8).max, 1, 100);
+        registry.setCallValidator(bundle, address(policy), policy.consumeOwned.selector, address(validator));
+        spotOutput = new MockERC20();
+        registry.pinDependency(bundle, address(token));
+        registry.pinDependency(bundle, address(spotOutput));
+        registry.registerCall(bundle, address(policy), policy.swapOwned.selector, 132, type(uint8).max, 1, 100);
+        registry.setCallValidator(bundle, address(policy), policy.swapOwned.selector, address(validator));
         registry.activate(bundle);
         core.setIntegrationRegistry(address(registry));
+        spotOracle = new OracleRegistry(address(this));
+        spotFeed = new PriceFeedFixture(); spotFeed.update(1e8);
+        spotOracle.setFeed(spotFeedId, address(spotFeed), 300, 8);
+        spotOracle.setFeedGuard(spotFeedId, address(new PriceFeedGuardFixture(spotFeed)));
+        PriceProtection.Rule memory spotRule = PriceProtection.Rule(address(spotOracle), spotFeedId, address(policy),
+            policy.swapOwned.selector, 0, 18, 2, 0, 100, 500, 60, 0, 0);
+        core.configureExecutionAmountPrice(bundle, keccak256("place_order"), keccak256("spot"), spotRule,
+            PriceProtection.AmountRule(1, 18, 18, false, false, true, address(token), address(spotOutput)));
         InboxFactory factory = InboxFactory(deployCode("InboxFactory.sol:InboxFactory", abi.encode(address(this))));
         vault = HouseVault(deployCode("HouseVault.sol:HouseVault", abi.encode(address(token), address(core), address(this), address(factory), address(0))));
         token.mint(address(this), 1000);
@@ -122,8 +144,8 @@ contract ExecutionCoreTest is CoreFixture {
         action.requiredInput = 100;
         action.exposureLimit = 100;
         action.calls = new ExecutionTypes.Call[](2);
-        action.calls[0] = ExecutionTypes.Call(address(policy), address(0), 0, abi.encodeCall(policy.noop, ()));
-        action.calls[1] = ExecutionTypes.Call(address(policy), address(token), 100, abi.encodeCall(policy.submit, ()));
+        action.calls[0] = ExecutionTypes.Call(address(policy), address(0), 0, abi.encodeCall(policy.noop, ()), 0);
+        action.calls[1] = ExecutionTypes.Call(address(policy), address(token), 100, abi.encodeCall(policy.submit, ()), 0);
     }
     function _authorization(ExecutionTypes.Action memory action, uint256 key, uint256 nonce)
         internal view returns (TermbookCore.ExecutionAuthorization memory auth) {
@@ -136,6 +158,90 @@ contract ExecutionCoreTest is CoreFixture {
         core.executePlan(credit, action, _authorization(action, borrowerKey, 1));
     }
 
+    function testSpotUnderDeliveryRevertsDrawApprovalsNonceAndSwap() public {
+        policy.setSynchronousRequired(100);
+        ExecutionTypes.Action memory action = _action();
+        action.market = keccak256("spot");
+        action.calls = new ExecutionTypes.Call[](1);
+        action.calls[0] = ExecutionTypes.Call(address(policy), address(token), 100,
+            abi.encodeCall(policy.swapOwned, (spotOutput, 100, 100, 99)), 0);
+        TermbookCore.ExecutionAuthorization memory auth = _authorization(action, borrowerKey, 1);
+        (uint256 price, uint256 updated, uint80 round) = spotOracle.read(spotFeedId);
+        auth.price = PriceProtection.Quote(round, price, updated, block.timestamp, 100, 0, false);
+        auth.signature = _sign(borrowerKey, core.executionDigest(credit, action, auth));
+        vm.expectRevert(PriceProtection.Invalid.selector);
+        core.executePlan(credit, action, auth);
+        assertEq(core.creditDebt(credit), 0); assertEq(token.balanceOf(address(vault)), 1000);
+        assertEq(spotOutput.balanceOf(address(account)), 0); assertEq(token.allowance(address(account), address(policy)), 0);
+        assertFalse(core.nonceUsed(credit, 1));
+        action.calls[0].data = abi.encodeCall(policy.swapOwned, (spotOutput, 100, 100, 100));
+        auth.signature = _sign(borrowerKey, core.executionDigest(credit, action, auth));
+        core.executePlan(credit, action, auth);
+        assertEq(core.creditDebt(credit), 100); assertEq(spotOutput.balanceOf(address(account)), 100);
+        assertEq(token.allowance(address(account), address(policy)), 0);
+    }
+    function testNativeValueIsSignedBoundedAndSpentFromAccount() public {
+        vm.deal(address(account), 2 ether);
+        ExecutionTypes.Action memory action = _action();
+        action.calls[0].nativeValue = 1 ether;
+        TermbookCore.ExecutionAuthorization memory auth = _authorization(action, borrowerKey, 1);
+        action.calls[0].nativeValue -= 1;
+        vm.expectRevert(TermbookCore.BadSig.selector);
+        core.executePlan(credit, action, auth);
+        action.calls[0].nativeValue = 1 ether;
+        core.executePlan(credit, action, auth);
+        assertEq(address(policy).balance, 1 ether);
+        assertEq(address(account).balance, 1 ether);
+        assertEq(core.creditDebt(credit), 100);
+    }
+    function testUnapprovedNativeValueRollsBackLoanAndEarlierCalls() public {
+        vm.deal(address(account), 3 ether);
+        ExecutionTypes.Action memory action = _action();
+        action.calls[0].nativeValue = 2 ether;
+        TermbookCore.ExecutionAuthorization memory auth = _authorization(action, borrowerKey, 1);
+        vm.expectRevert(TermbookCore.Unauthorized.selector);
+        core.executePlan(credit, action, auth);
+        assertEq(core.creditDebt(credit), 0);
+        assertEq(address(account).balance, 3 ether);
+        assertEq(policy.callsExecuted(), 0);
+    }
+    function testOwnedSettlementCashCanBeSpentWithZeroDraw() public {
+        token.mint(address(account), 100);
+        ExecutionTypes.Action memory action = _action();
+        TermbookCore.ExecutionAuthorization memory auth = _authorization(action, borrowerKey, 1);
+        auth.drawAmount = 0; auth.maxDraw = 0;
+        auth.signature = _sign(borrowerKey, core.executionDigest(credit, action, auth));
+        core.executePlan(credit, action, auth);
+        assertEq(core.creditDebt(credit), 0); assertEq(token.balanceOf(address(vault)), 1000);
+        assertEq(token.balanceOf(address(policy)), 100); assertEq(token.allowance(address(account), address(policy)), 0);
+    }
+    function testOwnedTokenSpendDoesNotBorrowSettlementAsset() public {
+        MockERC20 owned = new MockERC20();
+        owned.mint(address(account), 100);
+        policy.setSynchronous();
+        ExecutionTypes.Action memory action = _action();
+        action.requiredInput = 0;
+        action.calls = new ExecutionTypes.Call[](1);
+        action.calls[0] = ExecutionTypes.Call(address(policy), address(owned), 100, abi.encodeCall(policy.consumeOwned, (owned, 100)), 0);
+        TermbookCore.ExecutionAuthorization memory auth = _authorization(action, borrowerKey, 1);
+        auth.drawAmount = 0; auth.maxDraw = 0;
+        auth.signature = _sign(borrowerKey, core.executionDigest(credit, action, auth));
+        core.executePlan(credit, action, auth);
+        assertEq(core.creditDebt(credit), 0);
+        assertEq(owned.balanceOf(address(account)), 0);
+        assertEq(owned.balanceOf(address(policy)), 100);
+        assertEq(owned.allowance(address(account), address(policy)), 0);
+        assertEq(token.balanceOf(address(vault)), 1000);
+    }
+    function testSettlementSpendingCannotBeHiddenFromRequiredFunding() public {
+        ExecutionTypes.Action memory action = _action();
+        action.requiredInput = 0;
+        TermbookCore.ExecutionAuthorization memory auth = _authorization(action, borrowerKey, 1);
+        auth.drawAmount = 0;
+        auth.signature = _sign(borrowerKey, core.executionDigest(credit, action, auth));
+        vm.expectRevert(TermbookCore.InvalidTerms.selector);
+        core.executePlan(credit, action, auth);
+    }
     function testExecutionSignatureBindsThePriceAuthorization() public {
         ExecutionTypes.Action memory action = _action();
         TermbookCore.ExecutionAuthorization memory auth = _authorization(action, borrowerKey, 1);

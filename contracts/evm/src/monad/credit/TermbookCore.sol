@@ -98,6 +98,9 @@ interface ICreditAccountCore {
     function borrower() external view returns (address);
     function core() external view returns (address);
     function execute(address target, bytes calldata data) external returns (bytes memory);
+    function executeWithValue(address target, bytes calldata data, uint256 value) external returns (bytes memory);
+    function executeApprovedCalls(bytes32 bundle, ExecutionTypes.Action calldata action, address registry, PriceProtection prices)
+        external returns (bytes[] memory);
     function approveSpend(address token, address spender, uint256 amount) external;
     function transferToken(address token, address to, uint256 amount) external;
     function tokenBalance(address token) external view returns (uint256);
@@ -139,6 +142,8 @@ interface IOracleRegistrySaleCore {
 }
 
 interface IIntegrationRegistryCore {
+    function validateValueCall(bytes32 id, address target, bytes calldata data, address account, uint256 spendAmount, uint256 value) external view returns (bool);
+    function validateRecoveryValueCall(bytes32 id, address target, bytes calldata data, address account, uint256 value) external view returns (bool);
     function isActive(bytes32 versionId) external view returns (bool);
     function dependenciesValid(bytes32 versionId) external view returns (bool);
     function dependencyValid(bytes32 versionId, address dependency) external view returns (bool);
@@ -1138,6 +1143,15 @@ contract TermbookCore is ITermbookCore {
         managedBundle[bundleId] = true;
     }
 
+    function executionVersion() external pure returns (uint256) { return 2; }
+
+    function configureExecutionAmountPrice(bytes32 bundleId, bytes32 capability, bytes32 market,
+        PriceProtection.Rule calldata rule, PriceProtection.AmountRule calldata amountRule) external onlyGovernance {
+        if (bundleEverUsed[bundleId] || !managedBundle[bundleId]) revert Frozen();
+        if (integrationRegistry == address(0)) revert InvalidTerms();
+        priceProtection.configureAmountRule(bundleId, capability, market, rule, amountRule, integrationRegistry);
+    }
+
     function configureExecutionPrice(bytes32 bundleId, bytes32 capability, bytes32 market, PriceProtection.Rule calldata rule)
         external onlyGovernance {
         if (bundleEverUsed[bundleId] || !managedBundle[bundleId]) revert Frozen();
@@ -1179,7 +1193,7 @@ contract TermbookCore is ITermbookCore {
     function executionDigest(bytes32 creditId, ExecutionTypes.Action calldata action, ExecutionAuthorization calldata auth)
         public view returns (bytes32) {
         Credit storage c = _credits[creditId];
-        return keccak256(abi.encode(domain, keccak256("Termbook execution v1"), creditId, c.bundleId, c.termsHash,
+        return keccak256(abi.encode(domain, keccak256("Termbook execution v2"), creditId, c.bundleId, c.termsHash,
             executionManager.policyHash(c.bundleId), keccak256(abi.encode(action)), auth.drawAmount, auth.maxDraw,
             auth.nonce, auth.deadline, auth.revision, auth.signer, sessionGeneration[creditId], keccak256(abi.encode(auth.price))));
     }
@@ -1208,6 +1222,7 @@ contract TermbookCore is ITermbookCore {
         if (c.facility != Types.Facility.Ready || paused || !managedBundle[c.bundleId] || actionHealthBlocked[creditId]
             || auth.drawAmount > action.requiredInput || auth.drawAmount > auth.maxDraw
             || integrationRegistry == address(0)) revert BadState();
+        if (!priceProtection.validFunding(action, IHouseVaultCore(c.vault).asset())) revert InvalidTerms();
         _accrue(c, creditId);
         _requireFreshHealth(c, creditId);
         Types.Risk beforeRisk = IRiskCore(riskEngine).riskState(creditId);
@@ -1233,18 +1248,7 @@ contract TermbookCore is ITermbookCore {
         }
         if (auth.signer != c.borrower) c.nonce = primaryNonce;
         if (action.requiredInput != 0) _requireFreeActionCash(c, creditId, action.requiredInput);
-        results = new bytes[](action.calls.length);
-        for (uint256 i; i < action.calls.length; ++i) {
-            ExecutionTypes.Call calldata call_ = action.calls[i];
-            _requireAppCall(c, call_.target, call_.data, call_.spendAmount);
-            if (call_.spendAmount != 0) {
-                if (call_.spendAmount > call_.spendToken.balanceOf(c.account)) revert OverLimit();
-                ICreditAccountCore(c.account).approveSpend(call_.spendToken, call_.target, 0);
-                ICreditAccountCore(c.account).approveSpend(call_.spendToken, call_.target, call_.spendAmount);
-            }
-            results[i] = ICreditAccountCore(c.account).execute(call_.target, call_.data);
-            if (call_.spendAmount != 0) ICreditAccountCore(c.account).approveSpend(call_.spendToken, call_.target, 0);
-        }
+        results = ICreditAccountCore(c.account).executeApprovedCalls(c.bundleId, action, integrationRegistry, priceProtection);
         executionManager.complete(creditId, c.bundleId, c.account, action, reservation, results);
         if (!preview) _recordPostActionHealth(c, creditId);
     }
@@ -3985,16 +3989,17 @@ contract TermbookCore is ITermbookCore {
     {
         _accrue(c, creditId);
         address adapter = _requireAppRecoveryAdapter(c.bundleId);
-        (address target, bytes memory data, bytes32 expectedState) =
+        (address target, bytes memory data, uint256 nativeValue, bytes32 expectedState) =
             IAppRecoveryAdapter(adapter).recoveryCall(creditId, c.account, instruction);
         if (target == address(0) || target == c.account || target.code.length == 0 || data.length < 4) {
             revert BadState();
         }
         if (integrationRegistry != address(0)
-            && !IIntegrationRegistryCore(integrationRegistry).validateRecoveryCall(c.bundleId, target, data, c.account)) {
+            && !IIntegrationRegistryCore(integrationRegistry).validateRecoveryValueCall(c.bundleId, target, data, c.account, nativeValue)) {
             revert Unauthorized();
         }
-        ICreditAccountCore(c.account).execute(target, data);
+        if (nativeValue != 0 && integrationRegistry == address(0)) revert Unauthorized();
+        ICreditAccountCore(c.account).executeWithValue(target, data, nativeValue);
         if (!IAppRecoveryAdapter(adapter).verifyRecovery(creditId, c.account, instruction, expectedState)) {
             revert BadState();
         }

@@ -1,5 +1,6 @@
-import type { CollateralMarket, CapabilityDefinition } from "@termbook/schema";
-import { parseAbiItem, parseUnits } from "viem";
+import type { CollateralMarket, CapabilityDefinition, CapabilityCall } from "@termbook/schema";
+import { capabilityCalls } from "@termbook/schema";
+import { formatEther, parseAbiItem, parseUnits } from "viem";
 import type { TermbookClient } from "../client/client.js";
 import type { AppAction, ActionReview } from "../types/app.types.js";
 import type { SourceLockWallet } from "../collateral/setup.js";
@@ -587,12 +588,16 @@ export class TermbookModal {
       review.append(element("h3", "Execution review"));
       review.append(element("p", `Required input ${this.review.requiredInput} · Free account assets ${this.review.freeAssets}`));
       review.append(element("p", `New draw ${this.review.draw} · Debt ${this.review.currentDebt} → ${this.review.projectedDebt}`));
+      if (this.review.nativeValue) review.append(element("p", `MON attached to calls ${formatEther(this.review.nativeValue)}`));
+      for (const spend of this.review.spending ?? []) review.append(element("p", `Spend ${spend.amount} of token ${spend.token}`));
       review.append(element("p", `Origination fee ${this.review.originationFee} · Current recovery health ${this.review.healthBps === null ? "unavailable" : `${this.review.healthBps} bps (${this.review.healthState})`}`));
       review.append(element("p", `Projected recovery health ${this.review.projectedHealthBps} bps · Required ${this.review.initialHealthBps} bps`));
       review.append(element("p", `Projected recoverable value ${this.review.projectedRecoveryValue}`));
       if (this.review.price) {
-        review.append(element("p", `Slippage ${this.review.price.slippageBps} bps · ${this.review.price.isMax ? "Maximum" : "Minimum"} execution price ${this.review.price.bound}`));
-        review.append(element("small", "Execution price uses the application's price units. A changed bound requires a fresh review."));
+        const label = this.review.boundKind === "min_output" ? "Minimum token output" : this.review.boundKind === "max_input" ? "Maximum token input"
+          : `${this.review.price.isMax ? "Maximum" : "Minimum"} execution price`;
+        review.append(element("p", `Slippage ${this.review.price.slippageBps} bps · ${label} ${this.review.price.bound}`));
+        review.append(element("small", "Token bounds use smallest token units. A changed bound requires a fresh review."));
       }
       if (!this.review.canExecute) review.append(element("p", "This action is below the required recovery health.", "error"));
       review.append(element("small", `Settlement asset ${this.review.settlementAsset}. Amounts shown in smallest token units.`));
@@ -613,10 +618,21 @@ export class TermbookModal {
   }
 
   private renderActionFields(container: HTMLElement, definition: CapabilityDefinition): void {
-    const item = parseAbiItem(definition.signature);
-    if (item.type !== "function") return;
+    const fields = capabilityCalls(definition).flatMap((call) => {
+      const item = parseAbiItem(call.signature);
+      return item.type !== "function" ? [] : call.arguments.map((argument, index) => ({ argument, type: item.inputs[index]?.type }));
+    });
+    const addField = (path: string | undefined, label: string, max?: string) => {
+      if (path) fields.push({ argument: { source: "input", path, label, ...(max ? { min: "0", max } : {}) } as CapabilityCall["arguments"][number], type: "uint256" });
+    };
+    for (const call of capabilityCalls(definition)) {
+      addField(call.valuePath, "MON value (wei)");
+      addField(call.spendPath, "Token amount (smallest units)");
+    }
+    addField(definition.price?.slippagePath, "Slippage (basis points)", "5000");
+    addField(definition.exposurePath, "Exposure (settlement units)");
     const shown = new Set<string>();
-    for (const [index, argument] of definition.arguments.entries()) {
+    for (const { argument, type } of fields) {
       if (argument.source !== "input" || !argument.path || shown.has(argument.path)) continue;
       shown.add(argument.path);
       const path = argument.path;
@@ -633,10 +649,10 @@ export class TermbookModal {
           const option = element("option", choice); option.value = choice; option.selected = current === choice; select.append(option);
         }
         input = select;
-      } else if (item.inputs[index]?.type === "tuple" || item.inputs[index]?.type.endsWith("]")) {
+      } else if (type === "tuple" || type?.endsWith("]")) {
         input = element("textarea");
         input.value = current === undefined ? "" : stringify(current);
-      } else if (item.inputs[index]?.type === "bool") {
+      } else if (type === "bool") {
         const select = element("select");
         for (const [value, text] of [["", "Select"], ["true", "Yes"], ["false", "No"]]) {
           const option = element("option", text); option.value = value; option.selected = current === (value === "true") && value !== "";
@@ -649,7 +665,7 @@ export class TermbookModal {
       }
       input.addEventListener("input", () => {
         const next = input instanceof HTMLTextAreaElement ? (() => { try { return JSON.parse(input.value) as unknown; } catch { return input.value; } })()
-          : item.inputs[index]?.type === "bool" && !choices ? input.value === "true" ? true : input.value === "false" ? false : input.value
+          : type === "bool" && !choices ? input.value === "true" ? true : input.value === "false" ? false : input.value
           : input.value;
         this.action = { ...this.action!, params: setValue(this.action!.params, path, next) };
         this.review = undefined;

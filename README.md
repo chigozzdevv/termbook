@@ -273,7 +273,20 @@ adapter and registered recovery call, then repays recovered account cash to
 HouseVault. Freezing new app actions does not disable a reviewed recovery call.
 Each admitted bundle registers an `IExecutionPolicy` and its pinned state reader.
 Core executes at most eight calls as the Credit Account, with exact approvals
-reset after each call. `ExecutionManager` reserves portfolio and pending slots,
+reset after each call. Execution v2 signs each call's `nativeValue`; native MON
+comes from the account and needs a separate, immutable registry value policy.
+Mappings use `fundingPath` for House settlement cash, `spendPath` for token spending,
+and `valuePath` for MON. Selling an owned token does not request a USDC draw.
+Atomic spot trades use `price.kind: "min_output"` or `"max_input"` with an
+`amountPath`. Governance binds the assets, decimals, oracle direction, and calldata
+words through `configureExecutionAmountPrice`. Core verifies both the signed bound
+and the account's actual input/output balance changes. Asynchronous orders retain
+their reviewed execution-price rules and authoritative fill accounting.
+Exact-output mappings can use `fundingFromBound`, `spendFromBound`, or
+`valueFromBound` to use the derived maximum as their budget.
+These ABI changes require a new Core, AccountFactory and Credit Accounts, registry,
+execution helpers, and updated app recovery adapters before use on an existing deployment.
+`ExecutionManager` reserves portfolio and pending slots,
 validates pending identifiers and recipients, and reconciles partial fills,
 refunds, and cancellation races from authoritative app state. The action worker
 submits changed accounting through the durable keeper journal. Reconciliation

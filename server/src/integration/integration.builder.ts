@@ -157,7 +157,8 @@ export async function validateIntegrationAcceptance(
       || decoded.capability && !equal(decoded.capability, keccak256(stringToHex(action.capability)))
       || calls.some((call, index) => {
         const item = parseAbiItem(expected[index]!.signature);
-        return item.type !== "function" || !equal(call.target, expected[index]!.target)
+        return item.type !== "function" || (expected[index]!.valuePath || expected[index]!.valueFromBound ? call.nativeValue <= 0n : call.nativeValue !== 0n)
+          || !equal(call.target, expected[index]!.target)
           || !equal(call.data.slice(0, 10), toFunctionSelector(item));
       })) {
       throw new Error("integration-action-evidence-invalid");

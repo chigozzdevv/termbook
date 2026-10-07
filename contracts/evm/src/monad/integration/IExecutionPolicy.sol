@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 library ExecutionTypes {
-    struct Call { address target; address spendToken; uint256 spendAmount; bytes data; }
+    struct Call { address target; address spendToken; uint256 spendAmount; bytes data; uint256 nativeValue; }
     struct Action {
         bytes32 capability;
         bytes32 market;

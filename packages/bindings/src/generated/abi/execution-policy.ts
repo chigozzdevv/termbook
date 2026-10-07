@@ -143,6 +143,11 @@ export const executionPolicyAbi = [
                 "name": "data",
                 "type": "bytes",
                 "internalType": "bytes"
+              },
+              {
+                "name": "nativeValue",
+                "type": "uint256",
+                "internalType": "uint256"
               }
             ]
           },
@@ -249,6 +254,11 @@ export const executionPolicyAbi = [
                 "name": "data",
                 "type": "bytes",
                 "internalType": "bytes"
+              },
+              {
+                "name": "nativeValue",
+                "type": "uint256",
+                "internalType": "uint256"
               }
             ]
           },

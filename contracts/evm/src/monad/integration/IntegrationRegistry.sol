@@ -45,6 +45,9 @@ contract IntegrationRegistry {
     }
 
     mapping(bytes32 => Version) public versions;
+    struct NativeValuePolicy { uint256 maxValue; uint8 amountArg; }
+    mapping(bytes32 => mapping(address => mapping(bytes4 => NativeValuePolicy))) public nativeValuePolicies;
+    mapping(bytes32 => mapping(address => mapping(bytes4 => NativeValuePolicy))) public recoveryNativeValuePolicies;
     mapping(bytes32 => uint256) public callCount;
     mapping(bytes32 => uint256) public validatedCallCount;
     mapping(bytes32 => uint256) public recoveryCallCount;
@@ -67,6 +70,7 @@ contract IntegrationRegistry {
     event RecoveryCallDisabled(bytes32 indexed id, address indexed target, bytes4 selector);
     event DependencyPinned(bytes32 indexed id, address indexed dependency, bytes32 codeHash);
     event DependencyGuardSet(bytes32 indexed id, address indexed dependency, address guard);
+    event NativeValueRegistered(bytes32 indexed id, address indexed target, bytes4 selector, bool recovery, uint256 maxValue, uint8 amountArg);
 
     constructor(address reviewer_) {
         reviewer = reviewer_;
@@ -236,8 +240,46 @@ contract IntegrationRegistry {
         emit RecoveryCallDisabled(id, target, selector);
     }
 
-    function validateRecoveryCall(bytes32 id, address target, bytes calldata data, address account)
+    function registerNativeValue(bytes32 id, address target, bytes4 selector, bool recovery, uint256 maxValue, uint8 amountArg)
         external
+    {
+        if (msg.sender != reviewer || versions[id].active || versions[id].frozen || maxValue == 0
+            || (recovery ? !recoveryCallPolicies[id][target][selector].active : !callPolicies[id][target][selector].active)) revert Invalid();
+        NativeValuePolicy storage policy = recovery ? recoveryNativeValuePolicies[id][target][selector]
+            : nativeValuePolicies[id][target][selector];
+        if (policy.maxValue != 0) revert Invalid();
+        policy.maxValue = maxValue;
+        policy.amountArg = amountArg;
+        emit NativeValueRegistered(id, target, selector, recovery, maxValue, amountArg);
+    }
+
+    function _validNativeValue(NativeValuePolicy memory policy, bytes calldata data, uint256 value) private pure returns (bool) {
+        if (policy.maxValue == 0) return value == 0;
+        if (value > policy.maxValue) return false;
+        if (policy.amountArg == type(uint8).max) return true;
+        uint256 offset = 4 + uint256(policy.amountArg) * 32;
+        if (data.length < offset + 32) return false;
+        uint256 amount;
+        assembly { amount := calldataload(add(data.offset, offset)) }
+        return amount == value;
+    }
+
+    function validateRecoveryValueCall(bytes32 id, address target, bytes calldata data, address account, uint256 value)
+        external view returns (bool)
+    {
+        return data.length >= 4 && _validNativeValue(recoveryNativeValuePolicies[id][target][bytes4(data[:4])], data, value)
+            && validateRecoveryCall(id, target, data, account);
+    }
+
+    function validateValueCall(bytes32 id, address target, bytes calldata data, address account, uint256 spendAmount, uint256 value)
+        external view returns (bool)
+    {
+        return data.length >= 4 && _validNativeValue(nativeValuePolicies[id][target][bytes4(data[:4])], data, value)
+            && validateCall(id, target, data, account, spendAmount);
+    }
+
+    function validateRecoveryCall(bytes32 id, address target, bytes calldata data, address account)
+        public
         view
         returns (bool)
     {
@@ -279,7 +321,7 @@ contract IntegrationRegistry {
     }
 
     function validateCall(bytes32 id, address target, bytes calldata data, address account, uint256 drawAmount)
-        external
+        public
         view
         returns (bool)
     {

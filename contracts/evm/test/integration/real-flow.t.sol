@@ -143,12 +143,12 @@ contract FundedPositionRecoveryAdapter is IAppRecoveryAdapter {
     function recoveryCall(bytes32, address account, bytes calldata instruction)
         external
         view
-        returns (address, bytes memory, bytes32)
+        returns (address, bytes memory, uint256, bytes32)
     {
         uint256 amount = abi.decode(instruction, (uint256));
         uint256 beforePosition = target.positions(account);
         require(amount > 0 && amount <= beforePosition);
-        return (address(target), abi.encodeWithSelector(FundedPositionTarget.withdraw.selector, amount),
+        return (address(target), abi.encodeWithSelector(FundedPositionTarget.withdraw.selector, amount), 0,
             bytes32(beforePosition - amount));
     }
 

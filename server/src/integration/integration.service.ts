@@ -44,6 +44,8 @@ const callAbi = [{ type: "function", name: "isCallAllowed", stateMutability: "vi
   inputs: [{ type: "bytes32" }, { type: "address" }, { type: "bytes4" }], outputs: [{ type: "bool" }] }] as const;
 const executionAbi = parseAbi([
   "function managedBundle(bytes32) view returns (bool)",
+  "function executionVersion() view returns (uint256)",
+  "function nativeValuePolicies(bytes32,address,bytes4) view returns (uint256 maxValue,uint8 amountArg)",
   "function executionManager() view returns (address)",
   "function bundles(bytes32) view returns (address policy,address reader,bytes32 policyCodeHash,bytes32 readerCodeHash,bytes32 policyHash,uint8 maxPositions,uint8 maxPending,uint32 maxAge)",
   "function dependencyValid(bytes32,address) view returns (bool)",
@@ -128,19 +130,27 @@ async function admitted(versionId: `0x${string}`, codeHash: string): Promise<boo
     && execution[6] <= 32 && execution[7] > 0 && pinnedPolicy && pinnedReader;
 }
 
-async function admittedActions(versionId: `0x${string}`, actions: CapabilityDefinition[], category?: string): Promise<boolean> {
+async function admittedActions(versionId: `0x${string}`, actions: CapabilityDefinition[], category?: string, settlementAsset?: string): Promise<boolean> {
   if (actions.length === 0) return false;
   const chain = monadClient();
   const block = await chain.getBlock({ blockTag: "finalized" });
   const registry = await chain.readContract({ address: env.core as `0x${string}`, abi: coreAbi,
     functionName: "integrationRegistry", blockNumber: block.number });
+  if (await chain.readContract({ address: env.core as `0x${string}`, abi: executionAbi, functionName: "executionVersion", blockNumber: block.number }).catch(() => 0n) !== 2n) return false;
   const results = await Promise.all(actions.flatMap(capabilityCalls).map(async (action) => {
     const item = parseAbiItem(action.signature);
     if (item.type !== "function") return false;
+    if (action.valuePath || action.valueFromBound) {
+      if (item.stateMutability !== "payable") return false;
+      const policy = await chain.readContract({ address: registry, abi: executionAbi, functionName: "nativeValuePolicies",
+        args: [versionId, action.target as `0x${string}`, toFunctionSelector(item)], blockNumber: block.number });
+      if (policy[0] === 0n || policy[1] !== 255 && (action.valueFromBound ? action.arguments[policy[1]]?.source !== "price_bound"
+        : action.arguments[policy[1]]?.source !== "input" || action.arguments[policy[1]]?.path !== action.valuePath)) return false;
+    }
     return chain.readContract({ address: registry, abi: callAbi, functionName: "isCallAllowed",
       args: [versionId, action.target as `0x${string}`, toFunctionSelector(item)], blockNumber: block.number });
   }));
-  return results.every(Boolean) && await admittedPrices(versionId, actions, block.number, category);
+  return results.every(Boolean) && await admittedPrices(versionId, actions, block.number, category, settlementAsset);
 }
 
 export const integrationService = {
@@ -150,7 +160,7 @@ export const integrationService = {
     if (!addressPattern.test(input.settlementAsset) || /^0x0{40}$/i.test(input.settlementAsset)) {
       throw new Error("settlement-asset-unavailable");
     }
-    if (!await admitted(versionId, input.codeHash) || !await admittedActions(versionId, input.actions, input.category)) throw new Error("integration-not-admitted");
+    if (!await admitted(versionId, input.codeHash) || !await admittedActions(versionId, input.actions, input.category, input.settlementAsset)) throw new Error("integration-not-admitted");
     const suite = assertSuiteEnvelope(versionId, input.codeHash as `0x${string}`, input.acceptance.suite,
       input.acceptance.evidenceHash, input.actions);
     await requireForkReview(suite, review?.forkReviewSignature, review?.reviewer);
@@ -191,7 +201,7 @@ export const integrationService = {
       || sourcePins.some((pin) => !actionTargets?.has(pin.target.toLowerCase()))
       || !addressPattern.test(String(row["settlementAsset"])) || /^0x0{40}$/i.test(String(row["settlementAsset"]))
       || !await admitted(String(row["versionId"]) as `0x${string}`, String(row["codeHash"]))
-      || !await admittedActions(String(row["versionId"]) as `0x${string}`, actions, String(row["category"]))
+      || !await admittedActions(String(row["versionId"]) as `0x${string}`, actions, String(row["category"]), String(row["settlementAsset"]))
       || !await verifyIntegrationSourcePins(sourcePins)) {
       throw new Error("integration-not-found");
     }

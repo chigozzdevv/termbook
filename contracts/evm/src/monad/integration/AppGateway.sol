@@ -16,6 +16,7 @@ contract AppGateway is IAppGateway {
         address spendToken;
         uint16 spendWord;
         uint256 maxSpend;
+        uint256 maxNativeValue;
     }
     mapping(bytes32 => Rule) private rules;
     mapping(bytes32 => bytes32) public targetCodeHash;
@@ -48,7 +49,18 @@ contract AppGateway is IAppGateway {
 
     function buildCall(bytes32 creditId, address account, bytes32 capability, bytes calldata params)
         external view returns (ExecutionTypes.Call memory call_) {
+        return _buildCall(creditId, account, capability, params, 0);
+    }
+
+    function buildNativeCall(bytes32 creditId, address account, bytes32 capability, bytes calldata params, uint256 nativeValue)
+        external view returns (ExecutionTypes.Call memory) {
+        return _buildCall(creditId, account, capability, params, nativeValue);
+    }
+
+    function _buildCall(bytes32 creditId, address account, bytes32 capability, bytes calldata params, uint256 nativeValue)
+        private view returns (ExecutionTypes.Call memory call_) {
         Rule memory r = rules[capability];
+        if (nativeValue > r.maxNativeValue) revert Bounds();
         if (creditId == bytes32(0) || account.code.length == 0 || r.target.code.length == 0
             || r.target.codehash != targetCodeHash[capability] || params.length != r.paramsLength
             || (r.spendToken != address(0) && (r.spendToken.code.length == 0
@@ -62,7 +74,7 @@ contract AppGateway is IAppGateway {
             assembly { spend := mload(add(add(arguments, 32), mul(offset, 32))) }
             if (spend > r.maxSpend) revert Bounds();
         }
-        call_ = ExecutionTypes.Call(r.target, r.spendToken, spend, abi.encodePacked(r.selector, arguments));
+        call_ = ExecutionTypes.Call(r.target, r.spendToken, spend, abi.encodePacked(r.selector, arguments), nativeValue);
     }
 
     function _word(bytes memory arguments, uint256 index, bytes32 value) private pure {

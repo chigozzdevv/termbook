@@ -1,5 +1,5 @@
 import type { CapabilityDefinition } from "@termbook/schema";
-import { keccak256, parseAbi, stringToHex } from "viem";
+import { encodeAbiParameters, keccak256, parseAbi, stringToHex } from "viem";
 import type { TermbookClient } from "../client/client.js";
 import type { AppAction } from "../types/app.types.js";
 import { executionMarket, type ExecutionPrice } from "./execution.js";
@@ -8,6 +8,7 @@ const coreAbi = parseAbi(["function priceProtection() view returns (address)"]);
 const protectionAbi = parseAbi([
   "function rule(bytes32,bytes32,bytes32) view returns ((address oracle,bytes32 feedId,address target,bytes4 selector,uint8 callIndex,uint8 priceDecimals,uint16 priceWord,uint16 directionWord,uint16 maxSlippageBps,uint16 maxDeviationBps,uint32 maxAuthorizationAge,uint256 maximumDirection,uint256 minimumDirection))",
   "function houseSlippage(bytes32) view returns (uint16)",
+  "function amountRules(bytes32) view returns (uint16 amountWord,uint8 inputDecimals,uint8 outputDecimals,bool inverse,bool maxInput,bool active,address inputAsset,address outputAsset)",
 ]);
 const oracleAbi = parseAbi(["function read(bytes32) view returns (uint256 value,uint256 updatedAt,uint80 roundId)"]);
 function input(params: Record<string, unknown>, path: string): unknown {
@@ -35,9 +36,10 @@ export async function executionPrice(client: TermbookClient, creditId: `0x${stri
   if (!definition.marketPath) throw new Error("action-price-unavailable");
   const market = executionMarket(input(action.params, definition.marketPath));
   if (!definition.price.markets.some((id) => id.toLowerCase() === market.toLowerCase())) throw new Error("action-price-unavailable");
-  const direction = String(input(action.params, definition.price.directionPath));
-  const isMax = definition.price.maximumDirections.includes(direction);
-  if (!isMax && !definition.price.minimumDirections.includes(direction)) throw new Error("action-price-invalid");
+  const kind = definition.price.kind ?? "price";
+  const direction = definition.price.directionPath ? String(input(action.params, definition.price.directionPath)) : "";
+  const isMax = kind === "price" ? !!definition.price.maximumDirections?.includes(direction) : kind === "max_input";
+  if (kind === "price" && !isMax && !definition.price.minimumDirections?.includes(direction)) throw new Error("action-price-invalid");
   const rawSlippage = input(action.params, definition.price.slippagePath);
   if (!/^\d+$/.test(String(rawSlippage))) throw new Error("action-price-invalid");
   const slippageBps = Number(rawSlippage);
@@ -48,9 +50,22 @@ export async function executionPrice(client: TermbookClient, creditId: `0x${stri
   const houseCap = await client.rpc.read<number>(protection, protectionAbi, "houseSlippage", [creditId]);
   if (!rule || /^0x0{40}$/i.test(rule.oracle) || !Number.isInteger(slippageBps)
     || slippageBps < 0 || slippageBps > Math.min(houseCap, rule.maxSlippageBps)) throw new Error("action-slippage-denied");
+  let derive = (price: bigint) => deriveExecutionBound(price, slippageBps, isMax, rule.priceDecimals);
+  if (kind !== "price") {
+    const id = keccak256(encodeAbiParameters([{ type: "bytes32" }, { type: "bytes32" }, { type: "bytes32" }],
+      [bundle, keccak256(stringToHex(definition.capability)), market]));
+    const config = await client.rpc.read<readonly [number, number, number, boolean, boolean, boolean, `0x${string}`, `0x${string}`]>(
+      protection, protectionAbi, "amountRules", [id]);
+    if (!config[5] || config[4] !== isMax || !definition.price.amountPath) throw new Error("action-price-unavailable");
+    const rawAmount = input(action.params, definition.price.amountPath);
+    if (typeof rawAmount !== "bigint" && typeof rawAmount !== "string" && typeof rawAmount !== "number"
+      || typeof rawAmount === "number" && !Number.isSafeInteger(rawAmount) || !/^\d+$/.test(String(rawAmount))) throw new Error("action-price-invalid");
+    const amount = BigInt(String(rawAmount));
+    derive = (price) => deriveExecutionAmountBound(price, amount, slippageBps, config[1], config[2], config[3], config[4]);
+  }
   if (previous) {
     if (previous.slippageBps !== slippageBps || previous.isMax !== isMax
-      || previous.bound !== deriveExecutionBound(previous.referencePrice, slippageBps, isMax, rule.priceDecimals)) {
+      || previous.bound !== derive(previous.referencePrice)) {
       throw new Error("action-review-stale");
     }
     return previous;
@@ -60,5 +75,23 @@ export async function executionPrice(client: TermbookClient, creditId: `0x${stri
     client.rpc.client.getBlock({ blockTag: "latest" }),
   ]);
   return { roundId: value[2], referencePrice: value[0], updatedAt: value[1], authorizedAt: block.timestamp,
-    bound: deriveExecutionBound(value[0], slippageBps, isMax, rule.priceDecimals), slippageBps, isMax };
+    bound: derive(value[0]), slippageBps, isMax };
+}
+
+export function deriveExecutionAmountBound(price: bigint, amount: bigint, bps: number, inputDecimals: number,
+  outputDecimals: number, inverse: boolean, maxInput: boolean): bigint {
+  if (price <= 0n || amount <= 0n || amount >= 2n ** 256n || !Number.isInteger(bps) || bps < 0 || bps > 5000
+    || !Number.isInteger(inputDecimals) || inputDecimals < 0 || inputDecimals > 36
+    || !Number.isInteger(outputDecimals) || outputDecimals < 0 || outputDecimals > 36) throw new Error("action-price-invalid");
+  if (maxInput) { [inputDecimals, outputDecimals] = [outputDecimals, inputDecimals]; inverse = !inverse; }
+  let numerator = inverse ? 10n ** 18n : price;
+  let denominator = inverse ? price : 10n ** 18n;
+  if (outputDecimals > inputDecimals) numerator *= 10n ** BigInt(outputDecimals - inputDecimals);
+  else denominator *= 10n ** BigInt(inputDecimals - outputDecimals);
+  if (numerator >= 2n ** 256n || denominator >= 2n ** 256n) throw new Error("action-price-invalid");
+  const divide = (num: bigint, den: bigint) => maxInput ? num / den : (num + den - 1n) / den;
+  const fair = divide(amount * numerator, denominator);
+  const bound = divide(fair * BigInt(maxInput ? 10000 + bps : 10000 - bps), 10000n);
+  if (bound <= 0n || bound >= 2n ** 256n) throw new Error("action-price-invalid");
+  return bound;
 }

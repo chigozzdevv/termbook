@@ -3,7 +3,7 @@ import { keccak256, padHex, parseAbi, stringToHex, toHex } from "viem";
 import { buildAction, buildCapabilityCall, type ActionContext } from "./action.js";
 import type { AppAction } from "../types/app.types.js";
 
-export type ExecutionCall = { target: `0x${string}`; spendToken: `0x${string}`; spendAmount: bigint; data: `0x${string}` };
+export type ExecutionCall = { target: `0x${string}`; spendToken: `0x${string}`; spendAmount: bigint; data: `0x${string}`; nativeValue: bigint };
 export type ExecutionAction = { capability: `0x${string}`; market: `0x${string}`; calls: ExecutionCall[];
   requiredInput: bigint; exposureLimit: bigint };
 export type ExecutionAuthorization = { drawAmount: bigint; maxDraw: bigint; nonce: bigint; deadline: bigint;
@@ -12,7 +12,7 @@ export type ExecutionPrice = { roundId: bigint; referencePrice: bigint; updatedA
 export const emptyExecutionPrice: ExecutionPrice = { roundId: 0n, referencePrice: 0n, updatedAt: 0n, authorizedAt: 0n, bound: 0n, slippageBps: 0, isMax: false };
 export const priceTuple = "(uint80 roundId,uint256 referencePrice,uint256 updatedAt,uint256 authorizedAt,uint256 bound,uint16 slippageBps,bool isMax)";
 export const executionCoreAbi = parseAbi([
-  "struct ExecutionCall { address target; address spendToken; uint256 spendAmount; bytes data; }",
+  "struct ExecutionCall { address target; address spendToken; uint256 spendAmount; bytes data; uint256 nativeValue; }",
   "struct ExecutionAction { bytes32 capability; bytes32 market; ExecutionCall[] calls; uint256 requiredInput; uint256 exposureLimit; }",
   "struct ExecutionPrice { uint80 roundId; uint256 referencePrice; uint256 updatedAt; uint256 authorizedAt; uint256 bound; uint16 slippageBps; bool isMax; }",
   "struct ExecutionAuthorization { uint256 drawAmount; uint256 maxDraw; uint256 nonce; uint256 deadline; uint256 revision; address signer; bytes signature; ExecutionPrice price; }",
@@ -22,6 +22,7 @@ export const executionCoreAbi = parseAbi([
   "function executionDigest(bytes32,ExecutionAction,ExecutionAuthorization) view returns (bytes32)",
   "function executePlan(bytes32,ExecutionAction,ExecutionAuthorization) returns (bytes[])",
   "error ActionPreview(uint256 healthBps,uint256 initialBps,uint256 debt,uint256 recoveryValue)",
+  "function executionVersion() view returns (uint256)",
 ]);
 const pendingState = "(bytes32 positionId,uint256 committed,uint256 filled,uint256 refunded,uint256 remaining,uint256 liability,uint256 maxLiability,uint256 deadline,uint256 observedAt,uint8 positionSlots,address refundRecipient,uint8 status)";
 export const executionManagerAbi = parseAbi([
@@ -61,18 +62,28 @@ export function executionMarket(value: unknown): `0x${string}` {
   if (typeof value !== "string" || !value || value.length > 128) throw new Error("action-input-invalid");
   return keccak256(stringToHex(value));
 }
-export function buildExecution(definition: CapabilityDefinition, action: AppAction,
-  context: ActionContext,
+export function buildExecution(definition: CapabilityDefinition, action: AppAction, context: ActionContext,
   settlementAsset: `0x${string}`): ExecutionAction {
-  const { requiredInput } = buildAction(definition, action, context);
+  buildAction(definition, action, context);
   if (capabilityCalls(definition).length > 8) throw new Error("action-definition-invalid");
+  const calls = capabilityCalls(definition).map((call) => {
+    if ((call.fundingFromBound || call.spendFromBound || call.valueFromBound)
+      && (definition.price?.kind !== "max_input" || !call.arguments.some((arg) => arg.source === "price_bound"))) throw new Error("action-definition-invalid");
+    const path = call.spendPath ?? call.fundingPath;
+    if ((call.spendFromBound && path) || (call.valueFromBound && call.valuePath)) throw new Error("action-definition-invalid");
+    const spendAmount = call.spendFromBound || call.fundingFromBound ? amount(context.priceBound) : path ? amount(at(action.params, path)) : 0n;
+    const spendToken = call.spendToken ?? settlementAsset;
+    const funding = call.fundingFromBound ? amount(context.priceBound) : call.fundingPath ? amount(at(action.params, call.fundingPath)) : 0n;
+    if (spendToken.toLowerCase() === settlementAsset.toLowerCase() ? funding > spendAmount : funding !== 0n) {
+      throw new Error("action-funding-token-mismatch");
+    }
+    return { ...buildCapabilityCall(call, action, context), spendAmount,
+      nativeValue: call.valueFromBound ? amount(context.priceBound) : call.valuePath ? amount(at(action.params, call.valuePath)) : 0n,
+      spendToken: (spendAmount === 0n ? zeroAddress : spendToken) as `0x${string}` };
+  });
+  const requiredInput = calls.reduce((total, call) => total + (call.spendToken.toLowerCase() === settlementAsset.toLowerCase() ? call.spendAmount : 0n), 0n);
+  if (requiredInput >= 2n ** 256n) throw new Error("action-input-invalid");
   return { capability: keccak256(stringToHex(definition.capability)),
     market: definition.marketPath ? executionMarket(at(action.params, definition.marketPath)) : padHex("0x", { size: 32 }),
-    requiredInput,
-    exposureLimit: definition.exposurePath ? amount(at(action.params, definition.exposurePath)) : requiredInput,
-    calls: capabilityCalls(definition).map((call) => {
-      const spendAmount = call.fundingPath ? amount(at(action.params, call.fundingPath)) : 0n;
-      return { ...buildCapabilityCall(call, action, context), spendAmount,
-        spendToken: (spendAmount === 0n ? zeroAddress : call.spendToken ?? settlementAsset) as `0x${string}` };
-    }) };
+    requiredInput, exposureLimit: definition.exposurePath ? amount(at(action.params, definition.exposurePath)) : requiredInput, calls };
 }

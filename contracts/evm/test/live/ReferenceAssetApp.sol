@@ -88,12 +88,12 @@ contract ReferenceAssetApp is IAppStateReader, IAppCashReader, IAppValueReader,
         if (settlement != token || positions[account] > uint256(type(int256).max)) revert Invalid();
         return (int256(positions[account]), 10_000, 0, block.timestamp);
     }
-    function recoveryCall(bytes32 creditId, address account, bytes calldata instruction) external view returns (address, bytes memory, bytes32) {
+    function recoveryCall(bytes32 creditId, address account, bytes calldata instruction) external view returns (address, bytes memory, uint256, bytes32) {
         _check(creditId, account);
         if (instruction.length != 32) revert Invalid();
         uint256 amount = abi.decode(instruction, (uint256));
         if (amount == 0 || amount > positions[account]) revert Invalid();
-        return (address(this), abi.encodeWithSelector(this.withdraw.selector, amount),
+        return (address(this), abi.encodeWithSelector(this.withdraw.selector, amount), 0,
             keccak256(abi.encode(positions[account] - amount, token.balanceOf(account) + amount)));
     }
     function verifyRecovery(bytes32 creditId, address account, bytes calldata, bytes32 expected) external view returns (bool) {

@@ -51,6 +51,11 @@ export const appGatewayAbi = [
             "name": "maxSpend",
             "type": "uint256",
             "internalType": "uint256"
+          },
+          {
+            "name": "maxNativeValue",
+            "type": "uint256",
+            "internalType": "uint256"
           }
         ]
       }
@@ -120,6 +125,77 @@ export const appGatewayAbi = [
             "name": "data",
             "type": "bytes",
             "internalType": "bytes"
+          },
+          {
+            "name": "nativeValue",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "buildNativeCall",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "capability",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "params",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "nativeValue",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct ExecutionTypes.Call",
+        "components": [
+          {
+            "name": "target",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "spendToken",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "spendAmount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "data",
+            "type": "bytes",
+            "internalType": "bytes"
+          },
+          {
+            "name": "nativeValue",
+            "type": "uint256",
+            "internalType": "uint256"
           }
         ]
       }
@@ -197,6 +273,11 @@ export const appGatewayAbi = [
           },
           {
             "name": "maxSpend",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "maxNativeValue",
             "type": "uint256",
             "internalType": "uint256"
           }

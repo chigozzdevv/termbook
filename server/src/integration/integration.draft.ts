@@ -17,10 +17,10 @@ function equal(left: string, right: string): boolean {
   return left.toLowerCase() === right.toLowerCase();
 }
 
-type CallFrame = { type?: unknown; to?: unknown; input?: unknown; error?: unknown; calls?: unknown };
+type CallFrame = { type?: unknown; to?: unknown; input?: unknown; value?: unknown; error?: unknown; calls?: unknown };
 
-function traceCall(frame: unknown, target: Address, selector: Hex): Hex {
-  const matches: Hex[] = [];
+function traceCall(frame: unknown, target: Address, selector: Hex, payable: boolean): { data: Hex; nativeValue: bigint } {
+  const matches: { data: Hex; nativeValue: bigint }[] = [];
   let visited = 0;
   const visit = (value: unknown, depth: number) => {
     if (!value || typeof value !== "object" || Array.isArray(value) || depth > 16 || ++visited > maxTraceCalls) {
@@ -32,7 +32,8 @@ function traceCall(frame: unknown, target: Address, selector: Hex): Hex {
       throw new Error("integration-draft-trace-invalid");
     }
     if (call.type === "CALL" && equal(call.to, target) && equal(call.input.slice(0, 10), selector)) {
-      matches.push(call.input as Hex);
+      if ((payable || call.value !== undefined) && (typeof call.value !== "string" || !/^0x[0-9a-fA-F]+$/.test(call.value))) throw new Error("integration-draft-trace-invalid");
+      matches.push({ data: call.input as Hex, nativeValue: call.value === undefined ? 0n : BigInt(String(call.value)) });
     }
     if (call.calls !== undefined) {
       if (!Array.isArray(call.calls) || call.calls.length > maxTraceCalls) {
@@ -47,22 +48,22 @@ function traceCall(frame: unknown, target: Address, selector: Hex): Hex {
 }
 
 async function observedCall(chain: ReturnType<typeof monadClient>, transaction: {
-  to: Address | null; input: Hex; hash: Hex;
+  to: Address | null; input: Hex; hash: Hex; value?: bigint;
 }, target: Address, signature: string, core: Address): Promise<{
-  callData: Hex; creditId: Hex | null; functionName: string; kind: "application" | "termbook" | "nested";
+  callData: Hex; nativeValue: bigint; creditId: Hex | null; functionName: string; kind: "application" | "termbook" | "nested";
 }> {
   const item = parseAbiItem(signature);
   if (item.type !== "function") throw new Error("integration-draft-signature-invalid");
   const selector = toFunctionSelector(item);
   if (transaction.to && equal(transaction.to, target) && equal(transaction.input.slice(0, 10), selector)) {
-    return { callData: transaction.input, creditId: null, functionName: item.name, kind: "application" };
+    return { callData: transaction.input, nativeValue: transaction.value ?? 0n, creditId: null, functionName: item.name, kind: "application" };
   }
   if (transaction.to && equal(transaction.to, core)) {
     try {
       const decoded = decodeCoreAction(transaction.input);
       const calls = decoded.calls.filter((call) => equal(call.target, target) && equal(call.data.slice(0, 10), selector));
       if (calls.length === 1) {
-        return { callData: calls[0]!.data, creditId: decoded.creditId, functionName: decoded.functionName, kind: "termbook" };
+        return { callData: calls[0]!.data, nativeValue: calls[0]!.nativeValue, creditId: decoded.creditId, functionName: decoded.functionName, kind: "termbook" };
       }
     } catch {
       throw new Error("integration-draft-reference-invalid");
@@ -82,7 +83,8 @@ async function observedCall(chain: ReturnType<typeof monadClient>, transaction: 
   if (!equal(String(root.to), transaction.to) || !equal(String(root.input), transaction.input)) {
     throw new Error("integration-draft-trace-invalid");
   }
-  return { callData: traceCall(frame, target, selector), creditId: null,
+  const observed = traceCall(frame, target, selector, item.stateMutability === "payable");
+  return { callData: observed.data, nativeValue: observed.nativeValue, creditId: null,
     functionName: item.name, kind: "nested" };
 }
 
@@ -100,7 +102,7 @@ export async function inspectIntegrationDraft(input: DraftInput) {
     } catch {
       throw new Error("integration-draft-signature-invalid");
     }
-    if (signature.type !== "function" || signature.stateMutability !== "nonpayable") {
+    if (signature.type !== "function" || !["nonpayable", "payable"].includes(signature.stateMutability)) {
       throw new Error("integration-draft-signature-invalid");
     }
     const [code, implementationWord, beaconWord, receipt, transaction] = await Promise.all([
@@ -168,7 +170,7 @@ export async function inspectIntegrationDraft(input: DraftInput) {
       parameters: signature.inputs.map((param) => ({ name: param.name, type: param.type })),
       reference: { txHash: entry.txHash.toLowerCase(), blockNumber: receipt.blockNumber.toString(),
         creditId: observed.creditId, functionName: observed.functionName, kind: observed.kind,
-        callData: observed.callData,
+        callData: observed.callData, nativeValue: observed.nativeValue.toString(),
         logs: receipt.logs.map((log) => ({ address: log.address, topics: log.topics, data: log.data })) },
     });
   }

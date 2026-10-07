@@ -27,7 +27,8 @@ function fixture(pending = true) {
       data: encodeAbiParameters([{ type: "bytes32" }, { type: "bytes32" }], [word("b"), word("c")]) }] : [] })),
     read: vi.fn(async (_address: string, _abi: unknown, name: string) => {
       if (name === "asset") return asset;
-      if (name === "managedBundle" || name === "validateCall") return true;
+      if (name === "executionVersion") return 2n;
+      if (name === "managedBundle" || name === "validateCall" || name === "validateValueCall") return true;
       if (name === "integrationRegistry") return address("9");
       if (name === "executionManager") return manager;
       if (name === "executionDigest") return word("d");
@@ -53,6 +54,18 @@ function fixture(pending = true) {
 }
 
 describe("managed SDK execution", () => {
+  it("spends owned USDC without authorizing another loan", async () => {
+    const { client, rpc, app } = fixture(false);
+    client.config.actions = [{ capability: "spend", label: "Spend USDC", target: address("f"), signature: "function spend(uint256 amount)",
+      arguments: [{ source: "input", path: "amount" }], spendPath: "amount", spendToken: asset, settlement: "atomic" }];
+    rpc.creditFreeCash.mockResolvedValue(100n);
+    const action = { capability: "spend", params: { amount: "100" } };
+    const review = await app.review(action);
+    expect(review.requiredInput).toBe(100n); expect(review.draw).toBe(0n);
+    expect(rpc.previewPlan).toHaveBeenCalledWith(id, expect.objectContaining({ requiredInput: 100n }), 0n, 1n, expect.anything());
+    rpc.creditFreeCash.mockResolvedValue(99n);
+    await expect(app.review(action)).rejects.toThrow("action-owned-cash-insufficient");
+  });
   it("reviews all calls, finances fees, and returns the actual pending identifiers", async () => {
     const { rpc, app, action } = fixture();
     const result = await app.execute(action, await app.review(action));
@@ -60,7 +73,7 @@ describe("managed SDK execution", () => {
     const authorization = rpc.coreWrite.mock.calls[0] as unknown as [string, [string, unknown, { drawAmount: bigint; nonce: bigint; signer: string }]];
     expect(authorization[0]).toBe("executePlan");
     expect(authorization[1][2]).toMatchObject({ drawAmount: 105n, nonce: 1n, signer: borrower });
-    expect(rpc.read.mock.calls.filter((call) => call[2] === "validateCall").map((call) => (call as unknown[])[3]))
+    expect(rpc.read.mock.calls.filter((call) => call[2] === "validateValueCall").map((call) => (call as unknown[])[3]))
       .toEqual(expect.arrayContaining([expect.arrayContaining([5n]), expect.arrayContaining([100n])]));
   });
   it("reports immediate completion even when the registered capability can be asynchronous", async () => {

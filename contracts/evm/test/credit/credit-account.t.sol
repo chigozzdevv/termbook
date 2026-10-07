@@ -5,7 +5,27 @@ import {Test} from "forge-std/Test.sol";
 import {CreditAccount} from "../../src/monad/credit/CreditAccount.sol";
 import {MockERC20} from "../MockERC20.sol";
 
+contract NativeReceiver {
+    uint256 public received;
+    address public caller;
+    function accept() external payable { received += msg.value; caller = msg.sender; }
+    function reject() external payable { revert("rejected"); }
+}
 contract CreditAccountTest is Test {
+    function testNativeExecutionKeepsCustodyAndBubblesFailure() public {
+        CreditAccount account = new CreditAccount(bytes32("credit"), address(1), address(this));
+        NativeReceiver target = new NativeReceiver();
+        vm.deal(address(account), 3 ether);
+        vm.prank(address(1)); vm.expectRevert(CreditAccount.Unauthorized.selector);
+        account.executeWithValue(address(target), abi.encodeCall(target.accept, ()), 1 ether);
+        account.executeWithValue(address(target), abi.encodeCall(target.accept, ()), 1 ether);
+        assertEq(target.received(), 1 ether); assertEq(target.caller(), address(account));
+        vm.expectRevert(CreditAccount.InvalidTarget.selector);
+        account.executeWithValue(address(target), abi.encodeCall(target.accept, ()), 3 ether);
+        vm.expectRevert("rejected");
+        account.executeWithValue(address(target), abi.encodeCall(target.reject, ()), 1 ether);
+        assertEq(address(account).balance, 2 ether);
+    }
     function testReleaseRequiresClearedApprovalsAndPermanentlyTransfersControl() public {
         address borrower = address(1);
         CreditAccount account = new CreditAccount(bytes32("credit"), borrower, address(this));

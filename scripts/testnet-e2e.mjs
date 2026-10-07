@@ -130,7 +130,7 @@ async function main() {
       if (credit.facility === 4 && !test.drawVerified) {
         test.action ??= { capability: viem.keccak256(viem.stringToHex("deposit")),
           market: viem.keccak256(viem.stringToHex("Termbook reference USDC position")),
-          calls: [{ target: app, spendToken: usdc, spendAmount: String(amounts.draw),
+          calls: [{ target: app, spendToken: usdc, spendAmount: String(amounts.draw), nativeValue: "0",
             data: encode("ReferenceAssetApp", "deposit", [amounts.draw]) }], requiredInput: String(amounts.draw), exposureLimit: String(amounts.draw) };
         if (!test.execution) {
           const authorization = { drawAmount: amounts.draw, maxDraw: amounts.draw, nonce: 1n, deadline: now + 600n,

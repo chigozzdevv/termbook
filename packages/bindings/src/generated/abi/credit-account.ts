@@ -149,6 +149,123 @@ export const creditAccountAbi = [
   },
   {
     "type": "function",
+    "name": "executeApprovedCalls",
+    "inputs": [
+      {
+        "name": "bundle",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "action",
+        "type": "tuple",
+        "internalType": "struct ExecutionTypes.Action",
+        "components": [
+          {
+            "name": "capability",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "market",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "calls",
+            "type": "tuple[]",
+            "internalType": "struct ExecutionTypes.Call[]",
+            "components": [
+              {
+                "name": "target",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "spendToken",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "spendAmount",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "data",
+                "type": "bytes",
+                "internalType": "bytes"
+              },
+              {
+                "name": "nativeValue",
+                "type": "uint256",
+                "internalType": "uint256"
+              }
+            ]
+          },
+          {
+            "name": "requiredInput",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "exposureLimit",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      },
+      {
+        "name": "registry",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "prices",
+        "type": "address",
+        "internalType": "contract PriceProtection"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "results",
+        "type": "bytes[]",
+        "internalType": "bytes[]"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "executeWithValue",
+    "inputs": [
+      {
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "data",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "value",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "releaseControl",
     "inputs": [],
     "outputs": [],
@@ -268,6 +385,11 @@ export const creditAccountAbi = [
   {
     "type": "error",
     "name": "InvalidToken",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "OverLimit",
     "inputs": []
   },
   {

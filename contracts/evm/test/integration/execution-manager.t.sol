@@ -18,6 +18,8 @@ contract ExecutionPolicyFixture is IExecutionPolicy, IAppStateReader {
     MockERC20 public token;
     uint256 public callsExecuted;
     bool public rejectSubmission;
+    uint256 public requiredInput = 100;
+    bool public synchronous;
 
     constructor(address account_) { account = account_; }
     function stateReader() external view returns (address) { return address(this); }
@@ -32,12 +34,13 @@ contract ExecutionPolicyFixture is IExecutionPolicy, IAppStateReader {
     }
     function prepare(bytes32, address, ExecutionTypes.Action calldata action)
         external view returns (bytes32, uint8, uint8, uint256) {
-        require(valid && action.capability == keccak256("place_order") && action.market == keccak256("ETH"));
-        require(action.requiredInput == 100 && action.calls.length > 0 && action.calls.length <= 2);
-        return (keccak256("before"), newPositionSlots, 1, 100);
+        require(valid && action.capability == keccak256("place_order") && (action.market == keccak256("ETH") || action.market == keccak256("spot")));
+        require(action.requiredInput == requiredInput && action.calls.length > 0 && action.calls.length <= 2);
+        return (keccak256("before"), synchronous ? 0 : newPositionSlots, synchronous ? 0 : 1, 100);
     }
     function verifyResult(bytes32, address, ExecutionTypes.Action calldata, bytes32 beforeState, bytes[] calldata)
-        external pure returns (bytes32[] memory ids) {
+        external view returns (bytes32[] memory ids) {
+        if (synchronous) return new bytes32[](0);
         require(beforeState == keccak256("before"));
         ids = new bytes32[](1);
         ids[0] = keccak256("order");
@@ -71,7 +74,14 @@ contract ExecutionPolicyFixture is IExecutionPolicy, IAppStateReader {
     function setRecipient(address value) external { current.refundRecipient = value; }
     function setToken(MockERC20 value) external { token = value; }
     function setRejected(bool value) external { rejectSubmission = value; }
-    function noop() external { callsExecuted += 1; }
+    function setSynchronousRequired(uint256 value) external { synchronous = true; requiredInput = value; }
+    function swapOwned(MockERC20 output, uint256 amount, uint256, uint256 actualOutput) external {
+        require(msg.sender == account && token.transferFrom(account, address(this), amount));
+        output.mint(account, actualOutput);
+    }
+    function setSynchronous() external { synchronous = true; requiredInput = 0; }
+    function consumeOwned(MockERC20 owned, uint256 amount) external { require(owned.transferFrom(msg.sender, address(this), amount)); }
+    function noop() external payable { callsExecuted += 1; }
 }
 
 contract ExecutionManagerTest is Test {
@@ -96,7 +106,7 @@ contract ExecutionManagerTest is Test {
         action.exposureLimit = 100;
         action.calls = new ExecutionTypes.Call[](1);
         action.calls[0] = ExecutionTypes.Call(address(policy), address(0), 0,
-            abi.encodeCall(ExecutionPolicyFixture.noop, ()));
+            abi.encodeCall(ExecutionPolicyFixture.noop, ()), 0);
     }
     function _submit() internal {
         ExecutionTypes.Action memory action = _action();

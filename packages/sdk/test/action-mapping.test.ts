@@ -20,6 +20,35 @@ const definition: CapabilityDefinition = {
 const context = { borrower: address("2"), account: address("3"), creditId };
 
 describe("registered application action mapping", () => {
+  it("spends owned tokens without requesting a USDC draw", () => {
+    const sell: CapabilityDefinition = { capability: "sell", label: "Sell", target: address("1"), signature: "function sell(uint256 amount)",
+      arguments: [{ source: "input", path: "amount", min: "1" }], spendPath: "amount", spendToken: address("6"), settlement: "atomic" };
+    const plan = buildExecution(sell, { capability: "sell", params: { amount: "100" } }, context, address("5"));
+    expect(plan.requiredInput).toBe(0n);
+    expect(plan.calls[0]).toMatchObject({ spendToken: address("6"), spendAmount: 100n, nativeValue: 0n });
+    expect(() => buildExecution({ ...sell, fundingPath: "amount" }, { capability: "sell", params: { amount: "100" } }, context, address("5"))).toThrow("action-funding-token-mismatch");
+    expect(buildExecution({ ...sell, spendToken: address("5") }, { capability: "sell", params: { amount: "100" } }, context, address("5")).requiredInput).toBe(100n);
+  });
+  it("attaches native MON independently of USDC funding and token approvals", () => {
+    const wrap: CapabilityDefinition = { capability: "wrap", label: "Wrap MON", target: address("1"), signature: "function deposit() payable",
+      arguments: [], valuePath: "mon_amount", settlement: "atomic" };
+    const plan = buildExecution(wrap, { capability: "wrap", params: { mon_amount: "1000000000000000000" } }, context, address("5"));
+    expect(plan.requiredInput).toBe(0n);
+    expect(plan.calls[0]).toMatchObject({ nativeValue: 10n ** 18n, spendAmount: 0n });
+    expect(() => buildExecution(wrap, { capability: "wrap", params: { mon_amount: "-1" } }, context, address("5"))).toThrow("action-input-invalid");
+  });
+  it("funds exact-output swaps from the derived maximum input without a caller-supplied bound", () => {
+    const swap: CapabilityDefinition = { capability: "swap", label: "Buy", target: address("1"), signature: "function swap(uint256 amountOut,uint256 maxInput,bytes32 market)",
+      arguments: [{ source: "input", path: "output" }, { source: "price_bound" }, { source: "input", path: "market" }], fundingFromBound: true,
+      marketPath: "market", settlement: "atomic", price: { kind: "max_input", amountPath: "output", slippagePath: "bps", markets: [creditId] } };
+    const params = { output: "100", market: creditId, bps: "50" };
+    const plan = buildExecution(swap, { capability: "swap", params }, { ...context, priceBound: 101n }, address("5"));
+    expect(plan.requiredInput).toBe(101n); expect(plan.calls[0]!.spendAmount).toBe(101n);
+    const native = buildExecution({ ...swap, fundingFromBound: false, valueFromBound: true, signature: "function swap(uint256 amountOut,uint256 maxInput,bytes32 market) payable" },
+      { capability: "swap", params }, { ...context, priceBound: 101n }, address("5"));
+    expect(native.requiredInput).toBe(0n); expect(native.calls[0]!.nativeValue).toBe(101n);
+    expect(native.calls[0]!.spendAmount).toBe(0n);
+  });
   it("includes separately funded execution fees in the required draw", () => {
     const sequence = { ...definition, steps: [{ target: address("4"),
       signature: "function payExecutionFee(uint256 fee,address account)", fundingPath: "execution_fee",

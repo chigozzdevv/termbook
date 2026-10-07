@@ -32,6 +32,11 @@ export const capabilityCallSchema = z.strictObject({
   signature: z.string().min(10).max(500),
   arguments: z.array(capabilityArgumentSchema).max(24),
   fundingPath: parameterPathSchema.optional(),
+  spendPath: parameterPathSchema.optional(),
+  valuePath: parameterPathSchema.optional(),
+  fundingFromBound: z.boolean().optional(),
+  spendFromBound: z.boolean().optional(),
+  valueFromBound: z.boolean().optional(),
   spendToken: addressSchema.optional(),
 });
 
@@ -44,12 +49,18 @@ export const capabilityDefinitionSchema = capabilityCallSchema.extend({
   exposurePath: parameterPathSchema.optional(),
   price: z.strictObject({
     slippagePath: parameterPathSchema,
-    directionPath: parameterPathSchema,
-    maximumDirections: z.array(z.string().min(1).max(80)).min(1).max(16),
-    minimumDirections: z.array(z.string().min(1).max(80)).min(1).max(16),
+    kind: z.enum(["price", "min_output", "max_input"]).optional(),
+    amountPath: parameterPathSchema.optional(),
+    directionPath: parameterPathSchema.optional(),
+    maximumDirections: z.array(z.string().min(1).max(80)).min(1).max(16).optional(),
+    minimumDirections: z.array(z.string().min(1).max(80)).min(1).max(16).optional(),
     markets: z.array(bytes32Schema).min(1).max(32),
   }).superRefine((value, ctx) => {
-    const directions = [...value.maximumDirections, ...value.minimumDirections];
+    if ((value.kind ?? "price") === "price" ? !value.directionPath || !value.maximumDirections || !value.minimumDirections || !!value.amountPath
+      : !value.amountPath || !!value.directionPath || !!value.maximumDirections || !!value.minimumDirections) {
+      ctx.addIssue({ code: "custom", message: "action-price-kind-invalid" });
+    }
+    const directions = [...value.maximumDirections ?? [], ...value.minimumDirections ?? []];
     if (new Set(directions).size !== directions.length || new Set(value.markets.map((id) => id.toLowerCase())).size !== value.markets.length) {
       ctx.addIssue({ code: "custom", message: "action-price-directions-invalid" });
     }
@@ -73,11 +84,12 @@ function inputAt(params: Record<string, unknown>, path: string): unknown {
   return value;
 }
 
-export function actionFunding(definition: CapabilityDefinition, action: TermAction): bigint {
+export function actionFunding(definition: CapabilityDefinition, action: TermAction, priceBound?: bigint): bigint {
   if (definition.capability !== action.capability) throw new Error("capability-denied");
   const calls = capabilityCalls(definition);
   const allowed = [...calls.flatMap((call) => call.arguments.filter((arg) => arg.source === "input").map((arg) => arg.path!)),
-    ...[definition.marketPath, definition.exposurePath, definition.price?.slippagePath, definition.price?.directionPath].filter((path): path is string => !!path)];
+    ...calls.flatMap((call) => [call.spendPath, call.valuePath, call.fundingPath]).filter((path): path is string => !!path),
+    ...[definition.marketPath, definition.exposurePath, definition.price?.slippagePath, definition.price?.directionPath, definition.price?.amountPath].filter((path): path is string => !!path)];
   const inspect = (value: Record<string, unknown>, prefix = "") => {
     for (const [key, child] of Object.entries(value)) {
       const path = prefix ? `${prefix}.${key}` : key;
@@ -91,9 +103,10 @@ export function actionFunding(definition: CapabilityDefinition, action: TermActi
   inspect(action.params);
   if (definition.price) {
     const slippage = inputAt(action.params, definition.price.slippagePath);
-    const direction = inputAt(action.params, definition.price.directionPath);
+    const direction = definition.price.directionPath ? inputAt(action.params, definition.price.directionPath) : undefined;
     if (!/^\d+$/.test(String(slippage)) || BigInt(String(slippage)) > 5_000n
-      || typeof direction !== "string" || ![...definition.price.maximumDirections, ...definition.price.minimumDirections].includes(direction)) {
+      || (definition.price.kind ?? "price") === "price" && (typeof direction !== "string"
+        || ![...definition.price.maximumDirections ?? [], ...definition.price.minimumDirections ?? []].includes(direction))) {
       throw new Error("action-price-invalid");
     }
   }
@@ -115,6 +128,11 @@ export function actionFunding(definition: CapabilityDefinition, action: TermActi
   }
   let required = 0n;
   for (const call of calls) {
+    if (call.fundingFromBound) {
+      if (priceBound === undefined || priceBound <= 0n || priceBound >= 2n ** 256n || call.fundingPath) throw new Error("action-price-required");
+      required += priceBound;
+      continue;
+    }
     if (!call.fundingPath) continue;
     const value = inputAt(action.params, call.fundingPath);
     if ((typeof value !== "bigint" && typeof value !== "number" && typeof value !== "string")

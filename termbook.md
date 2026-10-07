@@ -1026,7 +1026,7 @@ cap before funding a Credit.
 | Staking   | `stake`, `claim_rewards`, `request_unstake`, `complete_unstake`, `withdraw_to_credit_account`                            | Own the receipt or enforceable withdrawal claim. Account for slashing, queues, and unbonding delay.                                         |
 | Vault     | `deposit_vault`, `redeem_vault`, `claim_rewards`, `withdraw_to_credit_account`                                           | Own shares and redeemable claims. Verify fees, liquidity limits, queues, and withdrawal recipients.                                         |
 | Liquidity | `add_liquidity`, `remove_liquidity`, `stake_lp`, `unstake_lp`, `claim_rewards`, `collect_fees`                           | Own LP tokens or position NFTs and their proceeds. Value the full unwind under stressed liquidity.                                          |
-| Spot      | `swap_exact_in`, `swap_exact_out`, `sell_to_settlement`, `place_order`, `modify_order`, `cancel_order`                       | Return outputs to the Credit Account. Require approved pricing and an executable recovery market.                                           |
+| Spot      | `swap_exact_in`, `swap_exact_out`, `place_order`, `modify_order`, `cancel_order`                                             | Return outputs to the Credit Account. Require approved pricing and an executable recovery market.                                           |
 
 Capability names describe economic effects. An integration may map several
 capabilities to one application function with different validated parameters.

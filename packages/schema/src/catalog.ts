@@ -17,7 +17,8 @@ export const collateralMarketSchema = z.discriminatedUnion("kind", [
   z.strictObject({ ...marketBase, kind: z.literal("evm"), asset: addressSchema, vault: addressSchema,
     controller: addressSchema, nativeVault: z.boolean().default(false) }),
   z.strictObject({ ...marketBase, kind: z.literal("solana"), genesis: bytes32Schema,
-    asset: bytes32Schema, program: bytes32Schema }),
+    asset: bytes32Schema, program: bytes32Schema,
+    testnetUpgradeAuthority: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/).optional() }),
 ]);
 
 export type CollateralMarket = z.infer<typeof collateralMarketSchema>;

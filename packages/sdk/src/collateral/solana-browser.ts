@@ -39,6 +39,7 @@ export async function connectSolanaBrowserSourceWallet(market: CollateralMarket)
     || !/^0x[0-9a-fA-F]{64}$/.test(market.genesis)) throw new Error("solana-market-invalid");
   const wallet = await SolanaBrowserWallet.connect(market.rpcUrl, {
     network: solanaPubkeyBase58(market.genesis as `0x${string}`) === "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG" ? "Testnet" : "Mainnet",
+    testnetUpgradeAuthority: market.testnetUpgradeAuthority,
   });
   const program = new PublicKey(solanaPubkeyBase58(market.program as `0x${string}`));
   return new SolanaSourceLockWallet({

@@ -4,6 +4,8 @@ import { env } from "../config/env.js";
 import { collateralMarketSchema, type CollateralMarket } from "@termbook/schema";
 import { monadClient } from "../chain/monad.client.js";
 import { NATIVE_SOL_ASSET_BYTES } from "@termbook/schema";
+import { PublicKey } from "@solana/web3.js";
+import { hexToBytes } from "viem";
 
 const coreAbi = [
   { type: "function", name: "sourceCollateralVault", stateMutability: "view", inputs: [{ type: "uint256" }, { type: "address" }], outputs: [{ type: "address" }] },
@@ -21,6 +23,12 @@ function configuredMarkets(): CollateralMarket[] {
   const markets = value.map((row) => collateralMarketSchema.parse(row));
   if (new Set(markets.map((market) => market.id)).size !== markets.length) throw new Error("collateral-market-config-invalid");
   for (const market of markets) {
+    if (market.kind === "solana" && market.testnetUpgradeAuthority
+      && (env.monadChainId !== 10143 || new PublicKey(hexToBytes(market.genesis as `0x${string}`)).toBase58()
+        !== "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
+        || market.testnetUpgradeAuthority !== process.env["SOLANA_TESTNET_UPGRADE_AUTHORITY"])) {
+      throw new Error("collateral-market-config-invalid");
+    }
     const url = new URL(market.rpcUrl);
     if (url.username || url.password || url.search || url.hash
       || url.protocol !== "https:" && !(url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname))) {

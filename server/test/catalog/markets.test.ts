@@ -1,7 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { catalogService } from "../../src/catalog/catalog.service.js";
 import { monadClient } from "../../src/chain/monad.client.js";
 import { NATIVE_SOL_ASSET_BYTES } from "@termbook/schema";
+import { env } from "../../src/config/env.js";
+import { PublicKey } from "@solana/web3.js";
+import { toHex } from "viem";
 
 vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: vi.fn() }));
 vi.mock("../../src/house/house.service.js", () => ({ houseService: { list: vi.fn(async () => []) } }));
@@ -14,6 +17,8 @@ vi.mock("../../src/config/env.js", () => ({ env: {
 } }));
 
 describe("published collateral markets", () => {
+  const originalMarkets = env.collateralMarkets;
+  afterEach(() => { env.monadChainId = 143; env.collateralMarkets = originalMarkets; vi.unstubAllEnvs(); });
   it("matches the Solana genesis, program, asset, and recovery vault in Core", async () => {
     const readContract = vi.fn(async () => [`0x${"2".repeat(64)}`, `0x${"3".repeat(64)}`,
       NATIVE_SOL_ASSET_BYTES, `0x${"4".repeat(64)}`, true]);
@@ -22,5 +27,23 @@ describe("published collateral markets", () => {
     readContract.mockResolvedValueOnce([`0x${"2".repeat(64)}`, `0x${"3".repeat(64)}`,
       `0x${"5".repeat(64)}`, `0x${"4".repeat(64)}`, true]);
     expect((await catalogService.overview()).collateralMarkets).toEqual([]);
+  });
+  it("publishes mutable programs only for devnet with the configured testnet authority", async () => {
+    const genesis = toHex(new PublicKey("EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG").toBytes());
+    const authority = "6fr4TdJhVgwk6uUHvCEQEYYCNiBMKyVCYg1yD5YvRiA1";
+    const market = { id: "sol", label: "SOL", kind: "solana", decimals: 9, chainId: 501,
+      rpcUrl: "https://api.devnet.solana.com", genesis, asset: NATIVE_SOL_ASSET_BYTES,
+      program: `0x${"3".repeat(64)}`, testnetUpgradeAuthority: authority };
+    env.collateralMarkets = JSON.stringify([market]);
+    await expect(catalogService.overview()).rejects.toThrow("collateral-market-config-invalid");
+    env.monadChainId = 10143;
+    vi.stubEnv("SOLANA_TESTNET_UPGRADE_AUTHORITY", "different-authority");
+    await expect(catalogService.overview()).rejects.toThrow("collateral-market-config-invalid");
+    vi.stubEnv("SOLANA_TESTNET_UPGRADE_AUTHORITY", authority);
+    vi.mocked(monadClient).mockReturnValue({ getBlock: async () => ({ number: 100n }),
+      readContract: async () => [genesis, market.program, NATIVE_SOL_ASSET_BYTES, `0x${"4".repeat(64)}`, true] } as never);
+    expect((await catalogService.overview()).collateralMarkets[0]?.testnetUpgradeAuthority).toBe(authority);
+    env.collateralMarkets = JSON.stringify([{ ...market, genesis: `0x${"2".repeat(64)}` }]);
+    await expect(catalogService.overview()).rejects.toThrow("collateral-market-config-invalid");
   });
 });

@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
-import { SolanaBrowserWallet } from "../src/collateral/solana-browser.js";
+import { SolanaBrowserWallet, connectSolanaBrowserSourceWallet } from "../src/collateral/solana-browser.js";
+import { toHex } from "viem";
 import { SOLANA_WORMHOLE_CORE, SOLANA_TESTNET_WORMHOLE_CORE } from "../src/collateral/solana-wormhole.js";
 import { solanaSignature } from "../src/collateral/solana-rpc.js";
 
@@ -18,6 +19,21 @@ it("derives devnet snapshot accounts from the devnet bridge", async () => {
   const core = new PublicKey(SOLANA_TESTNET_WORMHOLE_CORE);
   expect(metas[8]?.pubkey).toBe(core.toBase58());
   expect(metas[1]?.pubkey).toBe(PublicKey.findProgramAddressSync([new TextEncoder().encode("Bridge")], core)[0].toBase58());
+});
+
+it("passes the admitted devnet upgrade authority through the standard source wallet", async () => {
+  const owner = Keypair.generate();
+  vi.stubGlobal("solana", { publicKey: owner.publicKey, connect: vi.fn(async () => undefined),
+    signTransaction: vi.fn(async (transaction: Transaction) => transaction) });
+  const connect = vi.spyOn(SolanaBrowserWallet, "connect");
+  const authority = Keypair.generate().publicKey.toBase58();
+  await connectSolanaBrowserSourceWallet({ id: "sol", label: "SOL", kind: "solana", chainId: 501, decimals: 9,
+    rpcUrl: "https://api.devnet.solana.com", genesis: toHex(new PublicKey("EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG").toBytes()),
+    program: toHex(Keypair.generate().publicKey.toBytes()), asset: `0x${"01".repeat(32)}`, testnetUpgradeAuthority: authority });
+  expect(connect).toHaveBeenCalledWith("https://api.devnet.solana.com", { network: "Testnet", testnetUpgradeAuthority: authority });
+  expect((await connect.mock.results[0]!.value).testnetUpgradeAuthority).toBe(authority);
+  await expect(SolanaBrowserWallet.connect("https://api.mainnet-beta.solana.com", { testnetUpgradeAuthority: authority }))
+    .rejects.toThrow("solana-testnet-upgrade-authority-invalid");
 });
 
 it("connects the Solana wallet and prepares Wormhole snapshot accounts", async () => {

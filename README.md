@@ -568,9 +568,10 @@ transaction through that multisig, then resume `--broadcast`.
 
 For an upgradeable Solana devnet deployment, build with `testnet-upgrades`, deploy
 with a retained native loader authority, and set `SOLANA_PROGRAM_ID` and
-`SOLANA_TESTNET_UPGRADE_AUTHORITY` before the EVM deployment. The SDK wallet port's
-`testnetUpgradeAuthority` and the source keeper's environment must specify the
-same expected authority. Binary hashes remain checked; a changed binary requires
+`SOLANA_TESTNET_UPGRADE_AUTHORITY` before the EVM deployment. The admitted devnet
+catalog market supplies `testnetUpgradeAuthority` to the browser wallet automatically.
+Custom wallet ports and the source keeper must specify the same expected authority.
+Binary hashes remain checked; a changed binary requires
 reviewed proof/version configuration before use. Mainnet and the ordinary
 `testnet` binary require immutability.
 

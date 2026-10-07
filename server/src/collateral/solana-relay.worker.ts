@@ -58,9 +58,10 @@ export async function processSolanaRelay(input: RelayAction, lease: string, conf
     const wallet = new SolanaRpcWallet(provider, connection, config.signer.publicKey.toBase58(), {
       wormholeScanUrl: config.wormholeScanUrl, authorizationAttempts: 1,
       network: env.monadChainId === 10143 ? "Testnet" : "Mainnet",
+      testnetUpgradeAuthority: config.testnetUpgradeAuthority,
       sendSigned: (tx) => sendSolanaRelay(connection, input._id, lease, tx, config.maxTransactions),
     });
-    sourceTx = await submitSolanaAction(plan, Object.assign(wallet, { testnetUpgradeAuthority: config.testnetUpgradeAuthority }), sourceRpc);
+    sourceTx = await submitSolanaAction(plan, wallet, sourceRpc);
     await solanaRelayRepo.sourced(input._id, lease, sourceTx, mode);
   }
   if (!mode) throw new Error("solana-relay-mode-invalid");

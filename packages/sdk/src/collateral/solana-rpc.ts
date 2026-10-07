@@ -20,6 +20,7 @@ function pda(seeds: Uint8Array[], program: PublicKey): PublicKey {
 
 export type SolanaSignedTransaction = { raw: Uint8Array; signature: string; blockhash: string; lastValidBlockHeight: number };
 export type SolanaRpcOptions = { network?: WormholeNetwork; wormholeScanUrl?: string; authorizationAttempts?: number;
+  testnetUpgradeAuthority?: string;
   sendSigned?: (transaction: SolanaSignedTransaction) => Promise<string> };
 export function solanaSignature(bytes: Uint8Array): string {
   if (bytes.length !== 64) throw new Error("solana-signature-invalid");
@@ -38,12 +39,17 @@ export class SolanaRpcWallet implements SolanaWalletPort {
   readonly provider: SolanaProvider;
 
   constructor(provider: SolanaProvider, connection: Connection, publicKey: string, readonly options: SolanaRpcOptions = {}) {
+    if (options.testnetUpgradeAuthority && (options.network !== "Testnet"
+      || new PublicKey(options.testnetUpgradeAuthority).equals(PublicKey.default))) {
+      throw new Error("solana-testnet-upgrade-authority-invalid");
+    }
     this.provider = provider;
     this.connection = connection;
     this.publicKey = publicKey;
   }
 
   get wormholeNetwork(): WormholeNetwork { return this.options.network ?? "Mainnet"; }
+  get testnetUpgradeAuthority(): string | undefined { return this.options.testnetUpgradeAuthority; }
 
   private async send(transaction: Transaction | VersionedTransaction, signers: Keypair[] = []): Promise<string> {
     if (this.provider.publicKey?.toBase58() !== this.publicKey) throw new Error("solana-wallet-changed");

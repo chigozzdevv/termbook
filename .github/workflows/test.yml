@@ -32,6 +32,10 @@ jobs:
   evm:
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -52,8 +56,8 @@ jobs:
           path: |
             contracts/evm/cache
             contracts/evm/out
-          key: ${{ runner.os }}-foundry-v1.5.1-${{ hashFiles('contracts/evm/src/**/*.sol', 'contracts/evm/test/**/*.sol', 'contracts/evm/foundry.toml', 'contracts/evm/remappings.txt', 'pnpm-lock.yaml', 'lib/forge-std/**/*.sol') }}
-      - run: FOUNDRY_VIA_IR=true forge test --root contracts/evm -j 1
+          key: ${{ runner.os }}-foundry-v1.5.1-shard-${{ matrix.shard }}-${{ hashFiles('contracts/evm/src/**/*.sol', 'contracts/evm/test/**/*.sol', 'contracts/evm/foundry.toml', 'contracts/evm/remappings.txt', 'pnpm-lock.yaml', 'lib/forge-std/**/*.sol') }}
+      - run: node scripts/test-contracts-ci.mjs ${{ matrix.shard }} 4
       - run: sh scripts/check-contracts.sh
   solana:
     runs-on: ubuntu-latest

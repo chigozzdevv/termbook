@@ -61,7 +61,7 @@ export async function testnetRuntime(name, simulate) {
       await client.request({ method: "anvil_impersonateAccount", params: [deployment.deployer] });
       await client.request({ method: "anvil_setBalance", params: [deployment.deployer, "0x204fce5e3e25026110000000"] });
     }
-    async function send(label, data, to, value = 0n) {
+    async function send(label, data, to, value = 0n, blockNumber) {
       const inputHash = keccak256(data);
       let entry = report.transactions.find((tx) => tx.chainId === chainId && tx.name === label);
       if (entry && (entry.inputHash !== inputHash || entry.to !== to || entry.value !== value.toString())) throw new Error(`Transaction changed: ${label}`);
@@ -73,7 +73,7 @@ export async function testnetRuntime(name, simulate) {
       if (entry?.status === "reverted") throw new Error(`Transaction reverted: ${label}`);
       if (simulate && entry && !entry.hash) throw new Error("Interrupted simulation requires journal reconciliation");
       if (!entry) {
-        const estimate = await client.estimateGas({ account: deployment.deployer, data, to, value });
+        const estimate = await client.estimateGas({ account: deployment.deployer, data, to, value, blockNumber });
         const gas = estimate + estimate / 50n + 10_000n;
         if (chainId === 10143 && gas > 30_000_000n) throw new Error("Transaction exceeds Monad gas limit");
         let gasPrice = await client.getGasPrice();
@@ -140,7 +140,8 @@ export async function testnetRuntime(name, simulate) {
       return entry;
     }
     const read = (name, address, functionName, args = []) => client.readContract({ address, abi: artifact(name).abi, functionName, args });
-    const call = (name, address, functionName, args = [], label = `${name}.${functionName}`) => send(label, encodeFunctionData({ abi: artifact(name).abi, functionName, args }), address);
+    const call = (name, address, functionName, args = [], label = `${name}.${functionName}`, blockNumber) =>
+      send(label, encodeFunctionData({ abi: artifact(name).abi, functionName, args }), address, 0n, blockNumber);
     async function deploy(name, args, label = name) {
       const compiled = artifact(name);
       const entry = await send(label, encodeDeployData({ abi: compiled.abi, bytecode: compiled.bytecode.object, args }));
@@ -158,10 +159,11 @@ export async function testnetRuntime(name, simulate) {
       const salt = keccak256(data);
       const id = await read("ProtocolGovernance", governance, "actionId", [target, 0n, data, salt]);
       if (!await read("ProtocolGovernance", governance, "executed", [id])) {
-        await call("ProtocolGovernance", governance, "queue", [target, 0n, data, salt], `queue:${id}`);
-        await call("ProtocolGovernance", governance, "execute", [target, 0n, data, salt], `execute:${id}`);
+        const queued = await call("ProtocolGovernance", governance, "queue", [target, 0n, data, salt], `queue:${id}`);
+        const execution = await call("ProtocolGovernance", governance, "execute", [target, 0n, data, salt], `execute:${id}`, BigInt(queued.block));
+        if (!await client.readContract({ address: governance, abi: artifact("ProtocolGovernance").abi,
+          functionName: "executed", args: [id], blockNumber: BigInt(execution.block) })) throw new Error("Governance execution unavailable");
       }
-      if (!await read("ProtocolGovernance", governance, "executed", [id])) throw new Error("Governance execution unavailable");
       if (!report.governance.some((action) => action.id === id && action.chainId === chainId)) report.governance.push({ chainId, id, target, name, functionName });
       persist();
     }

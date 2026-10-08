@@ -18,10 +18,22 @@ async function main() {
   const monad = await context(10143);
   const ethereum = await context(11155111);
   await monad.govern("TermbookCore", deployment.addresses[10143].TermbookCore, "setRecoveryKeeper", [addresses.risk, true]);
-  for (const [name, amount] of [["risk", "0.15"], ["collateral", "0.15"], ["monadConfirm", "0.15"], ["monadPublisher", "0.08"], ["solanaProof", "0.15"], ["oracle", "0.04"]]) {
-    await monad.send(`fund:${name}`, "0x", addresses[name], viem.parseEther(amount));
+  async function fund(network, chainId, name, target) {
+    report.topups ??= {};
+    const id = `${chainId}:${name}`;
+    if (report.topups[id] === undefined) {
+      const balance = await network.client.getBalance({ address: addresses[name] });
+      const minimum = viem.parseEther(target);
+      report.topups[id] = (minimum > balance ? minimum - balance : 0n).toString();
+      persist();
+    }
+    const amount = BigInt(report.topups[id]);
+    if (amount !== 0n) await network.send(`fund:${name}`, "0x", addresses[name], amount);
   }
-  for (const name of ["ethereumPublisher", "sourceAction"]) await ethereum.send(`fund:${name}`, "0x", addresses[name], viem.parseEther("0.001"));
+  for (const [name, amount] of [["risk", "0.15"], ["collateral", "0.15"], ["monadConfirm", "0.15"], ["monadPublisher", "0.08"], ["solanaProof", "0.15"], ["oracle", "0.04"]]) {
+    await fund(monad, 10143, name, amount);
+  }
+  for (const name of ["ethereumPublisher", "sourceAction"]) await fund(ethereum, 11155111, name, "0.001");
   await ethereum.govern("RemoteCollateralController", deployment.addresses[11155111].RemoteCollateralController, "setPaused", [false]);
   report.completedAt = new Date().toISOString();
   report.keepers = addresses;
@@ -44,7 +56,7 @@ async function main() {
     fs.writeFileSync(path.join(root, "deployments/testnet-keepers.json"), JSON.stringify({ network: "testnet",
       completedAt: report.completedAt, core: deployment.addresses[10143].TermbookCore, keepers: addresses,
       transactions: report.transactions.map((tx) => Object.fromEntries(Object.entries(tx).filter(([key]) => key !== "rawTransaction"))),
-      governance: report.governance }, null, 2) + "\n");
+      governance: report.governance, topups: report.topups }, null, 2) + "\n");
   }
   const costs = Object.fromEntries([10143, 11155111].map((chain) => [chain, viem.formatEther(report.transactions
     .filter((tx) => tx.chainId === chain).reduce((sum, tx) => sum + BigInt(tx.gasUsed) * BigInt(tx.effectiveGasPrice) + BigInt(tx.value), 0n))]));

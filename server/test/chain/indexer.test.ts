@@ -72,6 +72,27 @@ describe("durable finalized Core index", () => {
     expect(creditService.refresh).toHaveBeenCalledWith(creditId);
   });
 
+  it.each(["Upgraded", "AdminChanged"] as const)("indexes the proxy's %s event without blocking credit checkpoints", async (name) => {
+    const proxyEvents = parseAbi(["event Upgraded(address indexed implementation)",
+      "event AdminChanged(address previousAdmin,address newAdmin)"]);
+    getLogs.mockResolvedValue([{ blockNumber: 2n, blockHash: word("b"), transactionHash: word("c"), logIndex: 0,
+      removed: false, data: name === "Upgraded" ? "0x" : encodeAbiParameters([{ type: "address" }, { type: "address" }], [address, address]),
+      topics: encodeEventTopics({ abi: proxyEvents, eventName: name, args: { implementation: address } }) }]);
+    expect(await runIndexerWorker(1n)).toBe(1);
+    expect(indexerRepo.record).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ event: name }));
+    expect(creditService.refresh).not.toHaveBeenCalled();
+    expect(queue.push).not.toHaveBeenCalled();
+    expect(indexerRepo.advance).toHaveBeenCalled();
+  });
+
+  it("preserves the checkpoint for an unknown event signature", async () => {
+    getLogs.mockResolvedValue([{ blockNumber: 2n, blockHash: word("b"), transactionHash: word("c"), logIndex: 0,
+      removed: false, data: "0x", topics: [word("e")] }]);
+    await expect(runIndexerWorker(1n)).rejects.toThrow("not found on ABI");
+    expect(indexerRepo.record).not.toHaveBeenCalled();
+    expect(indexerRepo.advance).not.toHaveBeenCalled();
+  });
+
   it("replays the same event identity after a delivery failure without advancing", async () => {
     vi.mocked(queue.push).mockRejectedValueOnce(new Error("durable-queue-unavailable"));
     await expect(runIndexerWorker(1n)).rejects.toThrow("durable-queue-unavailable");

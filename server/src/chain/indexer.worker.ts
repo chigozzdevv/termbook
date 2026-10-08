@@ -1,12 +1,15 @@
 import { createHash } from "node:crypto";
 import { decodeEventLog, type Address } from "viem";
 import { canonicalJson } from "@termbook/schema";
-import { termbookCoreAbi } from "@termbook/bindings";
+import { termbookCoreAbi, testnetProxyAbi } from "@termbook/bindings";
 import { monadClient } from "./monad.client.js";
 import { indexerRepo } from "./indexer.repo.js";
 import { creditService } from "../credit/credit.service.js";
 import { queue } from "../queue/queue.client.js";
 import { env } from "../config/env.js";
+
+const coreEventAbi = [...termbookCoreAbi,
+  ...testnetProxyAbi.filter((entry) => entry.type === "event" && entry.name !== "Initialized")];
 
 export function indexerStart(): bigint {
   const value = process.env["CORE_DEPLOYMENT_BLOCK"];
@@ -62,7 +65,7 @@ export async function runIndexerWorker(start: bigint = indexerStart()): Promise<
     if ((await chain.getBlock({ blockNumber: to })).hash !== boundary.hash) throw new Error("indexer-finality-conflict");
     const credits = new Set<string>();
     for (const log of logs) {
-      const decoded = decodeEventLog({ abi: termbookCoreAbi, data: log.data, topics: log.topics, strict: true });
+      const decoded = decodeEventLog({ abi: coreEventAbi, data: log.data, topics: log.topics, strict: true });
       const args = decoded.args as Record<string, unknown>;
       const creditId = args["creditId"];
       const id = createHash("sha256").update(`${key}:${log.blockHash}:${log.logIndex}`).digest("hex");

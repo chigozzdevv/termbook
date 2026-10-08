@@ -320,8 +320,9 @@ async function activateGovernance() {
       log(JSON.stringify({ chainId: action.chainId, name: action.name, status: "timelocked", readyAt: new Date(Number(eta) * 1000).toISOString() }));
       continue;
     }
-    await context.call("ProtocolGovernance", action.governance, "execute", [action.target, 0n, action.data, action.salt], `execute:${id}`);
-    if (!await context.read("ProtocolGovernance", action.governance, "executed", [id])) throw new Error("Governance execution unavailable");
+    const execution = await context.call("ProtocolGovernance", action.governance, "execute", [action.target, 0n, action.data, action.salt], `execute:${id}`);
+    if (!await context.publicClient.readContract({ address: action.governance, abi: abi("ProtocolGovernance"),
+      functionName: "executed", args: [id], blockNumber: BigInt(execution.block) })) throw new Error("Governance execution unavailable");
     action.status = "executed";
     persist();
   }

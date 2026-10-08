@@ -602,31 +602,39 @@ The deployed testnet addresses, receipts and code hashes are recorded in
 
 | Network | Contract | Address |
 | --- | --- | --- |
-| Monad testnet | TermbookCore | `0xbbfa006d8b5621db17fe06e9f59dd6ddbfe7c056` |
-| Monad testnet | USDC HouseVault | `0x32c130518fd5334e1f0a1ed16150fb53a6a12148` |
-| Monad testnet | MON collateral vault | `0xfbcef51f4477a4ba382c8f652913eccc7f5b9522` |
-| Sepolia | WETH collateral vault | `0xf7A7c4Cf2AFe66a0AcF94388daa3770654474411` |
-| Solana devnet | SOL collateral program | `FTj5kb9Z7JDpGNWD2NowGgz67zP3VxUKwLgKEFSTrYg1` |
+| Monad testnet | TermbookCore | `0x198995faab55a9d5d4dceab56abaaa273c26fad7` |
+| Monad testnet | USDC HouseVault | `0xdeace78c2cb205cec7bf2ceed7fef49ae659e011` |
+| Monad testnet | MON collateral vault | `0x60137739e130157b18c69df63289d8b823c82854` |
+| Sepolia | WETH collateral vault | `0x63C89cC35FF9f25cA6d97345b97942E2B1766A4a` |
+| Solana devnet | SOL collateral program | `6DK2Q3wWSFSBHpUiauKuyVbTDTW8cvrzdVTjuPQy8bfz` |
 
-The original testnet deployment was replaced on 3 October 2026 with zero-delay
-governance. All 54 replacement EVM transactions succeeded, and all 11 initial
-governance actions executed. House registration, Wormhole configuration, verifier
-admissions, ETH custody bindings and SOL program identity were checked onchain.
-Four Monad contracts and the immutable Solana program were reused. The original
-deployment is archived in `deployments/testnet-original.json`. The current record
-includes receipt verification and finality status.
+The upgradeable testnet replacement was deployed on 8 October 2026 (Lagos time).
+All 121 EVM transactions succeeded, 27 proxies were verified, and all 13 initial
+governance actions executed. Both upgrade controllers are owned by their network's
+governance contract; the deployer remains the testnet governance owner, with zero
+waiting period. The Solana devnet program retains its recorded upgrade authority.
+House registration, Wormhole configuration, verifier admissions, ETH custody
+bindings and SOL program identity were checked onchain. The current record
+includes implementation pins, storage layouts, receipts and finality status.
+
+The retired deployment's credit setups were verified as settled before migration.
+Its House is disabled and paused, its Sepolia controller is paused, and its
+10.007004 test USDC was withdrawn. The replacement House received 10 test USDC.
+Migration receipts are recorded in `deployments/testnet-migration.json`; the
+previous addresses and configuration are archived in `deployments/testnet-pre-upgrade*.json`.
 
 The ETH/USDC ratio feed, ETH collateral policy, House risk and reservation policies,
-reference integration, and keeper roles are active. The House received 10 test USDC,
-and the Sepolia controller is unpaused. The API and keepers run locally. Two live
-WETH-backed 1 USDC loans completed repayment and default recovery through the
-reference app. The approved keeper forcibly redeemed the defaulted position and
-repaid its full debt. Both loans ended with zero debt, no app position, returned
-WETH, confirmed returns on Monad and released account control. The expired setup
-attempt was aborted and its unused WETH returned. Public receipts are recorded in
-`deployments/testnet-e2e.json`; finalized checks are recorded separately in
-`deployments/testnet-e2e-verification.json`. These exercises did not use Aurora
-conversion or a real perps venue.
+reference integration and keeper roles are active on the replacement. The Sepolia
+controller is unpaused. The local API and keepers use the new Core and a separate
+MongoDB database; `/ready` verifies the finalized index and risk scans. Its setup
+records use the new Core address. The
+previous deployment completed two live WETH-backed 1 USDC loans through the
+reference app: one repayment and one keeper-forced recovery, both with returned
+collateral and released account control. Those receipts are preserved in
+`deployments/testnet-pre-upgrade-e2e.json` and
+`deployments/testnet-pre-upgrade-e2e-verification.json`. Loan E2E tests must be rerun
+against the replacement addresses. The previous exercises did not use Aurora
+conversion or a real trading venue.
 MON and SOL price admission and Aurora settlement routes remain unconfigured.
 Aurora settlement exercises require a Studio application key and confirmed
 sandbox asset pairs for these testnets. Testnet governance has no waiting period.

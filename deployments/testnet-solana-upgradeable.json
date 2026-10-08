@@ -15,5 +15,7 @@
   "network": "devnet",
   "genesis": "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
   "previousProgramId": "FTj5kb9Z7JDpGNWD2NowGgz67zP3VxUKwLgKEFSTrYg1",
-  "status": "deployed-awaiting-monad-admission"
+  "status": "admitted-on-monad-testnet",
+  "admittedAt": "2026-10-07T23:54:06.991Z",
+  "verifier": "0xbf53f5f7de0d931e720f3b777b736dd7dfec895d"
 }

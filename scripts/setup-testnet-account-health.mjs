@@ -12,6 +12,25 @@ async function main() {
   const { deployment, report, context, persist } = await testnetRuntime("account-health-setup", simulate);
   const monad = await context(10143);
   const m = deployment.addresses[10143];
+  if (deployment.upgradeMode === "testnet-administrator") {
+    const pins = deployment.proxies?.[10143];
+    if (!m.AccountHealthSource || !pins?.AccountFactory || !pins?.AccountHealthSource) throw new Error("Account authentication deployment missing");
+    const checks = [
+      ["TermbookCore", m.TermbookCore, "healthSource", m.AccountHealthSource],
+      ["AccountHealthSource", m.AccountHealthSource, "core", m.TermbookCore],
+      ["AccountHealthSource", m.AccountHealthSource, "source", m.HealthSource],
+      ["AccountHealthSource", m.AccountHealthSource, "accountFactory", m.AccountFactory],
+      ["AccountHealthSource", m.AccountHealthSource, "oracleRegistry", m.OracleRegistry],
+      ["TestnetProxy", m.AccountFactory, "proxyImplementation", pins.AccountFactory.implementation],
+      ["TestnetProxy", m.AccountHealthSource, "proxyImplementation", pins.AccountHealthSource.implementation],
+    ];
+    for (const [name, address, method, expected] of checks) {
+      if ((await monad.read(name, address, method)).toLowerCase() !== expected.toLowerCase()) throw new Error("Account health configuration mismatch");
+    }
+    log(JSON.stringify({ simulated: simulate, verified: true, transactions: 0, costMON: "0",
+      factory: m.AccountFactory, healthSource: m.AccountHealthSource }));
+    return;
+  }
   if (await monad.read("TermbookCore", m.TermbookCore, "acceptedCredits") !== 0n) throw new Error("Account authentication must precede the first credit");
   const factory = await monad.deploy("AccountFactory", []);
   const source = await monad.deploy("AccountHealthSource", [m.TermbookCore, m.HealthSource, factory]);

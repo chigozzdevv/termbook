@@ -35861,10 +35861,10 @@
     }
   ],
   "runtime": {
-    "verifiedAt": "2026-10-08T00:17:04.831Z",
+    "verifiedAt": "2026-10-08T00:39:14.857Z",
     "apiBase": "http://127.0.0.1:3002",
     "ready": true,
-    "database": "local MongoDB",
+    "database": "local MongoDB replica set rs0",
     "queue": "MongoDB",
     "healthSource": "0xb0713aceb18bf8ca33abb52aa1c7517e5e11a219",
     "houseUSDC": "10000000",
@@ -35878,6 +35878,7 @@
       "SOL": "3.17616049"
     },
     "loanE2E": "awaiting-rerun",
-    "previousEvidence": "testnet-pre-upgrade-e2e-verification.json"
+    "previousEvidence": "testnet-pre-upgrade-e2e-verification.json",
+    "transactionRollbackVerified": true
   }
 }

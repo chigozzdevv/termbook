@@ -47,8 +47,9 @@ node --env-file=.testnet/server.env server/dist/server.js
 node --env-file=.testnet/server.env server/dist/worker.js
 ```
 
-Use `mongodb://127.0.0.1:27018/termbook_testnet?replicaSet=rs0&directConnection=true`
-and `redis://127.0.0.1:6380`. The local API uses port 3002. `/health` checks the API;
+Use `mongodb://127.0.0.1:27018/termbook_testnet_upgradeable?replicaSet=rs0&directConnection=true`
+with a one-member `rs0` replica set for integration admission transactions.
+An empty `REDIS_URL` uses the durable MongoDB queue. The local API uses port 3002. `/health` checks the API;
 `/ready` requires current finalized indexing and healthy risk scans.
 
 `node scripts/setup-testnet.mjs --simulate` runs feed admission, House policies,
@@ -62,10 +63,11 @@ a 24-hour heartbeat; this setup uses a 25-hour age limit for testnet exercises.
 The worker refreshes pinned ratio feeds configured in `RATIO_PRICE_FEEDS` with a
 distinct `ORACLE_KEEPER_KEY`; stale or invalid source rounds remain rejected.
 
-Before accepting the first credit, `scripts/setup-testnet-account-health.mjs`
-deploys the borrower-owned account factory and installs `AccountHealthSource`.
-This wrapper checks factory provenance and identity before any health or cash
-reading can authorize funding. Use `--simulate` first, then `--broadcast`.
+The upgradeable deployment installs the borrower-owned account factory and
+`AccountHealthSource` before accepting any credit. This wrapper checks factory
+provenance and identity before health or cash readings authorize funding.
+`scripts/setup-testnet-account-health.mjs --broadcast` verifies these installed
+contracts without replacing them or sending transactions.
 Production price-age and risk parameters require their own admission.
 
 After app and keeper setup, `node scripts/testnet-e2e.mjs --begin` creates two
@@ -712,8 +714,8 @@ USDC price, a recovery route, and the required governance configuration.
 | Asset | Lock location | Current implementation |
 | --- | --- | --- |
 | MON | Native MON enters `NativeCollateralVault` on Monad and is held as WMON. | Local custody, native return, WMON sale for USDC, and oracle-backed collateral-only health reader. The vault and USDC House are deployed on Monad testnet; feeds, risk bands, exit verifier, and market admission remain to be configured. |
-| ETH | WETH stays in `CollateralVault` on Ethereum. | The Wormhole route publishes Ethereum custody snapshots and Monad action authorizations as Guardian VAAs, with pinned emitters and payloads verified onchain. The native Beacon and Monad BFT verifier contracts remain available as a separate route. The testnet WETH market is admitted; live locks, borrowing, repayment, app recovery and collateral returns passed against a USDC reference app. WETH seizure and Aurora conversion still need a live exercise. |
-| SOL | Native SOL stays in a Solana program-derived account. | Monad publishes lock and action authorizations through Wormhole. The Solana program verifies posted VAAs and emits custody snapshots through the Wormhole shim; Monad verifies signed snapshot VAAs. The SDK connects a browser Solana wallet and posts VAAs. The program is deployed immutably on devnet with its verifiers on Monad testnet; market admission and live recovery tests remain. |
+| ETH | WETH stays in `CollateralVault` on Ethereum. | The Wormhole route publishes Ethereum custody snapshots and Monad action authorizations as Guardian VAAs, with pinned emitters and payloads verified onchain. The native Beacon and Monad BFT verifier contracts remain available as a separate route. The replacement testnet WETH market is admitted. Live locks, borrowing, repayment, app recovery and returns passed on the previous deployment and need a rerun on the new addresses. WETH seizure and Aurora conversion still need a live exercise. |
+| SOL | Native SOL stays in a Solana program-derived account. | Monad publishes lock and action authorizations through Wormhole. The Solana program verifies posted VAAs and emits custody snapshots through the Wormhole shim; Monad verifies signed snapshot VAAs. The SDK connects a browser Solana wallet and posts VAAs. The devnet program retains its recorded testnet upgrade authority, and its verifiers are admitted on Monad testnet. Price admission and live recovery tests remain. |
 
 For SOL, Monad Core binds the lock and publishes its Wormhole authorization
 before a Solana wallet signs the SDK `SolanaSourceLockWallet` lock instruction.

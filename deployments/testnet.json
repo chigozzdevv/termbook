@@ -35861,24 +35861,27 @@
     }
   ],
   "runtime": {
-    "verifiedAt": "2026-10-08T00:39:14.857Z",
+    "verifiedAt": "2026-10-08T08:11:54.492Z",
     "apiBase": "http://127.0.0.1:3002",
     "ready": true,
     "database": "local MongoDB replica set rs0",
     "queue": "MongoDB",
     "healthSource": "0xb0713aceb18bf8ca33abb52aa1c7517e5e11a219",
-    "houseUSDC": "10000000",
+    "houseUSDC": "10002002",
     "lpShares": "10000000",
     "referenceIntegrationActive": true,
     "recoveryKeeperAuthorized": true,
     "sourceControllerPaused": false,
     "walletBalances": {
-      "MON": "0.396453322",
-      "ETH": "0.016800796700901491",
+      "MON": "2.971639962",
+      "ETH": "0.016396295497335093",
       "SOL": "3.17616049"
     },
-    "loanE2E": "awaiting-rerun",
+    "loanE2E": "completed",
     "previousEvidence": "testnet-pre-upgrade-e2e-verification.json",
-    "transactionRollbackVerified": true
+    "transactionRollbackVerified": true,
+    "walletBalancesVerifiedAt": "2026-10-08T08:10:17.204Z",
+    "loanE2EEvidence": "testnet-e2e-verification.json",
+    "loanE2EElapsedSeconds": 3255
   }
 }

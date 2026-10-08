@@ -85,7 +85,9 @@ complete, with a two-hour limit. Only one runner may change the live journal.
 canonical receipts, fees, released account control and the approved keeper's
 forced exit and repayment, and writes
 `deployments/testnet-e2e-verification.json` without requiring a signing key.
-Aurora conversions and real perps behavior require their own live exercises.
+It records stage durations from canonical block timestamps and succeeds only
+when both lifecycle outcomes and every listed receipt are finalized.
+Aurora conversions and real trading venues require their own live exercises.
 
 ## API authorization
 
@@ -629,14 +631,18 @@ The ETH/USDC ratio feed, ETH collateral policy, House risk and reservation polic
 reference integration and keeper roles are active on the replacement. The Sepolia
 controller is unpaused. The local API and keepers use the new Core and a separate
 MongoDB database; `/ready` verifies the finalized index and risk scans. Its setup
-records use the new Core address. The
-previous deployment completed two live WETH-backed 1 USDC loans through the
-reference app: one repayment and one keeper-forced recovery, both with returned
-collateral and released account control. Those receipts are preserved in
-`deployments/testnet-pre-upgrade-e2e.json` and
-`deployments/testnet-pre-upgrade-e2e-verification.json`. Loan E2E tests must be rerun
-against the replacement addresses. The previous exercises did not use Aurora
-conversion or a real trading venue.
+records use the new Core address. On 8 October 2026 the replacement completed
+two live WETH-backed 1 USDC loans through the reference app: normal repayment
+and keeper-forced exit and repayment. Both have zero debt, returned collateral,
+empty app positions and released account control. All 38 listed receipts were
+verified as canonical and finalized in `deployments/testnet-e2e-verification.json`.
+The run took 54m 15s including the deliberate default wait and Ethereum finality.
+Canonical acceptance-to-closure times were 34m 23s and 53m 20s. Draw-to-repayment
+took 5s; the keeper detected default 18s after grace and recovered the loan in
+another 20s. The House has 10.002002 test USDC available and no outstanding
+principal or active credits. Its manager and sole LP are the testnet deployer.
+These exercises did not use Aurora conversion or a real trading venue.
+Previous evidence remains in `deployments/testnet-pre-upgrade-e2e*.json`.
 MON and SOL price admission and Aurora settlement routes remain unconfigured.
 Aurora settlement exercises require a Studio application key and confirmed
 sandbox asset pairs for these testnets. Testnet governance has no waiting period.

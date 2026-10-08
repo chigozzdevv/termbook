@@ -146,10 +146,15 @@ async function main() {
   for (const tx of checked.values()) fees[tx.chainId] = (BigInt(fees[tx.chainId] ?? '0') + BigInt(tx.feeWei)).toString();
   const lifecycleComplete = observations.some((t) => t.repaymentComplete) && observations.some((t) => t.recoveryComplete);
   const allReceiptsFinalized = [...checked.values()].every((tx) => tx.finalized);
+  const house = { address: deployment.addresses[10143].HouseVault };
+  for (const name of ['manager', 'freeCash', 'availableCash', 'committedCash', 'drawnPrincipal', 'activeCreditCount', 'totalAssets', 'totalShares']) {
+    const value = await read(monad, 'HouseVault', house.address, name, [], 10143);
+    house[name] = typeof value === 'bigint' ? value.toString() : value;
+  }
   const report = { verifiedAt: new Date().toISOString(), startedAt: recorded.startedAt, core, scope: recorded.scope, excluded: recorded.excluded,
     feeScope: 'Listed borrower, proof, return and recovery receipts; excludes keeper funding and oracle updates',
     finalizedBlocks: Object.fromEntries(Object.entries(finalized).map(([id, b]) => [id, { number: String(b.number), hash: b.hash }])),
-    observations, measuredFeesWei: fees, transactions: [...checked.values()],
+    house, observations, measuredFeesWei: fees, transactions: [...checked.values()],
     lifecycleComplete, allReceiptsFinalized, completed: lifecycleComplete && allReceiptsFinalized };
   writeJsonAtomic(path.join(root, 'deployments/testnet-e2e-verification.json'), report);
   log(JSON.stringify({ verifiedAt: report.verifiedAt, completed: report.completed, observations }));

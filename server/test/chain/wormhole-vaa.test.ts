@@ -10,13 +10,13 @@ const payload = encodeAbiParameters(
   [keccak256(stringToHex("Termbook Wormhole authorization v1")), digest],
 );
 
-function signedVaa(consistency = 0, message = payload): number[] {
+function signedVaa(consistency = 0, message = payload, chain = 48): number[] {
   const raw = new Uint8Array(6 + 66 + 51 + hexToBytes(message).length);
   raw[0] = 1;
   raw[5] = 1;
   const body = 72;
   const view = new DataView(raw.buffer);
-  view.setUint16(body + 8, 48, false);
+  view.setUint16(body + 8, chain, false);
   view.setBigUint64(body + 42, 7n, false);
   raw.set(hexToBytes(padHex(emitter, { size: 32 })), body + 10);
   raw[body + 50] = consistency;
@@ -30,6 +30,13 @@ afterEach(() => {
 });
 
 describe("EVM Wormhole proof retrieval", () => {
+  it("accepts custom confirmation VAAs only when explicitly required on Sepolia", async () => {
+    env.wormholeScanUrl = "https://scan.example";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ data: { vaa: signedVaa(203, payload, 10002) } }))));
+    await expect(fetchWormholeVaaById({ chain: 10002, emitter, sequence: 7n, payload })).rejects.toThrow("wormhole-vaa-unavailable");
+    expect((await fetchWormholeVaaById({ chain: 10002, emitter, sequence: 7n, payload, consistency: 203 })).header).toBeTruthy();
+    await expect(fetchWormholeVaaById({ chain: 2, emitter, sequence: 7n, payload, consistency: 203 })).rejects.toThrow("wormhole-confirmation-policy-invalid");
+  });
   it("accepts the live by-ID response object and rejects an incorrect sequence", async () => {
     env.wormholeScanUrl = "https://scan.example";
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ data: {

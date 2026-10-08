@@ -10,11 +10,14 @@ export async function keeperTransaction(input: {
   client: PublicClient; rpcUrl: string; chainId: number; account: LocalAccount;
   operation: string; to: Address; data: Hex;
   value?: bigint;
+  testnetConfirmations?: number;
 }): Promise<KeeperResult> {
   const { client, account, chainId } = input;
   if (await client.getChainId() !== chainId) throw new Error("keeper-chain-mismatch");
+  if (input.testnetConfirmations !== undefined && (chainId !== 11155111 || !Number.isInteger(input.testnetConfirmations)
+    || input.testnetConfirmations < 5 || input.testnetConfirmations > 64)) throw new Error("keeper-confirmation-policy-invalid");
   const key = `${chainId}:${account.address.toLowerCase()}`;
-  const id = createHash("sha256").update(`${key}:${input.operation}:${input.to.toLowerCase()}:${input.data}:${input.value ?? 0n}`).digest("hex");
+  const id = createHash("sha256").update(`${key}:${input.operation}:${input.to.toLowerCase()}:${input.data}:${input.value ?? 0n}${input.testnetConfirmations === undefined ? "" : `:confirmations:${input.testnetConfirmations}`}`).digest("hex");
   return withKeeperLease(key, async (claim, assertLease) => {
     const prior = await keeperRepo.result(id);
     if (prior === "success" && !claim.pending) return prior;
@@ -27,6 +30,7 @@ export async function keeperTransaction(input: {
       await assertKeeperFunding(client, account.address, request);
       const raw = await wallet.signTransaction({ ...request, account, chain: null });
       pending = { id, hash: keccak256(raw), raw, nonce, to: input.to, data: input.data };
+      if (input.testnetConfirmations !== undefined) pending.testnetConfirmations = input.testnetConfirmations;
       assertLease();
       await keeperRepo.prepared(key, claim.lease, pending);
     }
@@ -100,7 +104,12 @@ async function reconcile(client: PublicClient, pending: PendingTransaction): Pro
     }
     return undefined;
   }
-  const finalized = await client.getBlock({ blockTag: "finalized" });
+  const depth = pending.testnetConfirmations;
+  if (depth !== undefined && (await client.getChainId() !== 11155111 || !Number.isInteger(depth) || depth < 5 || depth > 64)) {
+    throw new Error("keeper-confirmation-policy-invalid");
+  }
+  const finalized = await client.getBlock({ blockTag: depth === undefined ? "finalized" : "latest" });
+  if (depth !== undefined && receipt.blockNumber + BigInt(depth) > finalized.number) return undefined;
   if (receipt.blockNumber > finalized.number) return undefined;
   const block = await client.getBlock({ blockNumber: receipt.blockNumber });
   if (block.hash !== receipt.blockHash || block.transactions[receipt.transactionIndex] !== receipt.transactionHash

@@ -21,11 +21,11 @@ describe("published collateral markets", () => {
   afterEach(() => { env.monadChainId = 143; env.collateralMarkets = originalMarkets; vi.unstubAllEnvs(); });
   it("matches the Solana genesis, program, asset, and recovery vault in Core", async () => {
     const readContract = vi.fn(async () => [`0x${"2".repeat(64)}`, `0x${"3".repeat(64)}`,
-      NATIVE_SOL_ASSET_BYTES, `0x${"4".repeat(64)}`, true]);
+      `0x${"4".repeat(64)}`, NATIVE_SOL_ASSET_BYTES, true]);
     vi.mocked(monadClient).mockReturnValue({ getBlock: async () => ({ number: 100n }), readContract } as never);
     expect((await catalogService.overview()).collateralMarkets.map((market) => market.id)).toEqual(["sol"]);
     readContract.mockResolvedValueOnce([`0x${"2".repeat(64)}`, `0x${"3".repeat(64)}`,
-      `0x${"5".repeat(64)}`, `0x${"4".repeat(64)}`, true]);
+      `0x${"4".repeat(64)}`, `0x${"5".repeat(64)}`, true]);
     expect((await catalogService.overview()).collateralMarkets).toEqual([]);
   });
   it("publishes mutable programs only for devnet with the configured testnet authority", async () => {
@@ -41,7 +41,7 @@ describe("published collateral markets", () => {
     await expect(catalogService.overview()).rejects.toThrow("collateral-market-config-invalid");
     vi.stubEnv("SOLANA_TESTNET_UPGRADE_AUTHORITY", authority);
     vi.mocked(monadClient).mockReturnValue({ getBlock: async () => ({ number: 100n }),
-      readContract: async () => [genesis, market.program, NATIVE_SOL_ASSET_BYTES, `0x${"4".repeat(64)}`, true] } as never);
+      readContract: async () => [genesis, market.program, `0x${"4".repeat(64)}`, NATIVE_SOL_ASSET_BYTES, true] } as never);
     expect((await catalogService.overview()).collateralMarkets[0]?.testnetUpgradeAuthority).toBe(authority);
     env.collateralMarkets = JSON.stringify([{ ...market, genesis: `0x${"2".repeat(64)}` }]);
     await expect(catalogService.overview()).rejects.toThrow("collateral-market-config-invalid");

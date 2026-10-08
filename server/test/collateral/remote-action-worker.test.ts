@@ -5,6 +5,7 @@ vi.mock("../../src/chain/keeper-funding.js", () => ({ assertKeeperFunding: vi.fn
 vi.mock("../../src/chain/monad-receipt-proof.js", () => ({ fetchMonadAuthorizationProof: vi.fn() }));
 vi.mock("../../src/chain/source.client.js", () => ({ fetchConsumedActionProof: vi.fn() }));
 vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: vi.fn() }));
+vi.mock("../../src/chain/ethereum-confirmations.js", () => ({ ethereumCreditConfirmationPolicy: vi.fn(), ethereumConfirmedBlock: vi.fn() }));
 vi.mock("../../src/collateral/remote-action.repo.js", () => ({
   remoteActionRepo: {
     find: vi.fn(), acquireSigner: vi.fn(), releaseSigner: vi.fn(), prepare: vi.fn(), prepareConfirmation: vi.fn(),
@@ -24,6 +25,7 @@ import { createPublicClient, createWalletClient } from "viem";
 import { fetchMonadAuthorizationProof } from "../../src/chain/monad-receipt-proof.js";
 import { fetchConsumedActionProof } from "../../src/chain/source.client.js";
 import { monadClient } from "../../src/chain/monad.client.js";
+import { ethereumCreditConfirmationPolicy, ethereumConfirmedBlock } from "../../src/chain/ethereum-confirmations.js";
 import { env } from "../../src/config/env.js";
 import { remoteActionRepo } from "../../src/collateral/remote-action.repo.js";
 import { hashRemoteAction, readAuthorizedAction, serializeAction, type RemoteAction } from "../../src/collateral/remote-action.js";
@@ -78,6 +80,8 @@ function fakeSource() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(ethereumCreditConfirmationPolicy).mockResolvedValue({ depth: 0, hash: `0x${"00".repeat(32)}`, consistency: 0 });
+  vi.mocked(ethereumConfirmedBlock).mockImplementation(async (client) => client.getBlock({ blockTag: "finalized" }));
   env.sourceRpcUrl = "https://source.example";
   env.sourceBeaconApiUrl = "https://beacon.example";
   env.sourceActionKeeperKey = `0x${"01".repeat(32)}`;
@@ -99,6 +103,26 @@ beforeEach(() => {
 });
 
 describe("remote action relay", () => {
+  it("checks applied actions at admitted confirmation depth while retaining finalized custody bindings", async () => {
+    const source = fakeSource();
+    const read = source.readContract.getMockImplementation()!;
+    source.readContract.mockImplementation(async (request) => request.functionName === "consumed" ? true : read(request));
+    vi.mocked(createPublicClient).mockReturnValue(source as never);
+    vi.mocked(ethereumCreditConfirmationPolicy).mockResolvedValue({ depth: 5, hash: `0x${"aa".repeat(32)}`, consistency: 203 });
+    vi.mocked(ethereumConfirmedBlock).mockResolvedValue({ number: 150n, timestamp: 1_000_100n } as never);
+    vi.mocked(remoteActionRepo.find).mockResolvedValue({ actionHash, creditId: action.creditId,
+      kind: action.kind, action: serializeAction(action), authorizationTxHash: `0x${"cc".repeat(32)}`, state: "pending" } as never);
+    await handleRemoteActionJob({ kind: "collateral.remote-action", payload: { actionHash } });
+    expect(ethereumCreditConfirmationPolicy).toHaveBeenCalledWith(action.creditId);
+    expect(ethereumConfirmedBlock).toHaveBeenCalledWith(source, 5);
+    const requests = source.readContract.mock.calls.map(([request]) => request as { functionName: string; blockNumber: bigint });
+    expect(requests.filter((r) => r.functionName === "consumed")).toEqual([
+      expect.objectContaining({ blockNumber: 150n })]);
+    expect(requests.filter((r) => r.functionName !== "consumed").every((r) => r.blockNumber === 100n)).toBe(true);
+    expect(remoteActionRepo.state).toHaveBeenCalledWith(actionHash, "external_execution", undefined,
+      { failure: "remote-action-source-tx-required" });
+    expect(createWalletClient).not.toHaveBeenCalled();
+  });
   it("keeps the signer reserved when another worker wins the signed-tx CAS", async () => {
     const source = fakeSource();
     vi.mocked(createPublicClient).mockReturnValue(source as never);

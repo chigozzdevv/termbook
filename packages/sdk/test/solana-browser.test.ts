@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
 import { SolanaBrowserWallet, connectSolanaBrowserSourceWallet } from "../src/collateral/solana-browser.js";
 import { toHex } from "viem";
-import { SOLANA_WORMHOLE_CORE, SOLANA_TESTNET_WORMHOLE_CORE } from "../src/collateral/solana-wormhole.js";
+import { SOLANA_WORMHOLE_CORE, SOLANA_TESTNET_WORMHOLE_CORE, prepareSolanaSnapshot } from "../src/collateral/solana-wormhole.js";
 import { solanaSignature } from "../src/collateral/solana-rpc.js";
 
 afterEach(() => {
@@ -19,6 +19,11 @@ it("derives devnet snapshot accounts from the devnet bridge", async () => {
   const core = new PublicKey(SOLANA_TESTNET_WORMHOLE_CORE);
   expect(metas[8]?.pubkey).toBe(core.toBase58());
   expect(metas[1]?.pubkey).toBe(PublicKey.findProgramAddressSync([new TextEncoder().encode("Bridge")], core)[0].toBase58());
+  await expect(prepareSolanaSnapshot(wallet, Keypair.generate().publicKey.toBase58())).resolves.toHaveLength(11);
+  const invalid = metas.map((meta) => ({ ...meta })); invalid[7]!.isWritable = true;
+  await expect(prepareSolanaSnapshot({ ...wallet, publicKey: wallet.publicKey, wormholeNetwork: "Testnet",
+    sendInstruction: vi.fn(), prepareWormholeSnapshot: async () => invalid }, Keypair.generate().publicKey.toBase58()))
+    .rejects.toThrow("solana-wormhole-accounts-invalid");
 });
 
 it("passes the admitted devnet upgrade authority through the standard source wallet", async () => {

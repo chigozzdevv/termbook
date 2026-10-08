@@ -6,8 +6,11 @@ import { monadClient } from "../chain/monad.client.js";
 import { NATIVE_SOL_ASSET_BYTES } from "@termbook/schema";
 import { PublicKey } from "@solana/web3.js";
 import { hexToBytes } from "viem";
+import { verifierRegistryAbi } from "@termbook/bindings";
+import { ethereumConfirmationPolicy } from "../chain/ethereum-confirmations.js";
 
 const coreAbi = [
+  { type: "function", name: "verifierRegistry", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "sourceCollateralVault", stateMutability: "view", inputs: [{ type: "uint256" }, { type: "address" }], outputs: [{ type: "address" }] },
   { type: "function", name: "sourceRecoveryVault", stateMutability: "view", inputs: [{ type: "uint256" }, { type: "address" }], outputs: [{ type: "address" }] },
   { type: "function", name: "solanaMarkets", stateMutability: "view", inputs: [{ type: "uint256" }], outputs: [
@@ -23,6 +26,7 @@ function configuredMarkets(): CollateralMarket[] {
   const markets = value.map((row) => collateralMarketSchema.parse(row));
   if (new Set(markets.map((market) => market.id)).size !== markets.length) throw new Error("collateral-market-config-invalid");
   for (const market of markets) {
+    if (market.kind === "evm" && market.testnetConfirmations !== undefined && env.monadChainId !== 10143) throw new Error("collateral-market-config-invalid");
     if (market.kind === "solana" && market.testnetUpgradeAuthority
       && (env.monadChainId !== 10143 || new PublicKey(hexToBytes(market.genesis as `0x${string}`)).toBase58()
         !== "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
@@ -50,8 +54,8 @@ async function admittedMarkets(): Promise<CollateralMarket[]> {
       return market.asset.toLowerCase() === NATIVE_SOL_ASSET_BYTES.toLowerCase() && row[4]
         && row[0].toLowerCase() === market.genesis.toLowerCase()
         && row[1].toLowerCase() === market.program.toLowerCase()
-        && row[2].toLowerCase() === market.asset.toLowerCase()
-        && !/^0x0{64}$/i.test(row[3]);
+        && row[3].toLowerCase() === market.asset.toLowerCase()
+        && !/^0x0{64}$/i.test(row[2]);
     }
     if (market.chainId === env.monadChainId) {
       const [code, asset] = await Promise.all([
@@ -66,6 +70,12 @@ async function admittedMarkets(): Promise<CollateralMarket[]> {
       chain.readContract({ address: env.core as `0x${string}`, abi: coreAbi, functionName: "sourceRecoveryVault",
         args: [BigInt(market.chainId), market.asset as `0x${string}`], blockNumber: block.number }),
     ]);
+    if (market.testnetConfirmations !== undefined) {
+      const registry = await chain.readContract({ address: env.core as `0x${string}`, abi: coreAbi, functionName: "verifierRegistry", blockNumber: block.number });
+      const [verifier, version, active] = await chain.readContract({ address: registry, abi: verifierRegistryAbi,
+        functionName: "verifiers", args: [BigInt(market.chainId)], blockNumber: block.number });
+      if (!active || version !== 2n || (await ethereumConfirmationPolicy(verifier)).depth !== market.testnetConfirmations) return false;
+    }
     return vault.toLowerCase() === market.vault.toLowerCase() && !/^0x0{40}$/i.test(recovery);
   }));
   return configured.filter((_, index) => checks[index]);

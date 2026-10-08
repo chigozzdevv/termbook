@@ -13,7 +13,7 @@ import type { TxHash } from "../types/client.types.js";
 import { Credit } from "../credit/credit.js";
 import { solanaAlias } from "./solana.js";
 
-export type SourceLockObservation = { state: "missing" | "submitted" | "finalized" | "failed"; txId?: string };
+export type SourceLockObservation = { state: "missing" | "submitted" | "confirmed" | "finalized" | "failed"; txId?: string };
 
 export type SourceLockWallet = {
   account: CollateralAccount;
@@ -336,7 +336,7 @@ export class CollateralSetup {
         await this.record("lock_submitted", { sourceTx: submitted.txId, lockId: this.bindingHash });
         lock = await wallet.observeLock(b, this.bindingHash, submitted.txId);
       }
-      if (lock.state !== "finalized") {
+      if (lock.state !== "finalized" && !(lock.state === "confirmed" && b.monadChainId === 10143 && sourceChain === 11155111)) {
         await this.record("awaiting_finality", { sourceTx: lock.txId ?? this.current.sourceTx, lockId: this.bindingHash });
         return this.snapshot();
       }

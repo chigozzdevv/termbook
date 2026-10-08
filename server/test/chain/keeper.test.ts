@@ -43,6 +43,17 @@ beforeEach(async () => {
 });
 
 describe("durable keeper transactions", () => {
+  it("persists Sepolia confirmation depth and cannot apply it to a mainnet transaction", async () => {
+    await expect(keeperTransaction({ ...input, testnetConfirmations: 5 })).rejects.toThrow("keeper-confirmation-policy-invalid");
+    const source = { ...input, chainId: 11155111, client: { ...input.client as object, getChainId: async () => 11155111 } as never, testnetConfirmations: 5 };
+    await keeperTransaction(source);
+    expect(pending?.testnetConfirmations).toBe(5);
+    receipt.mockResolvedValue({ transactionHash: hash, blockNumber: 96n, blockHash, transactionIndex: 0, status: "success" });
+    expect(await keeperTransaction(source)).toBe("pending");
+    receipt.mockResolvedValue({ transactionHash: hash, blockNumber: 95n, blockHash, transactionIndex: 0, status: "success" });
+    expect(await keeperTransaction(source)).toBe("success");
+    expect(block).toHaveBeenCalledWith({ blockTag: "latest" });
+  });
   it("keeps an unfunded journal intact and rebroadcasts the same bytes after a top-up", async () => {
     await keeperTransaction(input);
     const original = pending;

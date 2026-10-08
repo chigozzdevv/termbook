@@ -10,11 +10,14 @@ vi.mock("../../src/collateral/solana-action.service.js", () => ({ readSolanaActi
 vi.mock("../../src/collateral/solana-relay.program.js", () => ({ verifySolanaRelayProgram: vi.fn() }));
 vi.mock("../../src/collateral/solana-relay.repo.js", () => ({ solanaRelayRepo: {
   transactions: vi.fn(), completed: vi.fn(), sourced: vi.fn(),
+  claim: vi.fn(), release: vi.fn(), renew: vi.fn(),
 } }));
+vi.mock("../../src/collateral/solana-relay.config.js", () => ({ solanaRelayConfig: vi.fn() }));
 vi.mock("../../src/collateral/solana-relay.transaction.js", () => ({ deliverSolanaRelay: vi.fn(), sendSolanaRelay: vi.fn() }));
 vi.mock("../../src/queue/queue.worker.js", () => ({ registerHandler: vi.fn(), drainQueue: vi.fn() }));
 
-import { processSolanaRelay } from "../../src/collateral/solana-relay.worker.js";
+import { processSolanaRelay, runSolanaRelayWorker } from "../../src/collateral/solana-relay.worker.js";
+import { solanaRelayConfig } from "../../src/collateral/solana-relay.config.js";
 import { monadClient } from "../../src/chain/monad.client.js";
 import { keeperTransaction } from "../../src/chain/keeper.js";
 import { env } from "../../src/config/env.js";
@@ -36,6 +39,17 @@ beforeEach(() => {
   vi.mocked(solanaActionService.confirmationPlan).mockResolvedValue({ actionHash: hash, to: env.core, data: "0x12" } as never);
 });
 describe("SOL authorization relay completion", () => {
+  it("retries unavailable Wormhole proofs promptly without increasing failure backoff", async () => {
+    vi.mocked(solanaRelayConfig).mockResolvedValue(config);
+    vi.mocked(solanaRelayRepo.claim).mockResolvedValueOnce({ action: { ...action, failures: 3 }, lease: "lease" } as never);
+    vi.mocked(solanaRelayRepo.claim).mockResolvedValue(null);
+    vi.mocked(solanaActionService.confirmationPlan).mockRejectedValue(new Error("solana-proof-unavailable"));
+    await expect(runSolanaRelayWorker()).resolves.toBe(1);
+    expect(solanaRelayRepo.release).toHaveBeenCalledWith(hash, "lease", undefined, 3, 5000);
+    expect(keeperTransaction).not.toHaveBeenCalled();
+    expect(solanaRelayRepo.sourced).not.toHaveBeenCalled();
+    expect(solanaRelayRepo.completed).not.toHaveBeenCalled();
+  });
   it("resumes a finalized source transfer without repeating custody execution", async () => {
     vi.mocked(keeperTransaction).mockResolvedValue("pending");
     await processSolanaRelay(action, "lease", config);

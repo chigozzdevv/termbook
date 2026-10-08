@@ -10,6 +10,7 @@ import {RemoteCollateralController} from "./RemoteCollateralController.sol";
 import {IWormholeCore} from "../../shared/collateral/IWormholeCore.sol";
 import {WormholeTermbookMessages as Messages} from "../../shared/collateral/WormholeTermbookMessages.sol";
 import {SourceRecoveryVault} from "./SourceRecoveryVault.sol";
+import {WormholeConfirmationPolicy as Confirmations, IWormholeConsistencyConfig} from "../../shared/collateral/WormholeConfirmationPolicy.sol";
 
 contract WormholeEthereumPublisher is ProxyInitializable {
     CollateralVault public vault;
@@ -21,6 +22,9 @@ contract WormholeEthereumPublisher is ProxyInitializable {
     mapping(bytes32 => bool) public published;
     mapping(bytes32 => uint64) public sequenceOf;
     mapping(bytes32 => uint256) public snapshotPublishedAt;
+    uint16 public confirmationDepth;
+    bytes32 public confirmationPolicyHash;
+    bytes32 public consistencyConfigCodeHash;
 
     error Invalid();
 
@@ -64,6 +68,16 @@ contract WormholeEthereumPublisher is ProxyInitializable {
         return _publish(Messages.LOCK, commitment, 0);
     }
 
+    function configureTestnetConfirmations(uint16 depth) external {
+        if (block.chainid != 11155111 || msg.sender != controller.governance() || confirmationDepth != 0
+            || depth < 5 || depth > 64 || Confirmations.SEPOLIA_CCL.code.length == 0) revert Invalid();
+        confirmationDepth = depth;
+        confirmationPolicyHash = Confirmations.digest(address(this), depth);
+        consistencyConfigCodeHash = Confirmations.SEPOLIA_CCL.codehash;
+        IWormholeConsistencyConfig(Confirmations.SEPOLIA_CCL).configure(Confirmations.configuration(depth));
+        if (IWormholeConsistencyConfig(Confirmations.SEPOLIA_CCL).getConfiguration(address(this)) != Confirmations.configuration(depth)) revert Invalid();
+    }
+
     function publishApplied(bytes32 actionHash) external payable returns (uint64) {
         if (actionHash == bytes32(0) || !controller.consumed(actionHash)) revert Invalid();
         return _publish(Messages.APPLIED, actionHash, 0);
@@ -99,8 +113,15 @@ contract WormholeEthereumPublisher is ProxyInitializable {
                 || address(vault).codehash != vaultCodeHash || address(controller).codehash != controllerCodeHash
                 || address(wormhole).codehash != wormholeCodeHash || msg.value != wormhole.messageFee()
         ) revert Invalid();
-        uint64 sequence =
-            wormhole.publishMessage{value: msg.value}(0, abi.encode(Messages.SNAPSHOT, kind, digest, deadline), 0);
+        bytes memory payload = abi.encode(Messages.SNAPSHOT, kind, digest, deadline);
+        uint8 consistency;
+        if (confirmationDepth != 0) {
+            if (block.chainid != 11155111 || Confirmations.SEPOLIA_CCL.codehash != consistencyConfigCodeHash
+                || IWormholeConsistencyConfig(Confirmations.SEPOLIA_CCL).getConfiguration(address(this)) != Confirmations.configuration(confirmationDepth)) revert Invalid();
+            payload = abi.encode(Messages.SNAPSHOT, kind, digest, deadline, confirmationPolicyHash);
+            consistency = 203;
+        }
+        uint64 sequence = wormhole.publishMessage{value: msg.value}(0, payload, consistency);
         published[key] = true;
         sequenceOf[key] = sequence;
         snapshotPublishedAt[key] = block.timestamp;

@@ -110,6 +110,7 @@ export function parseSolanaActionPlan(value: unknown): SolanaActionPlan {
   const raw = plan["action"] as Record<string, unknown>;
   const number = (field: string) => {
     const item = raw[field];
+    if (typeof item === "bigint" && item > 0n) return item;
     if (typeof item !== "string" || !/^[1-9][0-9]*$/.test(item)) throw new Error("solana-action-plan-invalid");
     return BigInt(item);
   };

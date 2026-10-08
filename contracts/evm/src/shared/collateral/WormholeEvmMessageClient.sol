@@ -53,7 +53,7 @@ contract WormholeEvmMessageClient is ProxyInitializable {
         _initializeWormholeEvmMessageClient(wormhole_, destinationWormholeChain_, sourceWormholeChain_, sourceEvmChain_, version_, emitter_, maxAge_);
     }
 
-    function upgradeContractId() external pure override returns (bytes32) {
+    function upgradeContractId() external pure virtual override returns (bytes32) {
         return keccak256("termbook.WormholeEvmMessageClient.v1");
     }
 
@@ -65,7 +65,7 @@ contract WormholeEvmMessageClient is ProxyInitializable {
         uint256 version_,
         bytes32 emitter_,
         uint256 maxAge_
-    ) private {
+    ) internal {
         if (
             wormhole_.code.length == 0 || IWormholeCore(wormhole_).chainId() != destinationWormholeChain_
                 || destinationWormholeChain_ == sourceWormholeChain_ || sourceWormholeChain_ == 0
@@ -119,6 +119,12 @@ contract WormholeEvmMessageClient is ProxyInitializable {
         return _verified(vaa).payload;
     }
 
+    function confirmationPolicyHash() external view virtual returns (bytes32) { return bytes32(0); }
+
+    function _acceptConsistency(IWormholeCore.VM memory vm) internal view virtual returns (bool) {
+        return vm.consistencyLevel == 0;
+    }
+
     function _verified(bytes calldata vaa) private view returns (IWormholeCore.VM memory vm) {
         if (vaa.length == 0 || vaa.length > 96_000 || address(wormhole).codehash != wormholeCodeHash) {
             revert InvalidMessage();
@@ -132,7 +138,7 @@ contract WormholeEvmMessageClient is ProxyInitializable {
         }
         if (
             !valid || vm.version != 1 || vm.emitterChainId != sourceWormholeChain || vm.emitterAddress != sourceEmitter
-                || vm.consistencyLevel != 0 || vm.timestamp == 0 || vm.timestamp > block.timestamp
+                || !_acceptConsistency(vm) || vm.timestamp == 0 || vm.timestamp > block.timestamp
                 || block.timestamp - vm.timestamp > proofMaxAge
         ) revert InvalidMessage();
     }

@@ -637,13 +637,58 @@ and keeper-forced exit and repayment. Both have zero debt, returned collateral,
 empty app positions and released account control. All 38 listed receipts were
 verified as canonical and finalized in `deployments/testnet-e2e-verification.json`.
 The run took 54m 15s including the deliberate default wait and Ethereum finality.
-Canonical acceptance-to-closure times were 34m 23s and 53m 20s. Draw-to-repayment
+Canonical acceptance-to-closure times with full Sepolia finality were 34m 23s and 53m 20s. Draw-to-repayment
 took 5s; the keeper detected default 18s after grace and recovered the loan in
-another 20s. The House has 10.002002 test USDC available and no outstanding
-principal or active credits. Its manager and sole LP are the testnet deployer.
+another 20s. The House manager and sole LP are the testnet deployer.
 These exercises did not use Aurora conversion or a real trading venue.
 Previous evidence remains in `deployments/testnet-pre-upgrade-e2e*.json`.
-MON and SOL price admission and Aurora settlement routes remain unconfigured.
+Native SOL price admission and the separate Solana source keeper are active.
+The SOL/USDC feed reads Pyth SOL/USD and the admitted USDC/USD feed, rejecting
+stale prices and excessive confidence intervals. Two live devnet SOL-backed loans
+completed borrowing, reference app exit, repayment, keeper return and final closure.
+The clean run locked 0.005 SOL and borrowed 1 test USDC. Independent checks confirmed
+13 canonical Monad receipts and four finalized Solana receipts, including the
+return signed by the separate keeper. Both credits have zero debt, zero remaining
+collateral, empty app positions and released account control.
+
+| Clean SOL run | Canonical elapsed time |
+| --- | --- |
+| Acceptance to borrowing | 2m 7s |
+| Lock to accepted collateral proof | 1m 8s |
+| Accepted proof to borrowing | 32s |
+| Borrowing to repayment | 6s |
+| Return authorization to source return | 1m 28s |
+| Source return to Monad confirmation | 1m 13s |
+| Acceptance to final closure | 5m 6s |
+
+These measurements include runner startup, public RPC retries, keeper polling
+and Wormhole observation; they are not individual Monad transaction latency.
+The first run includes debugging waits. Evidence is recorded in
+`deployments/testnet-solana{,-clean}-e2e{,-verification}.json` and price/keeper
+setup in `deployments/testnet-solana-setup.json`. SOL default seizure and Aurora
+conversion were not exercised by these repayment tests.
+
+Sepolia now uses an explicitly admitted five-block Wormhole confirmation policy
+for testnet loans. Its governed publisher configuration, signed policy hash and
+version 2 verifier are recorded in `deployments/testnet-confirmations.json`.
+The SDK catalog, proof publisher and return worker apply the same admitted depth.
+The ordinary Ethereum route retains full finality. Five-block confirmation accepts
+reorganization risk before Ethereum finality and is restricted to Sepolia and
+Monad testnet. The test runners poll every two seconds.
+
+```sh
+node scripts/testnet-solana-e2e.mjs --begin --clean
+node scripts/testnet-solana-e2e.mjs --run --clean
+node scripts/verify-testnet-solana-e2e.mjs --clean
+node scripts/testnet-e2e.mjs --start --fast --clean
+node scripts/verify-testnet-e2e.mjs --fast --clean
+```
+
+Runners resume their private transaction journals under `.testnet/`; they do not
+create another loan after a completed journal. Verification independently checks
+canonical receipts and eventual full source finality. Fresh tests require new
+reviewed journal names. MON price admission and Aurora settlement routes remain
+unconfigured.
 Aurora settlement exercises require a Studio application key and confirmed
 sandbox asset pairs for these testnets. Testnet governance has no waiting period.
 

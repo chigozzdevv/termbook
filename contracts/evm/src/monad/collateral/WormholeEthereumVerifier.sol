@@ -119,7 +119,11 @@ contract WormholeEthereumVerifier is LightClientVerifier {
     function _snapshot(bytes calldata vaa, uint8 kind, bytes32 digest, uint256 deadline) private view returns (bool) {
         if (lightClient.codehash != lightClientCodeHash) return false;
         try WormholeEvmMessageClient(lightClient).verifiedPayload(vaa) returns (bytes memory payload) {
-            if (payload.length != 128) return false;
+            if (payload.length != 128 && payload.length != 160) return false;
+            if (payload.length == 160) {
+                (,,,, bytes32 policy) = abi.decode(payload, (bytes32, uint8, bytes32, uint256, bytes32));
+                if (policy == bytes32(0) || policy != WormholeEvmMessageClient(lightClient).confirmationPolicyHash()) return false;
+            }
             (bytes32 domain, uint8 actualKind, bytes32 actualDigest, uint256 actualDeadline) =
                 abi.decode(payload, (bytes32, uint8, bytes32, uint256));
             return

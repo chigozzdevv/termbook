@@ -4,10 +4,14 @@ import process from 'node:process';
 import { log, error } from 'node:console';
 import { root, viem, artifact, writeJsonAtomic } from './testnet-runtime.mjs';
 import { pacedHttp } from '../server/dist/chain/rpc.transport.js';
+const fast = process.argv[2] === '--fast';
+const clean = process.argv[3] === '--clean';
+if (clean && !fast || process.argv.length !== (clean ? 4 : fast ? 3 : 2)) throw new Error('Use optional --fast and --clean');
+const publicName = fast ? clean ? 'testnet-fast-clean-e2e' : 'testnet-fast-e2e' : 'testnet-e2e';
 
 async function main() {
   const deployment = JSON.parse(fs.readFileSync(path.join(root, 'deployments/testnet.json'), 'utf8'));
-  const recorded = JSON.parse(fs.readFileSync(path.join(root, 'deployments/testnet-e2e.json'), 'utf8'));
+  const recorded = JSON.parse(fs.readFileSync(path.join(root, `deployments/${publicName}.json`), 'utf8'));
   const appSetup = JSON.parse(fs.readFileSync(path.join(root, 'deployments/testnet-app.json'), 'utf8'));
   const core = deployment.addresses[10143].TermbookCore;
   if (recorded.network !== 'testnet' || recorded.core !== core || recorded.app !== appSetup.addresses.ReferenceAssetApp) throw new Error('E2E deployment mismatch');
@@ -17,6 +21,26 @@ async function main() {
   const finalized = { 10143: await monad.getBlock({ blockTag: 'finalized' }), 11155111: await source.getBlock({ blockTag: 'finalized' }) };
   const read = (client, name, address, functionName, args, chainId) => client.readContract({ address, abi: artifact(name).abi, functionName, args, blockNumber: finalized[chainId].number });
   const checked = new Map();
+  async function verifyFastProof(hash, creditId, applied = false, actionHash) {
+    const tx = await monad.getTransaction({ hash });
+    const decoded = viem.decodeFunctionData({ abi: artifact('TermbookCore').abi, data: tx.input });
+    if (tx.to?.toLowerCase() !== core.toLowerCase() || decoded.functionName !== (applied ? 'confirmRemoteReturn' : 'proveCollateral')
+      || decoded.args[0] !== creditId || !applied && decoded.args[1] !== 11155111n) throw new Error('Fast proof call mismatch');
+    const raw = viem.hexToBytes(decoded.args[applied ? 1 : 2]);
+    const start = 6 + raw[5] * 66;
+    if (raw[0] !== 1 || !raw[5] || raw.length !== start + 51 + 160) throw new Error('Fast VAA framing mismatch');
+    const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
+    const publisher = deployment.addresses[11155111].WormholeEthereumPublisher;
+    if (view.getUint16(start + 8, false) !== 10002 || raw[start + 50] !== 203
+      || viem.bytesToHex(raw.slice(start + 10, start + 42)).toLowerCase() !== viem.padHex(publisher, { size: 32 }).toLowerCase()) throw new Error('Fast VAA emitter or consistency mismatch');
+    const [domain, kind, digest, deadline, policyHash] = viem.decodeAbiParameters(viem.parseAbiParameters('bytes32,uint8,bytes32,uint256,bytes32'), viem.bytesToHex(raw.slice(start + 51)));
+    const policy = JSON.parse(fs.readFileSync(path.join(root, 'deployments/testnet-confirmations.json'), 'utf8'));
+    if (domain !== viem.keccak256(viem.stringToHex('Termbook Wormhole Ethereum snapshot v1'))
+      || kind !== (applied ? 2 : 1) || deadline !== 0n || policyHash !== policy.policyHash
+      || applied && digest !== actionHash || policy.confirmationDepth !== 5) throw new Error('Fast VAA confirmation policy mismatch');
+    return { consistency: 203, confirmationDepth: 5, policyHash, sequence: String(view.getBigUint64(start + 42, false)),
+      publishedAt: new Date(view.getUint32(start, false) * 1000).toISOString() };
+  }
   async function receipt(chainId, hash) {
     const key = `${chainId}:${hash}`;
     if (checked.has(key)) return checked.get(key);
@@ -66,11 +90,15 @@ async function main() {
         if (record.txHash) {
           const tx = await receipt(endpoint === 'collateral' ? 10143 : 11155111, record.txHash);
           outcome.proofAndReturnReceipts.push(tx);
-          if (endpoint === 'collateral') outcome.collateralProofReceipt = tx;
+          if (endpoint === 'collateral') {
+            outcome.collateralProofReceipt = tx;
+            if (fast) outcome.collateralProofPolicy = await verifyFastProof(record.txHash, t.creditId);
+          }
           else outcome.sourceReturnReceipt = tx;
         }
         if (record.confirmTxHash) {
           outcome.returnConfirmationReceipt = await receipt(10143, record.confirmTxHash);
+          if (fast) outcome.returnProofPolicy = await verifyFastProof(record.confirmTxHash, t.creditId, true, record.actionHash);
           outcome.proofAndReturnReceipts.push(outcome.returnConfirmationReceipt);
         }
       }
@@ -144,7 +172,7 @@ async function main() {
   for (const tx of recorded.transactions) await receipt(tx.chainId, tx.hash);
   const fees = {};
   for (const tx of checked.values()) fees[tx.chainId] = (BigInt(fees[tx.chainId] ?? '0') + BigInt(tx.feeWei)).toString();
-  const lifecycleComplete = observations.some((t) => t.repaymentComplete) && observations.some((t) => t.recoveryComplete);
+  const lifecycleComplete = observations.some((t) => t.repaymentComplete) && (fast || observations.some((t) => t.recoveryComplete));
   const allReceiptsFinalized = [...checked.values()].every((tx) => tx.finalized);
   const house = { address: deployment.addresses[10143].HouseVault };
   for (const name of ['manager', 'freeCash', 'availableCash', 'committedCash', 'drawnPrincipal', 'activeCreditCount', 'totalAssets', 'totalShares']) {
@@ -152,11 +180,12 @@ async function main() {
     house[name] = typeof value === 'bigint' ? value.toString() : value;
   }
   const report = { verifiedAt: new Date().toISOString(), startedAt: recorded.startedAt, core, scope: recorded.scope, excluded: recorded.excluded,
+    confirmationPolicy: recorded.confirmationPolicy,
     feeScope: 'Listed borrower, proof, return and recovery receipts; excludes keeper funding and oracle updates',
     finalizedBlocks: Object.fromEntries(Object.entries(finalized).map(([id, b]) => [id, { number: String(b.number), hash: b.hash }])),
     house, observations, measuredFeesWei: fees, transactions: [...checked.values()],
     lifecycleComplete, allReceiptsFinalized, completed: lifecycleComplete && allReceiptsFinalized };
-  writeJsonAtomic(path.join(root, 'deployments/testnet-e2e-verification.json'), report);
+  writeJsonAtomic(path.join(root, `deployments/${publicName}-verification.json`), report);
   log(JSON.stringify({ verifiedAt: report.verifiedAt, completed: report.completed, observations }));
   if (!report.completed) process.exitCode = 1;
 }

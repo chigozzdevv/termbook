@@ -9,6 +9,7 @@ import { termbookCoreAbi, verifierRegistryAbi } from "@termbook/bindings";
 import { fetchMonadAuthorizationProof } from "../chain/monad-receipt-proof.js";
 import { ethereumWormholeMode, fetchEthereumSnapshot } from "../chain/ethereum-wormhole-snapshot.js";
 import { currentEthereumAuthorization } from "../chain/monad-wormhole.js";
+import { ethereumCreditConfirmationPolicy, ethereumConfirmedBlock } from "../chain/ethereum-confirmations.js";
 import { fetchConsumedActionProof } from "../chain/source.client.js";
 import { topUpService } from "./topup.service.js";
 import { keeperTransaction } from "../chain/keeper.js";
@@ -86,13 +87,12 @@ async function readSourceBinding(source: PublicClient, action: RemoteAction, act
   if (controller === zero || !equal(asset, action.asset) || chainId !== BigInt(ethereumSourceChain()) || !remoteMode) {
     throw new Error("remote-action-source-vault-mismatch");
   }
-  const [vault, monadCore, monadChain, recoveryVault, verifier, consumed] = await Promise.all([
+  const [vault, monadCore, monadChain, recoveryVault, verifier] = await Promise.all([
     source.readContract({ address: controller, abi: controllerAbi, functionName: "vault", blockNumber: at }),
     source.readContract({ address: controller, abi: controllerAbi, functionName: "monadCore", blockNumber: at }),
     source.readContract({ address: controller, abi: controllerAbi, functionName: "monadChain", blockNumber: at }),
     source.readContract({ address: controller, abi: controllerAbi, functionName: "recoveryVault", blockNumber: at }),
     source.readContract({ address: controller, abi: controllerAbi, functionName: "verifier", blockNumber: at }),
-    source.readContract({ address: controller, abi: controllerAbi, functionName: "consumed", args: [actionHash], blockNumber: at }),
   ]);
   if (!equal(vault, action.sourceVault) || !equal(monadCore, action.monadCore)
     || monadChain !== action.monadChain || verifier === zero
@@ -108,10 +108,14 @@ async function readSourceBinding(source: PublicClient, action: RemoteAction, act
     if (!equal(recoveryAsset, action.asset) || !equal(recoveryController, controller)
       || recoveryMonadChain !== action.monadChain) throw new Error("remote-action-recovery-vault-mismatch");
   }
-  return { controller, verifier, consumed, finalized };
+  const policy = await ethereumCreditConfirmationPolicy(action.creditId);
+  const confirmed = await ethereumConfirmedBlock(source, policy.depth);
+  const consumed = await source.readContract({ address: controller, abi: controllerAbi,
+    functionName: "consumed", args: [actionHash], blockNumber: confirmed.number });
+  return { controller, verifier, consumed, finalized, confirmed };
 }
 
-async function deliver(source: PublicClient, actionHash: string, hash: Hex, rawTx: Hex) {
+async function deliver(source: PublicClient, action: RemoteAction, actionHash: string, hash: Hex, rawTx: Hex) {
   if (!equal(keccak256(rawTx), hash)) throw new Error("remote-action-signed-transaction-mismatch");
   let receipt = await source.getTransactionReceipt({ hash }).catch(() => null);
   if (!receipt) {
@@ -129,7 +133,8 @@ async function deliver(source: PublicClient, actionHash: string, hash: Hex, rawT
     await remoteActionRepo.state(actionHash, "submitted", hash);
     return "pending" as const;
   }
-  const finalized = await source.getBlock({ blockTag: "finalized" });
+  const policy = await ethereumCreditConfirmationPolicy(action.creditId);
+  const finalized = await ethereumConfirmedBlock(source, policy.depth);
   if (receipt.blockNumber > finalized.number) {
     await remoteActionRepo.state(actionHash, "mined", hash, { sourceBlockHash: receipt.blockHash });
     return "pending" as const;
@@ -392,7 +397,7 @@ export async function handleRemoteActionJob(job: { kind: string; payload: Record
   if (record.txHash) {
     if (typeof record.rawTx !== "string" || !word.test(record.txHash)) throw new Error("remote-action-signed-transaction-missing");
     if (!await remoteActionRepo.acquireSigner(account.address, actionHash)) throw new Error("remote-action-signer-busy");
-    delivered = await deliver(source, actionHash, record.txHash as Hex, record.rawTx as Hex);
+    delivered = await deliver(source, action, actionHash, record.txHash as Hex, record.rawTx as Hex);
   } else {
     const current = await readAuthorizedAction(action.creditId, action.kind);
     if (!equal(current.actionHash, actionHash)
@@ -406,7 +411,7 @@ export async function handleRemoteActionJob(job: { kind: string; payload: Record
       });
       return;
     }
-    if (action.deadline <= binding.finalized.timestamp + 120n) {
+    if (action.deadline <= binding.confirmed.timestamp + 120n) {
       await remoteActionRepo.state(actionHash, "expired");
       return;
     }
@@ -476,7 +481,7 @@ export async function handleRemoteActionJob(job: { kind: string; payload: Record
         throw new Error("remote-action-record-missing");
       }
       persisted = true;
-      delivered = await deliver(source, actionHash, hash, rawTx);
+      delivered = await deliver(source, action, actionHash, hash, rawTx);
     } finally {
       if (!persisted) await remoteActionRepo.releaseSigner(account.address, actionHash);
     }
@@ -509,6 +514,10 @@ export async function runRemoteActionWorker(): Promise<number> {
         await remoteActionRepo.defer(record.actionHash, 5_000);
       } catch (error) {
         const failure = error instanceof Error && /^[a-z]+(?:-[a-z]+)+$/.test(error.message) ? error.message : "remote-action-unavailable";
+        if (["ethereum-wormhole-not-finalized", "wormhole-vaa-unavailable"].includes(failure)) {
+          await remoteActionRepo.defer(record.actionHash, 5_000);
+          continue;
+        }
         await remoteActionRepo.defer(record.actionHash, Math.min(300_000, 5_000 * 2 ** Math.min(Number(record.failures ?? 0), 6)), failure);
         logger.warn("remote-action-retry", { actionHash: record.actionHash, failure });
       }

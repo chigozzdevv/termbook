@@ -104,7 +104,8 @@ export async function runSolanaRelayWorker(): Promise<number> {
         if (lost) throw new Error("solana-relay-lease-lost");
       } catch (error) {
         const reason = error instanceof Error ? error.message : "solana-relay-unavailable";
-        if (["solana-topup-awaiting-source", "solana-relay-expiry-pending", "solana-relay-transaction-pending"].includes(reason)) delay = 60_000;
+        if (["solana-topup-awaiting-source", "solana-relay-expiry-pending"].includes(reason)) delay = 60_000;
+        else if (["solana-relay-transaction-pending", "solana-proof-unavailable", "solana-wormhole-authorization-unavailable"].includes(reason)) delay = 5000;
         else { failure = reason; logger.warn("solana-source-relay-failed", { actionHash: claimed.action._id, failure }); }
       } finally {
         clearInterval(heartbeat);

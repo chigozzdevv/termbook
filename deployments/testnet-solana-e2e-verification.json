@@ -1,0 +1,205 @@
+{
+  "network": "testnet",
+  "checkedAt": "2026-10-08T09:31:44.002Z",
+  "creditId": "0x35ffd8f61630e2f82e1495bcdfd0fd3662783fc31c7c050c80a9ac3b2104f0bb",
+  "core": "0x198995faab55a9d5d4dceab56abaaa273c26fad7",
+  "completed": true,
+  "scope": "SOL lock, USDC draw into reference app, app exit, repayment, keeper return, confirmation and closure",
+  "collateralLamports": "5000000",
+  "drawAmount": "1000000",
+  "drawHealth": {
+    "appValue": "1000000",
+    "cash": "0",
+    "debt": "1000000",
+    "healthBps": "13896",
+    "recoveryCosts": "50000",
+    "recoveryValue": "1459104",
+    "retainedApp": "10000",
+    "retainedSource": "8000",
+    "sourceValue": "573880"
+  },
+  "timingSeconds": {
+    "acceptanceToLock": 223,
+    "lockToProof": 81,
+    "proofToBorrow": 5,
+    "acceptanceToBorrow": 309,
+    "borrowToRepay": 6,
+    "authorizeToSourceReturn": 406,
+    "sourceReturnToConfirmation": 235,
+    "acceptanceToClosure": 965
+  },
+  "monadReceipts": [
+    {
+      "hash": "0x68563fce64cd09abc1c2f301ad67814d434787a3f23f2de393e3e91ecb29e57a",
+      "from": "0x4dbaba93dfdeeab43ce5bdc3335aa6e2dda44920",
+      "to": "0x534b2f3a21130d7a60830c2df862319e593943a3",
+      "block": "69216603",
+      "blockHash": "0xeaf3d32ba196638f4d6736395bf1d8859cd70832bdaafe26fefbfe91b946b662",
+      "timestamp": 1791450827,
+      "feeWei": "10137066000000000"
+    },
+    {
+      "hash": "0x24913f621642e55d9103f745c09657fef7fe064dd584b87aa64507d59331b2dd",
+      "from": "0x4dbaba93dfdeeab43ce5bdc3335aa6e2dda44920",
+      "to": "0x198995faab55a9d5d4dceab56abaaa273c26fad7",
+      "block": "69216612",
+      "blockHash": "0xdc8596c7b3d02af72bd217c2866fa34c16ff5f405e84c152d7a2885b1583233e",
+      "timestamp": 1791450830,
+      "feeWei": "279671760000000000"
+    },
+    {
+      "hash": "0x109fc88affaa6a9cedee4cd12f3c49ed94405c69672e35bc197c88816d80224d",
+      "from": "0x4dbaba93dfdeeab43ce5bdc3335aa6e2dda44920",
+      "to": "0x198995faab55a9d5d4dceab56abaaa273c26fad7",
+      "block": "69216627",
+      "blockHash": "0xbab943565711b6a2fcd9c2e8cd582d5a7b875e64ee3971a2f774348c332a95ea",
+      "timestamp": 1791450835,
+      "feeWei": "25304058000000000"
+    },
+    {
+      "hash": "0xa80dee38e55f23bc9c4ab4a927992c901b12c992fa77e6bd00123726fb731dc4",
+      "from": "0x4dbaba93dfdeeab43ce5bdc3335aa6e2dda44920",
+      "to": "0xf92e63e675575068c97ce7486d568e038ecc5b82",
+      "block": "69216636",
+      "blockHash": "0xb8d17cf4df503625baae8d20c3baf180be0eea39991788423d96cf214974013e",
+      "timestamp": 1791450837,
+      "feeWei": "131611212000000000"
+    },
+    {
+      "hash": "0x8f6fa2dc2f3a689f856a11b1fd73a1c749b4121cd6ddd594b9264f5d29b3cb44",
+      "from": "0x4dbaba93dfdeeab43ce5bdc3335aa6e2dda44920",
+      "to": "0x198995faab55a9d5d4dceab56abaaa273c26fad7",
+      "block": "69216646",
+      "blockHash": "0xd221256472ae8bacd7506de2b77ecdf489bfe8c27abdf0a8ece423fb45eea1e2",
+      "timestamp": 1791450840,
+      "feeWei": "13973388000000000"
+    },
+    {
+      "hash": "0xb73625c1ef09ffd142112b8113c0417eaa77485634adeda7607856228fcd6be6",
+      "from": "0x4dbaba93dfdeeab43ce5bdc3335aa6e2dda44920",
+      "to": "0x198995faab55a9d5d4dceab56abaaa273c26fad7",
+      "block": "69217621",
+      "blockHash": "0xc239e6eccf03d9d93a29720bac52a93a79852e19adcac2677324496e16ad4b8c",
+      "timestamp": 1791451139,
+      "feeWei": "303762120000000000"
+    },
+    {
+      "hash": "0xdbf31a01f869472001e285fa4fa62bdaaf7111c66d2ed40ee6870902b7167e82",
+      "from": "0x4dbaba93dfdeeab43ce5bdc3335aa6e2dda44920",
+      "to": "0x198995faab55a9d5d4dceab56abaaa273c26fad7",
+      "block": "69217632",
+      "blockHash": "0xf42f2b8d758b90fd6c10f691db9f9e61c8b8138d01cdca19a1d388b476c35589",
+      "timestamp": 1791451142,
+      "feeWei": "60962952000000000"
+    },
+    {
+      "hash": "0x44c5853f420de63f42f5963ef3a7796eb8ec68bddbe2f6fdc02f48133e6c15bf",
+      "from": "0x4dbaba93dfdeeab43ce5bdc3335aa6e2dda44920",
+      "to": "0x198995faab55a9d5d4dceab56abaaa273c26fad7",
+      "block": "69217640",
+      "blockHash": "0xaf86d0295385ee06ab8b0ad0d896d29c536098572797cad27c289cbf5838efe2",
+      "timestamp": 1791451145,
+      "feeWei": "70531776000000000"
+    },
+    {
+      "hash": "0x5cbd0e5a3766373b0dffe3caa3213e0b8b05f43f437d9980cc32417bc9dc28a5",
+      "from": "0x4dbaba93dfdeeab43ce5bdc3335aa6e2dda44920",
+      "to": "0x198995faab55a9d5d4dceab56abaaa273c26fad7",
+      "block": "69217649",
+      "blockHash": "0xd3d9443398b5666c5b82204c4b30ff41d39074004b3a48c24d69a3e2fa050fb8",
+      "timestamp": 1791451148,
+      "feeWei": "23015994000000000"
+    },
+    {
+      "hash": "0x6fa949ae8d8ff2532aa7a2d119a358a01b7318a82cb867dc88ca8ec868aac31a",
+      "from": "0x4dbaba93dfdeeab43ce5bdc3335aa6e2dda44920",
+      "to": "0x198995faab55a9d5d4dceab56abaaa273c26fad7",
+      "block": "69217660",
+      "blockHash": "0x8288c539f0be718b58a8389b423cd9346578c09b7e7a137d3688a6a9a9943f78",
+      "timestamp": 1791451151,
+      "feeWei": "62827512000000000"
+    },
+    {
+      "hash": "0xa6c13d16cbd84b70f1ae0dbccc874c1ea885bf1672ab4ae1c681e1cac22a5ea1",
+      "from": "0x4dbaba93dfdeeab43ce5bdc3335aa6e2dda44920",
+      "to": "0x198995faab55a9d5d4dceab56abaaa273c26fad7",
+      "block": "69219767",
+      "blockHash": "0xd0e649a4e3c522fcc496d913d471f2d9f85836b98a84968a2b30e92a4d9e4690",
+      "timestamp": 1791451795,
+      "feeWei": "53089878000000000"
+    },
+    {
+      "hash": "0x669f4cd7c5a245ca7d588bf6ef06553f27fd3d34a5a795e8fec2af532dbc471a",
+      "from": "0xe1b74ca2bfcc95467b49767b00935a17efa2a387",
+      "to": "0x198995faab55a9d5d4dceab56abaaa273c26fad7",
+      "block": "69217607",
+      "blockHash": "0x28a5805237dd44d01975446ca63a7abaae0cab28b8ea9c2e4585828cc574cc85",
+      "timestamp": 1791451134,
+      "feeWei": "130668630000000000"
+    },
+    {
+      "hash": "0xa91a9fc6927733f28e23d35dd2911f3087c8bbba4e42ea2914c233369940fee6",
+      "from": "0xe1b74ca2bfcc95467b49767b00935a17efa2a387",
+      "to": "0x198995faab55a9d5d4dceab56abaaa273c26fad7",
+      "block": "69219758",
+      "blockHash": "0x135d79f220bbc24191d4196ec409dd27415b489924bfd4268b1ff1a00a57036a",
+      "timestamp": 1791451792,
+      "feeWei": "74014566000000000"
+    }
+  ],
+  "solanaReceipts": [
+    {
+      "signature": "543pvxXf6BqoqEeRoc3WEAbCycDtajait3uNYReL5ZkY1STWvbTiH6HyJG1FWCmvEqB9RgsCBi4Hs4vBvih9F2sS",
+      "slot": 508768096,
+      "timestamp": 1791450903,
+      "feeLamports": 15000,
+      "payer": "6fr4TdJhVgwk6uUHvCEQEYYCNiBMKyVCYg1yD5YvRiA1"
+    },
+    {
+      "signature": "5u4h3Uz5xwpU45NgGUoruLsFpiMkU22CC1fCa1TUqwnchDbnLroHictJT8kFBeURADThrG2an8bKw9THW9ivjBtJ",
+      "slot": 508768120,
+      "timestamp": 1791450909,
+      "feeLamports": 5000,
+      "payer": "6fr4TdJhVgwk6uUHvCEQEYYCNiBMKyVCYg1yD5YvRiA1"
+    },
+    {
+      "signature": "56AXkS9eLThVf6Nw6Q6swsQzXGka1EcCgbDDMovcU2fScN14istxs5jM1N6DRQmPqUJPkWoAFd5BqLSRvMxqPR2V",
+      "slot": 508768727,
+      "timestamp": 1791451053,
+      "feeLamports": 5000,
+      "payer": "6fr4TdJhVgwk6uUHvCEQEYYCNiBMKyVCYg1yD5YvRiA1"
+    },
+    {
+      "signature": "2nUtm8hENjHYzUBBEcyDYmUbhwXHFHXXi78ZkHiNAL7EofSYrB2ZUsaizZebgUqWsvbpwyrdBe1eWPJzoUNE39q3",
+      "slot": 508770840,
+      "timestamp": 1791451557,
+      "feeLamports": 5000,
+      "payer": "38YLPZ3unEzmTFPhSrTK6TxWSC1YRYorLMtQ9B1WmuNs"
+    }
+  ],
+  "proofReceipt": {
+    "hash": "0x669f4cd7c5a245ca7d588bf6ef06553f27fd3d34a5a795e8fec2af532dbc471a",
+    "from": "0xe1b74ca2bfcc95467b49767b00935a17efa2a387",
+    "to": "0x198995faab55a9d5d4dceab56abaaa273c26fad7",
+    "block": "69217607",
+    "blockHash": "0x28a5805237dd44d01975446ca63a7abaae0cab28b8ea9c2e4585828cc574cc85",
+    "timestamp": 1791451134,
+    "feeWei": "130668630000000000"
+  },
+  "sourceReturnReceipt": {
+    "signature": "2nUtm8hENjHYzUBBEcyDYmUbhwXHFHXXi78ZkHiNAL7EofSYrB2ZUsaizZebgUqWsvbpwyrdBe1eWPJzoUNE39q3",
+    "slot": 508770840,
+    "timestamp": 1791451557,
+    "feeLamports": 5000,
+    "payer": "38YLPZ3unEzmTFPhSrTK6TxWSC1YRYorLMtQ9B1WmuNs"
+  },
+  "returnConfirmationReceipt": {
+    "hash": "0xa91a9fc6927733f28e23d35dd2911f3087c8bbba4e42ea2914c233369940fee6",
+    "from": "0xe1b74ca2bfcc95467b49767b00935a17efa2a387",
+    "to": "0x198995faab55a9d5d4dceab56abaaa273c26fad7",
+    "block": "69219758",
+    "blockHash": "0x135d79f220bbc24191d4196ec409dd27415b489924bfd4268b1ff1a00a57036a",
+    "timestamp": 1791451792,
+    "feeWei": "74014566000000000"
+  }
+}

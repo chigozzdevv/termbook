@@ -3,7 +3,7 @@ import { env } from "../config/env.js";
 
 type VaaProof = { header: Hex; proof: Hex };
 
-function decodeVaa(value: unknown, chain: number, emitter: Hex, payload: Hex, sequence?: bigint): Hex | null {
+function decodeVaa(value: unknown, chain: number, emitter: Hex, payload: Hex, sequence?: bigint, consistency = 0): Hex | null {
   let raw: Uint8Array;
   if (typeof value === "string" && value.length <= 128_000 && value.length % 4 === 0
     && /^[A-Za-z0-9+/]+={0,2}$/.test(value)) {
@@ -19,14 +19,14 @@ function decodeVaa(value: unknown, chain: number, emitter: Hex, payload: Hex, se
   const start = 6 + raw[5]! * 66;
   if (start + 51 > raw.length) return null;
   const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
-  if (view.getUint16(start + 8, false) !== chain || raw[start + 50] !== 0
+  if (view.getUint16(start + 8, false) !== chain || raw[start + 50] !== consistency
     || (sequence !== undefined && view.getBigUint64(start + 42, false) !== sequence)
     || bytesToHex(raw.subarray(start + 10, start + 42)).toLowerCase() !== emitter.toLowerCase()
     || bytesToHex(raw.subarray(start + 51)).toLowerCase() !== payload.toLowerCase()) return null;
   return bytesToHex(raw);
 }
 
-async function request(url: URL, chain: number, emitter: Hex, payload: Hex, sequence?: bigint): Promise<VaaProof> {
+async function request(url: URL, chain: number, emitter: Hex, payload: Hex, sequence?: bigint, consistency = 0): Promise<VaaProof> {
   const response = await fetch(url, { signal: AbortSignal.timeout(10_000), redirect: "error" })
     .catch(() => null);
   if (!response?.ok) throw new Error("wormhole-vaa-unavailable");
@@ -42,7 +42,7 @@ async function request(url: URL, chain: number, emitter: Hex, payload: Hex, sequ
   const matches = entries.flatMap((entry) => {
     if (!entry || typeof entry !== "object") return [];
     const item = entry as Record<string, unknown>;
-    const header = decodeVaa(item["vaa"], chain, emitter, payload, sequence);
+    const header = decodeVaa(item["vaa"], chain, emitter, payload, sequence, consistency);
     return header ? [header] : [];
   });
   if (matches.length !== 1) throw new Error("wormhole-vaa-unavailable");
@@ -57,11 +57,12 @@ function base(): URL {
 }
 
 export async function fetchWormholeVaaById(input: {
-  chain: number; emitter: Address; sequence: bigint; payload: Hex;
+  chain: number; emitter: Address; sequence: bigint; payload: Hex; consistency?: 0 | 203;
 }): Promise<VaaProof> {
   const url = base();
   const emitter = padHex(input.emitter, { size: 32 });
   url.pathname = `${url.pathname.replace(/\/$/, "")}/api/v1/vaas/${input.chain}/${emitter.slice(2)}/${input.sequence}`;
   url.search = "";
-  return request(url, input.chain, emitter, input.payload, input.sequence);
+  if (input.consistency === 203 && input.chain !== 10002) throw new Error("wormhole-confirmation-policy-invalid");
+  return request(url, input.chain, emitter, input.payload, input.sequence, input.consistency);
 }

@@ -70,11 +70,12 @@ function validateSnapshotAccounts(wallet: SolanaWalletPort, metas: SolanaInstruc
   if (!Array.isArray(metas) || metas.length !== 11
     || metas[0]?.pubkey !== wallet.publicKey || !metas[0]?.isSigner || !metas[0]?.isWritable
     || metas[8]?.pubkey !== solanaWormholeCore(wallet.wormholeNetwork)
+    || metas[7]?.pubkey !== "11111111111111111111111111111111" || metas[7]?.isSigner || metas[7]?.isWritable
     || metas.some((meta) => !meta || typeof meta.pubkey !== "string" ||
       typeof meta.isSigner !== "boolean" || typeof meta.isWritable !== "boolean")) {
     throw new Error("solana-wormhole-accounts-invalid");
   }
-  for (const meta of metas) solanaPubkeyBytes(meta.pubkey);
+  for (const [index, meta] of metas.entries()) if (index !== 7) solanaPubkeyBytes(meta.pubkey);
 }
 
 export async function prepareSolanaSnapshot(wallet: SolanaWalletPort, programId: string) {

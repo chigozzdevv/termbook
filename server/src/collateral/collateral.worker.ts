@@ -60,6 +60,7 @@ export async function handleCollateralJob(job: { kind: string; payload: Record<s
     || typeof tracked.owner !== "string" || typeof tracked.amount !== "string") {
     throw new Error("collateral-track-missing");
   }
+  if (tracked.state === "proven") return;
   const creditId = tracked.creditId as Hex;
   const chain = monadClient();
   if (await chain.getChainId() !== env.monadChainId) throw new Error("collateral-monad-chain-mismatch");

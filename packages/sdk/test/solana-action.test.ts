@@ -110,7 +110,7 @@ describe("Solana source action instruction", () => {
     const wallet = { publicKey: solanaPubkeyBase58(key(9)), sendInstruction,
       prepareWormholeAuthorization: async () => wormhole,
       prepareWormholeSnapshot: async () => wormhole.snapshotAccounts };
-    expect(await submitSolanaAction(json, wallet, rpc)).toBe("2".repeat(88));
+    expect(await submitSolanaAction(parseSolanaActionPlan(json), wallet, rpc)).toBe("2".repeat(88));
     expect(sendInstruction).toHaveBeenCalledOnce();
     lastNonce = 1n;
     await expect(submitSolanaAction(json, wallet, rpc)).rejects.toThrow("solana-action-source-mismatch");

@@ -93,6 +93,14 @@ function source(overrides: Record<string, unknown> = {}, proven = false, accepte
 }
 
 describe("Ethereum collateral relay", () => {
+  it("completes duplicate jobs after verified proof finalization removed the signed transaction", async () => {
+    vi.mocked(collateralRepo.find).mockResolvedValue({ lockId, creditId, owner, amount: "100",
+      state: "proven", txHash: keccak256("0x1234") } as never);
+    await expect(handleCollateralJob({ kind: "collateral.tracked", payload: { lockId } })).resolves.toBeUndefined();
+    expect(monadClient).not.toHaveBeenCalled();
+    expect(fetchProof).not.toHaveBeenCalled();
+    expect(collateralRepo.acquireSigner).not.toHaveBeenCalled();
+  });
   it("reconciles a previously proven lock after its collateral amount changes", async () => {
     source({ facility: 4, collateralAmount: 0n }, true);
     await handleCollateralJob({ kind: "collateral.tracked", payload: { lockId } });

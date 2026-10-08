@@ -4,6 +4,7 @@ import { termbookCoreAbi, verifierRegistryAbi } from "@termbook/bindings";
 import { monadClient } from "../chain/monad.client.js";
 import { fetchConsumedActionProof, fetchUnconsumedActionProof } from "../chain/source.client.js";
 import { ethereumWormholeMode, fetchEthereumSnapshot } from "../chain/ethereum-wormhole-snapshot.js";
+import { ethereumCreditConfirmationPolicy, ethereumConfirmedBlock } from "../chain/ethereum-confirmations.js";
 import { appliedLogIndex } from "../chain/source-action-receipt.js";
 import { env } from "../config/env.js";
 import { queue } from "../queue/queue.client.js";
@@ -92,7 +93,8 @@ export const remoteActionService = {
     const source = createPublicClient({ transport: http(env.sourceRpcUrl) });
     if (await source.getChainId() !== ethereumSourceChain()) throw new Error("source-action-chain-mismatch");
     const receipt = await source.getTransactionReceipt({ hash: input.sourceTxHash as Hex });
-    const sourceFinalized = await source.getBlock({ blockTag: "finalized" });
+    const policy = await ethereumCreditConfirmationPolicy(action.creditId);
+    const sourceFinalized = await ethereumConfirmedBlock(source, policy.depth);
     if (receipt.blockNumber > sourceFinalized.number) throw new Error("source-action-not-finalized");
     const sourceBlock = await source.getBlock({ blockNumber: receipt.blockNumber });
     if (sourceBlock.hash.toLowerCase() !== receipt.blockHash.toLowerCase()) {

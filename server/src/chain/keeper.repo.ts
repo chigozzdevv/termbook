@@ -3,6 +3,7 @@ import type { Address, Hex } from "viem";
 import { KeeperTransactionModel, KeeperWalletModel } from "./keeper.model.js";
 
 export type PendingTransaction = { id: string; hash: Hex; raw: Hex; nonce: number; to: Address; data: Hex;
+  testnetConfirmations?: number;
   previous?: { hash: Hex; raw: Hex }[] };
 const duration = 120_000;
 export const keeperRepo = {

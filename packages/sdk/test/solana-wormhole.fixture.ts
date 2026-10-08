@@ -16,7 +16,7 @@ export function wormholeFixture(payer: string, monadCore: Hex, actionHash: Hex) 
   data.set(hexToBytes(keccak256(stringToHex("Termbook Monad authorization v1"))), 95);
   data.set(hexToBytes(actionHash), 127);
   const snapshotAccounts = Array.from({ length: 11 }, (_, index) => ({
-    pubkey: index === 0 ? payer : index === 8 ? SOLANA_WORMHOLE_CORE
+    pubkey: index === 0 ? payer : index === 7 ? "11111111111111111111111111111111" : index === 8 ? SOLANA_WORMHOLE_CORE
       : solanaPubkeyBase58(key(20 + index)),
     isSigner: index === 0,
     isWritable: index <= 5,

@@ -7,7 +7,12 @@ import { canonicalJson, apiAuthorizationMessage } from "../packages/schema/dist/
 import { root, viem, artifact, testnetRuntime, writeJsonAtomic } from "./testnet-runtime.mjs";
 
 const mode = process.argv[2];
-if (!["--begin", "--retry-default", "--advance", "--run", "--observe"].includes(mode) || process.argv.length !== 3) throw new Error("Use --begin, --retry-default, --advance, --run, or --observe");
+const fast = process.argv[3] === "--fast";
+const clean = process.argv[4] === "--clean";
+if (!["--begin", "--start", "--retry-default", "--advance", "--run", "--observe"].includes(mode) || clean && !fast
+  || process.argv.length !== (clean ? 5 : fast ? 4 : 3)) throw new Error("Use --begin, --start, --retry-default, --advance, --run, or --observe with optional --fast and --clean");
+const journalName = fast ? clean ? "fast-clean-e2e" : "fast-e2e" : "live-e2e";
+const publicName = fast ? clean ? "testnet-fast-clean-e2e" : "testnet-fast-e2e" : "testnet-e2e";
 const api = "http://127.0.0.1:3002";
 const erc20 = viem.parseAbi(["function approve(address,uint256) returns(bool)", "function balanceOf(address) view returns(uint256)"]);
 const wethAbi = viem.parseAbi(["function deposit() payable"]);
@@ -17,7 +22,7 @@ const numericQuote = ["sourceChain", "collateralAmount", "limit", "setupDeadline
 const quoteValue = (quote) => Object.fromEntries(Object.entries(quote).map(([key, value]) => [key, numericQuote.includes(key) ? BigInt(value) : value]));
 
 async function main() {
-  const runtime = await testnetRuntime("live-e2e", false);
+  const runtime = await testnetRuntime(journalName, false);
   const { deployment, report, persist, account } = runtime;
   const monad = await runtime.context(10143);
   const source = await runtime.context(11155111);
@@ -31,6 +36,17 @@ async function main() {
   const now = (await monad.client.getBlock()).timestamp;
   if (!m.AccountHealthSource || (await coreRead("healthSource")).toLowerCase() !== m.AccountHealthSource.toLowerCase()) throw new Error("Authenticated health source is required");
   if (!await monad.read("IntegrationRegistry", m.IntegrationRegistry, "isActive", [appSetup.bundleId])) throw new Error("Test application is inactive");
+  if (mode !== "--observe") {
+    const registry = await coreRead("verifierRegistry");
+    const [verifier, version, active] = await monad.read("VerifierRegistry", registry, "verifiers", [11155111n]);
+    const depth = await source.read("WormholeEthereumPublisher", s.WormholeEthereumPublisher, "confirmationDepth");
+    if (fast ? !active || version !== 2n || depth !== 5 : depth !== 0) throw new Error("E2E confirmation mode does not match the admitted deployment");
+    if (fast) {
+      const client = await monad.read("WormholeEthereumVerifier", verifier, "lightClient");
+      if (await monad.read("WormholeSepoliaMessageClient", client, "confirmationDepth") !== 5
+        || await monad.read("WormholeSepoliaMessageClient", client, "confirmationPolicyHash") !== await source.read("WormholeEthereumPublisher", s.WormholeEthereumPublisher, "confirmationPolicyHash")) throw new Error("E2E confirmation policy mismatch");
+    }
+  }
 
   async function post(route, body) {
     const request = { method: "POST", path: route, bodyHash: viem.hashMessage(canonicalJson(body)) };
@@ -51,7 +67,7 @@ async function main() {
     return result.json();
   }
 
-  if (mode === "--begin" || mode === "--retry-default") {
+  if (mode === "--begin" || mode === "--retry-default" || mode === "--start" && !report.begun) {
     if (!(await globalThis.fetch(`${api}/ready`)).ok) throw new Error("Local services are not ready");
     await post("/houses", { house: account.address, vault: m.HouseVault, asset: usdc, manager: account.address });
     report.startedAt ??= new Date().toISOString();
@@ -62,7 +78,7 @@ async function main() {
       const previous = report.cases.default;
       if (!previous || (await coreRead("creditDetails", [previous.creditId])).facility !== 7) throw new Error("Abort the expired default setup before retrying");
     }
-    for (const kind of mode === "--retry-default" ? ["default-retry"] : ["repayment", "default"]) {
+    for (const kind of mode === "--retry-default" ? ["default-retry"] : fast ? ["repayment"] : ["repayment", "default"]) {
       let test = report.cases[kind];
       if (!test) {
         const nonce = BigInt(Date.now());
@@ -104,10 +120,11 @@ async function main() {
       test.state = "awaiting_collateral_proof";
       persist();
     }
+    report.begun = true; persist();
   }
 
   if (!report.cases) throw new Error("Run --begin first");
-  if (mode === "--advance" || mode === "--run") {
+  if (mode === "--advance" || mode === "--run" || mode === "--start") {
     for (const test of Object.values(report.cases)) {
       let credit = await coreRead("creditDetails", [test.creditId]);
       if ([0, 1, 2, 3].includes(credit.facility) && now > credit.setupDeadline) {
@@ -116,16 +133,6 @@ async function main() {
         test.state = "setup_aborted";
         persist();
         credit = await coreRead("creditDetails", [test.creditId]);
-      }
-      if (credit.facility === 2) {
-        const commitment = await source.read("CollateralVault", s.CollateralVault, "lockCommitments", [test.lockId]);
-        const key = await source.read("WormholeEthereumPublisher", s.WormholeEthereumPublisher, "snapshotKey", [1, commitment, 0n]);
-        if (!await source.read("WormholeEthereumPublisher", s.WormholeEthereumPublisher, "published", [key])) {
-          const wormhole = await source.read("WormholeEthereumPublisher", s.WormholeEthereumPublisher, "wormhole");
-          const fee = await source.client.readContract({ address: wormhole,
-            abi: viem.parseAbi(["function messageFee() view returns(uint256)"]), functionName: "messageFee" });
-          await source.send(`${test.kind}:publish-lock`, encode("WormholeEthereumPublisher", "publishLock", [test.lockId]), s.WormholeEthereumPublisher, fee);
-        }
       }
       if (credit.facility === 4 && !test.drawVerified) {
         test.action ??= { capability: viem.keccak256(viem.stringToHex("deposit")),
@@ -170,19 +177,20 @@ async function main() {
         persist();
       }
       if (test.returnTx && !credit.collateralReturned) {
-        await post("/collateral/actions", { creditId: test.creditId, kind: "release", authorizationTxHash: test.returnTx });
-        test.state = "awaiting_collateral_return";
         test.returnActionHash ??= await coreRead("remoteReturnActionHash", [test.creditId]);
-        persist();
-        if (await source.read("RemoteCollateralController", s.RemoteCollateralController, "consumed", [test.returnActionHash])) {
-          const key = await source.read("WormholeEthereumPublisher", s.WormholeEthereumPublisher, "snapshotKey", [2, test.returnActionHash, 0n]);
-          if (!await source.read("WormholeEthereumPublisher", s.WormholeEthereumPublisher, "published", [key])) {
-            const wormhole = await source.read("WormholeEthereumPublisher", s.WormholeEthereumPublisher, "wormhole");
-            const fee = await source.client.readContract({ address: wormhole,
-              abi: viem.parseAbi(["function messageFee() view returns(uint256)"]), functionName: "messageFee" });
-            await source.send(`${test.kind}:publish-applied`, encode("WormholeEthereumPublisher", "publishApplied", [test.returnActionHash]), s.WormholeEthereumPublisher, fee);
+        if (!test.returnRegistered) {
+          const response = await globalThis.fetch(`${api}/collateral/actions?creditId=${test.creditId}`);
+          if (!response.ok) throw new Error("Return receipt index unavailable");
+          const records = await response.json();
+          if (!Array.isArray(records)) throw new Error("Invalid return receipt index");
+          if (!records.some((record) => record.creditId === test.creditId && record.kind === 0
+            && record.authorizationTxHash === test.returnTx && record.actionHash === test.returnActionHash)) {
+            await post("/collateral/actions", { creditId: test.creditId, kind: "release", authorizationTxHash: test.returnTx });
           }
+          test.returnRegistered = true;
         }
+        test.state = "awaiting_collateral_return";
+        persist();
       }
       credit = await coreRead("creditDetails", [test.creditId]);
       if (credit.collateralReturned && credit.facility === 5) {
@@ -219,17 +227,18 @@ async function main() {
   report.observedAt = new Date().toISOString();
   report.observations = observations;
   if (mode !== "--observe") persist();
-  writeJsonAtomic(path.join(root, "deployments/testnet-e2e.json"), { network: "testnet", startedAt: report.startedAt, observedAt: report.observedAt,
+  writeJsonAtomic(path.join(root, `deployments/${publicName}.json`), { network: "testnet", startedAt: report.startedAt, observedAt: report.observedAt,
+    confirmationPolicy: fast ? "Sepolia five-confirmation test policy" : "Full source finality",
     scope: "Real Sepolia WETH custody, Wormhole proofs, Monad USDC borrowing and reference app recovery",
     excluded: "Aurora conversions and real trading venue behavior", core: m.TermbookCore, app, observations,
     transactions: report.transactions.map((tx) => Object.fromEntries(Object.entries(tx).filter(([key]) => key !== "rawTransaction"))) });
   log(JSON.stringify({ observedAt: report.observedAt, cases: observations }));
   return observations.some((test) => test.kind === "repayment" && test.completed)
-    && observations.some((test) => test.kind.startsWith("default") && test.completed);
+    && (fast || observations.some((test) => test.kind.startsWith("default") && test.completed));
 }
 
 async function run() {
-  const lockPath = path.join(root, ".testnet/live-e2e.lock");
+  const lockPath = path.join(root, `.testnet/${journalName}.lock`);
   let lock;
   if (mode !== "--observe") {
     if (fs.existsSync(lockPath)) {
@@ -248,8 +257,8 @@ async function run() {
     const deadline = Date.now() + 2 * 60 * 60 * 1000;
     do {
       const completed = await main();
-      if (mode !== "--run" || completed) return;
-      await delay(45_000);
+      if (!["--run", "--start"].includes(mode) || completed) return;
+      await delay(2000);
     } while (Date.now() < deadline);
     throw new Error("Live test wait expired; resume with --run");
   } finally {

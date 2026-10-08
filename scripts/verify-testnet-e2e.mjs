@@ -26,6 +26,7 @@ async function main() {
     if (r.status !== 'success' || b.hash !== r.blockHash || b.transactions[r.transactionIndex] !== hash) throw new Error('E2E receipt is reverted or noncanonical');
     const tx = await client.getTransaction({ hash });
     const result = { chainId, hash, from: tx.from, to: tx.to, block: String(r.blockNumber), blockHash: r.blockHash,
+      timestamp: Number(b.timestamp), minedAt: new Date(Number(b.timestamp) * 1000).toISOString(),
       finalized: r.blockNumber <= finalized[chainId].number, gasUsed: String(r.gasUsed), effectiveGasPrice: String(r.effectiveGasPrice),
       feeWei: String(r.gasUsed * r.effectiveGasPrice) };
     checked.set(key, result);
@@ -41,7 +42,8 @@ async function main() {
       collateralReturned: c.collateralReturned, sourceLockedAmount: String(lock[2]), appPosition: String(position), accountReleased,
       repaymentComplete: t.kind === 'repayment' && c.facility === 6 && c.payment === 4 && c.debt === 0n && c.collateralReturned && lock[2] === 0n && position === 0n && accountReleased,
       recoveryComplete: t.kind.startsWith('default') && c.facility === 10 && c.debt === 0n && c.collateralReturned && lock[2] === 0n && position === 0n && accountReleased,
-      setupAborted: c.facility === 7, proofAndReturnReceipts: [] };
+      setupAborted: c.facility === 7, proofAndReturnReceipts: [],
+      observedCompletedAt: t.completedAt };
     const draw = recorded.transactions.find((tx) => tx.name === `${t.kind}:borrow-and-deposit`);
     if (draw) {
       const drawReceipt = await monad.getTransactionReceipt({ hash: draw.hash });
@@ -61,8 +63,16 @@ async function main() {
       if (!Array.isArray(records)) throw new Error('Invalid E2E receipt index');
       for (const record of records) {
         if (record.creditId !== t.creditId) throw new Error('E2E indexed credit mismatch');
-        if (record.txHash) outcome.proofAndReturnReceipts.push(await receipt(endpoint === 'collateral' ? 10143 : 11155111, record.txHash));
-        if (record.confirmTxHash) outcome.proofAndReturnReceipts.push(await receipt(10143, record.confirmTxHash));
+        if (record.txHash) {
+          const tx = await receipt(endpoint === 'collateral' ? 10143 : 11155111, record.txHash);
+          outcome.proofAndReturnReceipts.push(tx);
+          if (endpoint === 'collateral') outcome.collateralProofReceipt = tx;
+          else outcome.sourceReturnReceipt = tx;
+        }
+        if (record.confirmTxHash) {
+          outcome.returnConfirmationReceipt = await receipt(10143, record.confirmTxHash);
+          outcome.proofAndReturnReceipts.push(outcome.returnConfirmationReceipt);
+        }
       }
     }
     if (outcome.recoveryComplete || t.kind.startsWith('default') && [8, 9].includes(c.facility) && c.debt === 0n) {
@@ -99,17 +109,50 @@ async function main() {
       outcome.forcedRecoveryReceipts = steps;
       outcome.forcedRecoveryAmount = String(recovered);
     }
+    const ownReceipt = async (name) => {
+      const tx = recorded.transactions.find((entry) => entry.name === `${t.kind}:${name}`);
+      return tx ? receipt(tx.chainId, tx.hash) : undefined;
+    };
+    const accept = await ownReceipt('accept');
+    const locked = await ownReceipt('lock-WETH');
+    const repaid = await ownReceipt('repay');
+    const authorized = await ownReceipt('authorize-return');
+    const closed = await ownReceipt(t.kind === 'repayment' ? 'finish-close' : 'release-account');
+    const lockProof = outcome.collateralProofReceipt;
+    const applied = outcome.sourceReturnReceipt;
+    const confirmation = outcome.returnConfirmationReceipt;
+    const recovery = outcome.forcedRecoveryReceipts ?? [];
+    const recoveryTimes = [...new Set(recovery.map((tx) => tx.timestamp))].sort((a, b) => a - b);
+    const elapsed = (start, end) => start && end ? end.timestamp - start.timestamp : null;
+    outcome.timings = {
+      basis: 'Canonical block timestamps; includes keeper polling and cross-chain finality waits',
+      setupSeconds: elapsed(accept, locked),
+      collateralProofSeconds: elapsed(locked, lockProof),
+      proofToBorrowSeconds: elapsed(lockProof, outcome.drawReceipt),
+      borrowToRepaymentSeconds: elapsed(outcome.drawReceipt, repaid),
+      defaultEligibleAt: t.kind.startsWith('default') ? new Date(Number(c.maturity + c.grace) * 1000).toISOString() : null,
+      defaultWaitSeconds: t.kind.startsWith('default') && outcome.drawReceipt ? Number(c.maturity + c.grace) - outcome.drawReceipt.timestamp : null,
+      defaultDetectionSeconds: recoveryTimes.length ? recoveryTimes[0] - Number(c.maturity + c.grace) : null,
+      forcedRecoverySeconds: recoveryTimes.length ? recoveryTimes.at(-1) - recoveryTimes[0] : null,
+      returnAuthorizationToSourceSeconds: elapsed(authorized, applied),
+      returnConfirmationSeconds: elapsed(applied, confirmation),
+      closureSeconds: elapsed(confirmation, closed),
+      acceptToClosureSeconds: elapsed(accept, closed),
+    };
     observations.push(outcome);
   }
   for (const tx of recorded.transactions) await receipt(tx.chainId, tx.hash);
   const fees = {};
   for (const tx of checked.values()) fees[tx.chainId] = (BigInt(fees[tx.chainId] ?? '0') + BigInt(tx.feeWei)).toString();
-  const report = { verifiedAt: new Date().toISOString(), core, scope: recorded.scope, excluded: recorded.excluded,
+  const lifecycleComplete = observations.some((t) => t.repaymentComplete) && observations.some((t) => t.recoveryComplete);
+  const allReceiptsFinalized = [...checked.values()].every((tx) => tx.finalized);
+  const report = { verifiedAt: new Date().toISOString(), startedAt: recorded.startedAt, core, scope: recorded.scope, excluded: recorded.excluded,
     feeScope: 'Listed borrower, proof, return and recovery receipts; excludes keeper funding and oracle updates',
     finalizedBlocks: Object.fromEntries(Object.entries(finalized).map(([id, b]) => [id, { number: String(b.number), hash: b.hash }])),
     observations, measuredFeesWei: fees, transactions: [...checked.values()],
-    completed: observations.some((t) => t.repaymentComplete) && observations.some((t) => t.recoveryComplete) };
+    lifecycleComplete, allReceiptsFinalized, completed: lifecycleComplete && allReceiptsFinalized };
   writeJsonAtomic(path.join(root, 'deployments/testnet-e2e-verification.json'), report);
   log(JSON.stringify({ verifiedAt: report.verifiedAt, completed: report.completed, observations }));
+  if (!report.completed) process.exitCode = 1;
 }
 main().catch((cause) => { error(cause instanceof Error ? cause.message.split('\n')[0] : 'E2E verification failed'); process.exitCode = 1; });

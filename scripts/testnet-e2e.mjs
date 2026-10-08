@@ -206,19 +206,22 @@ async function main() {
     const position = await monad.read("ReferenceAssetApp", app, "positions", [test.account]);
     const accountReleased = await monad.read("CreditAccount", test.account, "released");
     const completed = [6, 10].includes(credit.facility) && credit.debt === 0n && credit.collateralReturned && position === 0n && sourceLock[2] === 0n && accountReleased;
-    if (completed) test.state = "completed";
+    if (completed) {
+      test.state = "completed";
+      test.completedAt ??= new Date().toISOString();
+    }
     if (credit.facility === 7 && credit.collateralReturned && sourceLock[2] === 0n) test.state = "aborted_collateral_returned";
     observations.push({ kind: test.kind, creditId: test.creditId, lockId: test.lockId, account: test.account,
       state: test.state, facility: credit.facility, payment: credit.payment, debt: String(credit.debt),
       collateralReturned: credit.collateralReturned, sourceLockedAmount: String(sourceLock[2]), appPosition: String(position), accountReleased,
-      maturity: String(credit.maturity), grace: String(credit.grace), drawVerified: test.drawVerified, failure: test.failure, completed });
+      maturity: String(credit.maturity), grace: String(credit.grace), drawVerified: test.drawVerified, failure: test.failure, completedAt: test.completedAt, completed });
   }
   report.observedAt = new Date().toISOString();
   report.observations = observations;
   if (mode !== "--observe") persist();
-  writeJsonAtomic(path.join(root, "deployments/testnet-e2e.json"), { network: "testnet", observedAt: report.observedAt,
+  writeJsonAtomic(path.join(root, "deployments/testnet-e2e.json"), { network: "testnet", startedAt: report.startedAt, observedAt: report.observedAt,
     scope: "Real Sepolia WETH custody, Wormhole proofs, Monad USDC borrowing and reference app recovery",
-    excluded: "Aurora conversions and real perps venue behavior", core: m.TermbookCore, app, observations,
+    excluded: "Aurora conversions and real trading venue behavior", core: m.TermbookCore, app, observations,
     transactions: report.transactions.map((tx) => Object.fromEntries(Object.entries(tx).filter(([key]) => key !== "rawTransaction"))) });
   log(JSON.stringify({ observedAt: report.observedAt, cases: observations }));
   return observations.some((test) => test.kind === "repayment" && test.completed)

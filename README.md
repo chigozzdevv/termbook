@@ -676,6 +676,18 @@ The ordinary Ethereum route retains full finality. Five-block confirmation accep
 reorganization risk before Ethereum finality and is restricted to Sepolia and
 Monad testnet. The test runners poll every two seconds.
 
+Two WETH-backed repayment loans completed using this policy. Independent checks
+confirmed that their lock and return VAAs carry consistency 203 and the admitted
+five-block policy hash. The continuous run borrowed 2m 36s after acceptance:
+50s for source setup, 1m 38s for the collateral proof, and 8s from accepted proof
+to borrowing. It repaid in 7s, returned WETH 37s after authorization, and confirmed
+the return on Monad another 2m 42s later. Final closure took 8m, including a
+1m 52s runner restart delay after return confirmation. The first run includes
+debugging and launch waits. These are testnet reference app measurements.
+All 18 listed receipts in each run were independently checked as canonical and
+fully finalized after the faster borrowing and return flow completed.
+Evidence is recorded in `deployments/testnet-fast{,-clean}-e2e{,-verification}.json`.
+
 ```sh
 node scripts/testnet-solana-e2e.mjs --begin --clean
 node scripts/testnet-solana-e2e.mjs --run --clean

@@ -217,8 +217,8 @@ dependency guards, amount/price rules, health accounting and activation. Its
 factory binds the Core and collateral reader once; the plan creates the bound
 `AppHealthReader` after registering recovery. Every proxy dependency needs a reviewed
 onchain guard; an RPC implementation-slot check alone does not satisfy admission.
-The operator's reviewed validation environment remains required, and these
-changes have not been deployed or validated against a live Kuru market.
+The shared components are deployed on Monad testnet. The operator's reviewed
+validation environment remains required; no live Kuru market has been admitted.
 
 ### Shared assessment
 
@@ -798,6 +798,32 @@ waiting period. The Solana devnet program retains its recorded upgrade authority
 House registration, Wormhole configuration, verifier admissions, ETH custody
 bindings and SOL program identity were checked onchain. The current record
 includes implementation pins, storage layouts, receipts and finality status.
+
+On 9 October 2026, `FlowExecutor` (the execution manager), `AccountFactory`,
+`PriceProtection` and `TermbookCore` were upgraded at their existing proxy
+addresses. The seven shared integration components listed above received their
+first deployments. All 19 transactions succeeded, costing 5.80317015 MON.
+Independent finalized verification checked all 19 receipts and 23 Monad proxies.
+The checks preserved all six credit records, existing account addresses, LP
+shares, House balances and prior storage slots. The factory upgrade applies
+the new recovery-call implementation to newly created Credit Accounts; existing
+accounts keep their custody code. Sepolia and Solana code did not change.
+Addresses, receipt hashes and preserved-state hashes are recorded in
+`deployments/testnet-integrations.json`; SDK bindings and the local server
+configuration include the shared component addresses.
+
+```sh
+node scripts/setup-testnet-integrations.mjs --simulate
+node scripts/setup-testnet-integrations.mjs --broadcast
+node scripts/verify-testnet-integrations.mjs
+```
+
+The simulation requires a current Monad testnet fork on port 18545. The live
+runner checks storage and interface compatibility, a complete settled-credit
+inventory, unchanged state and the simulated gas budget before signing.
+It journals transactions atomically and upgrades the execution manager before
+Core. The verification command uses no signing key and checks finalized receipts,
+all Monad proxies, compiled runtime code, bindings and preserved state.
 
 The retired deployment's credit setups were verified as settled before migration.
 Its House is disabled and paused, its Sepolia controller is paused, and its

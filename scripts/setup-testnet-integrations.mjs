@@ -1,0 +1,204 @@
+import fs from "node:fs";
+import path from "node:path";
+import process from "node:process";
+import { log, error } from "node:console";
+import { execFileSync } from "node:child_process";
+import { root, viem, artifact, testnetRuntime, writeJsonAtomic } from "./testnet-runtime.mjs";
+import { validateUpgradeArtifact, upgradeArtifactLoader } from "./upgrade-validation.mjs";
+
+const simulate = process.argv[2] === "--simulate";
+if (process.argv.length !== 3 || !["--simulate", "--broadcast"].includes(process.argv[2])) throw new Error("Use --simulate or --broadcast");
+const upgrades = ["FlowExecutor", "AccountFactory", "PriceProtection", "TermbookCore"];
+const shared = ["ReadProgram", "UseCaseReader", "UseCasePolicy", "UseCaseRecovery", "AtomicSpotRouter", "AtomicSpotModule", "AppHealthReaderFactory"];
+const implementationArtifact = upgradeArtifactLoader(path.join(root, "contracts/evm/out"));
+const canonical = (value) => JSON.stringify(value, (_, entry) => typeof entry === "bigint" ? entry.toString() : entry);
+const equal = (actual, expected, label) => {
+  if (canonical(actual).toLowerCase() !== canonical(expected).toLowerCase()) throw new Error(`Verification failed: ${label}`);
+};
+const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+
+function credits(core) {
+  const ids = new Set();
+  for (const file of fs.readdirSync(path.join(root, "deployments")).filter((file) => /e2e.*\.json$/.test(file))) {
+    const evidence = JSON.parse(fs.readFileSync(path.join(root, "deployments", file), "utf8"));
+    if (evidence.core?.toLowerCase() !== core.toLowerCase()) continue;
+    if (evidence.creditId) ids.add(evidence.creditId);
+    for (const entry of evidence.observations ?? []) if (entry.creditId) ids.add(entry.creditId);
+  }
+  return [...ids].sort();
+}
+
+async function main() {
+  const { deployment, report, persist, context } = await testnetRuntime("shared-integration-upgrade", simulate);
+  const monad = await context(10143);
+  const m = deployment.addresses[10143];
+  if (deployment.upgradeMode !== "testnet-administrator") throw new Error("Upgradeable deployment required");
+  if (report.sourceCommit && report.sourceCommit !== sourceCommit && !report.completedAt) throw new Error("Upgrade build changed");
+  report.sourceCommit ??= sourceCommit;
+  report.baselines ??= Object.fromEntries(upgrades.map((name) => [name, deployment.proxies[10143][name]]));
+  report.proxies ??= {};
+  const builds = Object.fromEntries([...upgrades, ...shared].map((name) => [name, viem.keccak256(artifact(name).bytecode.object)]));
+  if (report.builds) equal(builds, report.builds, "compiled artifacts");
+  report.builds = builds;
+  persist();
+  equal(await monad.read("ProtocolGovernance", m.ProtocolGovernance, "governance"), deployment.deployer, "governance owner");
+  equal(await monad.read("ProtocolGovernance", m.ProtocolGovernance, "timelock"), 0n, "testnet delay");
+  equal(await monad.read("UpgradeController", m.UpgradeController, "owner"), m.ProtocolGovernance, "upgrade owner");
+  equal(await monad.read("TermbookCore", m.TermbookCore, "executionManager"), m.FlowExecutor, "execution proxy");
+  equal(await monad.read("HouseVault", m.HouseVault, "activeCreditCount"), 0n, "settled loans");
+  for (const name of upgrades) {
+    const baseline = report.baselines[name], candidate = implementationArtifact(name);
+    validateUpgradeArtifact(baseline, candidate);
+    const current = await monad.read("TestnetProxy", m[name], "proxyImplementation");
+    const pin = report.proxies[name] ?? baseline;
+    if (![baseline.implementation, pin.implementation].some((address) => address.toLowerCase() === current.toLowerCase())) throw new Error(`Unexpected implementation: ${name}`);
+    const expectedHash = current.toLowerCase() === baseline.implementation.toLowerCase() ? baseline.implementationCodeHash : pin.implementationCodeHash;
+    equal(viem.keccak256(await monad.client.getCode({ address: current })), expectedHash, `${name} live code`);
+    equal(await monad.read("UpgradeController", m.UpgradeController, "contractIds", [m[name]]), baseline.contractId, `${name} identity`);
+    equal(await monad.read("TestnetProxy", m[name], "proxyAdmin"), baseline.admin, `${name} administrator`);
+  }
+
+  async function state() {
+    const blockNumber = await monad.client.getBlockNumber();
+    const read = (name, address, functionName, args = []) => monad.client.readContract({ address, abi: artifact(name).abi, functionName, args, blockNumber });
+    const ids = credits(m.TermbookCore);
+    equal(await read("TermbookCore", m.TermbookCore, "acceptedCredits"), BigInt(ids.length), "complete credit inventory");
+    const result = { storage: {}, credits: {}, house: {} };
+    for (const name of upgrades) {
+      const baseline = report.baselines[name];
+      const count = baseline.storageLayout.storage.reduce((max, slot) => Math.max(max, Number(slot.slot)
+        + Math.ceil(Number(baseline.storageLayout.types[slot.type].numberOfBytes) / 32)), 0);
+      result.storage[name] = [];
+      for (let from = 0; from < count; from += 16) {
+        const slots = Array.from({ length: Math.min(16, count - from) }, (_, index) => from + index);
+        result.storage[name].push(...await Promise.all(slots.map((slot) => monad.client.getStorageAt({ address: m[name], slot: viem.toHex(slot, { size: 32 }), blockNumber }))));
+      }
+    }
+    for (const id of ids) {
+      const credit = await read("TermbookCore", m.TermbookCore, "creditDetails", [id]);
+      if (![6, 7, 10].includes(credit.facility) || credit.debt !== 0n || !credit.collateralReturned) throw new Error("Existing credit must finish before this upgrade");
+      result.credits[id] = { credit, account: await read("AccountFactory", m.AccountFactory, "accountOf", [id]),
+        released: await read("CreditAccount", credit.account, "released") };
+    }
+    for (const method of ["asset", "totalAssets", "totalShares", "activeCreditCount", "freeCash", "committedCash", "drawnPrincipal", "accruedReceivables", "pendingSettlement", "impairment", "bondLiabilities", "bondCash", "lateRecoveryCash", "unresolvedCreditImpairment"]) {
+      result.house[method] = await read("HouseVault", m.HouseVault, method);
+    }
+    result.house.lpShares = await read("HouseVault", m.HouseVault, "shares", [deployment.deployer]);
+    return JSON.parse(canonical(result));
+  }
+  if (!report.before) { report.before = await state(); persist(); }
+  equal(await state(), report.before, "pre-upgrade state");
+  if (!simulate && !report.completedAt) {
+    const plan = JSON.parse(fs.readFileSync(path.join(root, ".testnet/shared-integration-upgrade-simulation.json"), "utf8"));
+    if (!plan.completedAt || plan.sourceCommit !== sourceCommit) throw new Error("Run the current-build simulation first");
+    equal(plan.builds, builds, "simulated build");
+    for (const name of upgrades) equal(plan.baselines[name].implementationCodeHash, report.baselines[name].implementationCodeHash, "simulated baseline");
+    const gasPrice = await monad.client.getGasPrice();
+    const remainingGas = plan.transactions.filter((tx) => !report.transactions.some((entry) => entry.name === tx.name && entry.status === "success"))
+      .reduce((sum, tx) => sum + BigInt(tx.gasLimit), 0n);
+    const budget = remainingGas * (gasPrice > 100_000_000_000n ? gasPrice : 100_000_000_000n) * 11n / 10n + 10_000_000_000_000_000n;
+    const balance = await monad.client.getBalance({ address: deployment.deployer });
+    if (balance < budget) {
+      log(JSON.stringify({ status: "funding-required", wallet: deployment.deployer, balanceMON: viem.formatEther(balance), budgetMON: viem.formatEther(budget), missingMON: viem.formatEther(budget - balance) }));
+      process.exitCode = 2; return;
+    }
+  }
+  for (const name of upgrades) {
+    const candidate = implementationArtifact(name), baseline = report.baselines[name];
+    const args = (candidate.abi.find((entry) => entry.type === "constructor")?.inputs ?? []).map((input) => {
+      if (input.type === "address") return viem.zeroAddress;
+      throw new Error(`Unsupported implementation constructor: ${name}`);
+    });
+    const implementation = await monad.deploy(name, args, `${name}SharedImplementation`);
+    const implementationCodeHash = viem.keccak256(candidate.deployedBytecode.object);
+    equal(viem.keccak256(await monad.client.getCode({ address: implementation })), implementationCodeHash, `${name} candidate code`);
+    equal(await monad.read(name, implementation, "upgradeContractId"), baseline.contractId, `${name} candidate identity`);
+    report.proxies[name] = { ...baseline, implementation, implementationCodeHash, storageLayout: candidate.storageLayout, abi: candidate.abi };
+    persist();
+    await monad.govern("UpgradeController", m.UpgradeController, "upgrade", [m[name], implementation, implementationCodeHash, "0x"]);
+    equal(await monad.read("TestnetProxy", m[name], "proxyImplementation"), implementation, `${name} upgraded proxy`);
+    log(JSON.stringify({ simulated: simulate, upgraded: name, proxy: m[name], implementation }));
+  }
+  const programs = await monad.deploy("ReadProgram", [m.ProtocolGovernance]);
+  const reader = await monad.deploy("UseCaseReader", [m.ProtocolGovernance, m.TermbookCore, m.IntegrationRegistry, programs]);
+  await monad.deploy("UseCasePolicy", [m.ProtocolGovernance, m.TermbookCore, reader]);
+  await monad.deploy("UseCaseRecovery", [m.ProtocolGovernance, m.TermbookCore, reader]);
+  const router = await monad.deploy("AtomicSpotRouter", [m.ProtocolGovernance, m.TermbookCore, m.IntegrationRegistry]);
+  await monad.deploy("AtomicSpotModule", [m.ProtocolGovernance, m.TermbookCore, router, m.IntegrationRegistry]);
+  await monad.deploy("AppHealthReaderFactory", [m.TermbookCore, m.CollateralHealthReader]);
+  for (const name of shared) {
+    const address = report.addresses[name];
+    const compiled = artifact(name).deployedBytecode;
+    const normalize = (code) => {
+      let result = code.slice(2);
+      for (const references of Object.values(compiled.immutableReferences ?? {})) {
+        for (const { start, length } of references) result = result.slice(0, start * 2) + "0".repeat(length * 2) + result.slice((start + length) * 2);
+      }
+      return `0x${result}`;
+    };
+    equal(normalize(await monad.client.getCode({ address })), normalize(compiled.object), `${name} compiled runtime`);
+    const bindings = name === "ReadProgram" ? { governance: m.ProtocolGovernance }
+      : name === "AppHealthReaderFactory" ? { core: m.TermbookCore, collateralReader: m.CollateralHealthReader }
+        : { governance: m.ProtocolGovernance, core: m.TermbookCore,
+          ...(["UseCaseReader", "AtomicSpotRouter", "AtomicSpotModule"].includes(name) ? { registry: m.IntegrationRegistry } : {}),
+          ...(name === "UseCaseReader" ? { programs } : {}),
+          ...(["UseCasePolicy", "UseCaseRecovery"].includes(name) ? { reader } : {}),
+          ...(name === "AtomicSpotModule" ? { router } : {}) };
+    for (const [method, expected] of Object.entries(bindings)) equal(await monad.read(name, address, method), expected, `${name}.${method}`);
+  }
+  report.after = await state();
+  equal(report.after, report.before, "preserved storage, credits and House");
+  report.verified = true;
+  report.completedAt ??= new Date().toISOString();
+  persist();
+  if (!simulate) {
+    for (const name of upgrades) {
+      deployment.proxies[10143][name] = report.proxies[name];
+      m[`${name}Implementation`] = report.proxies[name].implementation;
+    }
+    for (const name of shared) m[name] = report.addresses[name];
+    deployment.sharedIntegrations = { sourceCommit: report.sourceCommit, completedAt: report.completedAt, report: "testnet-integrations.json" };
+    writeJsonAtomic(path.join(root, "deployments/testnet.json"), deployment);
+    const bindingsFile = path.join(root, "packages/bindings/src/generated/deployments.ts");
+    const bindings = fs.readFileSync(bindingsFile, "utf8");
+    fs.writeFileSync(bindingsFile, bindings.replace(/export const deployments: DeploymentMap = \{[\s\S]*?\n\};/,
+      `export const deployments: DeploymentMap = ${JSON.stringify(deployment.addresses, null, 2)};`));
+    writeJsonAtomic(path.join(root, "deployments/testnet-integrations.json"), { network: "testnet", chainId: 10143,
+      sourceCommit: report.sourceCommit, completedAt: report.completedAt, verified: true, core: m.TermbookCore,
+      upgrades: Object.fromEntries(upgrades.map((name) => [name, { proxy: m[name], previousImplementation: report.baselines[name].implementation,
+        implementation: report.proxies[name].implementation, codeHash: report.proxies[name].implementationCodeHash }])),
+      addresses: Object.fromEntries(shared.map((name) => [name, report.addresses[name]])),
+      preserved: { credits: Object.keys(report.after.credits).length, house: report.after.house, storageUnchanged: true,
+        storage: Object.fromEntries(Object.entries(report.before.storage).map(([name, slots]) => [name, { slots: slots.length, hash: viem.keccak256(viem.toHex(canonical(slots))) }])),
+        creditHashes: Object.fromEntries(Object.entries(report.before.credits).map(([id, credit]) => [id, viem.keccak256(viem.toHex(canonical(credit)))])) },
+      transactions: report.transactions.map(({ rawTransaction: _raw, ...tx }) => tx) });
+    const envFile = path.join(root, ".testnet/server.env");
+    const variables = { SHARED_READ_PROGRAM: programs, SHARED_USE_CASE_READER: reader, SHARED_USE_CASE_POLICY: report.addresses.UseCasePolicy,
+      SHARED_USE_CASE_RECOVERY: report.addresses.UseCaseRecovery, ATOMIC_SPOT_ROUTER: router, ATOMIC_SPOT_MODULE: report.addresses.AtomicSpotModule };
+    let env = fs.readFileSync(envFile, "utf8");
+    for (const [key, value] of Object.entries(variables)) env = env.replace(new RegExp(`^${key}=.*\\n?`, "m"), "") + `${key}=${value}\n`;
+    fs.writeFileSync(envFile, env, { mode: 0o600 });
+  }
+  const cost = report.transactions.reduce((sum, tx) => sum + BigInt(tx.gasUsed) * BigInt(tx.effectiveGasPrice), 0n);
+  log(JSON.stringify({ simulated: simulate, verified: true, transactions: report.transactions.length, costMON: viem.formatEther(cost), addresses: Object.fromEntries(shared.map((name) => [name, report.addresses[name]])) }));
+}
+
+const lockFile = path.join(root, ".testnet/shared-integration-upgrade.lock");
+let lock;
+try {
+  if (!simulate) {
+    for (const file of fs.readdirSync(path.join(root, ".testnet")).filter((file) => file.endsWith(".lock"))) {
+      const owner = Number(fs.readFileSync(path.join(root, ".testnet", file), "utf8"));
+      if (!Number.isSafeInteger(owner) || owner <= 0) throw new Error("Invalid transaction runner lock");
+      try { process.kill(owner, 0); throw new Error("Another transaction runner is active"); }
+      catch (cause) { if (cause.code !== "ESRCH") throw cause; }
+      if (file === path.basename(lockFile)) fs.unlinkSync(lockFile);
+    }
+    lock = fs.openSync(lockFile, "wx", 0o600); fs.writeFileSync(lock, String(process.pid));
+  }
+  await main();
+} catch (cause) {
+  error(cause instanceof Error ? cause.message.split("\n")[0] : "Shared integration upgrade failed"); process.exitCode = 1;
+} finally {
+  if (lock !== undefined) { fs.closeSync(lock); fs.unlinkSync(lockFile); }
+}

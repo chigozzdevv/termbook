@@ -420,5 +420,81 @@
     "proxies": 23,
     "preservedCredits": 6,
     "balanceMON": "11.266012092"
+  },
+  "sourceVerification": {
+    "provider": "Sourcify",
+    "checkedAt": "2026-10-09T19:57:26.966Z",
+    "contracts": [
+      {
+        "name": "ReadProgram",
+        "address": "0x2ED2c74faca711835Ee58eA8F9e8f2b137A1c465",
+        "verificationId": "1e6062e9-0531-45d4-b303-a698038e193c",
+        "matchId": "55839018",
+        "verifiedAt": "2026-10-09T19:51:11Z",
+        "runtimeMatch": "exact_match",
+        "creationMatch": "exact_match",
+        "url": "https://sourcify.dev/server/v2/contract/10143/0x2ED2c74faca711835Ee58eA8F9e8f2b137A1c465"
+      },
+      {
+        "name": "UseCaseReader",
+        "address": "0x43e0ceb5DF801FD7809489AE958b37195921134b",
+        "verificationId": "0835bc95-e362-4d53-b32e-00127256926d",
+        "matchId": "55839035",
+        "verifiedAt": "2026-10-09T19:51:24Z",
+        "runtimeMatch": "exact_match",
+        "creationMatch": "exact_match",
+        "url": "https://sourcify.dev/server/v2/contract/10143/0x43e0ceb5DF801FD7809489AE958b37195921134b"
+      },
+      {
+        "name": "UseCasePolicy",
+        "address": "0xC9A9b5dcB4E3123Ea1A4C25b961C55D01518C814",
+        "verificationId": "3ffe50b3-299f-4115-9426-b9e32943039b",
+        "matchId": "55839021",
+        "verifiedAt": "2026-10-09T19:51:21Z",
+        "runtimeMatch": "exact_match",
+        "creationMatch": "exact_match",
+        "url": "https://sourcify.dev/server/v2/contract/10143/0xC9A9b5dcB4E3123Ea1A4C25b961C55D01518C814"
+      },
+      {
+        "name": "UseCaseRecovery",
+        "address": "0x3b68b553a2327AA4CFBA7C73c2e867becB74D1ff",
+        "verificationId": "ef9b02c3-19a3-45ce-9d35-8066217753dd",
+        "matchId": "55839022",
+        "verifiedAt": "2026-10-09T19:51:22Z",
+        "runtimeMatch": "exact_match",
+        "creationMatch": "exact_match",
+        "url": "https://sourcify.dev/server/v2/contract/10143/0x3b68b553a2327AA4CFBA7C73c2e867becB74D1ff"
+      },
+      {
+        "name": "AtomicSpotRouter",
+        "address": "0xf3e33781E2B5C6265Da2F2775B339Cc5a94a50D1",
+        "verificationId": "5f775283-8f71-42fe-9ccf-67c572ef4e46",
+        "matchId": "55839020",
+        "verifiedAt": "2026-10-09T19:51:17Z",
+        "runtimeMatch": "exact_match",
+        "creationMatch": "exact_match",
+        "url": "https://sourcify.dev/server/v2/contract/10143/0xf3e33781E2B5C6265Da2F2775B339Cc5a94a50D1"
+      },
+      {
+        "name": "AtomicSpotModule",
+        "address": "0xEa4ed00fc38fD3080f158B6935399a7c08901C55",
+        "verificationId": "a5239cdf-0c37-49d7-a02e-95fb1edfbb16",
+        "matchId": "55839023",
+        "verifiedAt": "2026-10-09T19:51:23Z",
+        "runtimeMatch": "exact_match",
+        "creationMatch": "exact_match",
+        "url": "https://sourcify.dev/server/v2/contract/10143/0xEa4ed00fc38fD3080f158B6935399a7c08901C55"
+      },
+      {
+        "name": "AppHealthReaderFactory",
+        "address": "0x8caa65eE0caDAA7dBA9185c01E5790a53Fd61c2C",
+        "verificationId": "a9f75d55-d201-48e8-aa76-ad034c94c6f1",
+        "matchId": "55839026",
+        "verifiedAt": "2026-10-09T19:51:23Z",
+        "runtimeMatch": "exact_match",
+        "creationMatch": "exact_match",
+        "url": "https://sourcify.dev/server/v2/contract/10143/0x8caa65eE0caDAA7dBA9185c01E5790a53Fd61c2C"
+      }
+    ]
   }
 }

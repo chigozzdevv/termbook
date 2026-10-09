@@ -219,6 +219,14 @@ factory binds the Core and collateral reader once; the plan creates the bound
 onchain guard; an RPC implementation-slot check alone does not satisfy admission.
 The shared components are deployed on Monad testnet. The operator's reviewed
 validation environment remains required; no live Kuru market has been admitted.
+All seven shared components have exact creation and runtime source matches on
+Sourcify, recorded in `deployments/testnet-integrations.json`.
+The separate Kuru testnet House and its upgradeable vault are recorded in
+`deployments/testnet-kuru-house.json`; the existing House keeps its asset and
+liquidity. The Kuru House is unfunded. `deployments/testnet-kuru-checks.json`
+records the documented market's source-verification, upgrade-getter and liquidity
+checks. A funded market with verified dependencies and a supported upgrade guard
+is required before its live lifecycle suite can pass or an app token can be issued.
 
 ### Shared assessment
 

@@ -40,23 +40,25 @@ so the Ethereum BLS precompile tests execute locally instead of being skipped.
 
 `docker compose -f docker-compose.testnet.yml up -d` starts an isolated MongoDB
 replica set on port 27018 and Redis on port 6380. Configure the server in the
-ignored `.testnet/server.env` with the current deployment addresses and
+ignored `.env` with the current deployment addresses and
 `CORE_DEPLOYMENT_BLOCK`, then build the workspace and run these in separate terminals:
 
 ```sh
-node --env-file=.testnet/server.env server/dist/server.js
-node --env-file=.testnet/server.env server/dist/worker.js
+node --env-file=.env server/dist/server.js
+node --env-file=.env server/dist/worker.js
 ```
 
 Use `mongodb://127.0.0.1:27018/termbook_testnet_upgradeable?replicaSet=rs0&directConnection=true`
 with a one-member `rs0` replica set for integration admission transactions.
+The Docker volume binds `.data/mongo`, preserving the local MongoDB 7.0.14 data.
 An empty `REDIS_URL` uses the durable MongoDB queue. The local API uses port 3002. `/health` checks the API;
 `/ready` requires current finalized indexing and healthy risk scans.
 
 `node scripts/setup-testnet.mjs --simulate` runs feed admission, House policies,
 and a 10 USDC LP deposit against a Monad testnet fork on port 18545. Use
 `--broadcast` for the deployed testnet. The runner journals signed transactions
-privately before submission and records public results in `deployments/testnet-setup.json`.
+in `.data/operations` before submission. Completed setup is stored in
+`deployments/testnet.json`, and its temporary journal is removed.
 The ETH/USDC ratio uses admitted Chainlink ETH/USD and USDC/USD feeds, pins their
 aggregators, and preserves the older observation timestamp. Its permissionless
 `update()` must run when either underlying round changes. The testnet feeds have
@@ -74,8 +76,8 @@ Production price-age and risk parameters require their own admission.
 After app and keeper setup, `node scripts/testnet-e2e.mjs --begin` creates two
 live Sepolia WETH credits. `--advance` executes verified-ready credits and
 progresses repayment, collateral return, and default recovery; `--observe` reads
-their current state. Receipts and measured outcomes are recorded in
-`deployments/testnet-e2e.json`. This uses a fully redeemable USDC reference app.
+their current state. The current run stays in `.data/operations` until verification.
+This uses a fully redeemable USDC reference app.
 Expired setup cases are aborted and their collateral returned. `--retry-default`
 creates a separate replacement credit with a 45-minute setup window; its default
 test runs after maturity and grace. Fund each keeper for its maximum gas charge,
@@ -84,11 +86,17 @@ not just its expected fee. Workers check this before signing and retrying.
 complete, with a two-hour limit. Only one runner may change the live journal.
 `node scripts/verify-testnet-e2e.mjs` independently checks finalized state,
 canonical receipts, fees, released account control and the approved keeper's
-forced exit and repayment, and writes
-`deployments/testnet-e2e-verification.json` without requiring a signing key.
-It records stage durations from canonical block timestamps and succeeds only
+forced exit and repayment without requiring a signing key. A successful check
+prints the result and removes the completed run files. It computes stage durations from canonical block timestamps and succeeds only
 when both lifecycle outcomes and every listed receipt are finalized.
 Aurora conversions and real trading venues require their own live exercises.
+
+Local files have four purposes:
+
+- `.env`: private service configuration, RPC URLs and API/signing keys.
+- `.testnet/`: private wallet and program authority key files.
+- `.data/`: MongoDB data and temporary journals for unfinished operations.
+- `deployments/testnet.json`: the active public deployment configuration, code pins and upgrade baselines.
 
 ## API authorization
 
@@ -220,12 +228,10 @@ onchain guard; an RPC implementation-slot check alone does not satisfy admission
 The shared components are deployed on Monad testnet. The operator's reviewed
 validation environment remains required; no live Kuru market has been admitted.
 All seven shared components have exact creation and runtime source matches on
-Sourcify, recorded in `deployments/testnet-integrations.json`.
-The separate Kuru testnet House and its upgradeable vault are recorded in
-`deployments/testnet-kuru-house.json`; the existing House keeps its asset and
-liquidity. The Kuru House is unfunded. `deployments/testnet-kuru-checks.json`
-records the documented market's source-verification, upgrade-getter and liquidity
-checks. A funded market with verified dependencies and a supported upgrade guard
+Sourcify. Their addresses and source matches are in `deployments/testnet.json`.
+The separate Kuru testnet House and its upgradeable vault are configured there
+as well. That House is unfunded. The documented Kuru market still needs compatible
+source, upgrade and liquidity checks. A funded market with verified dependencies and a supported upgrade guard
 is required before its live lifecycle suite can pass or an app token can be issued.
 
 ### Shared assessment
@@ -697,10 +703,10 @@ with retained upgrade authority, and explicitly configure that authority as
 described below. `scripts/deploy-testnet.mjs --simulate`
 uses local Monad testnet and Sepolia forks on ports `18545` and `18546`.
 `--broadcast` uses the dedicated wallet in `.testnet/evm.json` and preserves a
-resumable receipt journal in `.testnet/deployment-upgradeable.json`. New deployments execute
+resumable transaction journal in `.data/operations/deployment-upgradeable.json`. New deployments execute
 their initial governance configuration immediately with a zero-second delay.
-They do not admit collateral policies or deposit LP funds. The local keys and
-journals are ignored by Git.
+They do not admit collateral policies or deposit LP funds. The local keys, environment and unfinished journals are ignored by Git.
+Completed journals are removed after the deployment configuration is saved.
 Signed transactions are journaled before broadcast. Resuming a pending
 transaction can raise an outdated fee by at least 25 percent, preserving its
 nonce, call and gas limit; at most three replacements are permitted.
@@ -748,13 +754,18 @@ node scripts/upgrade-testnet.mjs 10143 PriceProtection PriceProtectionV2 --broad
 
 The candidate artifact must preserve existing storage and function interfaces,
 avoid reserved proxy selectors, and retain its contract identity. Preparation
-stores a reviewable plan under `.testnet/upgrades/`. Execution validates the live
+stores a reviewable plan under `.data/operations/`. Execution validates the live
 baseline and reviewed bytecode hash, journals signed transactions before
 broadcasting, and updates `deployments/testnet.json` after confirming the new
 implementation. Initialization calldata may be supplied as the final argument.
 `TERMBOOK_UPGRADE_RPC_URL` optionally selects another RPC for the requested chain.
 After governance ownership moves to a multisig, approve the prepared queue
 transaction through that multisig, then resume `--broadcast`.
+
+Credit inventories are read from finalized Core events. `TERMBOOK_CREDIT_RPC_URL`
+optionally supplies a Monad testnet RPC with a larger log range for migration and
+shared integration checks. Its chain and finalized block must match the primary
+RPC. The public endpoint's small log range can make a full scan slow.
 
 For an upgradeable Solana devnet deployment, build with `testnet-upgrades`, deploy
 with a retained native loader authority, and set `SOLANA_PROGRAM_ID` and
@@ -779,15 +790,16 @@ To replace the original testnet deployment, run `--simulate --redeploy` on the
 local forks. Deployment and initial activation complete in that single run.
 Once that succeeds, `--broadcast --redeploy` checks the same build and the gas
 budget before sending its first transaction, then activates configuration
-immediately. Every accepted Credit in the original deployment must be recorded,
+immediately. Every accepted Credit in the original deployment must be discovered
+from finalized Core events,
 settled, and have its collateral returned. House liquidity must be withdrawn
 before replacement. It reuses the admitted Solana program when no replacement is configured, and
-archives the prior public record in `deployments/testnet-pre-upgrade.json`.
+keeps the prior configuration only while the replacement operation is unfinished.
 Replacement journals use the
 `-redeploy` suffix. ETH custody bindings and SOL program identity are configured
 with the initial replacement setup.
 
-The deployed testnet addresses, receipts and code hashes are recorded in
+The active testnet addresses, configuration and code hashes are recorded in
 [`deployments/testnet.json`](deployments/testnet.json).
 
 | Network | Contract | Address |
@@ -805,7 +817,7 @@ governance contract; the deployer remains the testnet governance owner, with zer
 waiting period. The Solana devnet program retains its recorded upgrade authority.
 House registration, Wormhole configuration, verifier admissions, ETH custody
 bindings and SOL program identity were checked onchain. The current record
-includes implementation pins, storage layouts, receipts and finality status.
+includes implementation pins and storage layouts required to validate upgrades.
 
 On 9 October 2026, `FlowExecutor` (the execution manager), `AccountFactory`,
 `PriceProtection` and `TermbookCore` were upgraded at their existing proxy
@@ -816,8 +828,8 @@ The checks preserved all six credit records, existing account addresses, LP
 shares, House balances and prior storage slots. The factory upgrade applies
 the new recovery-call implementation to newly created Credit Accounts; existing
 accounts keep their custody code. Sepolia and Solana code did not change.
-Addresses, receipt hashes and preserved-state hashes are recorded in
-`deployments/testnet-integrations.json`; SDK bindings and the local server
+Current addresses and implementation pins are recorded in
+`deployments/testnet.json`; SDK bindings and the local server
 configuration include the shared component addresses.
 
 ```sh
@@ -830,14 +842,13 @@ The simulation requires a current Monad testnet fork on port 18545. The live
 runner checks storage and interface compatibility, a complete settled-credit
 inventory, unchanged state and the simulated gas budget before signing.
 It journals transactions atomically and upgrades the execution manager before
-Core. The verification command uses no signing key and checks finalized receipts,
-all Monad proxies, compiled runtime code, bindings and preserved state.
+Core. The verification command uses no signing key and checks all Monad proxies,
+compiled runtime code and current bindings at a finalized block.
 
 The retired deployment's credit setups were verified as settled before migration.
 Its House is disabled and paused, its Sepolia controller is paused, and its
 10.007004 test USDC was withdrawn. The replacement House received 10 test USDC.
-Migration receipts are recorded in `deployments/testnet-migration.json`; the
-previous addresses and configuration are archived in `deployments/testnet-pre-upgrade*.json`.
+Completed migration logs and retired deployment snapshots are removed.
 
 The ETH/USDC ratio feed, ETH collateral policy, House risk and reservation policies,
 reference integration and keeper roles are active on the replacement. The Sepolia
@@ -847,13 +858,12 @@ records use the new Core address. On 8 October 2026 the replacement completed
 two live WETH-backed 1 USDC loans through the reference app: normal repayment
 and keeper-forced exit and repayment. Both have zero debt, returned collateral,
 empty app positions and released account control. All 38 listed receipts were
-verified as canonical and finalized in `deployments/testnet-e2e-verification.json`.
+verified as canonical and finalized.
 The run took 54m 15s including the deliberate default wait and Ethereum finality.
 Canonical acceptance-to-closure times with full Sepolia finality were 34m 23s and 53m 20s. Draw-to-repayment
 took 5s; the keeper detected default 18s after grace and recovered the loan in
 another 20s. The House manager and sole LP are the testnet deployer.
 These exercises did not use Aurora conversion or a real trading venue.
-Previous evidence remains in `deployments/testnet-pre-upgrade-e2e*.json`.
 Native SOL price admission and the separate Solana source keeper are active.
 The SOL/USDC feed reads Pyth SOL/USD and the admitted USDC/USD feed, rejecting
 stale prices and excessive confidence intervals. Two live devnet SOL-backed loans
@@ -875,14 +885,13 @@ collateral, empty app positions and released account control.
 
 These measurements include runner startup, public RPC retries, keeper polling
 and Wormhole observation; they are not individual Monad transaction latency.
-The first run includes debugging waits. Evidence is recorded in
-`deployments/testnet-solana{,-clean}-e2e{,-verification}.json` and price/keeper
-setup in `deployments/testnet-solana-setup.json`. SOL default seizure and Aurora
+The first run includes debugging waits. Current price and keeper setup is in
+`deployments/testnet.json`. SOL default seizure and Aurora
 conversion were not exercised by these repayment tests.
 
 Sepolia now uses an explicitly admitted five-block Wormhole confirmation policy
 for testnet loans. Its governed publisher configuration, signed policy hash and
-version 2 verifier are recorded in `deployments/testnet-confirmations.json`.
+version 2 verifier are configured in `deployments/testnet.json`.
 The SDK catalog, proof publisher and return worker apply the same admitted depth.
 The ordinary Ethereum route retains full finality. Five-block confirmation accepts
 reorganization risk before Ethereum finality and is restricted to Sepolia and
@@ -898,7 +907,6 @@ the return on Monad another 2m 42s later. Final closure took 8m, including a
 debugging and launch waits. These are testnet reference app measurements.
 All 18 listed receipts in each run were independently checked as canonical and
 fully finalized after the faster borrowing and return flow completed.
-Evidence is recorded in `deployments/testnet-fast{,-clean}-e2e{,-verification}.json`.
 
 ```sh
 node scripts/testnet-solana-e2e.mjs --begin --clean
@@ -908,10 +916,9 @@ node scripts/testnet-e2e.mjs --start --fast --clean
 node scripts/verify-testnet-e2e.mjs --fast --clean
 ```
 
-Runners resume their private transaction journals under `.testnet/`; they do not
-create another loan after a completed journal. Verification independently checks
-canonical receipts and eventual full source finality. Fresh tests require new
-reviewed journal names. MON price admission and Aurora settlement routes remain
+Runners resume unfinished journals under `.data/operations/`. Verification checks
+canonical receipts and eventual full source finality, then removes completed run
+files. Starting again after successful verification creates a new live test. MON price admission and Aurora settlement routes remain
 unconfigured.
 Aurora settlement exercises require a Studio application key and confirmed
 sandbox asset pairs for these testnets. Testnet governance has no waiting period.

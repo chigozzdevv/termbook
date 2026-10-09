@@ -1,14 +1,11 @@
-import fs from "node:fs";
-import path from "node:path";
-import { root, viem } from "./testnet-runtime.mjs";
+import { viem } from "./testnet-runtime.mjs";
 
 export async function reuseGuard(runtime, network, recordName, label, contract, dependency, implementation, getter, libraries = []) {
-  const file = path.join(root, `deployments/testnet-pre-upgrade-${recordName}.json`);
-  if (!fs.existsSync(file)) return null;
-  const previous = JSON.parse(fs.readFileSync(file, "utf8"));
-  const address = previous.addresses?.[label];
-  const pin = previous.transactions?.find((tx) => tx.name === label && tx.address === address && tx.status === "success");
-  if (!address || !pin?.codeHash) throw new Error(`Missing previous guard evidence: ${label}`);
+  const previous = runtime.deployment.configuration?.[recordName];
+  const pin = previous?.contractPins?.[label];
+  const address = pin?.address;
+  if (!address) return null;
+  if (!pin.codeHash) throw new Error(`Missing guard pin: ${label}`);
   const code = await network.client.getCode({ address });
   if (!code || viem.keccak256(code) !== pin.codeHash) throw new Error(`Previous guard code changed: ${label}`);
   for (const [method, expected] of [["proxy", dependency], ["implementation", implementation], ["getter", getter]]) {

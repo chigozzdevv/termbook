@@ -1,10 +1,10 @@
+import { operationFile, operationLock, readConfiguration } from "./testnet-state.mjs";
 import fs from "node:fs";
-import path from "node:path";
 import process from "node:process";
 import { log, error } from "node:console";
 import { setTimeout as delay } from "node:timers/promises";
 import { canonicalJson, apiAuthorizationMessage } from "../packages/schema/dist/index.js";
-import { root, viem, artifact, testnetRuntime, writeJsonAtomic } from "./testnet-runtime.mjs";
+import { viem, artifact, testnetRuntime, writeJsonAtomic } from "./testnet-runtime.mjs";
 
 const mode = process.argv[2];
 const fast = process.argv[3] === "--fast";
@@ -30,7 +30,7 @@ async function main() {
   const s = deployment.addresses[11155111];
   const usdc = deployment.tokens[10143].USDC;
   const weth = deployment.tokens[11155111].WETH;
-  const appSetup = JSON.parse(fs.readFileSync(path.join(root, "deployments/testnet-app.json"), "utf8"));
+  const appSetup = readConfiguration("app");
   const app = appSetup.addresses.ReferenceAssetApp;
   const coreRead = (name, args = []) => monad.read("TermbookCore", m.TermbookCore, name, args);
   const now = (await monad.client.getBlock()).timestamp;
@@ -227,7 +227,7 @@ async function main() {
   report.observedAt = new Date().toISOString();
   report.observations = observations;
   if (mode !== "--observe") persist();
-  writeJsonAtomic(path.join(root, `deployments/${publicName}.json`), { network: "testnet", startedAt: report.startedAt, observedAt: report.observedAt,
+  writeJsonAtomic(operationFile(publicName), { network: "testnet", startedAt: report.startedAt, observedAt: report.observedAt,
     confirmationPolicy: fast ? "Sepolia five-confirmation test policy" : "Full source finality",
     scope: "Real Sepolia WETH custody, Wormhole proofs, Monad USDC borrowing and reference app recovery",
     excluded: "Aurora conversions and real trading venue behavior", core: m.TermbookCore, app, observations,
@@ -238,7 +238,7 @@ async function main() {
 }
 
 async function run() {
-  const lockPath = path.join(root, `.testnet/${journalName}.lock`);
+  const lockPath = operationLock(journalName);
   let lock;
   if (mode !== "--observe") {
     if (fs.existsSync(lockPath)) {

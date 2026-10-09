@@ -1,3 +1,5 @@
+import { operationFile, configuration, clearOperation } from "./testnet-state.mjs";
+import { loadCredits } from "./testnet-credits.mjs";
 import fs from "node:fs";
 import process from "node:process";
 import { Buffer } from "node:buffer";
@@ -25,23 +27,14 @@ const redeploy = process.argv.includes("--redeploy");
 if (process.argv.slice(2).some((argument) => !["--broadcast", "--simulate", "--activate", "--redeploy"].includes(argument))) throw new Error("Unknown deployment argument");
 if (broadcast === simulate) throw new Error("Use --simulate or --broadcast");
 const directory = path.join(root, ".testnet");
+const existingManifest = path.join(root, "deployments/testnet.json");
+if (broadcast && !redeploy && !activate && fs.existsSync(existingManifest)) throw new Error("Testnet is already deployed; use upgrade-testnet.mjs to update contracts");
 fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
-const previousFile = path.join(root, "deployments/testnet-pre-upgrade.json");
-if (redeploy && !fs.existsSync(previousFile)) {
-  fs.copyFileSync(path.join(root, "deployments/testnet.json"), previousFile, fs.constants.COPYFILE_EXCL);
-}
+const previousFile = operationFile("previous-deployment");
+if (redeploy && !fs.existsSync(previousFile)) fs.copyFileSync(existingManifest, previousFile, fs.constants.COPYFILE_EXCL);
 const previous = redeploy ? JSON.parse(fs.readFileSync(previousFile, "utf8")) : null;
-for (const name of ["setup", "app", "keepers", "account-health", "e2e-verification"]) {
-  const source = path.join(root, `deployments/testnet-${name}.json`);
-  const archive = path.join(root, `deployments/testnet-pre-upgrade-${name}.json`);
-  if (redeploy && fs.existsSync(source) && !fs.existsSync(archive)) fs.copyFileSync(source, archive, fs.constants.COPYFILE_EXCL);
-}
-const previousEvidenceFile = path.join(root, "deployments/testnet-pre-upgrade-e2e.json");
-if (redeploy && !fs.existsSync(previousEvidenceFile) && fs.existsSync(path.join(root, "deployments/testnet-e2e.json"))) {
-  fs.copyFileSync(path.join(root, "deployments/testnet-e2e.json"), previousEvidenceFile, fs.constants.COPYFILE_EXCL);
-}
 if (previous && previous.network !== "testnet") throw new Error("Replacement requires an existing testnet deployment");
-const reportFile = path.join(directory, `${simulate ? "simulation" : "deployment"}-upgradeable${redeploy ? "-redeploy" : ""}.json`);
+const reportFile = operationFile(`${simulate ? "simulation" : "deployment"}-upgradeable${redeploy ? "-redeploy" : ""}`);
 const report = fs.existsSync(reportFile) ? JSON.parse(fs.readFileSync(reportFile, "utf8"))
   : { network: "testnet", upgradeMode: "testnet-administrator", proxies: {}, transactions: [], addresses: {}, pendingGovernance: [] };
 if (report.upgradeMode !== "testnet-administrator") throw new Error("Legacy deployment journal; use a fresh replacement journal");
@@ -55,14 +48,15 @@ function publishManifest() {
     network: report.network, sourceCommit: report.sourceCommit, deployedAt: report.completedAt, deployer: report.deployer,
     recoveryRiskSigner: report.recoveryRiskSigner, addresses: report.addresses,
     governanceDelaySeconds: report.governanceDelaySeconds,
-    previousDeployment: redeploy ? "testnet-pre-upgrade.json" : undefined,
     reusedContracts: report.reusedContracts,
     tokens: report.tokens, solana: report.solana, verification: report.verification,
     upgradeMode: report.upgradeMode, proxies: report.proxies,
-    transactions: report.transactions.map((transaction) => Object.fromEntries(Object.entries(transaction).filter(([key]) => key !== "rawTransaction"))),
-    governance: report.pendingGovernance,
+    deploymentBlocks: Object.fromEntries([10143, 11155111].map((chainId) => [chainId, report.transactions.find((tx) => tx.chainId === chainId)?.block])),
   };
-  fs.writeFileSync(path.join(output, "testnet.json"), JSON.stringify(manifest, null, 2) + "\n");
+  writeJsonAtomic(path.join(output, "testnet.json"), configuration(manifest));
+  fs.rmSync(reportFile, { force: true });
+  clearOperation(`simulation-upgradeable${redeploy ? "-redeploy" : ""}`);
+  if (redeploy) clearOperation("previous-deployment");
 }
 const account = privateKeyToAccount(simulate ? `0x${"1".padStart(64, "0")}`
   : JSON.parse(fs.readFileSync(path.join(directory, "evm.json"), "utf8")).privateKey);
@@ -223,7 +217,9 @@ async function context(chainId, url) {
       persist();
     }
   }
-  return { publicClient, addresses, read, deploy, call, queue };
+  const logUrl = broadcast && chainId === 10143 && process.env["TERMBOOK_CREDIT_RPC_URL"];
+  const logClient = logUrl ? createPublicClient({ transport: http(logUrl, { timeout: 30_000 }) }) : publicClient;
+  return { publicClient, logClient, addresses, read, deploy, call, queue };
 }
 
 const program = process.env["SOLANA_PROGRAM_ID"] ? new PublicKey(process.env["SOLANA_PROGRAM_ID"])
@@ -264,7 +260,7 @@ const monad = await context(10143, simulate ? "http://127.0.0.1:18545" : "https:
 const ethereum = await context(11155111, simulate ? "http://127.0.0.1:18546" : "https://ethereum-sepolia-rpc.publicnode.com");
 if (previous) {
   report.previousCredits = await verifySettledCredits(previous,
-    fs.existsSync(previousEvidenceFile) ? JSON.parse(fs.readFileSync(previousEvidenceFile, "utf8")) : null,
+    await loadCredits(previous, monad),
     (chainId, name, address, method, args = []) => (chainId === 10143 ? monad : ethereum).read(name, address, method, args));
   const balance = await monad.publicClient.readContract({
     address: previous.tokens[10143].USDC,
@@ -273,7 +269,7 @@ if (previous) {
   });
   if (balance !== 0n) throw new Error("Replacement requires migration of existing House liquidity");
   if (broadcast && !activate && report.transactions.length === 0) {
-    const planFile = path.join(directory, "simulation-upgradeable-redeploy.json");
+    const planFile = operationFile("simulation-upgradeable-redeploy");
     if (!fs.existsSync(planFile)) throw new Error("Simulate the replacement before broadcasting");
     const plan = JSON.parse(fs.readFileSync(planFile, "utf8"));
     if (!plan.completedAt || plan.governanceDelaySeconds !== 0 || plan.pendingGovernance.length !== 13

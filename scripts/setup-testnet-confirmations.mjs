@@ -1,3 +1,4 @@
+import { alreadyConfigured, writeConfiguration, clearOperation } from "./testnet-state.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -8,6 +9,7 @@ import { validateUpgradeArtifact } from "./upgrade-validation.mjs";
 const simulate = process.argv[2] === "--simulate";
 if (process.argv.length !== 3 || !["--simulate", "--broadcast"].includes(process.argv[2])) throw new Error("Use --simulate or --broadcast");
 async function main() {
+  if (!simulate && alreadyConfigured("confirmations")) { clearOperation("confirmations-setup"); log(JSON.stringify({ configured: true, step: "confirmations" })); return; }
   const runtime = await testnetRuntime("confirmations-setup", simulate);
   const { deployment, report, persist } = runtime;
   const monad = await runtime.context(10143), source = await runtime.context(11155111);
@@ -43,7 +45,7 @@ async function main() {
   report.completedAt = new Date().toISOString(); persist();
   const cost = report.transactions.filter((tx) => tx.chainId === 10143).reduce((sum, tx) => sum + BigInt(tx.gasUsed) * BigInt(tx.effectiveGasPrice), 0n);
   if (!simulate) {
-    const envFile = path.join(root, ".testnet/server.env");
+    const envFile = path.join(root, ".env");
     let env = fs.readFileSync(envFile, "utf8");
     const markets = JSON.parse(env.match(/^COLLATERAL_MARKETS=(.*)$/m)?.[1] ?? "[]").map((market) =>
       market.kind === "evm" && market.chainId === 11155111 ? { ...market, testnetConfirmations: 5 } : market);
@@ -53,11 +55,12 @@ async function main() {
       implementationCodeHash: viem.keccak256(candidate.deployedBytecode.object), storageLayout: candidate.storageLayout, abi: candidate.abi };
     for (const label of Object.keys(report.proxies)) { deployment.addresses[10143][label] = report.addresses[label]; deployment.proxies[10143][label] = report.proxies[label]; }
     writeJsonAtomic(path.join(root, "deployments/testnet.json"), deployment);
-    writeJsonAtomic(path.join(root, "deployments/testnet-confirmations.json"), { network: "testnet", completedAt: report.completedAt,
+    writeConfiguration("confirmations", { network: "testnet", completedAt: report.completedAt,
       sourceChain: 11155111, destinationChain: 10143, confirmationDepth: 5, consistency: 203, verifierVersion: 2, policyHash: publisherPolicy,
       publisher: s.WormholeEthereumPublisher, client, verifier,
       transactions: report.transactions.map(({ rawTransaction: _raw, ...tx }) => tx) });
   }
   log(JSON.stringify({ simulated: simulate, transactions: report.transactions.length, costMON: viem.formatEther(cost), policyHash: publisherPolicy }));
+  if (!simulate) clearOperation("confirmations-setup", false);
 }
 main().catch((cause) => { error(cause instanceof Error ? cause.message.split("\n")[0] : "Confirmation setup failed"); process.exitCode = 1; });

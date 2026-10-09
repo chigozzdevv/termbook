@@ -1,5 +1,4 @@
-import fs from "node:fs";
-import path from "node:path";
+import { alreadyConfigured, writeConfiguration, clearOperation } from "./testnet-state.mjs";
 import process from "node:process";
 import { log, error } from "node:console";
 import { execFileSync } from "node:child_process";
@@ -22,6 +21,7 @@ const deposit = 10_000_000n;
 const erc20 = viem.parseAbi(["function approve(address,uint256) returns(bool)", "function balanceOf(address) view returns(uint256)"]);
 
 async function main() {
+  if (!simulate && alreadyConfigured("setup")) { clearOperation("setup"); log(JSON.stringify({ configured: true, step: "setup" })); return; }
   const runtime = await testnetRuntime("setup", simulate);
   const { deployment, report, context, persist } = runtime;
   const monad = await context(10143);
@@ -71,10 +71,11 @@ async function main() {
     feeds, priceId, maxAgeSeconds: Number(maxAge), housePolicyVersion: 1,
     transactions: report.transactions.map((tx) => Object.fromEntries(Object.entries(tx).filter(([key]) => key !== "rawTransaction"))),
     governance: report.governance, reusedContracts: report.reusedContracts, verification: report.verification };
-  if (!simulate) fs.writeFileSync(path.join(root, "deployments/testnet-setup.json"), JSON.stringify(publicReport, null, 2) + "\n");
+  if (!simulate) writeConfiguration("setup", publicReport);
   const cost = report.transactions.reduce((sum, tx) => sum + BigInt(tx.gasUsed) * BigInt(tx.effectiveGasPrice), 0n);
   log(JSON.stringify({ simulated: simulate, transactions: report.transactions.length,
     costMON: viem.formatEther(cost), ...report.verification }));
+  if (!simulate) clearOperation("setup", false);
 }
 
 main().catch((cause) => { error(cause instanceof Error ? cause.message.split("\n")[0] : "Testnet setup failed"); process.exitCode = 1; });

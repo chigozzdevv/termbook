@@ -1,8 +1,7 @@
-import fs from "node:fs";
-import path from "node:path";
+import { alreadyConfigured, writeConfiguration, clearOperation } from "./testnet-state.mjs";
 import process from "node:process";
 import { log, error } from "node:console";
-import { root, viem, testnetRuntime } from "./testnet-runtime.mjs";
+import { viem, testnetRuntime } from "./testnet-runtime.mjs";
 import { reuseGuard } from "./testnet-guards.mjs";
 
 const simulate = process.argv.includes("--simulate");
@@ -11,6 +10,7 @@ if (simulate === process.argv.includes("--broadcast")
 const bundleId = viem.keccak256(viem.stringToHex("Termbook testnet reference asset app v1"));
 
 async function main() {
+  if (!simulate && alreadyConfigured("app")) { clearOperation("app-setup"); log(JSON.stringify({ configured: true, step: "app" })); return; }
   const runtime = await testnetRuntime("app-setup", simulate);
   const { deployment, report, context, persist } = runtime;
   const monad = await context(10143);
@@ -52,12 +52,13 @@ async function main() {
   report.bundleId = bundleId;
   report.codeHash = codeHash;
   persist();
-  if (!simulate) fs.writeFileSync(path.join(root, "deployments/testnet-app.json"), JSON.stringify({ network: "testnet",
+  if (!simulate) writeConfiguration("app", { network: "testnet",
     purpose: "Reference application for live custody, valuation, execution, and recovery tests; not a perps venue",
     core: m.TermbookCore, bundleId, codeHash, completedAt: report.completedAt, addresses: report.addresses,
     governance: report.governance, reusedContracts: report.reusedContracts, transactions: report.transactions.map((tx) => Object.fromEntries(
-      Object.entries(tx).filter(([key]) => key !== "rawTransaction"))) }, null, 2) + "\n");
+      Object.entries(tx).filter(([key]) => key !== "rawTransaction"))) });
   const cost = report.transactions.reduce((sum, tx) => sum + BigInt(tx.gasUsed) * BigInt(tx.effectiveGasPrice), 0n);
   log(JSON.stringify({ simulated: simulate, transactions: report.transactions.length, costMON: viem.formatEther(cost), bundleId, app }));
+  if (!simulate) clearOperation("app-setup", false);
 }
 main().catch((cause) => { error(cause instanceof Error ? cause.message.split("\n")[0] : "Testnet app setup failed"); process.exitCode = 1; });

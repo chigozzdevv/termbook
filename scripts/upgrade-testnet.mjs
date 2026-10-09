@@ -1,3 +1,4 @@
+import { operations, operationFile, writeJsonAtomic } from "./testnet-state.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -40,11 +41,17 @@ const rpcUrl = process.env["TERMBOOK_UPGRADE_RPC_URL"]
 const client = createPublicClient({ transport: http(rpcUrl) });
 if (await client.getChainId() !== chainId) throw new Error("Upgrade network mismatch");
 const read = (name, address, functionName, args = []) => client.readContract({ address, abi: artifact(name).abi, functionName, args });
-const directory = path.join(root, ".testnet/upgrades");
+if (initialization === "0x" && expectedCodeHash === baseline.implementationCodeHash
+  && (await read("TestnetProxy", proxy, "proxyImplementation")).toLowerCase() === baseline.implementation.toLowerCase()
+  && keccak256(await client.getCode({ address: baseline.implementation })) === expectedCodeHash) {
+  log(JSON.stringify({ status: "already-upgraded", proxy, implementation: baseline.implementation }));
+  process.exit(0);
+}
+const directory = operations;
 fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
-const journalFile = path.join(directory, `${chainId}-${label}-${keccak256(deploymentData).slice(2, 14)}.json`);
+const journalFile = operationFile(`${chainId}-${label}-${keccak256(deploymentData).slice(2, 14)}`);
 const journal = fs.existsSync(journalFile) ? JSON.parse(fs.readFileSync(journalFile, "utf8")) : { transactions: [] };
-const persist = () => fs.writeFileSync(journalFile, JSON.stringify(journal, null, 2), { mode: 0o600 });
+const persist = () => writeJsonAtomic(journalFile, journal);
 const digest = keccak256(encodeFunctionData({ abi: artifact("UpgradeController").abi, functionName: "upgrade",
   args: [proxy, zeroAddress, expectedCodeHash, initialization] }));
 if (journal.digest && journal.digest !== digest) throw new Error("Upgrade journal input mismatch");
@@ -124,6 +131,7 @@ if (!await read("ProtocolGovernance", governance, "executed", [actionId])) {
 if (await read("TestnetProxy", proxy, "proxyImplementation") !== journal.implementation) throw new Error("Upgrade execution mismatch");
 manifest.proxies[chainId][label] = { ...baseline, implementation: journal.implementation, implementationCodeHash: expectedCodeHash,
   storageLayout: candidate.storageLayout, abi: candidate.abi };
-fs.writeFileSync(manifestFile, JSON.stringify(manifest, null, 2) + "\n");
+writeJsonAtomic(manifestFile, manifest);
 journal.completed = true; persist();
+fs.rmSync(journalFile);
 log(JSON.stringify({ status: "upgraded", chainId, proxy, implementation: journal.implementation }));

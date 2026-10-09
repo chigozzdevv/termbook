@@ -1,16 +1,17 @@
+import { operationFile, readConfiguration, clearOperation } from "./testnet-state.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import { log, error } from "node:console";
 import process from "node:process";
-import { root, viem, artifact, writeJsonAtomic } from "./testnet-runtime.mjs";
+import { root, viem, artifact } from "./testnet-runtime.mjs";
 import { PublicKey, solanaConnection } from "./testnet-solana-runtime.mjs";
 import { decodeSolanaLockRecord } from "../packages/sdk/dist/index.js";
 const clean = process.argv[2] === "--clean";
 if (process.argv.length !== (clean ? 3 : 2)) throw new Error("Use optional --clean");
 
 async function main() {
-  const report = JSON.parse(fs.readFileSync(path.join(root, clean ? "deployments/testnet-solana-clean-e2e.json" : "deployments/testnet-solana-e2e.json")));
-  const setup = JSON.parse(fs.readFileSync(path.join(root, "deployments/testnet-solana-setup.json")));
+  const report = JSON.parse(fs.readFileSync(operationFile(clean ? "testnet-solana-clean-e2e" : "testnet-solana-e2e")));
+  const setup = readConfiguration("solana");
   const deployment = JSON.parse(fs.readFileSync(path.join(root, "deployments/testnet.json")));
   const client = viem.createPublicClient({ transport: viem.http("https://testnet-rpc.monad.xyz") });
   const connection = solanaConnection();
@@ -101,7 +102,8 @@ async function main() {
       borrowToRepay: time("repay") - time("borrow-and-deposit"), authorizeToSourceReturn: returned.timestamp - time("authorize-return"),
       sourceReturnToConfirmation: confirmation.timestamp - returned.timestamp, acceptanceToClosure: time("finish-close") - time("accept") },
     monadReceipts: [...receipts.values()], solanaReceipts: [...sourceReceipts.values()], proofReceipt, sourceReturnReceipt: returned, returnConfirmationReceipt: confirmation };
-  writeJsonAtomic(path.join(root, clean ? "deployments/testnet-solana-clean-e2e-verification.json" : "deployments/testnet-solana-e2e-verification.json"), output);
+  clearOperation(clean ? "testnet-solana-clean-e2e" : "testnet-solana-e2e");
+  clearOperation(clean ? "solana-clean-e2e" : "solana-e2e");
   log(JSON.stringify({ completed: true, timingSeconds: output.timingSeconds, monadReceipts: receipts.size, solanaReceipts: sourceReceipts.size }));
 }
 main().catch((cause) => { error(cause instanceof Error ? cause.message.split("\n")[0] : "SOL verification failed"); process.exitCode = 1; });

@@ -1,8 +1,8 @@
-import fs from "node:fs";
-import path from "node:path";
+import { loadCredits } from "./testnet-credits.mjs";
+import { clearOperation } from "./testnet-state.mjs";
 import process from "node:process";
 import { log, error } from "node:console";
-import { root, viem, testnetRuntime } from "./testnet-runtime.mjs";
+import { viem, testnetRuntime } from "./testnet-runtime.mjs";
 import { verifySettledCredits } from "./testnet-replacement.mjs";
 
 const simulate = process.argv.includes("--simulate");
@@ -14,7 +14,7 @@ async function main() {
   const monad = await context(10143);
   const source = await context(11155111);
   const m = deployment.addresses[10143];
-  const evidence = JSON.parse(fs.readFileSync(path.join(root, "deployments/testnet-e2e.json"), "utf8"));
+  const evidence = await loadCredits(deployment, monad);
   report.credits = await verifySettledCredits(deployment, evidence,
     (chainId, name, address, method, args = []) => (chainId === 10143 ? monad : source).read(name, address, method, args));
   for (const method of ["committedCash", "drawnPrincipal", "accruedReceivables", "pendingSettlement", "bondCash",
@@ -43,11 +43,7 @@ async function main() {
   }
   report.completedAt = new Date().toISOString();
   persist();
-  if (!simulate) fs.writeFileSync(path.join(root, "deployments/testnet-migration.json"), JSON.stringify({
-    network: "testnet", previousCore: m.TermbookCore, previousHouse: m.HouseVault,
-    recipient: deployment.deployer, withdrawalAmount: report.withdrawalAmount, completedAt: report.completedAt,
-    credits: report.credits, transactions: report.transactions.map(({ rawTransaction: _rawTransaction, ...tx }) => tx),
-  }, null, 2) + "\n");
+  if (!simulate) clearOperation("replacement-migration");
   log(JSON.stringify({ simulated: simulate, withdrawnUSDC: viem.formatUnits(BigInt(report.withdrawalAmount), 6), transactions: report.transactions.length }));
 }
 main().catch((cause) => { error(cause instanceof Error ? cause.message.split("\n")[0] : "Testnet migration failed"); process.exitCode = 1; });

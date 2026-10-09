@@ -1,3 +1,4 @@
+import { alreadyConfigured, writeConfiguration, clearOperation, readConfiguration } from "./testnet-state.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -11,6 +12,7 @@ if (simulate === process.argv.includes("--broadcast")
   || process.argv.slice(2).some((arg) => !["--simulate", "--broadcast"].includes(arg))) throw new Error("Use --simulate or --broadcast");
 
 async function main() {
+  if (!simulate && alreadyConfigured("keepers")) { clearOperation("keeper-setup"); log(JSON.stringify({ configured: true, step: "keepers" })); return; }
   const { deployment, report, context, persist } = await testnetRuntime("keeper-setup", simulate);
   const keys = JSON.parse(fs.readFileSync(path.join(root, ".testnet/keepers.json"), "utf8"));
   const addresses = Object.fromEntries(Object.entries(keys).map(([name, key]) => [name, privateKeyToAccount(key).address]));
@@ -39,12 +41,12 @@ async function main() {
   report.keepers = addresses;
   persist();
   if (!simulate) {
-    const envFile = path.join(root, ".testnet/server.env");
+    const envFile = path.join(root, ".env");
     const bindings = { RISK_KEEPER_KEY: keys.risk, COLLATERAL_KEEPER_KEY: keys.collateral,
       MONAD_CONFIRM_KEEPER_KEY: keys.monadConfirm, MONAD_WORMHOLE_PUBLISHER_KEY: keys.monadPublisher,
       SOLANA_COLLATERAL_KEEPER_KEY: keys.solanaProof, SOURCE_WORMHOLE_PUBLISHER_KEY: keys.ethereumPublisher,
       SOURCE_ACTION_KEEPER_KEY: keys.sourceAction, ORACLE_KEEPER_KEY: keys.oracle };
-    const setup = JSON.parse(fs.readFileSync(path.join(root, "deployments/testnet-setup.json"), "utf8"));
+    const setup = readConfiguration("setup", deployment);
     const ratio = setup.addresses.RatioPriceFeed;
     bindings.RATIO_PRICE_FEEDS = JSON.stringify([{ address: ratio, codeHash: viem.keccak256(await monad.client.getCode({ address: ratio })) }]);
     let env = fs.readFileSync(envFile, "utf8");
@@ -53,13 +55,14 @@ async function main() {
       env += `${name}=${value}\n`;
     }
     fs.writeFileSync(envFile, env, { mode: 0o600 });
-    fs.writeFileSync(path.join(root, "deployments/testnet-keepers.json"), JSON.stringify({ network: "testnet",
+    writeConfiguration("keepers", { network: "testnet",
       completedAt: report.completedAt, core: deployment.addresses[10143].TermbookCore, keepers: addresses,
       transactions: report.transactions.map((tx) => Object.fromEntries(Object.entries(tx).filter(([key]) => key !== "rawTransaction"))),
-      governance: report.governance, topups: report.topups }, null, 2) + "\n");
+      governance: report.governance, topups: report.topups });
   }
   const costs = Object.fromEntries([10143, 11155111].map((chain) => [chain, viem.formatEther(report.transactions
     .filter((tx) => tx.chainId === chain).reduce((sum, tx) => sum + BigInt(tx.gasUsed) * BigInt(tx.effectiveGasPrice) + BigInt(tx.value), 0n))]));
   log(JSON.stringify({ simulated: simulate, transactions: report.transactions.length, costs }));
+  if (!simulate) clearOperation("keeper-setup", false);
 }
 main().catch((cause) => { error(cause instanceof Error ? cause.message.split("\n")[0] : "Keeper setup failed"); process.exitCode = 1; });

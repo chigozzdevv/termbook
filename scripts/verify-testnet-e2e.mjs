@@ -1,8 +1,9 @@
+import { operationFile, readConfiguration, clearOperation } from "./testnet-state.mjs";
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { log, error } from 'node:console';
-import { root, viem, artifact, writeJsonAtomic } from './testnet-runtime.mjs';
+import { root, viem, artifact } from './testnet-runtime.mjs';
 import { pacedHttp } from '../server/dist/chain/rpc.transport.js';
 const fast = process.argv[2] === '--fast';
 const clean = process.argv[3] === '--clean';
@@ -11,8 +12,8 @@ const publicName = fast ? clean ? 'testnet-fast-clean-e2e' : 'testnet-fast-e2e' 
 
 async function main() {
   const deployment = JSON.parse(fs.readFileSync(path.join(root, 'deployments/testnet.json'), 'utf8'));
-  const recorded = JSON.parse(fs.readFileSync(path.join(root, `deployments/${publicName}.json`), 'utf8'));
-  const appSetup = JSON.parse(fs.readFileSync(path.join(root, 'deployments/testnet-app.json'), 'utf8'));
+  const recorded = JSON.parse(fs.readFileSync(operationFile(publicName), 'utf8'));
+  const appSetup = readConfiguration('app');
   const core = deployment.addresses[10143].TermbookCore;
   if (recorded.network !== 'testnet' || recorded.core !== core || recorded.app !== appSetup.addresses.ReferenceAssetApp) throw new Error('E2E deployment mismatch');
   const monad = viem.createPublicClient({ transport: pacedHttp('https://testnet-rpc.monad.xyz', 4) });
@@ -34,7 +35,7 @@ async function main() {
     if (view.getUint16(start + 8, false) !== 10002 || raw[start + 50] !== 203
       || viem.bytesToHex(raw.slice(start + 10, start + 42)).toLowerCase() !== viem.padHex(publisher, { size: 32 }).toLowerCase()) throw new Error('Fast VAA emitter or consistency mismatch');
     const [domain, kind, digest, deadline, policyHash] = viem.decodeAbiParameters(viem.parseAbiParameters('bytes32,uint8,bytes32,uint256,bytes32'), viem.bytesToHex(raw.slice(start + 51)));
-    const policy = JSON.parse(fs.readFileSync(path.join(root, 'deployments/testnet-confirmations.json'), 'utf8'));
+    const policy = readConfiguration('confirmations');
     if (domain !== viem.keccak256(viem.stringToHex('Termbook Wormhole Ethereum snapshot v1'))
       || kind !== (applied ? 2 : 1) || deadline !== 0n || policyHash !== policy.policyHash
       || applied && digest !== actionHash || policy.confirmationDepth !== 5) throw new Error('Fast VAA confirmation policy mismatch');
@@ -185,7 +186,7 @@ async function main() {
     finalizedBlocks: Object.fromEntries(Object.entries(finalized).map(([id, b]) => [id, { number: String(b.number), hash: b.hash }])),
     house, observations, measuredFeesWei: fees, transactions: [...checked.values()],
     lifecycleComplete, allReceiptsFinalized, completed: lifecycleComplete && allReceiptsFinalized };
-  writeJsonAtomic(path.join(root, `deployments/${publicName}-verification.json`), report);
+  if (report.completed) { clearOperation(publicName); clearOperation(fast ? clean ? "fast-clean-e2e" : "fast-e2e" : "live-e2e"); }
   log(JSON.stringify({ verifiedAt: report.verifiedAt, completed: report.completed, observations }));
   if (!report.completed) process.exitCode = 1;
 }

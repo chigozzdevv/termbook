@@ -1,12 +1,12 @@
+import { operationFile, operationLock, readConfiguration } from "./testnet-state.mjs";
 import fs from "node:fs";
-import path from "node:path";
 import process from "node:process";
 import { log, error } from "node:console";
 import { setTimeout as delay } from "node:timers/promises";
 import { Buffer } from "node:buffer";
 import { canonicalJson, apiAuthorizationMessage, NATIVE_SOL_ASSET_BYTES } from "../packages/schema/dist/index.js";
 import { collateralSetupHash, SolanaSourceLockWallet, solanaAlias, solanaPubkeyBytes, decodeSolanaLockRecord } from "../packages/sdk/dist/index.js";
-import { root, viem, artifact, testnetRuntime, writeJsonAtomic } from "./testnet-runtime.mjs";
+import { viem, artifact, testnetRuntime, writeJsonAtomic } from "./testnet-runtime.mjs";
 import { PublicKey, solanaConnection, solanaPayer, journaledSolanaWallet, publicSolanaTransactions } from "./testnet-solana-runtime.mjs";
 
 const mode = process.argv[2];
@@ -23,7 +23,7 @@ async function main() {
   const { deployment, report, persist, account } = runtime;
   const monad = await runtime.context(10143);
   const m = deployment.addresses[10143], usdc = deployment.tokens[10143].USDC;
-  const appSetup = JSON.parse(fs.readFileSync(path.join(root, "deployments/testnet-app.json")));
+  const appSetup = readConfiguration("app");
   const app = appSetup.addresses.ReferenceAssetApp;
   const connection = solanaConnection(), payer = solanaPayer();
   const program = new PublicKey(deployment.solana.programId), genesis = solanaPubkeyBytes(deployment.solana.genesis);
@@ -140,7 +140,7 @@ async function main() {
   const completed = credit.facility === 6 && credit.debt === 0n && credit.collateralReturned && locked === 0n && position === 0n && released;
   if (completed) test.completedAt ??= new Date().toISOString();
   report.observedAt = new Date().toISOString(); if (mode !== "--observe") persist();
-  writeJsonAtomic(path.join(root, clean ? "deployments/testnet-solana-clean-e2e.json" : "deployments/testnet-solana-e2e.json"), { network: "testnet", startedAt: report.startedAt,
+  writeJsonAtomic(operationFile(clean ? "testnet-solana-clean-e2e" : "testnet-solana-e2e"), { network: "testnet", startedAt: report.startedAt,
     observedAt: report.observedAt, completedAt: test.completedAt, core: m.TermbookCore, app, creditId: test.creditId,
     lockId: test.lockId, lockPda: test.lockPda, lockTx: test.lockTx, account: test.account,
     returnTx: test.returnTx, returnActionHash: test.returnActionHash, borrower: account.address,
@@ -153,7 +153,7 @@ async function main() {
   return completed;
 }
 async function run() {
-  const lock = path.join(root, clean ? ".testnet/solana-clean-e2e.lock" : ".testnet/solana-e2e.lock");
+  const lock = operationLock(clean ? "solana-clean-e2e" : "solana-e2e");
   let descriptor;
   if (mode !== "--observe") {
     if (fs.existsSync(lock)) {

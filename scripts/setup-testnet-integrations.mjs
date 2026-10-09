@@ -1,3 +1,5 @@
+import { loadCredits } from "./testnet-credits.mjs";
+import { alreadyConfigured, writeConfiguration, clearOperation, operationFile } from "./testnet-state.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -17,18 +19,8 @@ const equal = (actual, expected, label) => {
 };
 const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
 
-function credits(core) {
-  const ids = new Set();
-  for (const file of fs.readdirSync(path.join(root, "deployments")).filter((file) => /e2e.*\.json$/.test(file))) {
-    const evidence = JSON.parse(fs.readFileSync(path.join(root, "deployments", file), "utf8"));
-    if (evidence.core?.toLowerCase() !== core.toLowerCase()) continue;
-    if (evidence.creditId) ids.add(evidence.creditId);
-    for (const entry of evidence.observations ?? []) if (entry.creditId) ids.add(entry.creditId);
-  }
-  return [...ids].sort();
-}
-
 async function main() {
+  if (!simulate && alreadyConfigured("integrations")) { clearOperation("shared-integration-upgrade"); log(JSON.stringify({ configured: true, step: "integrations" })); return; }
   const { deployment, report, persist, context } = await testnetRuntime("shared-integration-upgrade", simulate);
   const monad = await context(10143);
   const m = deployment.addresses[10143];
@@ -61,7 +53,7 @@ async function main() {
   async function state() {
     const blockNumber = await monad.client.getBlockNumber();
     const read = (name, address, functionName, args = []) => monad.client.readContract({ address, abi: artifact(name).abi, functionName, args, blockNumber });
-    const ids = credits(m.TermbookCore);
+    const ids = (await loadCredits(deployment, monad)).observations.map((entry) => entry.creditId).sort();
     equal(await read("TermbookCore", m.TermbookCore, "acceptedCredits"), BigInt(ids.length), "complete credit inventory");
     const result = { storage: {}, credits: {}, house: {} };
     for (const name of upgrades) {
@@ -89,7 +81,7 @@ async function main() {
   if (!report.before) { report.before = await state(); persist(); }
   equal(await state(), report.before, "pre-upgrade state");
   if (!simulate && !report.completedAt) {
-    const plan = JSON.parse(fs.readFileSync(path.join(root, ".testnet/shared-integration-upgrade-simulation.json"), "utf8"));
+    const plan = JSON.parse(fs.readFileSync(operationFile("shared-integration-upgrade-simulation"), "utf8"));
     if (!plan.completedAt || plan.sourceCommit !== sourceCommit) throw new Error("Run the current-build simulation first");
     equal(plan.builds, builds, "simulated build");
     for (const name of upgrades) equal(plan.baselines[name].implementationCodeHash, report.baselines[name].implementationCodeHash, "simulated baseline");
@@ -157,13 +149,13 @@ async function main() {
       m[`${name}Implementation`] = report.proxies[name].implementation;
     }
     for (const name of shared) m[name] = report.addresses[name];
-    deployment.sharedIntegrations = { sourceCommit: report.sourceCommit, completedAt: report.completedAt, report: "testnet-integrations.json" };
+    deployment.sharedIntegrations = { sourceCommit: report.sourceCommit, completedAt: report.completedAt, configuration: "integrations" };
     writeJsonAtomic(path.join(root, "deployments/testnet.json"), deployment);
     const bindingsFile = path.join(root, "packages/bindings/src/generated/deployments.ts");
     const bindings = fs.readFileSync(bindingsFile, "utf8");
     fs.writeFileSync(bindingsFile, bindings.replace(/export const deployments: DeploymentMap = \{[\s\S]*?\n\};/,
       `export const deployments: DeploymentMap = ${JSON.stringify(deployment.addresses, null, 2)};`));
-    writeJsonAtomic(path.join(root, "deployments/testnet-integrations.json"), { network: "testnet", chainId: 10143,
+    const integration = { network: "testnet", chainId: 10143,
       sourceCommit: report.sourceCommit, completedAt: report.completedAt, verified: true, core: m.TermbookCore,
       upgrades: Object.fromEntries(upgrades.map((name) => [name, { proxy: m[name], previousImplementation: report.baselines[name].implementation,
         implementation: report.proxies[name].implementation, codeHash: report.proxies[name].implementationCodeHash }])),
@@ -171,24 +163,26 @@ async function main() {
       preserved: { credits: Object.keys(report.after.credits).length, house: report.after.house, storageUnchanged: true,
         storage: Object.fromEntries(Object.entries(report.before.storage).map(([name, slots]) => [name, { slots: slots.length, hash: viem.keccak256(viem.toHex(canonical(slots))) }])),
         creditHashes: Object.fromEntries(Object.entries(report.before.credits).map(([id, credit]) => [id, viem.keccak256(viem.toHex(canonical(credit)))])) },
-      transactions: report.transactions.map(({ rawTransaction: _raw, ...tx }) => tx) });
-    const envFile = path.join(root, ".testnet/server.env");
+      transactions: report.transactions.map(({ rawTransaction: _raw, ...tx }) => tx) };
+    const envFile = path.join(root, ".env");
     const variables = { SHARED_READ_PROGRAM: programs, SHARED_USE_CASE_READER: reader, SHARED_USE_CASE_POLICY: report.addresses.UseCasePolicy,
       SHARED_USE_CASE_RECOVERY: report.addresses.UseCaseRecovery, ATOMIC_SPOT_ROUTER: router, ATOMIC_SPOT_MODULE: report.addresses.AtomicSpotModule };
     let env = fs.readFileSync(envFile, "utf8");
     for (const [key, value] of Object.entries(variables)) env = env.replace(new RegExp(`^${key}=.*\\n?`, "m"), "") + `${key}=${value}\n`;
     fs.writeFileSync(envFile, env, { mode: 0o600 });
+    writeConfiguration("integrations", integration);
   }
   const cost = report.transactions.reduce((sum, tx) => sum + BigInt(tx.gasUsed) * BigInt(tx.effectiveGasPrice), 0n);
   log(JSON.stringify({ simulated: simulate, verified: true, transactions: report.transactions.length, costMON: viem.formatEther(cost), addresses: Object.fromEntries(shared.map((name) => [name, report.addresses[name]])) }));
+  if (!simulate) clearOperation("shared-integration-upgrade", false);
 }
 
-const lockFile = path.join(root, ".testnet/shared-integration-upgrade.lock");
+const lockFile = operationFile("shared-integration-upgrade").replace(/\.json$/, ".lock");
 let lock;
 try {
   if (!simulate) {
-    for (const file of fs.readdirSync(path.join(root, ".testnet")).filter((file) => file.endsWith(".lock"))) {
-      const owner = Number(fs.readFileSync(path.join(root, ".testnet", file), "utf8"));
+    for (const file of fs.readdirSync(path.dirname(lockFile)).filter((file) => file.endsWith(".lock"))) {
+      const owner = Number(fs.readFileSync(path.join(path.dirname(lockFile), file), "utf8"));
       if (!Number.isSafeInteger(owner) || owner <= 0) throw new Error("Invalid transaction runner lock");
       try { process.kill(owner, 0); throw new Error("Another transaction runner is active"); }
       catch (cause) { if (cause.code !== "ESRCH") throw cause; }

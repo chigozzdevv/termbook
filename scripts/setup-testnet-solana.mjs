@@ -1,3 +1,4 @@
+import { alreadyConfigured, writeConfiguration, clearOperation } from "./testnet-state.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -16,6 +17,7 @@ const ratioId = viem.keccak256(viem.stringToHex("testnet:SOL/USDC:live"));
 const usdcId = viem.keccak256(viem.stringToHex("testnet:USDC/USD"));
 
 async function main() {
+  if (!simulate && alreadyConfigured("solana")) { clearOperation("solana-setup"); log(JSON.stringify({ configured: true, step: "solana" })); return; }
   const runtime = await testnetRuntime("solana-setup", simulate);
   const { deployment, report, persist } = runtime;
   const monad = await runtime.context(10143);
@@ -57,7 +59,7 @@ async function main() {
       await wallet.sendInstruction({ programId: transfer.programId.toBase58(), keys: transfer.keys.map(({ pubkey, ...meta }) => ({ ...meta, pubkey: pubkey.toBase58() })), data: transfer.data });
     }
     if (!report.keeperFunded) { report.keeperFunded = true; persist(); }
-    const envFile = path.join(root, ".testnet/server.env");
+    const envFile = path.join(root, ".env");
     let env = fs.readFileSync(envFile, "utf8");
     const existing = JSON.parse(env.match(/^COLLATERAL_MARKETS=(.*)$/m)?.[1] ?? "[]").filter((market) => market.id !== "sol-devnet");
     existing.push({ id: "sol-devnet", label: "SOL (devnet)", kind: "solana", chainId: 501, decimals: 9,
@@ -74,7 +76,8 @@ async function main() {
   const publicReport = { network: "testnet", core: m.TermbookCore, completedAt: report.completedAt,
     sourceChain: 501, genesis, asset, pyth, pythId, priceId: ratioId, addresses: report.addresses, keeper: report.keeper,
     transactions: report.transactions.map(({ rawTransaction: _raw, ...tx }) => tx), solanaTransactions: publicSolanaTransactions(report) };
-  if (!simulate) writeJsonAtomic(path.join(root, "deployments/testnet-solana-setup.json"), publicReport);
+  if (!simulate) writeConfiguration("solana", publicReport);
   log(JSON.stringify({ simulated: simulate, transactions: report.transactions.length, price: price[0].toString(), keeper: report.keeper }));
+  if (!simulate) clearOperation("solana-setup", false);
 }
 main().catch((cause) => { error(cause instanceof Error ? cause.message.split("\n")[0] : "Solana setup failed"); process.exitCode = 1; });

@@ -1,49 +1,29 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
-import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 
-export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+import { root, writeJsonAtomic, operationFile } from "./testnet-state.mjs";
+export { root, writeJsonAtomic };
 const require = createRequire(path.join(root, "packages/sdk/package.json"));
 export const viem = require("viem");
 const { privateKeyToAccount } = require("viem/accounts");
 const { createPublicClient, createWalletClient, http, keccak256, encodeDeployData, encodeFunctionData } = viem;
 export const artifact = (name) => JSON.parse(fs.readFileSync(path.join(root, `contracts/evm/out/${name}.sol/${name}.json`), "utf8"));
 
-export function writeJsonAtomic(file, value) {
-  const body = JSON.stringify(value, null, 2) + "\n";
-  const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
-  let descriptor;
-  try {
-    descriptor = fs.openSync(temporary, "wx", 0o600);
-    fs.writeFileSync(descriptor, body);
-    fs.fsyncSync(descriptor);
-    fs.closeSync(descriptor);
-    descriptor = undefined;
-    fs.renameSync(temporary, file);
-    const directory = fs.openSync(path.dirname(file), "r");
-    try { fs.fsyncSync(directory); } finally { fs.closeSync(directory); }
-  } finally {
-    if (descriptor !== undefined) fs.closeSync(descriptor);
-    if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
-  }
-}
-
 export async function testnetRuntime(name, simulate) {
   if (!/^[a-z0-9-]+$/.test(name) || typeof simulate !== "boolean") throw new Error("Invalid runtime arguments");
   const override = process.env["TERMBOOK_SIMULATION_MANIFEST"];
   const manifestFile = override ? path.resolve(root, override) : path.join(root, "deployments/testnet.json");
-  if (override && (!simulate || !manifestFile.startsWith(path.join(root, ".testnet") + path.sep))) {
+  if (override && (!simulate || !manifestFile.startsWith(path.join(root, ".data/operations") + path.sep))) {
     throw new Error("Manifest override requires an isolated simulation file");
   }
   const deployment = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
   if (deployment.network !== "testnet" || deployment.governanceDelaySeconds !== 0) throw new Error("Testnet deployment mismatch");
   const account = simulate ? deployment.deployer : privateKeyToAccount(JSON.parse(fs.readFileSync(path.join(root, ".testnet/evm.json"), "utf8")).privateKey);
   if (!simulate && account.address.toLowerCase() !== deployment.deployer.toLowerCase()) throw new Error("Wallet mismatch");
-  const file = path.join(root, `.testnet/${name}${simulate ? "-simulation" : ""}.json`);
+  const file = operationFile(`${name}${simulate ? "-simulation" : ""}`);
   const identity = `${deployment.sourceCommit}:${deployment.addresses[10143].TermbookCore}:${simulate}`;
   const report = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : { identity, transactions: [], addresses: {}, governance: [] };
   if (report.identity !== identity) throw new Error("Runtime journal belongs to another deployment");
@@ -167,7 +147,9 @@ export async function testnetRuntime(name, simulate) {
       if (!report.governance.some((action) => action.id === id && action.chainId === chainId)) report.governance.push({ chainId, id, target, name, functionName });
       persist();
     }
-    const result = { client, read, call, deploy, govern, send };
+    const logUrl = !simulate && chainId === 10143 && process.env["TERMBOOK_CREDIT_RPC_URL"];
+    const logClient = logUrl ? createPublicClient({ transport: http(logUrl, { timeout: 30_000 }) }) : client;
+    const result = { client, logClient, read, call, deploy, govern, send };
     contexts.set(chainId, result);
     return result;
   }

@@ -1,3 +1,4 @@
+import { writeConfiguration, clearOperation } from "./testnet-state.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -29,6 +30,7 @@ async function main() {
     }
     log(JSON.stringify({ simulated: simulate, verified: true, transactions: 0, costMON: "0",
       factory: m.AccountFactory, healthSource: m.AccountHealthSource }));
+    clearOperation("account-health-setup", simulate);
     return;
   }
   if (await monad.read("TermbookCore", m.TermbookCore, "acceptedCredits") !== 0n) throw new Error("Account authentication must precede the first credit");
@@ -43,18 +45,19 @@ async function main() {
     const publicReport = { network: "testnet", core: m.TermbookCore, baseHealthSource: m.HealthSource,
       completedAt: report.completedAt, addresses: report.addresses, governance: report.governance,
       transactions: report.transactions.map((tx) => Object.fromEntries(Object.entries(tx).filter(([key]) => key !== "rawTransaction"))) };
-    fs.writeFileSync(path.join(root, "deployments/testnet-account-health.json"), JSON.stringify(publicReport, null, 2) + "\n");
+
     const previousFactory = deployment.accountAuthentication?.previousFactory ?? m.AccountFactory;
     m.AccountFactory = factory;
     m.AccountHealthSource = source;
-    deployment.accountAuthentication = { previousFactory, report: "testnet-account-health.json", activatedAt: report.completedAt };
+    deployment.accountAuthentication = { previousFactory, configuration: "account-health", activatedAt: report.completedAt };
     fs.writeFileSync(path.join(root, "deployments/testnet.json"), JSON.stringify(deployment, null, 2) + "\n");
+    writeConfiguration("account-health", publicReport);
     const bindingsFile = path.join(root, "packages/bindings/src/generated/deployments.ts");
     let bindings = fs.readFileSync(bindingsFile, "utf8");
     bindings = bindings.replace(/"AccountFactory": "0x[0-9a-fA-F]+"/, `"AccountFactory": "${factory}"`);
     if (!bindings.includes('"AccountHealthSource":')) bindings = bindings.replace(/("HealthSource": "0x[0-9a-fA-F]+",)/, `$1\n    "AccountHealthSource": "${source}",`);
     fs.writeFileSync(bindingsFile, bindings);
-    const envFile = path.join(root, ".testnet/server.env");
+    const envFile = path.join(root, ".env");
     const env = fs.readFileSync(envFile, "utf8").replace(/^ACCOUNT_FACTORY_ADDRESS=.*$/m, `ACCOUNT_FACTORY_ADDRESS=${factory}`);
     fs.writeFileSync(envFile, env, { mode: 0o600 });
   }

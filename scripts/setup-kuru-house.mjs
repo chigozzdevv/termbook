@@ -1,9 +1,10 @@
+import { alreadyConfigured, writeConfiguration, clearOperation, operationFile } from "./testnet-state.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { createRequire } from "node:module";
 import { log, error } from "node:console";
-import { root, viem, artifact, testnetRuntime, writeJsonAtomic } from "./testnet-runtime.mjs";
+import { root, viem, artifact, testnetRuntime } from "./testnet-runtime.mjs";
 
 const require = createRequire(path.join(root, "packages/sdk/package.json"));
 const { privateKeyToAccount } = require("viem/accounts");
@@ -18,6 +19,7 @@ function equal(actual, expected, label) {
 }
 
 async function main() {
+  if (!simulate && alreadyConfigured("kuru-house")) { clearOperation("kuru-house"); log(JSON.stringify({ configured: true, step: "kuru-house" })); return; }
   const runtime = await testnetRuntime("kuru-house", simulate);
   const { deployment, report, context, persist } = runtime;
   const monad = await context(10143), m = deployment.addresses[10143];
@@ -43,7 +45,7 @@ async function main() {
   report.originalHouse ??= await snapshot();
   persist();
   if (!simulate && !report.completedAt) {
-    const rehearsal = JSON.parse(fs.readFileSync(path.join(root, ".testnet/kuru-house-simulation.json"), "utf8"));
+    const rehearsal = JSON.parse(fs.readFileSync(operationFile("kuru-house-simulation"), "utf8"));
     equal(rehearsal.binding, binding, "simulation binding");
     if (!rehearsal.completedAt || !rehearsal.transactions.every((tx) => tx.status === "success")) throw new Error("Successful simulation required");
     const gas = rehearsal.transactions.reduce((sum, tx) => sum + BigInt(tx.gasLimit), 0n);
@@ -82,7 +84,7 @@ async function main() {
   report.readiness = { funded: cash > 0n, freeCash: String(cash), deployerAssetBalance: String(balance), integrationAdmitted: false };
   report.proxy = { address: vault, implementation, admin, contractId: pin.contractId, implementationCodeHash: pin.implementationCodeHash };
   persist();
-  if (!simulate) writeJsonAtomic(path.join(root, "deployments/testnet-kuru-house.json"), {
+  if (!simulate) writeConfiguration("kuru-house", {
     network: "testnet", chainId: 10143, purpose: "Separate House for Kuru testnet USDC", ...binding,
     completedAt: report.completedAt, proxy: report.proxy, readiness: report.readiness, originalHouse: m.HouseVault,
     originalHouseAccounting: report.originalHouse,
@@ -90,5 +92,6 @@ async function main() {
   });
   const cost = report.transactions.reduce((sum, tx) => sum + BigInt(tx.gasUsed) * BigInt(tx.effectiveGasPrice), 0n);
   log(JSON.stringify({ simulated: simulate, house, vault, transactions: report.transactions.length, costMON: viem.formatEther(cost), ...report.readiness }));
+  if (!simulate) clearOperation("kuru-house", false);
 }
 main().catch((cause) => { error(cause instanceof Error ? cause.message.split("\n")[0] : "Kuru House setup failed"); process.exitCode = 1; });

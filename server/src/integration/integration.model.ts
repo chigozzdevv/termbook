@@ -14,6 +14,7 @@ const integrationSchema = new mongoose.Schema(
     acceptance: { type: mongoose.Schema.Types.Mixed, required: true },
     accepted: { type: Boolean, default: false },
     review: mongoose.Schema.Types.Mixed,
+    packageDefinition: mongoose.Schema.Types.Mixed,
     tokenHash: { type: String, unique: true, sparse: true },
     active: { type: Boolean, default: true },
     frozen: { type: Boolean, default: false },

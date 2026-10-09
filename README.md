@@ -15,6 +15,7 @@ See `termbook.md` for the required behavior specification.
 - `packages/bindings/` generated contract ABIs and deployments
 - `packages/schema/` shared request and response schemas
 - `packages/sdk/` borrower and LP client
+- `features/kuru/` Kuru spot integration using the SDK's standard interface
 - `server/` off-chain indexer and coordinator, no custody authority
 - `scripts/` repo automation
 
@@ -105,6 +106,180 @@ fallback jobs use renewable leases and bounded retries. Handlers reconcile
 confirmed onchain state before submitting another transaction.
 
 ## Deployment stages
+
+### SDK integration flow
+
+An integration exports the SDK's `spot`, `perps`, `vault`, `staking`, or
+`liquidity` interface. It provides metadata and a pinned `definition`,
+`account.read(context)`, supported `actions.<capability>.build(context)`, and
+`exit.next(context)`. Readers return holdings and venue obligations at one
+block; builders return bounded calls, spending limits, minimum receipts and
+completion tracking. Exit returns an executable step, a wait, a failure reason,
+or completion. Amounts use the asset's smallest units.
+The published artifact contains the reviewed call definitions and code pins;
+callback functions remain local. The modal uses that registered artifact, and
+onchain modules determine custody, value and recovery.
+
+The Termbook operator configures a `ValidationEnvironment` once. Its
+`prepare` provisions the test facilities, funded House, distinct keeper and
+unauthorized actors, and reviewed security scenarios. It supplies actual action,
+recovery and repayment references plus one `ActionProbe` per execution route.
+`create_validation_environment` runs a data program of reads, transactions,
+simulations and assertions through the SDK recorder. App developers implement
+their integration operations; they do not supply a `passed` flag or a keeper
+wallet to `validate`. Validation resumes from the recorder's durable checkpoint.
+
+After the application owner verifies its origin, the author flow is:
+
+```ts
+import { create_sdk, create_termbook, type spot } from "@termbook/sdk";
+import { create_kuru } from "@termbook/kuru";
+
+const sdk = create_sdk({
+  application_id,
+  wallet: developer_wallet,
+  api_base,
+  validation_environment,
+});
+
+const kuru: spot = await create_kuru({
+  client: public_client,
+  api_base,
+  market_address,
+  settlement_asset: usdc,
+  oracle,
+  feed_id: token_usdc_feed,
+  maximum_input: 1_000_000_000n,
+  retained_bps: 9000,
+  recovery_costs: 1_000_000n,
+  max_holding: 1000n * 10n ** 18n,
+  dust_limit: 1_000_000_000_000n,
+});
+
+const validation = await sdk.integrations.validate({
+  plugin: kuru,
+  wallet: developer_wallet,
+  amount: 10_000_000n,
+});
+const registration = await sdk.integrations.register({
+  validation_id: validation.id,
+});
+
+if (registration.status === "active") {
+  const termbook = create_termbook({
+    app_token: registration.app_token,
+    wallet: borrower_wallet,
+  });
+  await termbook.open({
+    action: {
+      use_case: "spot",
+      capability: "place_order",
+      params: {
+        market_id: kuru.markets[0]!.market_id,
+        direction: "buy",
+        order_type: "market",
+        amount: { spend: 100_000_000n },
+        slippage_bps: 50,
+      },
+    },
+  });
+}
+```
+
+`register` returns `awaiting_approval` until an authorized reviewer calls
+`integrations.approve({ validation_id })`. The owner retrieves the activated
+token with `integrations.status({ validation_id })`; active tokens can be resumed.
+Validation IDs expire after 24 hours before activation. The server verifies
+origin ownership, finalized receipts, recovery and repayment, code pins and
+the deployed execution/accounting/recovery bindings. Registration cannot change
+the tested definition. An upgraded dependency requires a new validated version.
+SDK preparation checks pins; Core enforces policies and guards during execution.
+The full lifecycle suite runs at admission.
+
+The Kuru package currently declares immediate market buys and sells with spend
+sizing on markets quoted in the House's USDC. Its shared router keeps outputs
+in the Credit Account and converts Kuru's precision into raw token units.
+The shared module values available sell depth conservatively, caps it by a
+base/settlement oracle, enforces holdings limits, and plans borrower closure and
+keeper recovery. Bounded recovery approvals are cleared in the sale transaction.
+Approved dust limits use base-token units; dust has no credit value and stays
+in the account when control returns to a debt-free borrower.
+Resting limit orders, margin-account orders and intermediate quote-asset routes
+are not declared by this package.
+
+Operators deploy `ReadProgram`, `UseCaseReader`, `UseCasePolicy`,
+`UseCaseRecovery`, `AtomicSpotRouter`, `AtomicSpotModule`, and
+`AppHealthReaderFactory`. Configure `SHARED_READ_PROGRAM`,
+`SHARED_USE_CASE_READER`, `SHARED_USE_CASE_POLICY`, `SHARED_USE_CASE_RECOVERY`,
+`ATOMIC_SPOT_ROUTER`, and `ATOMIC_SPOT_MODULE` with their addresses.
+`await prepare_atomic_spot` produces the governance calls for immutable routes,
+dependency guards, amount/price rules, health accounting and activation. Its
+factory binds the Core and collateral reader once; the plan creates the bound
+`AppHealthReader` after registering recovery. Every proxy dependency needs a reviewed
+onchain guard; an RPC implementation-slot check alone does not satisfy admission.
+The operator's reviewed validation environment remains required, and these
+changes have not been deployed or validated against a live Kuru market.
+
+### Shared assessment
+
+App developers implement TypeScript interfaces for `spot`, `perps`, `vault`,
+`staking`, or `liquidity`. Their native ABI calls and reads are compiled into an
+immutable definition. Integrating developers do not deploy a venue-specific
+Termbook contract. Kuru-specific selectors, precision and depth decoding live in
+`features/kuru`; Solidity enforces the shared rules.
+
+`prepare_use_case(definition, operator_config)` prepares governance calls for the
+shared reader, policy and recovery components. The server checks their addresses,
+configuration hashes, price rules, code pins and read programs against the tested
+version before activation. `assess_state` compares the TypeScript state with
+native reads at the same canonical block. Action-specific constraints bind call
+order, selectors, constants, spending, the Credit Account and credit ID.
+
+| Use case | Shared valuation and exit rules |
+| --- | --- |
+| Spot | Controlled balances, pending liabilities, executable sell depth and oracle caps; cancel, withdraw and sell remaining holdings. |
+| Perps | Margin capped by independently valued backing, plus signed PnL minus liabilities and executable close caps; cancel and close positions. |
+| Vault | Underlying assets, shares and withdrawal claims; redeem and claim into the Credit Account. |
+| Staking | Stake, rewards, withdrawal claims and unbonding deadlines; request exit and claim when available. |
+| Liquidity | Both underlying assets, liquidity and rewards; remove liquidity, collect and convert remaining assets. |
+
+Amounts are raw token units. Margin, notional, liabilities and recoverable value
+use settlement-token units. PnL is signed. Oracle feeds quote the asset in the House settlement token,
+scaled to 18 decimals. Market names map to their keccak256
+hashes; native object IDs are bytes32 or unsigned integers. A withdrawal request
+lists its market, underlying assets, liability, recoverable value, claim time and
+optional replaced position. The reader rejects simultaneous counting of that
+position and its withdrawal claim. Claims available after loan maturity have no
+positive credit value. Reserved settlement cash is excluded from spendable cash.
+
+The bounded read format normalizes native getters to these ordered outputs:
+
+| Read | Outputs |
+| --- | --- |
+| Metadata | owner, position count, pending count, request count, reserved settlement cash |
+| Position | owner, ID, market, quantity0, quantity1, rewards0, rewards1, margin, notional, signed PnL, liability, executable value, shares, staked, liquidity, claim time |
+| Pending/reconciliation | owner, ID, position ID, committed, filled, refunded, remaining, maximum exposure, liability, maximum liability, deadline, reserved position slots, refund recipient, status |
+| Withdrawal | owner, ID, market, quantity0, quantity1, liability, executable value, claim time, replaced position ID |
+
+Programs contain bounded static calls and arithmetic, checked return sizes and
+optional immutable parameter hashes. Every queried dependency is pinned. Native
+getter semantics and recovery calls still require source review and lifecycle
+validation; an ABI alone does not establish custody or economic meaning.
+Unpriced assets and unverified claims cannot provide credit backing.
+
+Recovery checks actual proceeds, bounded spending, state progress and portfolio
+value. It clears approvals in the same transaction. The modal requests approved
+steps; the shared contracts enforce them. Asset valuation caps limit credited
+value; excess donated tokens remain recoverable through bounded exit steps.
+The Kuru package currently covers
+immediate market buys and sells quoted in House USDC. Other declared operations
+need matching native reads, call rules and validated recovery steps. Upgrade `ExecutionManager` and `AccountFactory` before upgrading Core and
+admitting these versions. Existing immutable Credit Accounts retain their old
+code and use their existing recovery adapters; newly funded recovery calls need
+new accounts. These new
+shared components have not been deployed or tested against a live Kuru market.
+
+### Transaction-reference admission
 
 The server publishes an admitted integration's SDK configuration at
 `GET /integrations/config?app_token=...`. Set `PUBLIC_API_BASE` and
@@ -344,8 +519,10 @@ and the account's actual input/output balance changes. Asynchronous orders retai
 their reviewed execution-price rules and authoritative fill accounting.
 Exact-output mappings can use `fundingFromBound`, `spendFromBound`, or
 `valueFromBound` to use the derived maximum as their budget.
-These ABI changes require a new Core, AccountFactory and Credit Accounts, registry,
-execution helpers, and updated app recovery adapters before use on an existing deployment.
+Apply the required Core, factory and execution-helper deployments or governed
+upgrades before activating new bundles. Credit Accounts have immutable code;
+new recovery funding requires accounts created by the updated factory. Existing
+adapters without that interface keep their original execution path.
 `ExecutionManager` reserves portfolio and pending slots,
 validates pending identifiers and recipients, and reconciles partial fills,
 refunds, and cancellation races from authoritative app state. The action worker
@@ -363,8 +540,9 @@ remaining exposure, and terminal status, and reports cancelled partial fills as
 `credit.app.resumeExecution({ checkpoint })` resumes that transaction without
 another draw or action signature. Reconciliation transactions are bounded per
 run, and the modal persists progress and resumes pending actions after reopening.
-Each integration still needs a concrete reader and adapter for its deployed app.
-An application reader must implement `IAppStateReader` to enumerate at most
+Integrations configure the shared use-case reader, policy and recovery rules,
+or the shared atomic spot module for immediate trades. The shared reader implements
+`IAppStateReader` to enumerate at most
 32 current positions and 32 pending actions for a Credit Account. The server
 reads that state at one finalized Monad block through the bundle's pinned
 `AppHealthReader`; an unavailable, stale, changed, or incomplete reader returns

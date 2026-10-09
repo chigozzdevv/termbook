@@ -7,6 +7,15 @@ import {PriceProtection} from "../../src/monad/integration/PriceProtection.sol";
 import {ExecutionTypes} from "../../src/monad/integration/IExecutionPolicy.sol";
 import {OracleRegistry} from "../../src/monad/risk/OracleRegistry.sol";
 import {IAppDeploymentGuard} from "../../src/monad/integration/IAppDeploymentGuard.sol";
+import {IntegrationRegistry} from "../../src/monad/integration/IntegrationRegistry.sol";
+import {ImplementationGuard} from "../../src/monad/integration/ImplementationGuard.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
+
+contract OracleProxyFixture is ERC1967Proxy {
+    constructor(address implementation_, bytes memory data) ERC1967Proxy(implementation_, data) {}
+    function proxyImplementation() external view returns (address) { return ERC1967Utils.getImplementation(); }
+}
 
 contract PriceFeedFixture {
     uint80 public round = 1;
@@ -82,6 +91,29 @@ contract PriceProtectionTest is Test {
         action.calls[0].nativeValue = maxInput ? 0 : 1 ether;
         action.calls[0].spendToken = maxInput ? address(token) : address(0);
         action.calls[0].spendAmount = maxInput ? quote.bound : 0;
+    }
+    function testGuardedOracleProxyWorksAndAnUpgradeRevokesTheRule() public {
+        OracleRegistry implementation = new OracleRegistry(address(0));
+        OracleProxyFixture proxy = new OracleProxyFixture(address(implementation), abi.encodeCall(OracleRegistry.initialize, (address(this))));
+        OracleRegistry guarded = OracleRegistry(address(proxy));
+        guarded.setFeed(feedId, address(feed), 300, 8);
+        guarded.setFeedGuard(feedId, address(new PriceFeedGuardFixture(feed)));
+        IntegrationRegistry dependencies = new IntegrationRegistry(address(this));
+        SpotTokenFixture token = new SpotTokenFixture(); bytes32 id = keccak256("proxy bundle");
+        dependencies.approve(id, keccak256("definition")); dependencies.pinDependency(id, address(token));
+        dependencies.pinDependency(id, address(proxy));
+        dependencies.setDependencyGuard(id, address(proxy), address(new ImplementationGuard(address(proxy), address(implementation), proxy.proxyImplementation.selector)));
+        PriceProtection.Rule memory config = protection.rule(bundle, capability, market); config.oracle = address(proxy);
+        protection.configureAmountRule(id, capability, market, config,
+            PriceProtection.AmountRule(0, 18, 6, false, false, true, address(0), address(token)), address(dependencies));
+        bytes32 proxyCredit = keccak256("proxy credit"); protection.bindCredit(proxyCredit, id, 75);
+        PriceProtection.Quote memory quote = _quote(false); quote.bound = 1990e6;
+        ExecutionTypes.Action memory action = _action(false, quote.bound);
+        action.calls[0].data = abi.encodeCall(feed.trade, (1 ether, quote.bound)); action.calls[0].nativeValue = 1 ether;
+        protection.validate(proxyCredit, id, action, quote);
+        vm.store(address(proxy), bytes32(uint256(0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc)),
+            bytes32(uint256(uint160(address(new OracleRegistry(address(0)))))));
+        vm.expectRevert(PriceProtection.Invalid.selector); protection.validate(proxyCredit, id, action, quote);
     }
     function testSpotMinimumOutputUsesAmountAndDecimalsAndActualReceipt() public {
         (ExecutionTypes.Action memory action, PriceProtection.Quote memory quote, SpotTokenFixture token) = _spot(false);

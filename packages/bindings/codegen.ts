@@ -45,6 +45,7 @@ const contracts = {
   AccountHealthSource: "account-health-source",
   CollateralHealthReader: "collateral-health-reader",
   AppHealthReader: "app-health-reader",
+  AppHealthReaderFactory: "app-health-reader-factory",
   AppExitVerifier: "app-exit-verifier",
   AppRetentionVerifier: "app-retention-verifier",
   IAppRetentionVerifier: "app-retention-verifier-interface",
@@ -59,6 +60,13 @@ const contracts = {
   FlowExecutor: "flow-executor",
   ExecutionManager: "execution-manager",
   IExecutionPolicy: "execution-policy",
+  AtomicSpotRouter: "atomic-spot-router",
+  AtomicSpotModule: "atomic-spot-module",
+  ReadProgram: "read-program",
+  UseCaseReader: "use-case-reader",
+  UseCasePolicy: "use-case-policy",
+  UseCaseRecovery: "use-case-recovery",
+  IAppRecoveryFunding: "app-recovery-funding",
 } as const;
 
 await mkdir(output, { recursive: true });

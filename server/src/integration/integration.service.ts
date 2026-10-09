@@ -1,6 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import { keccak256, parseAbi, parseAbiItem, toFunctionSelector } from "viem";
-import { assertActionRoutes, assertStandardDefinition, capabilityCalls, capabilityDependencies, useCaseSchema, type CapabilityDefinition } from "@termbook/schema";
+import { assertActionRoutes, assertStandardDefinition, capabilityCalls, capabilityDependencies, useCaseSchema, pluginDefinitionSchema, canonicalEvidence, type CapabilityDefinition } from "@termbook/schema";
+import { verify_definition } from "@termbook/sdk";
+import { stringToHex } from "viem";
 import { monadClient } from "../chain/monad.client.js";
 import { env } from "../config/env.js";
 import { integrationRepo } from "./integration.repo.js";
@@ -230,6 +232,16 @@ export const integrationService = {
     }
     const chain = monadClient();
     const block = await chain.getBlock({ blockTag: "finalized" });
+    const packageDefinition = row["packageDefinition"] === undefined ? undefined : pluginDefinitionSchema.parse(row["packageDefinition"]);
+    if (packageDefinition) {
+      const packageHash = keccak256(stringToHex(canonicalEvidence(packageDefinition)));
+      if (packageHash.toLowerCase() !== String(row["codeHash"]).toLowerCase()
+        || keccak256(stringToHex(`termbook.integration.v1:${packageDefinition.chain_id}:${packageHash}`)).toLowerCase() !== String(row["versionId"]).toLowerCase()
+        || packageDefinition.chain_id !== env.monadChainId || packageDefinition.use_case !== useCase.data
+        || packageDefinition.settlement_asset.toLowerCase() !== String(row["settlementAsset"]).toLowerCase()
+        || canonicalEvidence(packageDefinition.actions) !== canonicalEvidence(actions)) throw new Error("integration-not-found");
+      await verify_definition(chain, packageDefinition, block.number);
+    }
     try {
       const acceptance = integrationAcceptanceSchema.parse(row["acceptance"]);
       const suite = assertSuiteEnvelope(String(row["versionId"]) as `0x${string}`, String(row["codeHash"]) as `0x${string}`,
@@ -252,7 +264,8 @@ export const integrationService = {
       || !addressPattern.test(riskEngine) || /^0x0{40}$/i.test(riskEngine)) throw new Error("integration-config-unavailable");
     return { appToken, versionId: String(row["versionId"]), settlementAsset: String(row["settlementAsset"]), core: env.core,
       chainId: env.monadChainId, rpcUrl: publicUrl(env.publicRpcUrl), apiBase: publicUrl(env.publicApiBase),
-      accountFactory: env.accountFactory, riskEngine, settlementFactory, use_case: useCase.data, actions };
+      accountFactory: env.accountFactory, riskEngine, settlementFactory, use_case: useCase.data, actions,
+      ...(packageDefinition ? { integration_definition: packageDefinition } : {}) };
   },
   async list() {
     return integrationRepo.list();

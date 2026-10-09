@@ -56,3 +56,18 @@ export { IntegrationValidationRunner, IntegrationValidationPendingError, integra
 export type { IntegrationValidationOptions, ValidationCheckpoint, ValidationRead, ValidationCall } from "./integration/validation.js";
 
 export type { RecoveryOperationView } from "./house/recovery.js";
+export { package_integration, check_state, check_plan } from "./integration/plugin.js";
+export type { spot, perps, vault, staking, liquidity, plugin, integration, ReadContext,
+  ActionContext, ExitContext, PluginDefinition, PluginStates, PluginPlan, PluginExit } from "./integration/plugin.js";
+export { create_sdk, Integrations } from "./integration/author.js";
+export type { AuthorConfig, ValidationEnvironment, ValidationSession, ValidationResult, RegistrationResult } from "./integration/author.js";
+export { verify_definition, pin_contract, implementation_slot } from "./integration/pins.js";
+export { atomic_configuration, prepare_atomic_spot, atomicSpotAbi } from "./integration/atomic-spot.js";
+export type { GovernanceCall } from "./integration/atomic-spot.js";
+export { validate_callbacks } from "./integration/callbacks.js";
+export type { ActionProbe } from "./integration/callbacks.js";
+export { create_validation_environment } from "./integration/program.js";
+export type { ValidationProgram, ValidationStep } from "./integration/program.js";
+export { ReadProgramBuilder, compile_read_program, readProgramAbi } from "./integration/read-program.js";
+export { use_case_configuration, prepare_use_case } from "./integration/use-case.js";
+export { assess_state } from "./integration/assess.js";

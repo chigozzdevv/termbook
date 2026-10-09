@@ -8,14 +8,16 @@ vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: () => rpc }));
 const a = (n: string) => `0x${n.repeat(40)}` as `0x${string}`;
 const w = (n: string) => `0x${n.repeat(64)}` as `0x${string}`;
 const original = { auroraRoutes: env.auroraRoutes, auroraApiKey: env.auroraApiKey, settlementFactory: env.settlementFactory, monadChainId: env.monadChainId };
+let deadline = Math.floor(Date.now() / 1000) + 600;
 function input() {
   return { operationId: w("1"), kind: "repay" as const, payer: a("2"), nonce: "1", sourceChain: 1,
     sourceAsset: a("3"), vault: a("4"), token: a("5"), creditId: w("6"), maxAmountIn: "100", maxReceived: "120",
-    minAmountOut: "90", deadline: Math.floor(Date.now() / 1000) + 600, sourceRefund: a("2"), sourceRefundRecipient: a("2"),
+    minAmountOut: "90", deadline, sourceRefund: a("2"), sourceRefundRecipient: a("2"),
     refundRecipient: a("2"), monadRefundRecipient: a("2"), routeId: w("7"), routeVersion: w("0").slice(0, -1) + "1" };
 }
 beforeEach(() => {
   vi.clearAllMocks();
+  deadline = Math.floor(Date.now() / 1000) + 600;
   env.monadChainId = 143; env.settlementFactory = a("8"); env.auroraApiKey = "fixture";
   const request = input();
   env.auroraRoutes = JSON.stringify([{ ...request, sourceAssetId: "eth:test", destinationAssetId: "monad:test", slippageBps: 50, maxAmountIn: "200" }]);

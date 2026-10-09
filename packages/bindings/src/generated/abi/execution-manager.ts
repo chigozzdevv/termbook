@@ -563,6 +563,65 @@ export const executionManagerAbi = [
   },
   {
     "type": "function",
+    "name": "prepareRecovery",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "bundleId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "adapter",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "instruction",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "registry",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "dataHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "expectedState",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "accountCall",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "records",
     "inputs": [
       {
@@ -850,6 +909,39 @@ export const executionManagerAbi = [
     "stateMutability": "pure"
   },
   {
+    "type": "function",
+    "name": "verifyRecovery",
+    "inputs": [
+      {
+        "name": "creditId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "adapter",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "instruction",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "expectedState",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "view"
+  },
+  {
     "type": "event",
     "name": "ActionPending",
     "inputs": [
@@ -979,6 +1071,11 @@ export const executionManagerAbi = [
       }
     ],
     "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "BadState",
+    "inputs": []
   },
   {
     "type": "error",

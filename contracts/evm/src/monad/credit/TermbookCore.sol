@@ -13,7 +13,6 @@ import {SafeTransferLib} from "../../shared/SafeTransferLib.sol";
 import {RemoteAction} from "../../shared/collateral/RemoteAction.sol";
 import {ITermbookCore} from "./ITermbookCore.sol";
 import {IExitVerifier} from "../integration/IExitVerifier.sol";
-import {IAppRecoveryAdapter} from "../integration/IAppRecoveryAdapter.sol";
 import {IAppExitPlanner} from "../integration/IAppExitPlanner.sol";
 import {IAppRetentionVerifier, IAppRetentionPlanner} from "../integration/IAppRetentionVerifier.sol";
 import {PriceProtection} from "../integration/PriceProtection.sol";
@@ -101,6 +100,8 @@ interface ICreditAccountCore {
     function core() external view returns (address);
     function execute(address target, bytes calldata data) external returns (bytes memory);
     function executeWithValue(address target, bytes calldata data, uint256 value) external returns (bytes memory);
+    function executeRecoveryCall(bytes32 bundle, address token, uint256 amount, address target, bytes calldata data,
+        uint256 nativeValue, address registry) external returns (bytes memory);
     function executeApprovedCalls(bytes32 bundle, ExecutionTypes.Action calldata action, address registry, PriceProtection prices)
         external returns (bytes[] memory);
     function approveSpend(address token, address spender, uint256 amount) external;
@@ -4027,24 +4028,15 @@ contract TermbookCore is ITermbookCore, ProxyInitializable {
     {
         _accrue(c, creditId);
         address adapter = _requireAppRecoveryAdapter(c.bundleId);
-        (address target, bytes memory data, uint256 nativeValue, bytes32 expectedState) =
-            IAppRecoveryAdapter(adapter).recoveryCall(creditId, c.account, instruction);
-        if (target == address(0) || target == c.account || target.code.length == 0 || data.length < 4) {
-            revert BadState();
-        }
-        if (integrationRegistry != address(0)
-            && !IIntegrationRegistryCore(integrationRegistry).validateRecoveryValueCall(c.bundleId, target, data, c.account, nativeValue)) {
-            revert Unauthorized();
-        }
-        if (nativeValue != 0 && integrationRegistry == address(0)) revert Unauthorized();
-        ICreditAccountCore(c.account).executeWithValue(target, data, nativeValue);
-        if (!IAppRecoveryAdapter(adapter).verifyRecovery(creditId, c.account, instruction, expectedState)) {
-            revert BadState();
-        }
+        (address target, bytes32 dataHash, bytes32 expectedState, bytes memory accountCall) =
+            executionManager.prepareRecovery(creditId, c.bundleId, c.account, adapter, instruction, integrationRegistry);
+        (bool ok, bytes memory out) = c.account.call(accountCall);
+        if (!ok) assembly ("memory-safe") { revert(add(out, 32), mload(out)) }
+        executionManager.verifyRecovery(creditId, c.account, adapter, instruction, expectedState);
         if (managedBundle[c.bundleId]) executionManager.sync(creditId, c.bundleId, c.account);
         c.revision = RevisionLib.next(c.revision);
-        if (borrowerExit) emit AppExitStep(creditId, adapter, target, keccak256(data));
-        else emit AppRecoveryStep(creditId, adapter, target, keccak256(data));
+        if (borrowerExit) emit AppExitStep(creditId, adapter, target, dataHash);
+        else emit AppRecoveryStep(creditId, adapter, target, dataHash);
     }
 
     function _requireAppRecoveryAdapter(bytes32 bundleId) internal view returns (address adapter) {

@@ -13,6 +13,7 @@ import { Signer } from "../wallet/signer.js";
 import type { Wallet } from "../types/client.types.js";
 import { assertActionUseCase, assertStandardAction, executionKey, selectCapability, type TermAction } from "@termbook/schema";
 import { readActionState } from "./state.js";
+import { verify_definition } from "../integration/pins.js";
 
 const coreRegistryAbi = parseAbi(["function integrationRegistry() view returns (address)"]);
 const registryAbi = parseAbi(["function validateCall(bytes32,address,bytes,address,uint256) view returns (bool)",
@@ -37,6 +38,7 @@ export class CreditApp {
 
   private async prepare(action: TermAction, previousPrice?: ExecutionPrice) {
     await this.client.ready();
+    if (this.client.config.integration_definition) await verify_definition(this.client.rpc.client, this.client.config.integration_definition);
     assertActionUseCase(action, this.client.config.use_case);
     assertStandardAction(action, this.client.config.use_case);
     if (this.client.config.use_case) action = { ...action, use_case: this.client.config.use_case };

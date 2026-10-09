@@ -1,0 +1,43 @@
+import { keccak256, type Address } from "viem";
+import { monadClient } from "../chain/monad.client.js";
+import { env } from "../config/env.js";
+import { importVerifiedSource, implementationSlot } from "./integration.source.js";
+
+export const platformService = {
+  spot() {
+    const router = process.env["ATOMIC_SPOT_ROUTER"], module = process.env["ATOMIC_SPOT_MODULE"], reader = process.env["SHARED_READ_PROGRAM"];
+    if ([router, module, reader].some((value) => !/^0x[a-fA-F0-9]{40}$/.test(value ?? "") || /^0x0{40}$/i.test(value ?? ""))) {
+      throw new Error("integration-platform-unavailable");
+    }
+    return { chain_id: env.monadChainId, router, module, read_program: reader };
+  },
+  useCase() {
+    const execution = process.env["SHARED_USE_CASE_POLICY"], reader = process.env["SHARED_USE_CASE_READER"],
+      recovery = process.env["SHARED_USE_CASE_RECOVERY"], read_program = process.env["SHARED_READ_PROGRAM"];
+    if ([execution, reader, recovery, read_program].some((value) => !/^0x[a-fA-F0-9]{40}$/.test(value ?? "") || /^0x0{40}$/i.test(value ?? ""))) {
+      throw new Error("integration-platform-unavailable");
+    }
+    return { chain_id: env.monadChainId, contracts: { execution, reader, recovery, exit: recovery }, read_program };
+  },
+  async source(target: Address) {
+    const chain = monadClient();
+    const block = await chain.getBlock({ blockTag: "finalized" });
+    const code = await chain.getBytecode({ address: target, blockNumber: block.number });
+    if (!code || code === "0x") throw new Error("integration-target-unavailable");
+    const storage = await chain.getStorageAt({ address: target, slot: implementationSlot, blockNumber: block.number });
+    if (storage && !/^0x0*$/.test(storage)) {
+      if (!/^0x0{24}[0-9a-fA-F]{40}$/.test(storage)) throw new Error("integration-proxy-layout-unsupported");
+      const implementation = `0x${storage.slice(-40)}` as Address;
+      const implCode = await chain.getBytecode({ address: implementation, blockNumber: block.number });
+      if (!implCode || implCode === "0x") throw new Error("integration-implementation-unavailable");
+      const [source, implementationSource] = await Promise.all([
+        importVerifiedSource(env.monadChainId, target, code, null),
+        importVerifiedSource(env.monadChainId, implementation, implCode, null),
+      ]);
+      return { target, code_hash: keccak256(code), source_hash: source.sourceHash,
+        implementation, implementation_code_hash: keccak256(implCode), implementation_source_hash: implementationSource.sourceHash };
+    }
+    const source = await importVerifiedSource(env.monadChainId, target, code, null);
+    return { target, code_hash: keccak256(code), source_hash: source.sourceHash };
+  },
+};

@@ -56,6 +56,7 @@ contract PriceProtection is ProxyInitializable {
     mapping(bytes32 => bool) public bundleSealed;
     mapping(bytes32 => uint16) public houseSlippage;
     mapping(bytes32 => bool) public creditBound;
+    mapping(bytes32 => address) public oracleDependencyRegistries;
     error Unauthorized();
     error Invalid();
     error Stale();
@@ -82,7 +83,7 @@ contract PriceProtection is ProxyInitializable {
         return rules[key(bundle, capability, market)];
     }
     function configure(bytes32 bundle, bytes32 capability, bytes32 market, Rule calldata value) external onlyCore {
-        _configure(bundle, capability, market, value, false);
+        _configure(bundle, capability, market, value, false, address(0));
     }
     function configureAmountRule(bytes32 bundle, bytes32 capability, bytes32 market, Rule calldata value, AmountRule calldata amount, address integrationRegistry)
         external onlyCore {
@@ -92,22 +93,26 @@ contract PriceProtection is ProxyInitializable {
         if (integrationRegistry != address(0)
             && ((amount.inputAsset != address(0) && !IntegrationRegistry(integrationRegistry).dependencyValid(bundle, amount.inputAsset))
                 || (amount.outputAsset != address(0) && !IntegrationRegistry(integrationRegistry).dependencyValid(bundle, amount.outputAsset)))) revert Invalid();
-        _configure(bundle, capability, market, value, true);
+        _configure(bundle, capability, market, value, true, integrationRegistry);
         bytes32 id = key(bundle, capability, market);
         amountRules[id] = amount;
         ruleHashes[id] = keccak256(abi.encode(ruleHashes[id], amount));
         emit RuleConfigured(bundle, capability, market, ruleHashes[id]);
     }
-    function _configure(bytes32 bundle, bytes32 capability, bytes32 market, Rule calldata value, bool amountBound) private {
+    function _configure(bytes32 bundle, bytes32 capability, bytes32 market, Rule calldata value, bool amountBound, address dependencies) private {
         bytes32 id = key(bundle, capability, market);
         if (bundle == bytes32(0) || capability == bytes32(0) || bundleSealed[bundle] || ruleHashes[id] != bytes32(0)
-            || value.oracle.code.length == 0 || CodeInspection.delegates(value.oracle)
+            || value.oracle.code.length == 0
             || value.target.code.length == 0 || value.selector == bytes4(0) || value.feedId == bytes32(0)
             || value.callIndex >= 8 || value.priceDecimals > 36 || value.priceWord > 511
             || (!amountBound && (value.directionWord > 511 || value.priceWord == value.directionWord
                 || value.maximumDirection == value.minimumDirection))
             || value.maxSlippageBps > 5_000 || value.maxDeviationBps == 0 || value.maxDeviationBps > 5_000
             || value.maxAuthorizationAge == 0 || value.maxAuthorizationAge > 15 minutes) revert Invalid();
+        if (CodeInspection.delegates(value.oracle)) {
+            if (dependencies.code.length == 0 || !IntegrationRegistry(dependencies).dependencyValid(bundle, value.oracle)) revert Invalid();
+            oracleDependencyRegistries[id] = dependencies;
+        }
         OracleRegistry registry = OracleRegistry(value.oracle);
         address feed = registry.feeds(value.feedId);
         address guard = registry.feedGuards(value.feedId);
@@ -133,6 +138,8 @@ contract PriceProtection is ProxyInitializable {
             return;
         }
         if (!creditBound[creditId] || value.oracle.codehash != oracleCodeHashes[id]
+            || (oracleDependencyRegistries[id] != address(0)
+                && !IntegrationRegistry(oracleDependencyRegistries[id]).dependencyValid(bundle, value.oracle))
             || quote.slippageBps > value.maxSlippageBps || quote.slippageBps > houseSlippage[creditId]
             || quote.authorizedAt > block.timestamp || block.timestamp - quote.authorizedAt > value.maxAuthorizationAge
             || quote.updatedAt > quote.authorizedAt || action.calls.length <= value.callIndex) revert Invalid();

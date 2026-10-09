@@ -21,7 +21,11 @@ export function buildApp() {
   const app = Fastify({ logger: false });
   registerErrors(app);
   const nonceLimit = requestLimiter(20, 60_000);
+  const integrationLimit = requestLimiter(30, 60_000);
   app.addHook("onRequest", async (req, reply) => {
+    if (req.url.split("?")[0] === "/integrations/source" && !integrationLimit(req.ip)) {
+      return reply.status(429).header("retry-after", "60").send({ error: "integration-rate-limited" });
+    }
     if (req.method === "POST" && req.url === "/auth/nonce" && !nonceLimit(req.ip)) {
       return reply.status(429).header("retry-after", "60").send({ error: "auth-rate-limited" });
     }

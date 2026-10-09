@@ -86,6 +86,25 @@ contract CreditAccount is ICreditAccount {
         }
     }
 
+    function executeRecoveryCall(bytes32 bundle, address token, uint256 amount, address target, bytes calldata data,
+        uint256 nativeValue, address registry) external onlyCore returns (bytes memory result) {
+        if (!IntegrationRegistry(registry).validateRecoveryValueCall(bundle, target, data, address(this), nativeValue)) revert Unauthorized();
+        uint256 beforeBalance;
+        if (amount != 0) {
+            if (token == target || !IntegrationRegistry(registry).dependencyValid(bundle, token)) revert InvalidToken();
+            beforeBalance = token.balanceOf(address(this));
+            if (amount > beforeBalance) revert OverLimit();
+            _approveSpend(token, target, 0);
+            _approveSpend(token, target, amount);
+        }
+        result = _execute(target, data, nativeValue);
+        if (amount != 0) {
+            _approveSpend(token, target, 0);
+            uint256 afterBalance = token.balanceOf(address(this));
+            if (beforeBalance > afterBalance && beforeBalance - afterBalance > amount) revert OverLimit();
+        }
+    }
+
     function _approveSpend(address token, address spender, uint256 amount) private {
         if (token.code.length == 0 || spender == address(0)) revert InvalidToken();
         uint256 previous = allowances[token][spender];

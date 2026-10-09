@@ -6,8 +6,37 @@ import { authService } from "../auth/auth.service.js";
 import { applicationIdSchema } from "./application.schema.js";
 import { z } from "zod";
 import { acceptanceCases } from "@termbook/schema";
+import { pluginDefinitionSchema } from "@termbook/schema";
+import { packageService } from "./package.service.js";
+import { platformService } from "./platform.service.js";
 
 export const integrationController = {
+  async useCasePlatform() { return platformService.useCase(); },
+  async spotPlatform() { return platformService.spot(); },
+  async source(req: FastifyRequest) {
+    const input = z.strictObject({ target: z.string().regex(/^0x[a-fA-F0-9]{40}$/) }).parse(req.query);
+    return platformService.source(input.target as `0x${string}`);
+  },
+  async validatePackage(req: FastifyRequest) {
+    const user = (req as FastifyRequest & { user?: { wallet: string } }).user;
+    if (!user) throw new Error("permission-denied");
+    const input = z.strictObject({ application_id: applicationIdSchema, definition: pluginDefinitionSchema,
+      acceptance: integrationAcceptanceSchema }).parse(req.body);
+    return packageService.validate(input.application_id, user.wallet, input.definition, input.acceptance);
+  },
+  async registerPackage(req: FastifyRequest) {
+    const user = (req as FastifyRequest & { user?: { wallet: string } }).user;
+    if (!user) throw new Error("permission-denied");
+    const input = z.strictObject({ application_id: applicationIdSchema, validation_id: applicationIdSchema }).parse(req.body);
+    return packageService.register(input.validation_id, input.application_id, user.wallet);
+  },
+  async approvePackage(req: FastifyRequest) {
+    const user = (req as FastifyRequest & { user?: { wallet: string } }).user;
+    if (!user || !authService.isAdmin(user.wallet)) throw new Error("permission-denied");
+    const input = z.strictObject({ validation_id: applicationIdSchema,
+      fork_review_signature: z.string().regex(/^0x[a-fA-F0-9]{130}$/).optional() }).parse(req.body);
+    return packageService.approve(input.validation_id, user.wallet as `0x${string}`, input.fork_review_signature as `0x${string}` | undefined);
+  },
   async approve(req: FastifyRequest) {
     const user = (req as FastifyRequest & { user?: { wallet: string } }).user;
     if (!user || !authService.isAdmin(user.wallet)) throw new Error("permission-denied");

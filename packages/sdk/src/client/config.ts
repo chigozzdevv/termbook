@@ -1,5 +1,8 @@
 import { createPublicClient, http, parseAbi, parseAbiItem, toFunctionSelector } from "viem";
-import { assertActionRoutes, assertStandardDefinition, capabilityCalls, capabilityDefinitionSchema, useCaseSchema } from "@termbook/schema";
+import { assertActionRoutes, assertStandardDefinition, capabilityCalls, capabilityDefinitionSchema, useCaseSchema,
+  pluginDefinitionSchema, canonicalEvidence } from "@termbook/schema";
+import { keccak256, stringToHex } from "viem";
+import { verify_definition } from "../integration/pins.js";
 import type { ClientConfig, ResolvedClientConfig } from "../types/client.types.js";
 
 const tokenPattern = /^tbk_[a-f0-9]{64}$/;
@@ -10,6 +13,7 @@ const coreAbi = parseAbi([
   "function riskEngine() view returns (address)",
 ]);
 const registryAbi = parseAbi([
+  "function versions(bytes32) view returns (bytes32,bool,bool)",
   "function isActive(bytes32) view returns (bool)",
   "function isCallAllowed(bytes32,address,bytes4) view returns (bool)",
 ]);
@@ -60,6 +64,15 @@ export async function resolveClientConfig(input: ClientConfig): Promise<Resolved
   }
   const chainId = data["chainId"] as number;
   const chain = createPublicClient({ transport: http(rpcUrl) });
+  const definition = data["integration_definition"] === undefined ? undefined : pluginDefinitionSchema.parse(data["integration_definition"]);
+  if (definition) {
+    const hash = keccak256(stringToHex(canonicalEvidence(definition)));
+    if (versionId !== keccak256(stringToHex(`termbook.integration.v1:${chainId}:${hash}`))
+      || definition.chain_id !== chainId || definition.use_case !== useCase.data
+      || definition.settlement_asset.toLowerCase() !== String(data["settlementAsset"]).toLowerCase()
+      || canonicalEvidence(definition.actions) !== canonicalEvidence(actions)) throw new Error("sdk-config-invalid");
+    await verify_definition(chain, definition);
+  }
   const [actualChainId, coreCode, factoryCode, registry, configuredRiskEngine] = await Promise.all([
     chain.getChainId(), chain.getBytecode({ address: core, blockTag: "finalized" }), chain.getBytecode({ address: accountFactory, blockTag: "finalized" }),
     chain.readContract({ address: core, abi: coreAbi, functionName: "integrationRegistry", blockTag: "finalized" }),
@@ -80,7 +93,12 @@ export async function resolveClientConfig(input: ClientConfig): Promise<Resolved
     })),
   ]);
   if (!active || !allowed.every(Boolean) || input.wallet.getChainId && await input.wallet.getChainId() !== chainId) throw new Error("sdk-config-invalid");
+  if (definition) {
+    const version = await chain.readContract({ address: registry, abi: registryAbi, functionName: "versions", args: [versionId], blockTag: "finalized" });
+    if (version[0] !== keccak256(stringToHex(canonicalEvidence(definition)))) throw new Error("sdk-config-invalid");
+  }
   return { appToken, versionId, wallet: input.wallet, core, rpcUrl, chainId, apiBase, accountFactory,
     riskEngine: riskEngine as `0x${string}`, settlementFactory: settlementFactory as `0x${string}` | undefined,
-    settlementAsset: data["settlementAsset"] as `0x${string}`, use_case: useCase.data, actions };
+    settlementAsset: data["settlementAsset"] as `0x${string}`, use_case: useCase.data, actions,
+    ...(definition ? { integration_definition: definition } : {}) };
 }

@@ -68,6 +68,19 @@ export const wormholeEvmMessageClientAbi = [
   },
   {
     "type": "function",
+    "name": "confirmationPolicyHash",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "consensusVersion",
     "inputs": [],
     "outputs": [

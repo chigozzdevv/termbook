@@ -11,7 +11,8 @@ export function registerErrors(app: FastifyInstance): void {
     if (message.endsWith("-conflict")) return reply.status(409).send({ error: message });
     if (message === "permission-denied" || message === "auth-invalid") return reply.status(403).send({ error: message });
     if (message === "application-state-unavailable" || message === "integration-draft-trace-unavailable"
-      || message === "integration-source-unavailable" || message === "integration-config-unavailable") {
+      || message === "integration-source-unavailable" || message === "integration-config-unavailable"
+      || message === "integration-platform-unavailable") {
       return reply.status(503).send({ error: message });
     }
     if (["remote-action-authorization-unfinalized", "solana-proof-unavailable", "solana-wormhole-authorization-unavailable",

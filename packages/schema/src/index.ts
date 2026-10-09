@@ -14,3 +14,6 @@ export * from "./recovery.js";
 export * from "./catalog.js";
 export * from "./errors.js";
 export * from "./acceptance.js";
+export * from "./plugin.js";
+export * from "./read-program.js";
+export * from "./assessment.js";

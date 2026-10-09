@@ -6,6 +6,9 @@ import {ProxyInitializable} from "../../shared/ProxyInitializable.sol";
 import {ExecutionTypes, IExecutionPolicy} from "./IExecutionPolicy.sol";
 import {IAppStateReader} from "./IAppStateReader.sol";
 import {CodeInspection} from "../../shared/CodeInspection.sol";
+import {IAppRecoveryAdapter} from "./IAppRecoveryAdapter.sol";
+import {IAppRecoveryFunding} from "./IAppRecoveryFunding.sol";
+import {IntegrationRegistry} from "./IntegrationRegistry.sol";
 
 contract ExecutionManager is ProxyInitializable {
     struct Bundle {
@@ -55,6 +58,7 @@ contract ExecutionManager is ProxyInitializable {
     error Unauthorized();
     error Invalid();
     error Bounds();
+    error BadState();
     event ActionPending(bytes32 indexed creditId, bytes32 indexed pendingId, bytes32 capability, bytes32 market);
     event ActionReconciled(bytes32 indexed creditId, bytes32 indexed pendingId, ExecutionTypes.Status status,
         uint256 filled, uint256 refunded, uint256 remaining, uint256 liability);
@@ -92,6 +96,33 @@ contract ExecutionManager is ProxyInitializable {
     function policyHash(bytes32 bundleId) external view returns (bytes32) { return _bundle(bundleId).policyHash; }
     function pendingCount(bytes32 creditId) external view returns (uint256) { return pendingIds[creditId].length; }
     function pendingAt(bytes32 creditId, uint256 index) external view returns (bytes32) { return pendingIds[creditId][index]; }
+
+    function prepareRecovery(bytes32 creditId, bytes32 bundleId, address account, address adapter,
+        bytes calldata instruction, address registry) external view onlyCore
+        returns (address target, bytes32 dataHash, bytes32 expectedState, bytes memory accountCall) {
+        bytes memory data;
+        uint256 nativeValue;
+        (target, data, nativeValue, expectedState) = IAppRecoveryAdapter(adapter).recoveryCall(creditId, account, instruction);
+        if (target == address(0) || target == account || target.code.length == 0 || data.length < 4) revert BadState();
+        if (registry != address(0)
+            && !IntegrationRegistry(registry).validateRecoveryValueCall(bundleId, target, data, account, nativeValue)) revert Unauthorized();
+        if (nativeValue != 0 && registry == address(0)) revert Unauthorized();
+        (bool queried, bytes memory answer) = adapter.staticcall(abi.encodeWithSignature("supportsInterface(bytes4)", type(IAppRecoveryFunding).interfaceId));
+        if (queried && answer.length == 32 && abi.decode(answer, (bool))) {
+            if (registry == address(0)) revert Unauthorized();
+            (address token, uint256 amount) = IAppRecoveryFunding(adapter).recoverySpend(creditId, account, instruction);
+            accountCall = abi.encodeWithSignature("executeRecoveryCall(bytes32,address,uint256,address,bytes,uint256,address)",
+                bundleId, token, amount, target, data, nativeValue, registry);
+        } else {
+            accountCall = abi.encodeWithSignature("executeWithValue(address,bytes,uint256)", target, data, nativeValue);
+        }
+        dataHash = keccak256(data);
+    }
+
+    function verifyRecovery(bytes32 creditId, address account, address adapter, bytes calldata instruction,
+        bytes32 expectedState) external view onlyCore {
+        if (!IAppRecoveryAdapter(adapter).verifyRecovery(creditId, account, instruction, expectedState)) revert BadState();
+    }
 
     function prepare(bytes32 creditId, bytes32 bundleId, address account, ExecutionTypes.Action calldata action)
         external onlyCore returns (Reservation memory reservation) {

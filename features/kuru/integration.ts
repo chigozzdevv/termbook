@@ -39,7 +39,8 @@ export async function create_kuru(options: KuruOptions): Promise<spot> {
   const [price, size, base, baseDecimals, quote, quoteDecimals] = params;
   if (quote.toLowerCase() !== options.settlement_asset.toLowerCase() || quote === zeroAddress || base === quote
     || price <= 0 || size <= 0n || baseDecimals > 36n || quoteDecimals > 36n
-    || 10n ** baseDecimals % size !== 0n || 10n ** quoteDecimals % BigInt(price) !== 0n) {
+    || 10n ** baseDecimals % size !== 0n
+    || (10n ** quoteDecimals % BigInt(price) !== 0n && BigInt(price) % 10n ** quoteDecimals !== 0n)) {
     throw new Error("integration-kuru-market-unsupported");
   }
   if (await client.readContract({ address: options.market_address, abi: marketAbi, functionName: "isTrustedForwarder",

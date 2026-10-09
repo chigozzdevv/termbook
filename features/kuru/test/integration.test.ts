@@ -1,5 +1,5 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import { decodeFunctionData, parseAbi, keccak256, type PublicClient, type Address, type Hex } from "viem";
+import { decodeFunctionData, parseAbi, keccak256, zeroAddress, type PublicClient, type Address, type Hex } from "viem";
 import { create_kuru } from "../integration.js";
 const addr = (n: string) => `0x${n.repeat(40)}` as Address;
 const word = (n: string) => `0x${n.repeat(64)}` as Hex;
@@ -47,5 +47,24 @@ describe("Kuru spot package", () => {
     await expect(create_kuru({ ...options(), settlement_asset: addr("a") })).rejects.toThrow("integration-kuru-market-unsupported");
     read.mockImplementation(async ({ functionName }) => functionName === "getMarketParams" ? params : true);
     await expect(create_kuru(options())).rejects.toThrow("integration-forwarder-unsafe");
+  });
+  it("supports Kuru's price precision above the settlement token's decimals", async () => {
+    const official = [100_000_000, 10_000_000_000n, zeroAddress, 18n, addr("6"), 6n, 100,
+      2_000_000_000_000n, 2_000_000_000_000_000_000n, 0n, 0n] as const;
+    read.mockImplementation(async ({ functionName }) => functionName === "getMarketParams" ? official
+      : functionName === "isTrustedForwarder" ? false : 10n ** 18n);
+    const plugin = await create_kuru(options());
+    const buy = plugin.definition.atomic_spot!.routes[0]!;
+    const encoded = 1_000_000n * BigInt(buy.numerator) / BigInt(buy.denominator);
+    expect(encoded).toBe(100_000_000n);
+    expect(encoded * BigInt(buy.denominator) / BigInt(buy.numerator)).toBe(1_000_000n);
+    const context = { client: client(), credit_id: word("d"), account: addr("2"), borrower: addr("1"),
+      block: { number: 1n, hash: word("a") }, market: plugin.markets[0]!, minimum_receive: 1n };
+    const plan = await plugin.actions.place_order.build({ ...context, action: { use_case: "spot", capability: "place_order",
+      params: { market_id: addr("7"), direction: "sell", order_type: "market", amount: { spend: 10n ** 18n }, slippage_bps: 50 } } });
+    expect(plan.calls[0]!.value).toBe(10n ** 18n);
+    expect(plan.calls[0]!.spend_amount).toBe(0n);
+    const state = await plugin.account.read(context);
+    expect((await plugin.exit.next({ ...context, state, slippage_bps: 50, minimum_receive: async () => 1n })).status).toBe("execute");
   });
 });

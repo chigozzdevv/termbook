@@ -273,11 +273,11 @@ steps; the shared contracts enforce them. Asset valuation caps limit credited
 value; excess donated tokens remain recoverable through bounded exit steps.
 The Kuru package currently covers
 immediate market buys and sells quoted in House USDC. Other declared operations
-need matching native reads, call rules and validated recovery steps. Upgrade `ExecutionManager` and `AccountFactory` before upgrading Core and
-admitting these versions. Existing immutable Credit Accounts retain their old
-code and use their existing recovery adapters; newly funded recovery calls need
-new accounts. These new
-shared components have not been deployed or tested against a live Kuru market.
+need matching native reads, call rules and validated recovery steps. Monad testnet's
+`FlowExecutor`, `AccountFactory`, `PriceProtection`, and Core have been upgraded
+for these versions. Existing immutable Credit Accounts retain their old code and
+use their existing recovery adapters; newly funded recovery calls need new accounts.
+The shared components are deployed; live Kuru lifecycle validation is pending.
 
 ### Transaction-reference admission
 

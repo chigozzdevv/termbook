@@ -413,12 +413,12 @@
     }
   ],
   "finalizedVerification": {
-    "checkedAt": "2026-10-09T18:18:29.983Z",
-    "block": "69608623",
-    "blockHash": "0x255fa49cd2f10f18e8f6452e85f563c5facc1d896dd6522b588c74e44cb1782b",
+    "checkedAt": "2026-10-09T19:31:18.076Z",
+    "block": "69623069",
+    "blockHash": "0x3dc649ed998d51d23b0efd53aba71e651d395ff98fc7f8d068fb18079a5d0e49",
     "transactions": 19,
     "proxies": 23,
     "preservedCredits": 6,
-    "balanceMON": "1.266012092"
+    "balanceMON": "11.266012092"
   }
 }

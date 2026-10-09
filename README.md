@@ -50,7 +50,7 @@ node --env-file=.env server/dist/worker.js
 
 Use `mongodb://127.0.0.1:27018/termbook_testnet_upgradeable?replicaSet=rs0&directConnection=true`
 with a one-member `rs0` replica set for integration admission transactions.
-The Docker volume binds `.data/mongo`, preserving the local MongoDB 7.0.14 data.
+MongoDB stores its data in the `termbook-testnet_mongo` volume managed by Docker.
 An empty `REDIS_URL` uses the durable MongoDB queue. The local API uses port 3002. `/health` checks the API;
 `/ready` requires current finalized indexing and healthy risk scans.
 
@@ -95,7 +95,7 @@ Local files have four purposes:
 
 - `.env`: private service configuration, RPC URLs and API/signing keys.
 - `.testnet/`: private wallet and program authority key files.
-- `.data/`: MongoDB data and temporary journals for unfinished operations.
+- `.data/`: temporary journals for unfinished operations.
 - `deployments/testnet.json`: the active public deployment configuration, code pins and upgrade baselines.
 
 ## API authorization

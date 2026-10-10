@@ -245,15 +245,7 @@ if (broadcast) {
     programId: program.toBase58(), programDataAddress: new PublicKey(deployed.data.subarray(4, 36)).toBase58(),
     programDataHash: programHash, emitter: PublicKey.findProgramAddressSync([Buffer.from("emitter")], program)[0].toBase58(),
     immutable: programData.data[12] === 0, upgradeAuthority: programData.data[12] === 1 ? upgradeAuthority : undefined };
-  if (previous?.solana.programId !== program.toBase58()) {
-    delete report.solana.deploymentSignature;
-    const receiptFile = path.join(directory, "solana-upgradeable-deployment.json");
-    if (fs.existsSync(receiptFile)) {
-      const receipt = JSON.parse(fs.readFileSync(receiptFile, "utf8"));
-      if (receipt.programId !== program.toBase58() || receipt.programDataHash !== programHash) throw new Error("Solana deployment receipt mismatch");
-      report.solana.deploymentSignature = receipt.deploymentSignature;
-    }
-  }
+  if (previous?.solana.programId !== program.toBase58()) delete report.solana.deploymentSignature;
 }
 
 const monad = await context(10143, simulate ? "http://127.0.0.1:18545" : "https://testnet-rpc.monad.xyz");

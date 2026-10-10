@@ -22,6 +22,13 @@ async function main() {
   equal(await read("ProtocolGovernance", m.ProtocolGovernance, "governance"), deployment.deployer, "governance owner");
   equal(await read("ProtocolGovernance", m.ProtocolGovernance, "timelock"), 0n, "testnet delay");
   equal(await read("UpgradeController", m.UpgradeController, "owner"), m.ProtocolGovernance, "upgrade owner");
+  for (const [name, address, method, expected] of [
+    ["TermbookCore", m.TermbookCore, "healthSource", m.AccountHealthSource],
+    ["AccountHealthSource", m.AccountHealthSource, "core", m.TermbookCore],
+    ["AccountHealthSource", m.AccountHealthSource, "source", m.HealthSource],
+    ["AccountHealthSource", m.AccountHealthSource, "accountFactory", m.AccountFactory],
+    ["AccountHealthSource", m.AccountHealthSource, "oracleRegistry", m.OracleRegistry],
+  ]) equal(await read(name, address, method), expected, `${name}.${method}`);
   for (const [name, pin] of Object.entries(deployment.proxies[10143])) {
     const proxy = m[name];
     equal(await read("TestnetProxy", proxy, "proxyImplementation"), pin.implementation, `${name} implementation`);

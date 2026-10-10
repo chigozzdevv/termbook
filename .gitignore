@@ -9,7 +9,4 @@ lib/
 .data/
 *.log
 .DS_Store
-contracts/evm/out/
-contracts/evm/cache/
-/solana/target/
 coverage/

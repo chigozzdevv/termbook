@@ -69,8 +69,8 @@ distinct `ORACLE_KEEPER_KEY`; stale or invalid source rounds remain rejected.
 The upgradeable deployment installs the borrower-owned account factory and
 `AccountHealthSource` before accepting any credit. This wrapper checks factory
 provenance and identity before health or cash readings authorize funding.
-`scripts/setup-testnet-account-health.mjs --broadcast` verifies these installed
-contracts without replacing them or sending transactions.
+`node scripts/verify-testnet-integrations.mjs` verifies their installed bindings
+alongside the proxy and shared integration checks.
 Production price-age and risk parameters require their own admission.
 
 After app and keeper setup, `node scripts/testnet-e2e.mjs --begin` creates two

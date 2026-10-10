@@ -134,15 +134,16 @@ describe("remote payment completion", () => {
   });
   it("does not accept a provider refund report without a finalized source refund", async () => {
     const f = fixture(); f.values.received = 0n;
+    const stop = new AbortController();
     f.wallet.fund.mockImplementation(async (_r, _route, onSubmitted) => { await onSubmitted(w("c")); return w("c"); });
-    vi.mocked(verifySourceRefund).mockResolvedValue(false);
+    vi.mocked(verifySourceRefund).mockImplementation(async () => { stop.abort(); return false; });
     const fetch = vi.mocked(globalThis.fetch);
     fetch.mockImplementation(async (url) => ({ ok: true, json: async () => String(url).endsWith("/routes") ? [f.route] : {
       operationId: (await f.register.mock.results[0]!.value)["operationId"], inbox: a("9"),
       quote: {}, providerStatus: "REFUNDED", providerStatusCheckedAt: Date.now(), providerRefundedAmount: "100",
       providerOriginTxHashes: [w("f")],
     } }) as Response);
-    await expect(remotePayment(f.client, f.input, { sourceWallet: f.wallet, timeoutMs: 20, pollIntervalMs: 1 })).rejects.toBeInstanceOf(PaymentPendingError);
+    await expect(remotePayment(f.client, f.input, { sourceWallet: f.wallet, signal: stop.signal, pollIntervalMs: 1 })).rejects.toBeInstanceOf(PaymentPendingError);
     expect(f.values.applied).toBe(0n); expect(verifySourceRefund).toHaveBeenCalled();
   });
 });

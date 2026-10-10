@@ -79,6 +79,32 @@ describe('integration validation recorder', () => {
     const runner = new IntegrationValidationRunner(chain as unknown as PublicClient, context, [signer], { gasLimit: 1_000_000n });
     await expect(runner.run('pause_failure', (r) => r.simulate('paused', { from: suite.actors.borrower as Hex, to: suite.core as Hex, signature: 'function act()' }).then(() => undefined))).rejects.toMatchObject({ cause: { message: expect.stringContaining('RPC unavailable') } });
   });
+  it('records execution reverts from another client error implementation', async () => {
+    const chain = client();
+    chain.call.mockRejectedValue(new Error('call failed', { cause: new Error('execution failed', {
+      cause: { code: 3, message: 'execution reverted', data: '0x12345678' },
+    }) }));
+    const runner = new IntegrationValidationRunner(chain as unknown as PublicClient, context, [], { gasLimit: 1_000_000n });
+    await runner.run('pause_failure', async (r) => {
+      const result = await r.simulate('paused', { from: suite.actors.borrower as Hex, to: suite.core as Hex, signature: 'function act()' });
+      expect(result).toMatchObject({ reverted: true, result: '0x12345678' });
+    });
+  });
+  it('does not classify rate limits with hex data as execution reverts', async () => {
+    const chain = client();
+    const failure = new Error('RPC request failed', { cause: { code: -32005, message: 'rate limit exceeded', data: '0x12345678' } });
+    chain.call.mockRejectedValue(failure);
+    const runner = new IntegrationValidationRunner(chain as unknown as PublicClient, context, [], { gasLimit: 1_000_000n });
+    await expect(runner.run('pause_failure', (r) => r.simulate('paused', { from: suite.actors.borrower as Hex,
+      to: suite.core as Hex, signature: 'function act()' }).then(() => undefined))).rejects.toMatchObject({ cause: failure });
+  });
+  it('terminates cyclic error causes without recording a rejection', async () => {
+    const chain = client(), failure = new Error('RPC unavailable');
+    failure.cause = failure; chain.call.mockRejectedValue(failure);
+    const runner = new IntegrationValidationRunner(chain as unknown as PublicClient, context, [], { gasLimit: 1_000_000n });
+    await expect(runner.run('pause_failure', (r) => r.simulate('paused', { from: suite.actors.borrower as Hex,
+      to: suite.core as Hex, signature: 'function act()' }).then(() => undefined))).rejects.toMatchObject({ cause: failure });
+  });
   it('runs a rejection against the exact block used by its positive control', async () => {
     const chain = client(); let height = 1n;
     chain.getBlock.mockImplementation(async (request?: { blockNumber?: bigint }) => ({ number: request?.blockNumber ?? height++,

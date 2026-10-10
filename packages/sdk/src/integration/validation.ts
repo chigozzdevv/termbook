@@ -1,7 +1,7 @@
 import { acceptanceCases, acceptanceCaseSchema, canonicalEvidence, integrationSuiteSchema, integrationSuiteContextSchema,
   type AcceptanceCase, type AcceptanceCaseId, type EvidenceAssertion, type EvidenceObservation,
   type EvidenceSimulation, type EvidenceTransaction, type IntegrationSuite } from "@termbook/schema";
-import { BaseError, decodeAbiParameters, decodeFunctionData, encodeFunctionData, keccak256, parseAbiItem, stringToHex,
+import { decodeAbiParameters, decodeFunctionData, encodeFunctionData, keccak256, parseAbiItem, stringToHex,
   type Address, type Hex, type PublicClient, type TransactionReceipt } from "viem";
 import type { Wallet } from "../types/client.types.js";
 
@@ -38,8 +38,16 @@ export function assertIntegrationEvidence(item: AcceptanceCase): void {
   }
 }
 function revertData(error: unknown): Hex | undefined {
-  const found = error instanceof BaseError ? error.walk((cause) => typeof cause === "object" && cause !== null && "data" in cause && typeof cause.data === "string" && /^0x(?:[a-fA-F0-9]{2})*$/.test(cause.data)) : undefined;
-  return found && typeof found === "object" && "data" in found && typeof found.data === "string" ? found.data as Hex : undefined;
+  const seen = new Set<object>();
+  for (let depth = 0; depth < 16 && typeof error === "object" && error !== null && !seen.has(error); depth++) {
+    seen.add(error);
+    const cause = error as { code?: unknown; name?: unknown; message?: unknown; data?: unknown; cause?: unknown };
+    const reverted = cause.code === 3 || cause.name === "ExecutionRevertedError"
+      || typeof cause.message === "string" && /^execution reverted\b/i.test(cause.message);
+    if (reverted && typeof cause.data === "string" && /^0x(?:[a-fA-F0-9]{2})*$/.test(cause.data)) return cause.data as Hex;
+    error = cause.cause;
+  }
+  return undefined;
 }
 export type ValidationRead = {
   id: string; target: Address; signature: string; args?: readonly unknown[]; from: Address; phase: "before" | "after";

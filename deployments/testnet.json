@@ -36220,8 +36220,8 @@
       "settlementAsset": "0x534b2f3A21130d7a60830c2Df862319e593943A3",
       "monitor": "0x4Bb71Cc4ea4dA4FBa0ce4720843c28Cc6aD0Fc70",
       "trustModel": "testnet RPC monitor; 180-second expiring approval",
-      "bid": "2482300",
-      "ask": "2507300",
+      "bid": "2510300",
+      "ask": "2535600",
       "makerBaseMON": "1",
       "makerQuoteUSDC": "1",
       "guards": {
@@ -36313,7 +36313,7 @@
           "codeHash": "0x645111866eec7decc0ba5894cef472a6497f11a791aec446155d8a71078cc0c2"
         }
       },
-      "liquidityUpdatedAt": "2026-10-10T19:53:30.307Z"
+      "liquidityUpdatedAt": "2026-10-10T21:26:05.611Z"
     },
     "kuru-application": {
       "applicationId": "60a78bce-f7bc-438d-afb5-8fedfa22866f",
@@ -39286,6 +39286,44 @@
       "healthReader": "0x02138011e4b58E36d87739b7794B75a7ba43F635",
       "planHash": "0x2d9d990062baa0de8d9f838a0acedad2d4be100b4f37a8a307b91508e0cad621",
       "completedAt": "2026-10-10T18:25:22.151Z"
+    },
+    "kuru-admission": {
+      "applicationId": "60a78bce-f7bc-438d-afb5-8fedfa22866f",
+      "integrationId": "2fa595db-15cf-489f-afc0-8d5f544e577b",
+      "versionId": "0x101e2fe1d10f60c193b7ba0560b8fd6ab04ce9e29781607b5704ec8c20a082c0",
+      "packageHash": "0xb945bc85a0c41894d68d99e78fb2efc059170be6376080e881c4a5904a0f860e",
+      "status": "active",
+      "approvedAt": "2026-10-10T22:20:11.510Z",
+      "acceptance": {
+        "mode": "fork",
+        "evidenceHash": "0x967dddddb4366c0ccadde7897d2d135e82471997324a7285ff1a47bf7432342a",
+        "sourceBlock": {
+          "number": "69920839",
+          "hash": "0x9a8f1377e8d156ff3a931866c05f1d0e4784069da2599501e8cd9a16d07dbd6e"
+        },
+        "cases": 36,
+        "exclusions": [
+          "forced_cancel",
+          "asynchronous_failure",
+          "pending_limit",
+          "partial_fill_slots",
+          "duplicate_claim",
+          "forced_reduce",
+          "retention_authorization"
+        ]
+      },
+      "liveLifecycle": {
+        "borrowing": true,
+        "buy": true,
+        "sell": true,
+        "repayment": true,
+        "closure": true,
+        "independentRecovery": true,
+        "collateralSale": true,
+        "allValidationLoansClosed": true,
+        "finalClosureTx": "0x68a4e44d13f4f998561c04ae20306567101cf447203a7181b666c4de203b76de"
+      },
+      "trustModel": "testnet exact-runtime review and trusted RPC upgrade monitors; no mainnet admission"
     }
   },
   "deploymentBlocks": {

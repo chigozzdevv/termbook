@@ -241,8 +241,8 @@ dependency guards, amount/price rules, health accounting and activation. Its
 factory binds the Core and collateral reader once; the plan creates the bound
 `AppHealthReader` after registering recovery. Every proxy dependency needs a reviewed
 onchain guard; an RPC implementation-slot check alone does not satisfy admission.
-The shared components are deployed on Monad testnet. The operator's reviewed
-validation environment remains required; no live Kuru market has been admitted.
+The shared components are deployed on Monad testnet. The MON/Circle-USDC Kuru
+market passed operator validation and is admitted on testnet.
 `node scripts/setup-testnet-integrations.mjs --simulate --refresh-spot` checks a
 replacement of the immutable shared spot module; `--broadcast --refresh-spot`
 updates its platform address after that simulation. Existing integration
@@ -261,7 +261,7 @@ supplied 1 MON and 1 test USDC to its margin account and placed both bid and ask
 liquidity. Its addresses and dependency pins are in `deployments/testnet.json`.
 `node scripts/setup-testnet-kuru.mjs --simulate` checks setup on a current fork;
 `--broadcast` resumes the live setup. The existing Circle-USDC House can fund
-this market once admission passes.
+this admitted market.
 
 Before admission, the testnet's explicitly trusted RPC monitor must cover all
 six proxy dependencies, including Circle USDC's legacy OpenZeppelin proxy.
@@ -286,7 +286,7 @@ exact matches, as do all six testnet monitor guards. Circle's linked
 SignatureChecker library is verified with only its deployment-address call
 protection and compiler metadata differing. These records are in
 `deployments/testnet.json`. The admin-owned local Termbook Kuru application is
-origin verified at `http://127.0.0.1:3000`; it has not been admitted.
+origin verified at `http://127.0.0.1:3000`.
 
 The deployed OrderBook implementation at
 `0x72caE0a99C19B574e8a6De558F43fc1D019c9374` still has no matching source build.
@@ -312,8 +312,15 @@ Configuration binds the SDK definition and simulated governance plan before
 broadcast. Reader registration targets `HealthSource`; the SDK checks its
 binding through Core's authenticated `AccountHealthSource` wrapper. The live runner creates repayment, default-recovery and active
 valuation facilities. It records actual buy/sell calls and independent keeper
-recovery and repayment receipts for SDK validation. These Kuru commands have not
-completed against the live deployment. No Kuru app token has been issued.
+recovery and repayment receipts for SDK validation. Live borrowing, buying,
+selling, repayment, closure and independent keeper recovery completed on
+10 October 2026. The deployment-bound SDK acceptance review passed and the
+operator approved registration. `TERMBOOK_KURU_APP_TOKEN` is saved privately in
+the root `.env`; `deployments/testnet.json` records its public admission identity.
+All validation loans are closed, with no outstanding debt and their collateral
+returned. Client work, service hosting and Aurora sandbox routes remain deferred.
+For local use, run the worker command above with funded monitor and oracle
+keepers; execution checkpoints and monitor approvals expire when it stops.
 Configuration also installs a generic code-hash guard for the immutable MON
 ratio feed. Execution state and authorization freshness remain 90 seconds;
 health accounting uses the existing testnet oracle policy of 90,000 seconds,
@@ -332,8 +339,10 @@ interruption and retry, and cure restrictions. Seven explicit exclusions cover
 unsupported asynchronous orders, derivative reduction and retained positions.
 Each rejection has a successful control; recorded observations, transactions
 and simulations are replayed against their original blocks.
-All 36 cases have also passed and replayed using the deployed Termbook contracts
-on a local fork. Live configuration and lifecycle admission remain pending.
+All 36 cases passed and replayed using the deployed Termbook contracts on a
+local fork. The SDK checked the live trading, custody, valuation, repayment and
+independent recovery receipts before registration and approval. Admission uses
+the testnet runtime review and expiring upgrade monitors described above.
 
 Build the Solidity fixtures, start a local fork, then run the SDK suite in a
 second terminal:
@@ -342,7 +351,7 @@ second terminal:
 forge build --root contracts/evm
 anvil --fork-url https://testnet-rpc.monad.xyz --chain-id 10143 \
   --host 127.0.0.1 --port 18548 --slots-in-an-epoch 1 \
-  --disable-code-size-limit --gas-limit 30000000 --timeout 10000 --retries 1
+  --disable-code-size-limit --gas-limit 30000000 --timeout 30000 --retries 3
 ```
 
 ```sh
@@ -1184,7 +1193,7 @@ USDC price, a recovery route, and the required governance configuration.
 
 | Asset | Lock location | Current implementation |
 | --- | --- | --- |
-| MON | Native MON enters `NativeCollateralVault` on Monad and is held as WMON. | Vault, feeds, USDC sale policy and collateral admission are active. Live borrowing, repayment, independent app recovery and native returns passed. WMON collateral sale still needs a live exercise. |
+| MON | Native MON enters `NativeCollateralVault` on Monad and is held as WMON. | Vault, feeds, USDC sale policy and collateral admission are active. Live borrowing, repayment, independent app recovery, WMON collateral sale and native returns passed. |
 | ETH | WETH stays in `CollateralVault` on Ethereum. | The Wormhole route verifies custody snapshots and return authorizations onchain. The admitted replacement passed live reference-app borrowing, repayment, recovery and returns. The separate native consensus route remains available. WETH seizure and Aurora conversion still need a live exercise. |
 | SOL | Native SOL stays in a Solana program-derived account. | Posted Wormhole VAAs authorize source custody actions; Monad verifies signed snapshot VAAs. The devnet program, price feeds and separate source keeper are active. Live reference-app borrowing, repayment and collateral return passed. Default seizure and Aurora conversion still need a live exercise. |
 

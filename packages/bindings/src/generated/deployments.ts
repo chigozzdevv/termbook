@@ -54,7 +54,7 @@ export const deployments: DeploymentMap = {
     "UseCasePolicy": "0xc9a9b5dcb4e3123ea1a4c25b961c55d01518c814",
     "UseCaseRecovery": "0x3b68b553a2327aa4cfba7c73c2e867becb74d1ff",
     "AtomicSpotRouter": "0xf3e33781e2b5c6265da2f2775b339cc5a94a50d1",
-    "AtomicSpotModule": "0xea4ed00fc38fd3080f158b6935399a7c08901c55",
+    "AtomicSpotModule": "0x0b626a1a6ef46c4470bc1acde3c6d719ceb050ed",
     "AppHealthReaderFactory": "0x8caa65ee0cadaa7dba9185c01e5790a53fd61c2c"
   },
   "11155111": {

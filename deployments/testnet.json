@@ -58,7 +58,7 @@
       "UseCasePolicy": "0xc9a9b5dcb4e3123ea1a4c25b961c55d01518c814",
       "UseCaseRecovery": "0x3b68b553a2327aa4cfba7c73c2e867becb74d1ff",
       "AtomicSpotRouter": "0xf3e33781e2b5c6265da2f2775b339cc5a94a50d1",
-      "AtomicSpotModule": "0xea4ed00fc38fd3080f158b6935399a7c08901c55",
+      "AtomicSpotModule": "0x0b626a1a6ef46c4470bc1acde3c6d719ceb050ed",
       "AppHealthReaderFactory": "0x8caa65ee0cadaa7dba9185c01e5790a53fd61c2c"
     },
     "11155111": {
@@ -35614,12 +35614,12 @@
         "UseCasePolicy": "0xc9a9b5dcb4e3123ea1a4c25b961c55d01518c814",
         "UseCaseRecovery": "0x3b68b553a2327aa4cfba7c73c2e867becb74d1ff",
         "AtomicSpotRouter": "0xf3e33781e2b5c6265da2f2775b339cc5a94a50d1",
-        "AtomicSpotModule": "0xea4ed00fc38fd3080f158b6935399a7c08901c55",
+        "AtomicSpotModule": "0x0b626a1a6ef46c4470bc1acde3c6d719ceb050ed",
         "AppHealthReaderFactory": "0x8caa65ee0cadaa7dba9185c01e5790a53fd61c2c"
       },
       "sourceVerification": {
         "provider": "Sourcify",
-        "checkedAt": "2026-10-09T19:57:26.966Z",
+        "checkedAt": "2026-10-10T09:06:49.394Z",
         "contracts": [
           {
             "name": "ReadProgram",
@@ -35672,16 +35672,6 @@
             "url": "https://sourcify.dev/server/v2/contract/10143/0xf3e33781E2B5C6265Da2F2775B339Cc5a94a50D1"
           },
           {
-            "name": "AtomicSpotModule",
-            "address": "0xEa4ed00fc38fD3080f158B6935399a7c08901C55",
-            "verificationId": "a5239cdf-0c37-49d7-a02e-95fb1edfbb16",
-            "matchId": "55839023",
-            "verifiedAt": "2026-10-09T19:51:23Z",
-            "runtimeMatch": "exact_match",
-            "creationMatch": "exact_match",
-            "url": "https://sourcify.dev/server/v2/contract/10143/0xEa4ed00fc38fD3080f158B6935399a7c08901C55"
-          },
-          {
             "name": "AppHealthReaderFactory",
             "address": "0x8caa65eE0caDAA7dBA9185c01E5790a53Fd61c2C",
             "verificationId": "a9f75d55-d201-48e8-aa76-ad034c94c6f1",
@@ -35690,6 +35680,16 @@
             "runtimeMatch": "exact_match",
             "creationMatch": "exact_match",
             "url": "https://sourcify.dev/server/v2/contract/10143/0x8caa65eE0caDAA7dBA9185c01E5790a53Fd61c2C"
+          },
+          {
+            "name": "AtomicSpotModule",
+            "address": "0x0b626A1a6EF46C4470Bc1acDe3C6d719cEB050Ed",
+            "verificationId": "4a03940c-709d-4dc9-8425-8fcc45286df2",
+            "matchId": "55866724",
+            "verifiedAt": "2026-10-10T09:04:34Z",
+            "runtimeMatch": "exact_match",
+            "creationMatch": "exact_match",
+            "url": "https://sourcify.dev/server/v2/contract/10143/0x0b626A1a6EF46C4470Bc1acDe3C6d719cEB050Ed"
           }
         ]
       },
@@ -35731,13 +35731,17 @@
           "codeHash": "0x000f5409d03e12bf758be537992d97282251950fc1e4182280c5b12143589781"
         },
         "AtomicSpotModule": {
-          "address": "0xea4ed00fc38fd3080f158b6935399a7c08901c55",
-          "codeHash": "0x203d66d82df0556897b4424f870439e1cc5b7d8190b7e1c2b7261e83c9929803"
+          "address": "0x0b626a1a6ef46c4470bc1acde3c6d719ceb050ed",
+          "codeHash": "0xec5832c9e9c386591876579143d996ab9f472872658732da5cebc074eedd3ce6"
         },
         "AppHealthReaderFactory": {
           "address": "0x8caa65ee0cadaa7dba9185c01e5790a53fd61c2c",
           "codeHash": "0x9ee70f2e38ad61d447e6128f06d8b115d01ac8ee5bd9dd65ec28782d7908db83"
         }
+      },
+      "moduleUpdate": {
+        "sourceCommit": "7aa45b7c5641802e6516a6ac0fe4f1532c005ac3",
+        "completedAt": "2026-10-10T09:03:25.885Z"
       }
     },
     "kuru-house": {

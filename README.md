@@ -256,8 +256,9 @@ liquidity. Its addresses and dependency pins are in `deployments/testnet.json`.
 `--broadcast` resumes the live setup. The existing Circle-USDC House can fund
 this market once admission passes.
 
-This testnet uses an explicitly trusted RPC monitor for Kuru's proxy
-dependencies and Circle USDC's legacy OpenZeppelin proxy. The SDK and server
+Before admission, the testnet's explicitly trusted RPC monitor must cover all
+six proxy dependencies, including Circle USDC's legacy OpenZeppelin proxy.
+`setup-testnet-kuru.mjs` includes its guard in the setup. The SDK and server
 pin the detected implementation slot, address and runtime code hash.
 `TestnetUpgradeGuard` pins the reviewed proxy and implementation
 code, accepts only its dedicated monitor's recent canonical-block attestations,

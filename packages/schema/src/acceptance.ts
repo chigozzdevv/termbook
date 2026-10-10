@@ -56,7 +56,7 @@ export const integrationSuiteSchema = z.strictObject({
   chainId: z.number().int().positive(), mode: z.enum(["deployment", "fork"]),
   sourceBlock: evidenceBlockSchema, forkRpcIdentity: bytes32Schema.optional(),
   actors: z.strictObject({ borrower: addressSchema, keeper: addressSchema, unauthorized: addressSchema }),
-  contracts: z.array(z.strictObject({ target: addressSchema, codeHash: bytes32Schema })).min(1).max(128),
+  contracts: z.array(z.strictObject({ target: addressSchema, codeHash: bytes32Schema, fixture: z.literal(true).optional() })).min(1).max(128),
   cases: z.array(acceptanceCaseSchema).min(1).max(Object.keys(acceptanceCases).length),
   exclusions: z.array(z.strictObject({ id: z.enum(Object.keys(acceptanceCases) as [AcceptanceCaseId, ...AcceptanceCaseId[]]),
     reason: z.string().min(20).max(1000) })).max(16),
@@ -70,6 +70,9 @@ export const integrationSuiteSchema = z.strictObject({
     ctx.addIssue({ code: "custom", message: "integration-suite-incomplete" });
   }
   if (!targets.includes(report.core.toLowerCase())) ctx.addIssue({ code: "custom", message: "integration-core-pin-required" });
+  if (report.contracts.some((pin) => pin.fixture && (report.mode !== "fork" || pin.target.toLowerCase() === report.core.toLowerCase()))) {
+    ctx.addIssue({ code: "custom", message: "integration-fixture-pin-invalid" });
+  }
   for (const item of report.cases) {
     const ids = item.observations.map((observation) => observation.id);
     if (new Set(ids).size !== ids.length || !item.observations.some((v) => v.phase === "before")
@@ -114,6 +117,7 @@ export const integrationSuiteContextSchema = z.strictObject({
   const targets = context.contracts.map((c) => c.target.toLowerCase());
   return new Set(actors).size === 3 && actors.every((a) => !/^0x0{40}$/i.test(a))
     && new Set(targets).size === targets.length && targets.includes(context.core.toLowerCase())
+    && !context.contracts.some((pin) => pin.fixture && (context.mode !== "fork" || pin.target.toLowerCase() === context.core.toLowerCase()))
     && (context.mode === "fork" ? !!context.forkRpcIdentity : !context.forkRpcIdentity);
 }, "integration-context-invalid");
 export function canonicalEvidence(value: unknown): string {

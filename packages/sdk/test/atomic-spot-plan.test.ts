@@ -31,6 +31,18 @@ const options = () => ({ client: { getChainId: vi.fn(async () => 143),
   maximum_spend: 100_000_000n, max_slippage_bps: 100, max_deviation_bps: 500, max_authorization_age: 300, max_health_age: 300 });
 
 describe("atomic spot deployment plan", () => {
+  it("keeps execution state freshness separate from the admitted oracle health window", async () => {
+    const opts = { ...options(), max_health_age: 90000, max_state_age: 90 };
+    const plan = await prepare_atomic_spot(atomicDefinition(), opts);
+    const health = plan.calls.find((call) => call.target === opts.health_source)!;
+    expect(decodeFunctionData({ abi: healthSourceAbi, data: health.data }).args?.at(-1)).toBe(90000n);
+    const policy = plan.calls.filter((call) => call.target === opts.core)
+      .map((call) => decodeFunctionData({ abi: termbookCoreAbi, data: call.data }))
+      .find((call) => call.functionName === "configureExecutionPolicy")!;
+    expect(policy.args?.at(-1)).toBe(90);
+    await expect(prepare_atomic_spot(atomicDefinition(), { ...options(), max_health_age: 90000 }))
+      .rejects.toThrow("integration-risk-limits-invalid");
+  });
   it("binds readers on the registry behind an authenticated account health wrapper", async () => {
     const opts = options();
     const read = vi.mocked(opts.client.readContract);

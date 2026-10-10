@@ -71,7 +71,8 @@ function assertCase(item: AcceptanceCase, suite: IntegrationSuite): void {
     .some((v) => BigInt(v.block.number) < BigInt(suite.sourceBlock.number))) throw new Error("integration-evidence-order-invalid");
 }
 export async function verifySuitePins(chain: PublicClient, suite: IntegrationSuite, blockNumber: bigint): Promise<void> {
-  for (let offset = 0; offset < suite.contracts.length; offset += 8) await Promise.all(suite.contracts.slice(offset, offset + 8).map(async (pin) => {
+  const deployed = suite.contracts.filter((pin) => !pin.fixture);
+  for (let offset = 0; offset < deployed.length; offset += 8) await Promise.all(deployed.slice(offset, offset + 8).map(async (pin) => {
     const code = await chain.getBytecode({ address: pin.target as Hex, blockNumber });
     if (!code || code === "0x" || !same(keccak256(code), pin.codeHash)) throw new Error("integration-suite-code-changed");
   }));

@@ -5,6 +5,7 @@ import { assertStandardDefinition } from "./action-definition.js";
 import { useCaseSchema } from "./actions.js";
 import { assessmentSchema } from "./assessment.js";
 import { readProgramSchema, queryDerived } from "./read-program.js";
+import { runtimeReviewSummarySchema } from "./runtime-review.js";
 
 const address = addressSchema.refine((v) => !/^0x0{40}$/i.test(v));
 const word = bytes32Schema.refine((v) => !/^0x0{64}$/i.test(v));
@@ -31,6 +32,7 @@ export const pluginDefinitionSchema = z.strictObject({
   pins: z.array(pluginPinSchema).min(1).max(64),
   verified_sources: z.array(z.strictObject({
     target: address, source_hash: word, implementation: address.optional(), implementation_source_hash: word.optional(),
+    implementation_runtime_review: runtimeReviewSummarySchema.optional(),
   })).min(1).max(64),
   assessment: assessmentSchema.optional(),
   atomic_spot: z.strictObject({
@@ -67,6 +69,11 @@ export const pluginDefinitionSchema = z.strictObject({
     const pin = v.pins.find((p) => p.target.toLowerCase() === source.target.toLowerCase());
     if (pin?.implementation?.toLowerCase() !== source.implementation?.toLowerCase()
       || Boolean(source.implementation) !== Boolean(source.implementation_source_hash)) issue("integration-source-pin-mismatch");
+    const review = source.implementation_runtime_review;
+    if (review && (v.chain_id !== 10143 || !source.implementation || !v.atomic_spot
+      || v.markets[0]?.address.toLowerCase() !== source.target.toLowerCase()
+      || review.id.toLowerCase() !== source.implementation_source_hash?.toLowerCase()
+      || BigInt(v.atomic_spot.maximum_input) > BigInt(review.maximum_input))) issue("integration-runtime-review-invalid");
   }
   if (v.assessment) {
     const a = v.assessment;

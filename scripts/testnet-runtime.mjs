@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { URL } from "node:url";
 import { createRequire } from "node:module";
 import { setTimeout as delay } from "node:timers/promises";
 
@@ -11,6 +12,67 @@ export const viem = require("viem");
 const { privateKeyToAccount } = require("viem/accounts");
 const { createPublicClient, createWalletClient, http, keccak256, encodeDeployData, encodeFunctionData } = viem;
 export const artifact = (name) => JSON.parse(fs.readFileSync(path.join(root, `contracts/evm/out/${name}.sol/${name}.json`), "utf8"));
+
+export async function warmReadProgram(client, target, data) {
+  const decoded = viem.decodeFunctionData({ abi: artifact("ReadProgram").abi, data });
+  if (decoded.functionName !== "configure") return;
+  const [id, program] = decoded.args;
+  const info = await client.request({ method: "anvil_nodeInfo", params: [] });
+  const fork = info.forkConfig;
+  if (!fork?.forkUrl || !Number.isSafeInteger(fork.forkBlockNumber)) throw new Error("Simulation fork source unavailable");
+  const source = createPublicClient({ transport: http(fork.forkUrl, { timeout: 30_000 }) });
+  const request = { address: target, abi: artifact("ReadProgram").abi, functionName: "programHashes", args: [id] };
+  const [current, original] = await Promise.all([client.readContract(request), source.readContract({ ...request, blockNumber: BigInt(fork.forkBlockNumber) })]);
+  if (current !== original) return;
+  const layout = artifact("ReadProgram").storageLayout;
+  const mapping = layout.storage.find((field) => field.label === "programs");
+  const base = BigInt(viem.keccak256(viem.encodeAbiParameters([{ type: "bytes32" }, { type: "uint256" }], [id, BigInt(mapping.slot)])));
+  const members = layout.types[layout.types[mapping.type].value].members;
+  const slots = new Set();
+  const add = (slot) => slots.add(viem.toHex(slot, { size: 32 }));
+  for (const member of members) {
+    const slot = base + BigInt(member.slot); add(slot);
+    const start = BigInt(viem.keccak256(viem.toHex(slot, { size: 32 })));
+    const type = layout.types[member.type];
+    const stride = Math.ceil(Number(layout.types[type.base].numberOfBytes) / 32);
+    const count = member.label === "outputs" ? Math.ceil(program.outputs.length / 16) : program[member.label].length * stride;
+    for (let i = 0; i < count; i++) add(start + BigInt(i));
+    if (member.label !== "queries") continue;
+    for (const [i, query] of program.queries.entries()) {
+      const fields = layout.types[type.base].members;
+      for (const field of fields.filter((f) => ["data", "arguments"].includes(f.label))) {
+        const dynamic = BigInt(viem.keccak256(viem.toHex(start + BigInt(i * stride) + BigInt(field.slot), { size: 32 })));
+        const length = field.label === "data" ? Math.ceil((query.data.length - 2) / 64) : query.arguments.length;
+        for (let j = 0; j < length; j++) add(dynamic + BigInt(j));
+      }
+    }
+  }
+  await warmForkStorage(client, [...slots].map((slot) => ({ target, slot })));
+}
+
+export async function warmForkStorage(client, keys) {
+  const { forkConfig: fork } = await client.request({ method: "anvil_nodeInfo", params: [] });
+  if (!fork?.forkUrl || !Number.isSafeInteger(fork.forkBlockNumber)) throw new Error("Simulation fork source unavailable");
+  for (let offset = 0; offset < keys.length; offset += 32) {
+    const chunk = keys.slice(offset, offset + 32);
+    const response = await globalThis.fetch(fork.forkUrl, { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify(chunk.map(({ target, slot }, id) => ({ jsonrpc: "2.0", id, method: "eth_getStorageAt", params: [target, slot, viem.toHex(fork.forkBlockNumber)] }))),
+      signal: globalThis.AbortSignal.timeout(30_000) });
+    const values = await response.json();
+    if (!response.ok || !Array.isArray(values) || values.length !== chunk.length) throw new Error("Simulation storage prefetch failed");
+    for (let group = 0; group < chunk.length; group += 8) await Promise.all(chunk.slice(group, group + 8).map(async ({ target, slot }, index) => {
+      const i = group + index;
+      let value = values.find((item) => item.id === i)?.result;
+      for (let retry = 0; !/^0x[a-fA-F0-9]{1,64}$/.test(value ?? "") && retry < 3; retry++) {
+        await delay(1000);
+        value = await createPublicClient({ transport: http(fork.forkUrl, { timeout: 30_000 }) })
+          .getStorageAt({ address: target, slot, blockNumber: BigInt(fork.forkBlockNumber) });
+      }
+      if (!/^0x[a-fA-F0-9]{1,64}$/.test(value ?? "")) throw new Error(`Simulation storage value unavailable (${values.find((item) => item.id === i)?.error?.code ?? "missing"})`);
+      await client.request({ method: "anvil_setStorageAt", params: [target, slot, viem.toHex(BigInt(value), { size: 32 })] });
+    }));
+  }
+}
 
 export async function testnetRuntime(name, simulate) {
   if (!/^[a-z0-9-]+$/.test(name) || typeof simulate !== "boolean") throw new Error("Invalid runtime arguments");
@@ -32,7 +94,13 @@ export async function testnetRuntime(name, simulate) {
   async function context(chainId) {
     if (contexts.has(chainId)) return contexts.get(chainId);
     if (![10143, 11155111].includes(chainId)) throw new Error("Unsupported testnet");
-    const url = simulate ? `http://127.0.0.1:${chainId === 10143 ? 18545 : 18546}`
+    const localOverride = simulate && chainId === 10143 ? process.env["TERMBOOK_SIMULATION_MONAD_RPC"] : undefined;
+    if (localOverride) {
+      const parsed = new URL(localOverride);
+      if (parsed.protocol !== "http:" || !["127.0.0.1", "localhost"].includes(parsed.hostname)
+        || parsed.username || parsed.password || parsed.pathname !== "/" || parsed.search || parsed.hash) throw new Error("Simulation RPC must be local");
+    }
+    const url = simulate ? localOverride ?? `http://127.0.0.1:${chainId === 10143 ? 18545 : 18546}`
       : chainId === 10143 ? "https://testnet-rpc.monad.xyz" : "https://ethereum-sepolia-rpc.publicnode.com";
     const client = createPublicClient({ transport: http(url, { timeout: 30_000 }) });
     if (await client.getChainId() !== chainId) throw new Error("Network mismatch");
@@ -137,13 +205,14 @@ export async function testnetRuntime(name, simulate) {
     }
     async function governData(target, data, description = {}) {
       if (!viem.isAddress(target) || !/^0x(?:[a-fA-F0-9]{2}){4,}$/.test(data)) throw new Error("Invalid governance call");
+      if (simulate && target.toLowerCase() === deployment.addresses[chainId].ReadProgram?.toLowerCase()) await warmReadProgram(client, target, data);
       const governance = deployment.addresses[chainId].ProtocolGovernance;
       if (await read("ProtocolGovernance", governance, "timelock") !== 0n) throw new Error("Testnet delay changed");
       const salt = keccak256(data);
       const id = await read("ProtocolGovernance", governance, "actionId", [target, 0n, data, salt]);
       if (!await read("ProtocolGovernance", governance, "executed", [id])) {
         const queued = await call("ProtocolGovernance", governance, "queue", [target, 0n, data, salt], `queue:${id}`);
-        const execution = await call("ProtocolGovernance", governance, "execute", [target, 0n, data, salt], `execute:${id}`, BigInt(queued.block));
+        const execution = await call("ProtocolGovernance", governance, "execute", [target, 0n, data, salt], `execute:${id}`, simulate ? undefined : BigInt(queued.block));
         if (!await client.readContract({ address: governance, abi: artifact("ProtocolGovernance").abi,
           functionName: "executed", args: [id], blockNumber: BigInt(execution.block) })) throw new Error("Governance execution unavailable");
       }

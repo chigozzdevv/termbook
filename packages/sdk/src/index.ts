@@ -74,3 +74,4 @@ export type { RecordedValidation } from "./integration/evidence.js";
 export { ReadProgramBuilder, compile_read_program, readProgramAbi } from "./integration/read-program.js";
 export { use_case_configuration, prepare_use_case } from "./integration/use-case.js";
 export { assess_state } from "./integration/assess.js";
+export { runtimeReviewData, runtimeReviewSummary } from "./integration/runtime-review.js";

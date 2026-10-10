@@ -96,7 +96,7 @@ export async function validateIntegrationAcceptance(
   const appReader = await chain.readContract({ address: readerConfig[0], abi: appHealthAbi,
     functionName: "appReader", blockNumber: finalized.number });
   if (equal(appReader, zero)) throw new Error("integration-reader-evidence-invalid");
-  const pins = new Set(suite.contracts.map((pin) => pin.target.toLowerCase()));
+  const pins = new Set(suite.contracts.filter((pin) => !pin.fixture).map((pin) => pin.target.toLowerCase()));
   if ([core, health, adapter, readerConfig[0], appReader, activeCredit.account, recoveredCredit.account,
     activeCredit.vault, recoveredCredit.vault, settlementAsset, ...actions.flatMap(capabilityDependencies).map((call) => call.target)]
     .some((target) => !pins.has(target.toLowerCase()))) throw new Error("integration-suite-pin-missing");

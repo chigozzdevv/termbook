@@ -5,6 +5,7 @@ import { capabilityDependencies, proxyImplementationSlots, proxyBeaconSlot, type
 import { readProxyImplementation } from "../chain/proxy.js";
 import { monadClient } from "../chain/monad.client.js";
 import { env } from "../config/env.js";
+import { reviewedRuntime } from "./runtime-review.js";
 
 const sourceApi = "https://sourcify.dev/server/v2/contract";
 const maxResponseBytes = 3_000_000;
@@ -13,6 +14,10 @@ export const beaconSlot = proxyBeaconSlot;
 const zero = "0x0000000000000000000000000000000000000000";
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const wordPattern = /^0x[0-9a-fA-F]{64}$/;
+const sourceCache = new Map<string, { expiresAt: number; value: Promise<VerifiedSource> }>();
+type VerifiedSource = Awaited<ReturnType<typeof fetchVerifiedSource>>;
+
+export function clearVerifiedSourceCache() { sourceCache.clear(); }
 
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("integration-source-invalid");
@@ -106,9 +111,7 @@ async function limitedJson(response: Response): Promise<Record<string, unknown>>
   }
 }
 
-export async function importVerifiedSource(
-  chainId: number, address: Address, code: Hex, selector: Hex | null, payable?: boolean,
-) {
+async function fetchVerifiedSource(chainId: number, address: Address, code: Hex) {
   const url = `${sourceApi}/${chainId}/${address}?fields=runtimeBytecode.onchainBytecode,runtimeBytecode.recompiledBytecode,runtimeBytecode.cborAuxdata,runtimeBytecode.transformations,runtimeBytecode.immutableReferences,abi,sources,compilation`;
   const response = await fetch(url, { signal: AbortSignal.timeout(15_000), redirect: "error" })
     .catch(() => null);
@@ -126,15 +129,6 @@ export async function importVerifiedSource(
     || typeof compilation["compilerVersion"] !== "string"
     || typeof compilation["fullyQualifiedName"] !== "string"
     || typeof result["matchId"] !== "string") throw new Error("integration-source-unverified");
-  if (selector !== null && !abi.some((entry) => {
-    try {
-      const item = record(entry) as AbiFunction;
-      return item.type === "function" && ["nonpayable", "payable"].includes(item.stateMutability)
-        && toFunctionSelector(item) === selector && (payable !== true || item.stateMutability === "payable");
-    } catch {
-      return false;
-    }
-  })) throw new Error("integration-source-selector-mismatch");
   const files = Object.entries(sources).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
   const contents = files.map(([path, value]) => {
     const content = record(value)["content"];
@@ -142,8 +136,42 @@ export async function importVerifiedSource(
     return [path, content];
   });
   const sourceHash = `0x${createHash("sha256").update(JSON.stringify(contents)).digest("hex")}`;
-  return { address, matchId: result["matchId"], runtimeMatch: result["runtimeMatch"], compilerVersion: compilation["compilerVersion"],
-    contract: compilation["fullyQualifiedName"], sourceHash, files: files.map(([path]) => path), url };
+  return { abi, address, matchId: result["matchId"], runtimeMatch: result["runtimeMatch"], compilerVersion: compilation["compilerVersion"],
+    contract: compilation["fullyQualifiedName"], sourceHash, files: files.map(([path]) => path), url,
+    runtimeReview: undefined, runtimeReviewTarget: undefined };
+}
+
+export async function importVerifiedSource(
+  chainId: number, address: Address, code: Hex, selector: Hex | null, payable?: boolean,
+) {
+  const reviewed = chainId === 10143 ? await reviewedRuntime(address, code) : null;
+  if (reviewed) {
+    const { abi, ...source } = reviewed;
+    if (selector !== null && !abi.some((item) => item.type === "function"
+      && ["nonpayable", "payable"].includes(item.stateMutability) && toFunctionSelector(item) === selector
+      && (payable !== true || item.stateMutability === "payable"))) throw new Error("integration-source-selector-mismatch");
+    return source;
+  }
+  const key = `${chainId}:${address.toLowerCase()}:${keccak256(code)}`;
+  const now = Date.now();
+  for (const [id, entry] of sourceCache) if (entry.expiresAt <= now) sourceCache.delete(id);
+  let entry = sourceCache.get(key);
+  if (!entry) {
+    const value = fetchVerifiedSource(chainId, address, code);
+    entry = { expiresAt: now + 60_000, value };
+    if (sourceCache.size >= 64) sourceCache.delete(sourceCache.keys().next().value!);
+    sourceCache.set(key, entry);
+    value.catch(() => { if (sourceCache.get(key)?.value === value) sourceCache.delete(key); });
+  }
+  const { abi, ...source } = await entry.value;
+  if (selector !== null && !abi.some((entry) => {
+    try {
+      const item = record(entry) as AbiFunction;
+      return item.type === "function" && ["nonpayable", "payable"].includes(item.stateMutability)
+        && toFunctionSelector(item) === selector && (payable !== true || item.stateMutability === "payable");
+    } catch { return false; }
+  })) throw new Error("integration-source-selector-mismatch");
+  return { ...source, files: [...source.files] };
 }
 
 export type SourceEvidence = { target: string; sourceHash: string;

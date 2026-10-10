@@ -9,9 +9,10 @@ import { proxyImplementationSlots, proxyBeaconSlot, resolveProxyImplementation }
 
 const simulate = process.argv.includes("--simulate");
 const configure = process.argv.includes("--configure");
-if (simulate === process.argv.includes("--broadcast") || process.argv.length !== (configure ? 4 : 3)
-  || process.argv.slice(2).some((a) => !["--simulate", "--broadcast", "--configure"].includes(a))) throw new Error("Use --simulate or --broadcast, optionally with --configure");
-const operation = configure ? "kuru-integration" : "kuru-setup";
+const reviewRuntime = process.argv.includes("--review-runtime");
+if (configure && reviewRuntime || simulate === process.argv.includes("--broadcast") || process.argv.length !== (configure || reviewRuntime ? 4 : 3)
+  || process.argv.slice(2).some((a) => !["--simulate", "--broadcast", "--configure", "--review-runtime"].includes(a))) throw new Error("Use --simulate or --broadcast, optionally with --configure or --review-runtime");
+const operation = configure ? "kuru-integration" : reviewRuntime ? "kuru-runtime-review" : "kuru-setup";
 const factory = "0x7EFbE105Ca7415dE98F96622173458ac1c054630";
 const factoryAbi = viem.parseAbi([
   "function deployProxy(uint8,address,address,uint96,uint32,uint32,uint96,uint96,uint256,uint256,uint96) returns(address)",
@@ -37,12 +38,73 @@ async function main() {
   const setup = deployment.configuration.native;
   if (!setup || setup.core.toLowerCase() !== m.TermbookCore.toLowerCase()) throw new Error("Admit native MON prices first");
   const usdc = deployment.tokens[10143].USDC;
+  if (reviewRuntime) {
+    const { runtimeReviewData, runtimeReviewSummary } = await import("../packages/sdk/dist/index.js");
+    const { runtimeReviewSchema } = await import("../packages/schema/dist/index.js");
+    const market = deployment.configuration["kuru-market"];
+    const pin = market?.dependencies.find((p) => p.address.toLowerCase() === market.market.toLowerCase());
+    if (!pin?.implementation || !pin.guard || market.core.toLowerCase() !== m.TermbookCore.toLowerCase()) throw new Error("Kuru monitor and deployment binding required");
+    const block = await network.client.getBlock({ blockTag: "finalized" });
+    const [live, code, governance] = await Promise.all([
+      network.client.getStorageAt({ address: market.market, slot: pin.implementationSlot, blockNumber: block.number }),
+      network.client.getCode({ address: pin.implementation, blockNumber: block.number }),
+      network.read("ProtocolGovernance", m.ProtocolGovernance, "governance"),
+    ]);
+    if (viem.getAddress(`0x${live.slice(-40)}`) !== viem.getAddress(pin.implementation)
+      || viem.keccak256(code) !== pin.implementationCodeHash || governance.toLowerCase() !== deployment.deployer.toLowerCase()) throw new Error("Kuru runtime review pin changed");
+    const now = Math.floor(Date.now() / 1000);
+    const review = runtimeReviewSchema.parse({ chain_id: 10143, core: m.TermbookCore, target: market.market,
+      implementation: pin.implementation, code_hash: pin.implementationCodeHash, maximum_input: "100000",
+      approved_at: now, expires_at: now + 7 * 86400, reviewer: deployment.deployer, signature: `0x${"00".repeat(65)}`,
+      abi: ["function getMarketParams() view returns(uint32,uint96,address,uint256,address,uint256,uint32,uint96,uint96,uint256,uint256)",
+        "function marketState() view returns(uint8)", "function isTrustedForwarder(address) view returns(bool)",
+        "function kuruAmmVault() view returns(address)",
+        "function placeAndExecuteMarketBuy(uint96,uint256,bool,bool) payable returns(uint256)",
+        "function placeAndExecuteMarketSell(uint96,uint256,bool,bool) payable returns(uint256)"] });
+    if (!simulate) {
+      review.signature = await runtime.account.signTypedData(runtimeReviewData(review));
+      const file = path.join(root, ".env");
+      const env = fs.readFileSync(file, "utf8");
+      const current = JSON.parse(env.match(/^TESTNET_RUNTIME_REVIEWS=(.+)$/m)?.[1] ?? "[]");
+      if (!Array.isArray(current)) throw new Error("Invalid existing runtime reviews");
+      const reviews = [...current.filter((r) => r.target.toLowerCase() !== review.target.toLowerCase()), review];
+      const guards = JSON.parse(env.match(/^TESTNET_UPGRADE_GUARDS=(.+)$/m)?.[1] ?? "[]");
+      const guard = guards.find((g) => g.address.toLowerCase() === pin.guard.toLowerCase());
+      if (!guard) throw new Error("Runtime review monitor is not configured");
+      guard.runtimeReview = runtimeReviewSummary(review).id;
+      const updated = env.replace(/^TESTNET_RUNTIME_REVIEWS=.*\n?/m, "").replace(/^TESTNET_UPGRADE_GUARDS=.*\n?/m, "");
+      fs.writeFileSync(file, `${updated}${updated.endsWith("\n") ? "" : "\n"}TESTNET_RUNTIME_REVIEWS=${JSON.stringify(reviews)}\nTESTNET_UPGRADE_GUARDS=${JSON.stringify(guards)}\n`, { mode: 0o600 });
+      writeConfiguration("kuru-runtime-review", { review, summary: runtimeReviewSummary(review),
+        trustModel: "Testnet operator-approved bytecode; source build unverified; expiring RPC upgrade monitor" });
+    }
+    clearOperation(operation, simulate);
+    log(JSON.stringify({ simulated: simulate, reviewed: market.market, implementation: pin.implementation,
+      expiresAt: review.expires_at, maximumInput: review.maximum_input, sourceVerified: false }));
+    return;
+  }
   if (configure) {
     const { create_kuru } = await import("../features/kuru/dist/integration.js");
     const { prepare_atomic_spot, package_integration, atomic_configuration } = await import("../packages/sdk/dist/index.js");
     const market = deployment.configuration["kuru-market"];
     if (!market || market.core.toLowerCase() !== m.TermbookCore.toLowerCase()
       || !market.oracleGuard || market.dependencies.length !== 6 || market.dependencies.some((p) => !market.guards[p.address])) throw new Error("Complete the Kuru dependency and Oracle guards first");
+    if (simulate) {
+      await network.client.request({ method: "anvil_setBlockTimestampInterval", params: [1] });
+      await network.client.request({ method: "anvil_impersonateAccount", params: [market.monitor] });
+      await network.client.request({ method: "anvil_setBalance", params: [market.monitor, viem.toHex(viem.parseEther("1000"))] });
+      const wallet = viem.createWalletClient({ account: market.monitor,
+        transport: viem.http(process.env["TERMBOOK_SIMULATION_MONAD_RPC"] ?? "http://127.0.0.1:18545") });
+      for (const guard of Object.values(market.guards)) {
+        const latest = await network.client.getBlock();
+        await network.client.request({ method: "evm_setNextBlockTimestamp", params: [Number(latest.timestamp) + 1] });
+        await network.client.request({ method: "evm_mine", params: [] });
+        const block = await network.client.getBlock({ blockTag: "latest" });
+        const hash = await wallet.writeContract({ chain: null, address: guard.address,
+          abi: viem.parseAbi(["function renew(uint64,bytes32,uint64)"]), functionName: "renew",
+          args: [block.number, block.hash, block.timestamp], gasPrice: 100_000_000_000n });
+        if ((await network.client.waitForTransactionReceipt({ hash })).status !== "success") throw new Error("Simulated Kuru monitor renewal failed");
+      }
+    }
     const plugin = await create_kuru({ client: network.client, market_address: market.market, settlement_asset: usdc,
       api_base: process.env["TERMBOOK_PUBLIC_API_BASE"] ?? "http://127.0.0.1:3002", maximum_input: 100_000n,
       retained_bps: 9_500, recovery_costs: 1000n, max_holding: viem.parseEther("1"), dust_limit: 10_000_000_000n,
@@ -54,7 +116,8 @@ async function main() {
       core: m.TermbookCore, health_source: m.HealthSource, health_factory: m.AppHealthReaderFactory,
       guards: { ...Object.fromEntries(Object.entries(market.guards).map(([target, pin]) => [target, pin.address])),
         [m.OracleRegistry.toLowerCase()]: market.oracleGuard?.address },
-      max_slippage_bps: 100, max_deviation_bps: 500, max_authorization_age: 90, max_health_age: 90 });
+      max_slippage_bps: 100, max_deviation_bps: 500, max_authorization_age: 90, max_state_age: 90,
+      max_health_age: Number(deployment.configuration.setup.maxAgeSeconds) });
     const planHash = viem.keccak256(viem.toHex(JSON.stringify(plan.calls, (_, value) => typeof value === "bigint" ? String(value) : value)));
     if (report.planHash && report.planHash !== planHash) throw new Error("Kuru governance plan changed");
     report.planHash = planHash; persist();
@@ -65,6 +128,12 @@ async function main() {
       const price = await network.client.getGasPrice();
       const budget = remaining.reduce((gas, tx) => gas + BigInt(tx.gasLimit), 0n) * (price < 100_000_000_000n ? 100_000_000_000n : price) * 11n / 10n;
       if (await network.client.getBalance({ address: deployment.deployer }) < budget + viem.parseEther("0.01")) throw new Error(`Kuru configuration requires ${viem.formatEther(budget)} test MON`);
+    }
+    const existingFeedGuard = await network.read("OracleRegistry", m.OracleRegistry, "feedGuards", [setup.priceId]);
+    if (existingFeedGuard === viem.zeroAddress) {
+      const feed = await network.read("OracleRegistry", m.OracleRegistry, "feeds", [setup.priceId]);
+      const guard = await network.deploy("CodeHashGuard", [feed], "KuruPriceFeedGuard");
+      await network.govern("OracleRegistry", m.OracleRegistry, "setFeedGuard", [setup.priceId, guard]);
     }
     for (const call of plan.calls) {
       if (call.value !== 0n) throw new Error("Unexpected Kuru governance payment");

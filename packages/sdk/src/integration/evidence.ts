@@ -12,14 +12,20 @@ export type RecordedValidation = {
 };
 
 export function create_evidence_environment(input: {
-  client: PublicClient; options: IntegrationValidationOptions; evidence: RecordedValidation;
+  client: PublicClient; fork_client?: PublicClient; options: IntegrationValidationOptions; evidence: RecordedValidation;
 }): ValidationEnvironment {
   const evidence = structuredClone(input.evidence);
   const suite = integrationSuiteSchema.parse(evidence.suite);
   if (integrationEvidenceHash(suite).toLowerCase() !== evidence.evidenceHash.toLowerCase()) throw new Error("integration-evidence-hash-invalid");
   if (input.options.checkpoint) throw new Error("integration-evidence-checkpoint-invalid");
+  if (input.fork_client && suite.mode !== "fork") throw new Error("integration-fork-client-invalid");
   const { cases: recorded, exclusions, ...context } = suite;
-  return { client: input.client, options: input.options, async prepare(request) {
+  return { client: input.client, suite_client: input.fork_client, options: input.options, async prepare(request) {
+    if (input.fork_client) {
+      const block = await input.client.getBlock({ blockNumber: BigInt(context.sourceBlock.number) });
+      if (block.hash.toLowerCase() !== context.sourceBlock.hash.toLowerCase()
+        || await input.fork_client.getChainId() !== context.chainId) throw new Error("integration-fork-source-invalid");
+    }
     const identity = package_integration(request.plugin);
     if (context.versionId.toLowerCase() !== identity.version_id || context.manifestHash.toLowerCase() !== identity.hash
       || context.chainId !== request.plugin.chain_id || context.actors.borrower.toLowerCase() !== request.wallet.address.toLowerCase()

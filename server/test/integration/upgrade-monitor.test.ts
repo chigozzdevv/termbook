@@ -6,11 +6,13 @@ import { keeperTransaction } from "../../src/chain/keeper.js";
 import { env } from "../../src/config/env.js";
 import { runUpgradeMonitorWorker, upgradeMonitorConfig } from "../../src/integration/upgrade-monitor.worker.js";
 import { proxyImplementationSlots } from "@termbook/schema";
+import { approvedRuntimeReviews } from "../../src/integration/runtime-review.js";
 
 vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: vi.fn() }));
 vi.mock("../../src/chain/keeper.js", () => ({ keeperTransaction: vi.fn() }));
 vi.mock("../../src/config/env.js", () => ({ env: { monadChainId: 10143, rpcUrl: "http://monad" } }));
 vi.mock("../../src/logging/logger.js", () => ({ logger: { warn: vi.fn(), error: vi.fn() } }));
+vi.mock("../../src/integration/runtime-review.js", () => ({ approvedRuntimeReviews: vi.fn() }));
 const guard = `0x${"11".repeat(20)}` as const;
 const proxy = `0x${"22".repeat(20)}` as const;
 const implementation = `0x${"33".repeat(20)}` as const;
@@ -20,6 +22,7 @@ const codeHash = keccak256("0x1234");
 const readContract = vi.fn(), getStorageAt = vi.fn(), getCode = vi.fn(), simulateContract = vi.fn();
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(approvedRuntimeReviews).mockResolvedValue([]);
   env.monadChainId = 10143;
   vi.stubEnv("TESTNET_UPGRADE_GUARDS", JSON.stringify([{ address: guard, codeHash }]));
   vi.stubEnv("UPGRADE_MONITOR_KEY", key);
@@ -39,6 +42,18 @@ beforeEach(() => {
 afterEach(() => { env.monadChainId = 10143; vi.unstubAllEnvs(); });
 
 describe("testnet upgrade monitor", () => {
+  it("revokes a review-bound guard when its signed permit is removed", async () => {
+    vi.stubEnv("TESTNET_UPGRADE_GUARDS", JSON.stringify([{ address: guard, codeHash, runtimeReview: codeHash }]));
+    expect(await runUpgradeMonitorWorker()).toBe(1);
+    expect(vi.mocked(keeperTransaction).mock.calls[0]![0].operation).toBe(`upgrade-revoke:${guard}`);
+  });
+  it("revokes an expired runtime review even while the guard lease is current", async () => {
+    const original = readContract.getMockImplementation()!;
+    readContract.mockImplementation(async (request) => request.functionName === "validUntil" ? 1100n : original(request));
+    vi.mocked(approvedRuntimeReviews).mockResolvedValue([{ target: proxy, implementation, code_hash: codeHash, expires_at: 1000 } as never]);
+    expect(await runUpgradeMonitorWorker()).toBe(1);
+    expect(vi.mocked(keeperTransaction).mock.calls[0]![0].operation).toBe(`upgrade-revoke:${guard}`);
+  });
   it("renews against a finalized canonical block after checking both storage views", async () => {
     expect(await runUpgradeMonitorWorker()).toBe(1);
     expect(getStorageAt).toHaveBeenCalledWith(expect.objectContaining({ address: proxy, blockNumber: 10n }));

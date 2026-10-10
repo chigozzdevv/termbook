@@ -34,6 +34,7 @@ async function verify_sources(definition: PluginDefinition) {
       || actual.implementation?.toLowerCase() !== expected.implementation?.toLowerCase()
       || actual.implementation_source_hash?.toLowerCase() !== expected.implementation_source_hash?.toLowerCase()
       || actual.implementation_code_hash?.toLowerCase() !== pin.implementation_code_hash?.toLowerCase()) throw new Error("integration-source-pin-mismatch");
+    if (canonicalEvidence(actual.implementation_runtime_review ?? null) !== canonicalEvidence(expected.implementation_runtime_review ?? null)) throw new Error("integration-runtime-review-invalid");
   }
 }
 const coreAbi = parseAbi([
@@ -49,6 +50,8 @@ const managerAbi = parseAbi([
 const registryAbi = parseAbi(["function dependencyValid(bytes32,address) view returns (bool)"]);
 
 export async function verify_package_bindings(definition: PluginDefinition, versionId: Hex): Promise<void> {
+  if (definition.verified_sources.some((source) => source.implementation_runtime_review
+    && (definition.chain_id !== 10143 || source.implementation_runtime_review.expires_at <= Math.floor(Date.now() / 1000)))) throw new Error("integration-runtime-review-expired");
   const chain = monadClient();
   const block = await chain.getBlock({ blockTag: "finalized" });
   const core = env.core as Address;
@@ -123,6 +126,8 @@ export const packageService = {
     if (!definition.assessment && !definition.atomic_spot) throw new Error("integration-assessment-required");
     if (definition.chain_id !== env.monadChainId) throw new Error("integration-chain-mismatch");
     const acceptance = integrationAcceptanceSchema.parse(acceptanceInput);
+    if (definition.pins.some((pin) => !acceptance.suite.contracts.some((p) => !p.fixture
+      && p.target.toLowerCase() === pin.target.toLowerCase() && p.codeHash.toLowerCase() === pin.code_hash.toLowerCase()))) throw new Error("integration-suite-pin-missing");
     const proposal = integrationSchema.parse({ applicationId, category: definition.use_case,
       versionId, codeHash: hash, settlementAsset: definition.settlement_asset, actions: definition.actions,
       verifiedSources: action_sources(definition), acceptance });

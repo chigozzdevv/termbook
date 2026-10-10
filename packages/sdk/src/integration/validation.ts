@@ -102,7 +102,7 @@ export class IntegrationValidationRunner {
     const finalized = await this.chain.getBlock({ blockTag: "finalized" });
     if (block.number > finalized.number || !same(block.hash, this.checkpoint.suite.sourceBlock.hash) || this.options.gasLimit > finalized.gasLimit) throw new Error("integration-source-block-invalid");
     for (const pin of this.checkpoint.suite.contracts) {
-      const code = await this.chain.getBytecode({ address: pin.target as Address, blockNumber: block.number });
+      const code = await this.chain.getBytecode({ address: pin.target as Address, blockNumber: pin.fixture ? finalized.number : block.number });
       if (!code || code === "0x" || !same(keccak256(code), pin.codeHash)) throw new Error("integration-code-pin-invalid");
     }
   }

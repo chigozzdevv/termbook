@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { keccak256, parseAbi } from "viem";
+import { keccak256, parseAbi, toFunctionSelector } from "viem";
 
 vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: vi.fn() }));
 
 import { monadClient } from "../../src/chain/monad.client.js";
 import { env } from "../../src/config/env.js";
-import { importVerifiedSource, validateIntegrationSources, verifyIntegrationSourcePins } from "../../src/integration/integration.source.js";
+import { clearVerifiedSourceCache, importVerifiedSource, validateIntegrationSources, verifyIntegrationSourcePins } from "../../src/integration/integration.source.js";
 import { proxyImplementationSlots } from "@termbook/schema";
 
 const target = `0x${"22".repeat(20)}` as const;
@@ -22,6 +22,7 @@ const previous = { monadChainId: env.monadChainId };
 let implementationWord = `0x${"00".repeat(32)}`;
 
 beforeEach(() => {
+  clearVerifiedSourceCache();
   env.monadChainId = 143;
   implementationWord = `0x${"00".repeat(32)}`;
   vi.mocked(monadClient).mockReturnValue({
@@ -39,12 +40,39 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  clearVerifiedSourceCache();
+  vi.useRealTimers();
   Object.assign(env, previous);
   vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
 
 describe("integration source admission", () => {
+  it("reuses verification while checking each selector and its payable requirement", async () => {
+    await Promise.all(Array.from({ length: 8 }, () => importVerifiedSource(143, target, code, null)));
+    const allowed = toFunctionSelector(signature);
+    await expect(importVerifiedSource(143, target, code, allowed)).resolves.toMatchObject({ sourceHash });
+    await expect(importVerifiedSource(143, target, code, allowed, true)).rejects.toThrow("integration-source-selector-mismatch");
+    await expect(importVerifiedSource(143, target, code, toFunctionSelector("withdraw(uint256)"))).rejects.toThrow("integration-source-selector-mismatch");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it("does not reuse a source for changed bytecode or another chain", async () => {
+    await importVerifiedSource(143, target, code, null);
+    await expect(importVerifiedSource(143, target, "0x1235", null)).rejects.toThrow("integration-source-unverified");
+    await expect(importVerifiedSource(10143, target, code, null)).rejects.toThrow("integration-source-unverified");
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+  it("retries unavailable sources and expires successful verification", async () => {
+    vi.useFakeTimers();
+    vi.mocked(fetch).mockRejectedValueOnce(new Error("unavailable"));
+    await expect(importVerifiedSource(143, target, code, null)).rejects.toThrow("integration-source-unavailable");
+    await importVerifiedSource(143, target, code, null);
+    await importVerifiedSource(143, target, code, null);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(60_001);
+    await importVerifiedSource(143, target, code, null);
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
   function metadataSource(prefix = "60016000", offset = 4) {
     const auxiliary = "a164736f6c634300060c000a";
     const actual = `0x${prefix}${auxiliary}` as const;
@@ -84,6 +112,7 @@ describe("integration source admission", () => {
     mutable.transformations.unshift({ id: "2", offset: 4, type: "replace", reason: "immutable" });
     mutable.immutableReferences = { "2": [{ start: 4, length: 32 }] };
     expect(await importVerifiedSource(143, target, mutable.onchainBytecode as `0x${string}`, null)).toMatchObject({ runtimeMatch: "match" });
+    clearVerifiedSourceCache();
     mutable.immutableReferences["2"]![0]!.length = 64;
     await expect(importVerifiedSource(143, target, mutable.onchainBytecode as `0x${string}`, null)).rejects.toThrow("integration-source-unverified");
   });

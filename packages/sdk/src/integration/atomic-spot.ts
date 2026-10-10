@@ -87,13 +87,14 @@ export type GovernanceCall = { target: Address; data: Hex; value: bigint; descri
 export async function prepare_atomic_spot(input: PluginDefinition, options: {
   client: PublicClient; registry: Address; core: Address; health_source: Address; health_factory: Address;
   guards?: Record<string, Address>;
-  max_slippage_bps: number; max_deviation_bps: number; max_authorization_age: number; max_health_age: number;
+  max_slippage_bps: number; max_deviation_bps: number; max_authorization_age: number; max_health_age: number; max_state_age?: number;
 }): Promise<{ version_id: Hex; health_reader: Address; calls: GovernanceCall[] }> {
   const { definition, config, hash, version_id, routes, markets, quote_program } = atomic_configuration(input);
-  if (![options.max_slippage_bps, options.max_deviation_bps, options.max_authorization_age, options.max_health_age].every(Number.isSafeInteger)
+  const stateAge = options.max_state_age ?? options.max_health_age;
+  if (![options.max_slippage_bps, options.max_deviation_bps, options.max_authorization_age, options.max_health_age, stateAge].every(Number.isSafeInteger)
     || options.max_slippage_bps < 0 || options.max_slippage_bps > 5000 || options.max_deviation_bps < 1 || options.max_deviation_bps > 5000
     || options.max_authorization_age < 1 || options.max_authorization_age > 900 || options.max_health_age < 1
-    || options.max_health_age > 900) throw new Error("integration-risk-limits-invalid");
+    || options.max_health_age > 7 * 86400 || stateAge < 1 || stateAge > 900) throw new Error("integration-risk-limits-invalid");
   const calls: GovernanceCall[] = [];
   if (await options.client.getChainId() !== definition.chain_id
     || (await options.client.readContract({ address: options.health_factory, abi: factoryAbi, functionName: "core", blockTag: "finalized" })).toLowerCase()
@@ -131,7 +132,7 @@ export async function prepare_atomic_spot(input: PluginDefinition, options: {
     push(options.registry, registryAbi, "registerNativeValue", [version_id, config.router, trade, false, BigInt(config.max_holding), 255], "Bound native spot spending");
     push(options.registry, registryAbi, "registerNativeValue", [version_id, config.router, trade, true, BigInt(config.max_holding), 1], "Bound native recovery spending");
   }
-  push(options.core, coreAbi, "configureExecutionPolicy", [version_id, config.module, 1, 0, options.max_health_age], "Configure spot execution and state checks");
+  push(options.core, coreAbi, "configureExecutionPolicy", [version_id, config.module, 1, 0, stateAge], "Configure spot execution and state checks");
   push(options.core, coreAbi, "setAppRecoveryAdapter", [version_id, config.module], "Bind recovery");
   push(options.core, coreAbi, "setExitPlanner", [version_id, config.module], "Bind closure planning");
   push(options.core, coreAbi, "setExitVerifier", [version_id, config.module], "Bind exit verification");

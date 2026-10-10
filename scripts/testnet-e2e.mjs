@@ -133,7 +133,8 @@ async function main() {
         const creditId = viem.keccak256(viem.encodeAbiParameters(viem.parseAbiParameters("bytes32,address,address,uint256"),
           [intentId, account.address, account.address, nonce]));
         const lockId = viem.keccak256(viem.encodeAbiParameters(viem.parseAbiParameters("bytes32,string"), [creditId, "source-lock"]));
-        const setupDeadline = now + (native ? 300n : kind === "default-retry" ? 2700n : 1800n);
+        const quotedAt = (await monad.client.getBlock()).timestamp;
+        const setupDeadline = quotedAt + (native ? 300n : kind === "default-retry" ? 2700n : 1800n);
         const quote = { borrower: account.address, owner: account.address, intentId, house: account.address,
           vault: m.HouseVault, sourceChain: native ? 10143n : 11155111n, collateralVault,
           collateralAsset: weth, collateralAmount: amounts.collateral, returnRecipient: account.address,

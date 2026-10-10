@@ -34,10 +34,15 @@ export const platformService = {
         importVerifiedSource(env.monadChainId, target, code, null),
         importVerifiedSource(env.monadChainId, implementation, implCode, null),
       ]);
+      if (implementationSource.runtimeReviewTarget && implementationSource.runtimeReviewTarget.toLowerCase() !== target.toLowerCase()) throw new Error("integration-runtime-review-target-mismatch");
       return { target, code_hash: keccak256(code), source_hash: source.sourceHash,
-        implementation, implementation_slot: proxy.slot, implementation_code_hash: keccak256(implCode), implementation_source_hash: implementationSource.sourceHash };
+        implementation, implementation_slot: proxy.slot, implementation_code_hash: keccak256(implCode), implementation_source_hash: implementationSource.sourceHash,
+        ...(implementationSource.runtimeReview ? { implementation_runtime_review: implementationSource.runtimeReview } : {}) };
     }
     const source = await importVerifiedSource(env.monadChainId, target, code, null);
-    return { target, code_hash: keccak256(code), source_hash: source.sourceHash };
+    if (source.runtimeReview) throw new Error("integration-runtime-review-target-mismatch");
+    return { target, code_hash: keccak256(code), source_hash: source.sourceHash,
+      implementation: undefined, implementation_slot: undefined, implementation_code_hash: undefined,
+      implementation_source_hash: undefined, implementation_runtime_review: undefined };
   },
 };

@@ -6,6 +6,7 @@ vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: vi.fn() }));
 import { monadClient } from "../../src/chain/monad.client.js";
 import { env } from "../../src/config/env.js";
 import { inspectIntegrationDraft } from "../../src/integration/integration.draft.js";
+import { clearVerifiedSourceCache } from "../../src/integration/integration.source.js";
 
 const core = `0x${"11".repeat(20)}` as const;
 const target = `0x${"22".repeat(20)}` as const;
@@ -43,6 +44,7 @@ function chain(options: { proxyWord?: `0x${string}`; transactionTo?: `0x${string
 }
 
 beforeEach(() => {
+  clearVerifiedSourceCache();
   env.core = core;
   env.monadChainId = 143;
   vi.stubGlobal("fetch", vi.fn(async (url: string) => {

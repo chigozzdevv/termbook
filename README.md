@@ -283,17 +283,21 @@ origin verified at `http://127.0.0.1:3000`; it has not been admitted.
 
 The deployed OrderBook implementation at
 `0x72caE0a99C19B574e8a6De558F43fc1D019c9374` still has no matching source build.
-The actual SDK source preflight now fails only for this implementation. Admission
-requires a matching compiler input; the public repository does not reproduce its
-executable bytecode.
+The public repository does not reproduce its executable bytecode. Testnet can
+use a governance-signed runtime review bound to the exact proxy, implementation,
+runtime hash, ABI, Core and a maximum trade of 100,000 raw USDC units (0.1 USDC).
+The review expires within seven days and is explicitly marked unverified. The
+monitor revokes its guard if the review expires, disappears or changes. This
+exception is unavailable on mainnet or when the server runs in production mode.
 
 The operator commands are:
 
 ```sh
-node scripts/setup-testnet-kuru.mjs --simulate --configure
-node scripts/setup-testnet-kuru.mjs --broadcast --configure
-node scripts/testnet-e2e.mjs --start --kuru
-node scripts/testnet-e2e.mjs --run --kuru
+node --env-file=.env scripts/setup-testnet-kuru.mjs --broadcast --review-runtime
+node --env-file=.env scripts/setup-testnet-kuru.mjs --simulate --configure
+node --env-file=.env scripts/setup-testnet-kuru.mjs --broadcast --configure
+node --env-file=.env scripts/testnet-e2e.mjs --start --kuru
+node --env-file=.env scripts/testnet-e2e.mjs --run --kuru
 node --env-file=.env --import tsx server/scripts/validate-integration.ts validation.json --admit --approve
 ```
 
@@ -303,6 +307,16 @@ binding through Core's authenticated `AccountHealthSource` wrapper. The live run
 valuation facilities. It records actual buy/sell calls and independent keeper
 recovery and repayment receipts for SDK validation. These Kuru commands have not
 completed against the live deployment. No Kuru app token has been issued.
+Configuration also installs a generic code-hash guard for the immutable MON
+ratio feed. Execution state and authorization freshness remain 90 seconds;
+health accounting uses the existing testnet oracle policy of 90,000 seconds,
+which includes the USDC feed's daily heartbeat.
+Optional `LOCAL_COLLATERAL_BIDS` entries bind `chain_id`, `collateral_asset`,
+`settlement_asset` and `maximum_settlement` in raw token units. The recovery
+keeper bids with its own funded settlement tokens, within the configured cap,
+available funds, remaining debt and the onchain sale policy. Core checks the
+independent price, receives the payment and transfers the purchased collateral.
+Without a funded matching bidder, collateral recovery awaits a market bid.
 
 The SDK fork acceptance runner implements all 36 applicable cases across the
 16 admission requirements. It checks controlled custody, independent valuation,
@@ -319,7 +333,7 @@ second terminal:
 forge build --root contracts/evm
 anvil --fork-url https://testnet-rpc.monad.xyz --chain-id 10143 \
   --host 127.0.0.1 --port 18548 --slots-in-an-epoch 1 \
-  --disable-code-size-limit --gas-limit 30000000
+  --disable-code-size-limit --gas-limit 30000000 --timeout 10000 --retries 1
 ```
 
 ```sh
@@ -330,8 +344,19 @@ The runner accepts only a local Anvil fork. It uses public fixture keys, local
 Termbook contracts, controlled prices and fork-only funding and adverse state.
 Its report is written to a temporary directory and marked diagnostic and
 `not_admitted`. This validates the shared protocol against Kuru's actual
-deployed bytecode; live admission still requires the matching OrderBook source
-build and validation bound to the deployed Termbook configuration.
+deployed bytecode. For admission, restart the fork after live configuration and
+lifecycle testing, then run:
+
+```sh
+node --env-file=.env --import tsx features/kuru/test/run-acceptance.ts \
+  http://127.0.0.1:18548 --deployment
+```
+
+This mode keeps the actual Core and shared platform deployments. Fork-only
+prices, funding, helper contracts and adverse states are labelled as fixtures;
+Core and manifest dependencies must be pinned to canonical chain code. The SDK
+replays safety evidence on the local fork and checks the plugin and real loan
+receipts on Monad. An authorized operator signs the fork review before admission.
 
 The Kuru fork suite exercises borrowing, native MON custody and valuation,
 market buys and sells, repayment, borrower closure, and keeper recovery through

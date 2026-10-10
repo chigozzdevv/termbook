@@ -88,7 +88,8 @@ export async function create_kuru(options: KuruOptions): Promise<spot> {
       || source.implementation?.toLowerCase() !== pin.implementation?.toLowerCase()
       || source.implementation_code_hash?.toLowerCase() !== pin.implementation_code_hash?.toLowerCase()) throw new Error("integration-source-pin-mismatch");
     return { target: source.target, source_hash: source.source_hash, implementation: source.implementation,
-      implementation_source_hash: source.implementation_source_hash };
+      implementation_source_hash: source.implementation_source_hash,
+      ...(source.implementation_runtime_review ? { implementation_runtime_review: source.implementation_runtime_review } : {}) };
   }));
   const failures = sourceResults.flatMap((result, index) => result.status === "rejected" ? [{
     target: pins[index]!.target as Address, implementation: pins[index]!.implementation as Address | undefined,

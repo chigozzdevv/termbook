@@ -20,6 +20,7 @@ export type ValidationSession = {
 };
 export type ValidationEnvironment = {
   client: PublicClient;
+  suite_client?: PublicClient;
   options: IntegrationValidationOptions;
   prepare(input: { plugin: plugin; wallet: Wallet; amount: bigint; version_id: Hex; manifest_hash: Hex }): Promise<ValidationSession>;
 };
@@ -73,12 +74,13 @@ export class Integrations {
     if (session.context.versionId.toLowerCase() !== packaged.version_id || session.context.manifestHash.toLowerCase() !== packaged.hash
       || session.context.chainId !== packaged.definition.chain_id
       || session.context.actors.borrower.toLowerCase() !== input.wallet.address.toLowerCase()
-      || packaged.definition.pins.some((pin) => !session.context.contracts.some((p) => p.target.toLowerCase() === pin.target.toLowerCase()
+      || packaged.definition.pins.some((pin) => !session.context.contracts.some((p) => !p.fixture && p.target.toLowerCase() === pin.target.toLowerCase()
         && p.codeHash.toLowerCase() === pin.code_hash.toLowerCase()))) throw new Error("integration-validation-binding-invalid");
     const ids = Object.keys(acceptanceCases) as AcceptanceCaseId[];
     if (ids.some((id) => Boolean(session.cases[id]) === session.exclusions.some((e) => e.id === id))
       || Object.keys(session.cases).some((id) => !ids.includes(id as AcceptanceCaseId))) throw new Error("integration-scenarios-incomplete");
-    const runner = new IntegrationValidationRunner(environment.client, session.context,
+    if (environment.suite_client && session.context.mode !== "fork") throw new Error("integration-fork-client-invalid");
+    const runner = new IntegrationValidationRunner(environment.suite_client ?? environment.client, session.context,
       [input.wallet, ...session.wallets.filter((w) => w.address.toLowerCase() !== input.wallet.address.toLowerCase())], environment.options);
     for (const id of ids) { const scenario = session.cases[id]; if (scenario) await runner.run(id, scenario); }
     const report = runner.finish(session.exclusions);

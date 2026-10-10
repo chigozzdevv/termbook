@@ -12,7 +12,7 @@ if (!configPath) throw new Error('Usage: node --import tsx server/scripts/valida
 const admit = process.argv[3] === '--admit', approve = process.argv[4] === '--approve';
 if (process.argv.length !== (approve ? 5 : admit ? 4 : 3) || approve && !admit) throw new Error('Use config.json, optionally with --admit and --approve');
 const config = JSON.parse(await readFile(resolve(configPath), 'utf8')) as {
-  rpcUrl: string; suite: ValidationCheckpoint['suite']; module: string; parameters?: unknown;
+  rpcUrl: string; forkRpcUrl?: string; suite: ValidationCheckpoint['suite']; module: string; parameters?: unknown;
   gasLimit: string; checkpoint: string; output: string; timeoutMs?: number;
   admission?: { applicationId: string; apiBase: string; module: string; factory: string; parameters: Record<string, unknown>;
     amount: string; lifecycle: string; tokenEnv: string };
@@ -28,6 +28,12 @@ const atomic = async (path: string, data: unknown) => {
 const chain = defineChain({ id: suite.chainId, name: 'Integration validation', nativeCurrency: { name: 'MON', symbol: 'MON', decimals: 18 },
   rpcUrls: { default: { http: [config.rpcUrl] } } });
 const client = createPublicClient({ chain, transport: http(config.rpcUrl, { timeout: 30_000 }) });
+if (config.forkRpcUrl) {
+  const url = new URL(config.forkRpcUrl);
+  if (suite.mode !== 'fork' || url.protocol !== 'http:' || !['localhost', '127.0.0.1'].includes(url.hostname)
+    || url.username || url.password || url.search || url.hash || url.pathname !== '/') throw new Error('integration-fork-client-invalid');
+}
+const forkClient = config.forkRpcUrl ? createPublicClient({ chain, transport: http(config.forkRpcUrl, { timeout: 60_000 }) }) : undefined;
 const wallets: Wallet[] = Object.entries(suite.actors).filter(([role]) => !admit || role === 'borrower').map(([role, expected]) => {
   const key = process.env[`TERMBOOK_VALIDATION_${role.toUpperCase()}_KEY`];
   if (!key || !/^0x[a-fA-F0-9]{64}$/.test(key)) throw new Error(`integration-${role}-wallet-required`);
@@ -57,7 +63,7 @@ if (admit) {
     maximum_spend: probe.maximum_spend === undefined ? undefined : BigInt(probe.maximum_spend) })) };
   const wallet = wallets.find((wallet) => wallet.address.toLowerCase() === suite.actors.borrower.toLowerCase())!;
   const sdk = create_sdk({ application_id: admission.applicationId, wallet, api_base: admission.apiBase,
-    validation_environment: create_evidence_environment({ client, evidence, options: { gasLimit: BigInt(config.gasLimit), timeoutMs: config.timeoutMs } }) });
+    validation_environment: create_evidence_environment({ client, fork_client: forkClient, evidence, options: { gasLimit: BigInt(config.gasLimit), timeoutMs: config.timeoutMs } }) });
   if (report.admission && (report.admission.version_id !== identity.version_id || report.admission.package_hash !== identity.hash)) {
     throw new Error('integration-validation-binding-invalid');
   }

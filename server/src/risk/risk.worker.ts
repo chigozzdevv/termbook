@@ -7,6 +7,7 @@ import { logger } from "../logging/logger.js";
 import { riskKeeper, riskScanConfig } from "./risk.config.js";
 import { riskRepo } from "./risk.repo.js";
 import { recoveryClearancePlan } from "../recovery/clearance.service.js";
+import { submitCollateralBid } from "./collateral-bid.js";
 
 const healthAbi = parseAbi([
   "function previewHealth(bytes32) view returns ((uint256 debt,uint256 cash,uint256 sourceValue,int256 appValue,uint16 retainedSource,uint16 retainedApp,uint128 recoveryCosts,uint256 recoveryValue,uint256 healthBps))",
@@ -196,7 +197,10 @@ async function inspectCredit(chain: PublicClient, id: Hex,
     if (c.debt !== 0n && c.collateralAmount !== 0n) {
       const asset = await chain.readContract({ address: c.vault, abi: houseAbi, functionName: "asset", blockNumber });
       if (asset.toLowerCase() !== c.collateralAsset.toLowerCase()) {
-        await record("collateral_bid_required"); return;
+        const submitted = keeper && await submitCollateralBid({ client: chain, account: keeper, creditId: id, revision: c.revision,
+          debt: c.debt, collateralAsset: c.collateralAsset, collateralAmount: c.collateralAmount,
+          settlementAsset: asset, blockNumber, submit });
+        await record(submitted ? "collateral_bid_pending" : "collateral_bid_required"); return;
       }
       const amount = c.debt < c.collateralAmount ? c.debt : c.collateralAmount;
       if (keeper) {

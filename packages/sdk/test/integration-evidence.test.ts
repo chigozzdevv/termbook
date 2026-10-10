@@ -40,4 +40,20 @@ describe("recorded operator environment", () => {
     expect(() => create_evidence_environment({ client, evidence, options: { gasLimit: 1_000_000n,
       checkpoint: { suite, cases: evidence.suite.cases } } })).toThrow("integration-evidence-checkpoint-invalid");
   });
+  it("replays fork cases separately while retaining the canonical client for live checks", async () => {
+    const { evidence, input } = fixture();
+    evidence.suite.mode = "fork"; evidence.suite.forkRpcIdentity = word("f");
+    evidence.evidenceHash = integrationEvidenceHash(evidence.suite);
+    const live = { getBlock: vi.fn(async () => ({ hash: evidence.suite.sourceBlock.hash })) } as unknown as PublicClient;
+    const fork = { getChainId: vi.fn(async () => evidence.suite.chainId) } as unknown as PublicClient;
+    const environment = create_evidence_environment({ client: live, fork_client: fork, evidence, options: { gasLimit: 1_000_000n } });
+    await environment.prepare(input);
+    expect(environment.client).toBe(live); expect(environment.suite_client).toBe(fork);
+    vi.mocked(live.getBlock).mockResolvedValue({ hash: word("e") } as never);
+    await expect(environment.prepare(input)).rejects.toThrow("integration-fork-source-invalid");
+  });
+  it("refuses a separate fork client for deployment evidence", () => {
+    const { evidence } = fixture();
+    expect(() => create_evidence_environment({ client, fork_client: client, evidence, options: { gasLimit: 1_000_000n } })).toThrow("integration-fork-client-invalid");
+  });
 });

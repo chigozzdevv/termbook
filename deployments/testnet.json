@@ -36113,6 +36113,35 @@
       "owner": "0x4dbaba93dfdeeab43ce5bdc3335aa6e2dda44920",
       "status": "verified",
       "verification": "local_operator"
+    },
+    "kuru-runtime-review": {
+      "core": "0x198995faab55a9d5d4dceab56abaaa273c26fad7",
+      "review": {
+        "chain_id": 10143,
+        "core": "0x198995faab55a9d5d4dceab56abaaa273c26fad7",
+        "target": "0x1F57a841540fe23C2989387c18F2CB1335CBAe92",
+        "implementation": "0x72caE0a99C19B574e8a6De558F43fc1D019c9374",
+        "code_hash": "0x24c5974f233021f00d607bfa191d430f79565663fb90805ebcfca52de7333500",
+        "abi": [
+          "function getMarketParams() view returns(uint32,uint96,address,uint256,address,uint256,uint32,uint96,uint96,uint256,uint256)",
+          "function marketState() view returns(uint8)",
+          "function isTrustedForwarder(address) view returns(bool)",
+          "function kuruAmmVault() view returns(address)",
+          "function placeAndExecuteMarketBuy(uint96,uint256,bool,bool) payable returns(uint256)",
+          "function placeAndExecuteMarketSell(uint96,uint256,bool,bool) payable returns(uint256)"
+        ],
+        "maximum_input": "100000",
+        "approved_at": 1791640185,
+        "expires_at": 1792244985,
+        "reviewer": "0x4DbAba93dfdEEAb43CE5Bdc3335aA6E2DDa44920",
+        "signature": "0xb26725689f73357bd84ad75617c43bb0fe1c01be1ac4b6782602d3e47239e2d92966031b0fdd4ab822800a94eb3c1314221df7d94ae3838e19d928625e3a8ec31b"
+      },
+      "summary": {
+        "id": "0xbcffacf8ab661be5811d0cbae7112174cc81cc6ce7d0d66b1a8a964982e877ae",
+        "expires_at": 1792244985,
+        "maximum_input": "100000"
+      },
+      "trustModel": "Testnet operator-approved bytecode; source build unverified; expiring RPC upgrade monitor"
     }
   },
   "deploymentBlocks": {

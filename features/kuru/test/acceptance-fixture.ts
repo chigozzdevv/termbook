@@ -51,9 +51,10 @@ export class Fixture {
   readonly facilities = new Map<string, Facility>();
   readonly guards: Address[] = [];
   bid = 0n; ask = 0n; price = 0n;
-  constructor(readonly rpc: string) {
+  constructor(readonly rpc: string, actorKeys?: Hex[]) {
     const url = new URL(rpc);
     if (url.protocol !== "http:" || !["127.0.0.1", "localhost"].includes(url.hostname) || url.username || url.password) throw new Error("validation-fork-local-only");
+    if (actorKeys) { if (actorKeys.length !== 3) throw new Error("validation-actors-invalid"); this.keys.splice(0, 3, ...actorKeys.map((key) => privateKeyToAccount(key))); }
     const chain = defineChain({ id: 10143, name: "Kuru acceptance fork", nativeCurrency: { name: "MON", symbol: "MON", decimals: 18 }, rpcUrls: { default: { http: [rpc] } } });
     this.chain = createPublicClient({ chain, transport: http(rpc, { timeout: 60_000 }), cacheTime: 0, pollingInterval: 50 }) as PublicClient;
     this.actors = { borrower: this.keys[0]!.address, keeper: this.keys[1]!.address, unauthorized: this.keys[2]!.address };
@@ -73,7 +74,11 @@ export class Fixture {
   async finalize() {
     const [latest, finalized] = await Promise.all([this.chain.getBlock({ blockTag: "latest" }), this.chain.getBlock({ blockTag: "finalized" })]);
     const depth = latest.number - finalized.number;
-    if (depth > 0n) await this.rpcCall("anvil_mine", [toHex(depth), "0x0"]);
+    if (depth > 0n) {
+      await this.rpcCall("anvil_setBlockTimestampInterval", [0]);
+      try { await this.rpcCall("anvil_mine", [toHex(depth), "0x0"]); }
+      finally { await this.rpcCall("anvil_setBlockTimestampInterval", [1]); }
+    }
   }
   async mine() { await this.rpcCall("evm_mine"); await this.finalize(); }
   async transact(request: ValidationCall) {
@@ -89,7 +94,11 @@ export class Fixture {
     }
     const receipt = await this.chain.waitForTransactionReceipt({ hash });
     if (!wallet) await this.finalize();
-    if (receipt.status !== "success") throw new Error(`validation-setup-reverted:${fn.name}:${hash}`);
+    if (receipt.status !== "success") {
+      await this.chain.simulateContract({ address: request.to, abi: [fn, ...(await artifact("TermbookCore")).abi.filter((item) => item.type === "error")],
+        functionName: fn.name, args: request.args ?? [], account: request.from, value: request.value, gas: 16_000_000n });
+      throw new Error(`validation-setup-reverted:${fn.name}:${hash}`);
+    }
     return receipt;
   }
   async call(name: string, method: string, args: readonly unknown[] = [], from = this.actors.borrower, target = this.addresses[name]!) {
@@ -233,14 +242,19 @@ export class Fixture {
     await this.call("TermbookCore", "setRecoveryKeeper", [this.actors.keeper, true]);
     await this.callbackSetup(words4);
   }
-  private async callbackSetup(words4: Hex[]) {
+  protected async callbackSetup(words4: Hex[]) {
     const callback = await this.deploy("SpotCallbackFixture");
     const router = await this.deploy("AtomicSpotRouter", [this.actors.borrower, callback, this.addresses.IntegrationRegistry]);
     this.addresses.CallbackRouter = router;
     this.addresses.AtomicSpotRouter = await this.read("AtomicSpotModule", "router");
     const bundle = word("callback bundle"), route = word("callback route");
     await this.call("IntegrationRegistry", "approve", [bundle, word("callback manifest")]);
-    for (const target of [MARKET, USDC]) { await this.call("IntegrationRegistry", "pinDependency", [bundle, target]); await this.call("IntegrationRegistry", "setDependencyGuard", [bundle, target, this.addresses[`guard_${target}`]]); }
+    for (const target of [MARKET, USDC]) {
+      const guard = this.addresses[`guard_${target}`] ?? this.addresses[`guard_${target.toLowerCase()}`];
+      if (!guard) throw new Error("validation-callback-guard-required");
+      await this.call("IntegrationRegistry", "pinDependency", [bundle, target]);
+      await this.call("IntegrationRegistry", "setDependencyGuard", [bundle, target, guard]);
+    }
     const buySelector = encodeFunctionData({ abi: parseAbi(["function placeAndExecuteMarketBuy(uint96,uint256,bool,bool)"]), functionName: "placeAndExecuteMarketBuy", args: [1n, 1n, false, true] }).slice(0, 10);
     await this.call("AtomicSpotRouter", "configure", [route, [bundle, MARKET, USDC, zero, buySelector, 0, 1, 100_000_000n, 1_000_000n, 1n, 2n ** 96n - 1n, words4]], this.actors.borrower, router);
     await this.call("SpotCallbackFixture", "configure", [router, USDC, bundle, route]);

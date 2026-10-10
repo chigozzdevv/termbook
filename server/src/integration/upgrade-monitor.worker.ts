@@ -5,6 +5,8 @@ import { monadClient } from "../chain/monad.client.js";
 import { keeperTransaction } from "../chain/keeper.js";
 import { logger } from "../logging/logger.js";
 import { readProxyImplementation } from "../chain/proxy.js";
+import { approvedRuntimeReviews } from "./runtime-review.js";
+import { runtimeReviewSummary } from "@termbook/sdk";
 
 const abi = parseAbi([
   "function proxy() view returns(address)", "function implementation() view returns(address)",
@@ -25,11 +27,12 @@ export function upgradeMonitorConfig() {
   if (!Array.isArray(entries) || entries.length === 0 || entries.length > 16) throw new Error("upgrade-monitor-config-invalid");
   const guards = entries.map((entry: unknown) => {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw new Error("upgrade-monitor-config-invalid");
-    const { address, codeHash } = entry as Record<string, unknown>;
-    if (Object.keys(entry).some((name) => !["address", "codeHash"].includes(name))
+    const { address, codeHash, runtimeReview } = entry as Record<string, unknown>;
+    if (Object.keys(entry).some((name) => !["address", "codeHash", "runtimeReview"].includes(name))
+      || runtimeReview !== undefined && (typeof runtimeReview !== "string" || !/^0x[a-fA-F0-9]{64}$/.test(runtimeReview))
       || typeof address !== "string" || !/^0x[a-fA-F0-9]{40}$/.test(address) || /^0x0{40}$/i.test(address)
       || typeof codeHash !== "string" || !/^0x[a-fA-F0-9]{64}$/.test(codeHash) || /^0x0{64}$/i.test(codeHash)) throw new Error("upgrade-monitor-config-invalid");
-    return { address: address as Address, codeHash: codeHash as Hex };
+    return { address: address as Address, codeHash: codeHash as Hex, runtimeReview: runtimeReview as Hex | undefined };
   });
   if (new Set(guards.map((g) => g.address.toLowerCase())).size !== guards.length) throw new Error("upgrade-monitor-config-invalid");
   return { guards, account: privateKeyToAccount(key as Hex) };
@@ -43,6 +46,7 @@ export async function runUpgradeMonitorWorker(): Promise<number> {
   try {
     const client = monadClient();
     if (await client.getChainId() !== 10143) throw new Error("upgrade-monitor-chain-mismatch");
+    const reviews = await approvedRuntimeReviews();
     let submitted = 0;
     for (const guard of config.guards) {
       try {
@@ -67,7 +71,11 @@ export async function runUpgradeMonitorWorker(): Promise<number> {
             && !!proxyCode && keccak256(proxyCode).toLowerCase() === proxyHash.toLowerCase()
             && !!implementationCode && keccak256(implementationCode).toLowerCase() === implementationHash.toLowerCase();
         }));
-        const changed = checks.some((match) => !match);
+        const review = reviews.find((r) => r.target.toLowerCase() === proxy.toLowerCase());
+        const changed = checks.some((match) => !match) || !!guard.runtimeReview && (!review
+          || runtimeReviewSummary(review).id.toLowerCase() !== guard.runtimeReview.toLowerCase())
+          || !!review && (review.expires_at <= Number(latest.timestamp)
+          || review.implementation.toLowerCase() !== implementation.toLowerCase() || review.code_hash.toLowerCase() !== implementationHash.toLowerCase());
         if (!changed && (validUntil > latest.timestamp + 60n || finalized.number <= observedBlock)) continue;
         const data = encodeFunctionData({ abi, functionName: changed ? "revoke" : "renew",
           args: changed ? [] : [finalized.number, finalized.hash, finalized.timestamp] } as never);

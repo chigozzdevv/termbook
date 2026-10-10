@@ -37,6 +37,19 @@ describe('integration acceptance report', () => {
     const noRejection = report(); noRejection.cases.find((item) => item.id === 'replay')!.simulations.pop();
     expect(integrationSuiteSchema.safeParse(noRejection).success).toBe(false);
   });
+  it('allows declared fork helpers without letting them replace Core or live contract pins', async () => {
+    const suite = report(); suite.mode = 'fork'; suite.forkRpcIdentity = suiteWord('f');
+    const helper = { target: suiteAddress('0'), codeHash: keccak256('0xabcd'), fixture: true as const };
+    suite.contracts.push(helper);
+    const client = chain();
+    await expect(validateIntegrationSuite(client as unknown as PublicClient, suite.versionId as `0x${string}`, suite.manifestHash as `0x${string}`, suite, suiteHash(suite), actions)).resolves.toEqual(suite);
+    expect(client.getBytecode).not.toHaveBeenCalledWith(expect.objectContaining({ address: helper.target }));
+    suite.contracts.find((pin) => pin.target === suite.core)!.fixture = true;
+    expect(integrationSuiteSchema.safeParse(suite).success).toBe(false);
+    suite.contracts.find((pin) => pin.target === suite.core)!.fixture = undefined;
+    suite.mode = 'deployment'; suite.forkRpcIdentity = undefined;
+    expect(integrationSuiteSchema.safeParse(suite).success).toBe(false);
+  });
   it('binds the evidence hash, actors, state assertions and exclusions', () => {
     const suite = report();
     expect(() => assertSuiteEnvelope(suite.versionId as `0x${string}`, suite.manifestHash as `0x${string}`, suite, suiteWord('f'), actions)).toThrow('integration-suite-binding-invalid');

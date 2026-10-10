@@ -11,7 +11,7 @@ export const riskRepo = {
     try { await RiskScanModel.updateOne({ _id: id }, { $setOnInsert: { after: "", lower, upper, cycleStartedAt: new Date() } }, { upsert: true }); }
     catch (error) { if ((error as { code?: number }).code !== 11000) throw error; }
     const cursor = await RiskScanModel.findOneAndUpdate({ _id: id, $or: [{ leaseUntil: { $exists: false } }, { leaseUntil: { $lte: new Date() } }] },
-      { $set: { lease, leaseUntil: new Date(Date.now() + 120_000) } }, { new: true }).lean();
+      { $set: { lease, leaseUntil: new Date(Date.now() + 120_000) } }, { returnDocument: "after" }).lean();
     return cursor ? { id, lease, lower, upper, after: String(cursor["after"] ?? ""),
       cycleCompletedAt: cursor["cycleCompletedAt"] as Date | undefined, cycleStartedAt: cursor["cycleStartedAt"] as Date | undefined } : null;
   },

@@ -7,7 +7,7 @@ export const solanaRepo = {
   async track(record: SolanaLockRecord) {
     const saved = await SolanaLockModel.findOneAndUpdate(
       { lockId: record.lockId }, { $setOnInsert: { ...record, state: "pending" } },
-      { upsert: true, new: true },
+      { upsert: true, returnDocument: "after" },
     ).lean();
     if (!saved || saved.creditId !== record.creditId || saved.lockPda !== record.lockPda) {
       throw new Error("solana-lock-conflict");
@@ -36,7 +36,7 @@ export const solanaRepo = {
     const claimed = await SolanaLockModel.findOneAndUpdate({
       lockId, state: { $in: ["pending", "proof_submitted", "proof_mined"] },
       $or: [{ leaseUntil: { $exists: false } }, { leaseUntil: { $lt: Date.now() } }],
-    }, { $set: { leaseToken: token, leaseUntil: Date.now() + 1_200_000 } }, { new: true }).lean();
+    }, { $set: { leaseToken: token, leaseUntil: Date.now() + 1_200_000 } }, { returnDocument: "after" }).lean();
     return claimed ? token : null;
   },
   async releaseClaim(lockId: string, token: string): Promise<void> {
@@ -71,7 +71,7 @@ export const solanaRepo = {
     }
     const claimed = await SolanaProofSignerModel.findOneAndUpdate({
       _id: id, $or: [{ lockId: { $exists: false } }, { lockId }],
-    }, { $set: { lockId } }, { new: true }).lean();
+    }, { $set: { lockId } }, { returnDocument: "after" }).lean();
     return Boolean(claimed);
   },
   async releaseSigner(chainId: number, signer: string, lockId: string): Promise<void> {

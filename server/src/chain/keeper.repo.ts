@@ -12,7 +12,7 @@ export const keeperRepo = {
     try {
       const doc = await KeeperWalletModel.findOneAndUpdate({ _id: key, $or: [
         { leaseExpiresAt: { $exists: false } }, { leaseExpiresAt: { $lte: new Date() } },
-      ] }, { $set: { lease, leaseExpiresAt: new Date(Date.now() + duration) } }, { upsert: true, new: true }).lean();
+      ] }, { $set: { lease, leaseExpiresAt: new Date(Date.now() + duration) } }, { upsert: true, returnDocument: "after" }).lean();
       return { lease, ...(doc?.["pending"] ? { pending: doc["pending"] as PendingTransaction } : {}) };
     } catch (error) {
       if ((error as { code?: number }).code === 11000) return null;

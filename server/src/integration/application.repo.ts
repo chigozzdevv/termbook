@@ -10,6 +10,6 @@ export const applicationRepo = {
   },
   async verify(id: string, owner: string, challenge: string, now: Date) {
     return ApplicationModel.findOneAndUpdate({ id, owner, challenge,
-      challengeExpiresAt: { $gt: now } }, { $set: { verifiedAt: now } }, { new: true }).lean();
+      challengeExpiresAt: { $gt: now } }, { $set: { verifiedAt: now } }, { returnDocument: "after" }).lean();
   },
 };

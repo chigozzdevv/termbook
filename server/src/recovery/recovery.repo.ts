@@ -90,7 +90,7 @@ export const recoveryRepo = {
         $or: [{ leaseUntil: { $exists: false } }, { leaseUntil: { $lt: Date.now() } }],
       },
       { $set: { leaseToken: token, leaseUntil: Date.now() + 120_000 } },
-      { new: true },
+      { returnDocument: "after" },
     ).lean();
     return claimed ? {
       token, state: claimed.state as string,
@@ -141,7 +141,7 @@ export const recoveryRepo = {
     const claimed = await RecoveryFunderModel.findOneAndUpdate(
       { _id: key, $or: [{ operationId: { $exists: false } }, { operationId }] },
       { $set: { operationId } },
-      { new: true },
+      { returnDocument: "after" },
     ).lean();
     return Boolean(claimed);
   },

@@ -89,7 +89,7 @@ async function fallback(job: Job): Promise<void> {
     await JobModel.findOneAndUpdate(
       { jobId: jobId(job) },
       { $setOnInsert: { jobId: jobId(job), kind: job.kind, payload: job.payload, status: "pending", attempts: 0, nextRunAt: new Date() } },
-      { upsert: true, new: true },
+      { upsert: true, returnDocument: "after" },
     );
   } catch (err) {
     logger.error("outbox-push-failed", { job, err });
@@ -126,7 +126,7 @@ export const queue = {
         ],
       },
       { $set: { status: "processing", lease, leaseExpiresAt: new Date(Date.now() + 60_000) }, $inc: { attempts: 1 } },
-      { sort: { createdAt: 1 }, new: true },
+      { sort: { createdAt: 1 }, returnDocument: "after" },
     ).lean();
     if (!doc) return undefined;
     return { id: String(doc["jobId"]), lease, attempts: Number(doc["attempts"]),

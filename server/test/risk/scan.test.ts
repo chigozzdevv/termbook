@@ -15,7 +15,7 @@ describe('leased credit scans', () => {
     const low = await riskRepo.claim('network', 0, 2), high = await riskRepo.claim('network', 1, 2);
     expect(low?.upper).toBe(high?.lower); expect(low?.lower).toBe(`0x${'0'.repeat(64)}`); expect(high?.upper).toBeNull();
     expect(mocks.claim).toHaveBeenCalledWith(expect.objectContaining({ _id: 'network:scan:2:1', $or: expect.any(Array) }),
-      expect.objectContaining({ $set: expect.objectContaining({ lease: high?.lease }) }), { new: true });
+      expect.objectContaining({ $set: expect.objectContaining({ lease: high?.lease }) }), { returnDocument: "after" });
     mocks.claim.mockResolvedValue(null); expect(await riskRepo.claim('network', 0, 2)).toBeNull();
   });
   it('restricts each page to its shard and cursor and prevents stale workers from advancing', async () => {

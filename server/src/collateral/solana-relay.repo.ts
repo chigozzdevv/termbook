@@ -19,7 +19,7 @@ export const solanaRelayRepo = {
     const lease = randomUUID();
     const action = await SolanaRelayModel.findOneAndUpdate({ state: { $in: ["pending", "source_finalized"] },
       nextRunAt: { $lte: new Date() }, $or: [{ leaseExpiresAt: { $exists: false } }, { leaseExpiresAt: { $lte: new Date() } }] },
-      { $set: { lease, leaseExpiresAt: new Date(Date.now() + duration) } }, { sort: { nextRunAt: 1, _id: 1 }, new: true }).lean();
+      { $set: { lease, leaseExpiresAt: new Date(Date.now() + duration) } }, { sort: { nextRunAt: 1, _id: 1 }, returnDocument: "after" }).lean();
     return action ? { action: action as unknown as RelayAction, lease } : null;
   },
   async renew(id: string, lease: string): Promise<boolean> {

@@ -6,7 +6,7 @@ export const houseRepo = {
       [key, typeof value === "string" ? value.toLowerCase() : value]));
     return HouseModel.findOneAndUpdate({ house: normalized["house"] }, normalized, {
       upsert: true,
-      new: true,
+      returnDocument: "after",
     }).lean();
   },
   async list() {

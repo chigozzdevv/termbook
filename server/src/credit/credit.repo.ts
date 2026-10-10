@@ -12,7 +12,7 @@ export const creditRepo = {
           { $or: [{ revision: { $lte: revision } }, { revision: { $exists: false } }] },
           { $or: [{ observedBlock: { $lte: observedBlock } }, { observedBlock: { $exists: false } }] },
         ] }, { $set: doc }, {
-        upsert: true, new: true,
+        upsert: true, returnDocument: "after",
       }).lean();
     } catch (error) {
       if ((error as { code?: number }).code !== 11000) throw error;

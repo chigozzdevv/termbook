@@ -112,7 +112,7 @@ export const remoteActionRepo = {
     }
     const claimed = await RemoteActionSignerModel.findOneAndUpdate({
       _id: key, $or: [{ actionHash: { $exists: false } }, { actionHash }],
-    }, { $set: { actionHash } }, { new: true }).lean();
+    }, { $set: { actionHash } }, { returnDocument: "after" }).lean();
     return Boolean(claimed);
   },
   async releaseSigner(signer: string, actionHash: string, chainId = 1): Promise<void> {

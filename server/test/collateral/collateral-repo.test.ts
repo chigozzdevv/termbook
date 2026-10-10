@@ -31,6 +31,6 @@ describe("collateral proof persistence", () => {
     expect(await collateralRepo.acquireSigner(143, "0xAAbb", "lock-b")).toBe(false);
     expect(claim).toHaveBeenCalledWith({
       _id: "143:0xaabb", $or: [{ lockId: { $exists: false } }, { lockId: "lock-b" }],
-    }, { $set: { lockId: "lock-b" } }, { new: true });
+    }, { $set: { lockId: "lock-b" } }, { returnDocument: "after" });
   });
 });

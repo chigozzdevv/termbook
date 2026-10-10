@@ -4,7 +4,7 @@ export const collateralRepo = {
   async save(doc: Record<string, unknown>) {
     const saved = await CollateralModel.findOneAndUpdate({ lockId: doc["lockId"] }, { $setOnInsert: doc }, {
       upsert: true,
-      new: true,
+      returnDocument: "after",
     }).lean();
     if (saved && (saved.creditId !== doc["creditId"] || saved.owner?.toLowerCase() !== String(doc["owner"]).toLowerCase()
       || saved.amount !== doc["amount"])) throw new Error("collateral-track-conflict");
@@ -69,7 +69,7 @@ export const collateralRepo = {
     }
     const claimed = await CollateralSignerModel.findOneAndUpdate({
       _id: key, $or: [{ lockId: { $exists: false } }, { lockId }],
-    }, { $set: { lockId } }, { new: true }).lean();
+    }, { $set: { lockId } }, { returnDocument: "after" }).lean();
     return Boolean(claimed);
   },
   async releaseSigner(chainId: number, signer: string, lockId: string): Promise<void> {

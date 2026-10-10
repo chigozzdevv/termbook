@@ -36,7 +36,7 @@ export const settlementRepo = {
     const claimed = await SettlementModel.findOneAndUpdate(
       { operationId, quote: { $exists: false }, $or: [{ quoteLeaseUntil: { $exists: false } }, { quoteLeaseUntil: { $lt: now } }] },
       { $set: { quoteLeaseToken: token, quoteLeaseUntil: now + 30_000 } },
-      { new: true },
+      { returnDocument: "after" },
     ).lean();
     return claimed ? token : null;
   },
@@ -44,7 +44,7 @@ export const settlementRepo = {
     const saved = await SettlementModel.findOneAndUpdate(
       { operationId, quoteLeaseToken: token },
       { $set: { quote }, $unset: { quoteLeaseToken: "", quoteLeaseUntil: "" } },
-      { new: true },
+      { returnDocument: "after" },
     ).lean();
     if (!saved) throw new Error("settlement-quote-conflict");
     return saved;

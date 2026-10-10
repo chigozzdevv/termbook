@@ -12,7 +12,7 @@ export const indexerRepo = {
     }
     const row = await IndexCursorModel.findOneAndUpdate({ _id: key, integrityFailure: { $exists: false },
       $or: [{ leaseExpiresAt: { $lte: new Date() } }, { leaseExpiresAt: { $exists: false } }] },
-    { $set: { lease: randomUUID(), leaseExpiresAt: new Date(Date.now() + leaseMs) } }, { new: true }).lean();
+    { $set: { lease: randomUUID(), leaseExpiresAt: new Date(Date.now() + leaseMs) } }, { returnDocument: "after" }).lean();
     if (!row) return null;
     return { nextBlock: String(row["nextBlock"]), lease: String(row["lease"]),
       ...(row["lastBlockHash"] ? { lastBlockHash: String(row["lastBlockHash"]) } : {}) };

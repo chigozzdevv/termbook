@@ -31,7 +31,7 @@ export const refundRepo = {
   async approve(refundTxHash: string, digest: string, signature: string) {
     const updated = await RecoveryRefundModel.findOneAndUpdate({
       refundTxHash, refundDigest: digest, state: "pending", riskSignature: { $exists: false },
-    }, { $set: { riskSignature: signature } }, { new: true }).lean();
+    }, { $set: { riskSignature: signature } }, { returnDocument: "after" }).lean();
     if (updated) return updated;
     const saved = await this.get(refundTxHash);
     if (!saved || !same(saved.refundDigest, digest) || !same(saved.riskSignature, signature)) {
@@ -61,7 +61,7 @@ export const refundRepo = {
         refundDigest: previous.refundDigest, txHash: previous.txHash, sourceNonce: previous.sourceNonce,
         gasPrice: priorTx?.gasPrice?.toString(), maxFeePerGas: priorTx?.maxFeePerGas?.toString(),
         maxPriorityFeePerGas: priorTx?.maxPriorityFeePerGas?.toString() } },
-    }, { new: true }).lean();
+    }, { returnDocument: "after" }).lean();
     if (updated) return updated;
     const saved = await this.get(previous.refundTxHash);
     if (!saved || identity.some((key) => !same(saved[key], previous[key]))) throw new Error("recovery-refund-renew-conflict");
@@ -87,7 +87,7 @@ export const refundRepo = {
       refundTxHash, riskSignature: { $exists: true },
       state: { $in: ["pending", "prepared", "submitted", "mined"] },
       $or: [{ leaseUntil: { $exists: false } }, { leaseUntil: { $lt: Date.now() } }],
-    }, { $set: { leaseToken: token, leaseUntil: Date.now() + 120_000 } }, { new: true }).lean();
+    }, { $set: { leaseToken: token, leaseUntil: Date.now() + 120_000 } }, { returnDocument: "after" }).lean();
     return saved ? { token, record: saved } : null;
   },
   async prepare(refundTxHash: string, token: string, txHash: string, rawTx: string, sourceNonce: number) {

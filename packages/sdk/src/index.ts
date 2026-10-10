@@ -61,7 +61,7 @@ export type { spot, perps, vault, staking, liquidity, plugin, integration, ReadC
   ActionContext, ExitContext, PluginDefinition, PluginStates, PluginPlan, PluginExit } from "./integration/plugin.js";
 export { create_sdk, Integrations } from "./integration/author.js";
 export type { AuthorConfig, ValidationEnvironment, ValidationSession, ValidationResult, RegistrationResult } from "./integration/author.js";
-export { verify_definition, pin_contract, implementation_slot } from "./integration/pins.js";
+export { verify_definition, pin_contract, implementation_slot, legacy_implementation_slot } from "./integration/pins.js";
 export { atomic_configuration, prepare_atomic_spot, atomicSpotAbi } from "./integration/atomic-spot.js";
 export type { GovernanceCall } from "./integration/atomic-spot.js";
 export { validate_callbacks } from "./integration/callbacks.js";

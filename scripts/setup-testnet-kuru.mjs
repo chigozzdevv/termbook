@@ -5,12 +5,12 @@ import { log, error } from "node:console";
 import { createRequire } from "node:module";
 import { root, viem, testnetRuntime } from "./testnet-runtime.mjs";
 import { writeConfiguration, clearOperation } from "./testnet-state.mjs";
+import { proxyImplementationSlots, proxyBeaconSlot, resolveProxyImplementation } from "../packages/schema/dist/index.js";
 
 const simulate = process.argv.includes("--simulate");
 if (simulate === process.argv.includes("--broadcast") || process.argv.length !== 3
   || process.argv.slice(2).some((a) => !["--simulate", "--broadcast"].includes(a))) throw new Error("Use --simulate or --broadcast");
 const factory = "0x7EFbE105Ca7415dE98F96622173458ac1c054630";
-const implementationSlot = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc";
 const factoryAbi = viem.parseAbi([
   "function deployProxy(uint8,address,address,uint96,uint32,uint32,uint96,uint96,uint256,uint256,uint96) returns(address)",
   "function orderBookImplementation() view returns(address)", "function marginAccountAddress() view returns(address)",
@@ -81,11 +81,13 @@ async function main() {
   }
   const guards = { ...prior?.guards };
   const dependencies = [];
-  for (const address of [...new Set([market, factory, vault, margin, forwarder].map((a) => a.toLowerCase()))]) {
+  for (const address of [...new Set([market, factory, vault, margin, forwarder, usdc].map((a) => a.toLowerCase()))]) {
     const codeHash = viem.keccak256(await network.client.getCode({ address }));
-    const slot = await network.client.getStorageAt({ address, slot: implementationSlot });
-    if (!slot || !/^0x0{24}[a-fA-F0-9]{40}$/.test(slot)) throw new Error("Unsupported Kuru dependency storage");
-    const implementation = viem.getAddress(`0x${slot.slice(-40)}`);
+    const block = await network.client.getBlock({ blockTag: "finalized" });
+    const words = await Promise.all([...proxyImplementationSlots, proxyBeaconSlot]
+      .map((slot) => network.client.getStorageAt({ address, slot, blockNumber: block.number })));
+    const proxy = resolveProxyImplementation(words.slice(0, -1), words.at(-1));
+    const implementation = proxy ? viem.getAddress(proxy.implementation) : viem.zeroAddress;
     if (implementation !== viem.zeroAddress) {
       let guard = guards[address];
       if (!guard) {
@@ -98,7 +100,7 @@ async function main() {
         || viem.keccak256(await network.client.getCode({ address: guard.address })) !== guard.codeHash) throw new Error("Kuru monitor binding mismatch");
     }
     dependencies.push({ address, codeHash, ...(implementation !== viem.zeroAddress ? { implementation,
-      implementationCodeHash: viem.keccak256(await network.client.getCode({ address: implementation })), guard: guards[address].address } : {}) });
+      implementationSlot: proxy.slot, implementationCodeHash: viem.keccak256(await network.client.getCode({ address: implementation })), guard: guards[address].address } : {}) });
   }
   if (!simulate) {
     const file = path.join(root, ".env");

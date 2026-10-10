@@ -9,7 +9,10 @@ import { root, viem, artifact, testnetRuntime, writeJsonAtomic } from "./testnet
 import { validateUpgradeArtifact, upgradeArtifactLoader } from "./upgrade-validation.mjs";
 
 const simulate = process.argv[2] === "--simulate";
-if (process.argv.length !== 3 || !["--simulate", "--broadcast"].includes(process.argv[2])) throw new Error("Use --simulate or --broadcast");
+const refreshSpot = process.argv[3] === "--refresh-spot";
+if (!["--simulate", "--broadcast"].includes(process.argv[2]) || process.argv.length !== (refreshSpot ? 4 : 3)) {
+  throw new Error("Use --simulate or --broadcast, optionally with --refresh-spot");
+}
 const upgrades = ["FlowExecutor", "AccountFactory", "PriceProtection", "TermbookCore"];
 const shared = ["ReadProgram", "UseCaseReader", "UseCasePolicy", "UseCaseRecovery", "AtomicSpotRouter", "AtomicSpotModule", "AppHealthReaderFactory"];
 const implementationArtifact = upgradeArtifactLoader(path.join(root, "contracts/evm/out"));
@@ -18,6 +21,70 @@ const equal = (actual, expected, label) => {
   if (canonical(actual).toLowerCase() !== canonical(expected).toLowerCase()) throw new Error(`Verification failed: ${label}`);
 };
 const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+
+async function refreshSpotModule() {
+  const operation = "spot-module-update";
+  const { deployment, report, persist, context } = await testnetRuntime(operation, simulate);
+  const monad = await context(10143), m = deployment.addresses[10143];
+  const installed = deployment.configuration?.integrations;
+  if (!installed?.verified || installed.core.toLowerCase() !== m.TermbookCore.toLowerCase()) throw new Error("Shared integration setup required");
+  const compiled = artifact("AtomicSpotModule");
+  const build = viem.keccak256(compiled.bytecode.object);
+  const normalize = (value) => {
+    let result = value.slice(2);
+    for (const references of Object.values(compiled.deployedBytecode.immutableReferences ?? {})) for (const { start, length } of references) {
+      result = result.slice(0, start * 2) + "0".repeat(length * 2) + result.slice((start + length) * 2);
+    }
+    return `0x${result}`;
+  };
+  const resumed = Boolean(report.build);
+  if (report.build && report.build !== build || report.sourceCommit && report.sourceCommit !== sourceCommit) throw new Error("Spot module build changed");
+  report.build = build; report.sourceCommit = sourceCommit;
+  report.previous ??= installed.contractPins?.AtomicSpotModule;
+  if (!report.previous || report.previous.address.toLowerCase() !== m.AtomicSpotModule.toLowerCase()
+    && report.addresses.AtomicSpotModule?.toLowerCase() !== m.AtomicSpotModule.toLowerCase()) throw new Error("Spot module baseline changed");
+  equal(await monad.read("ProtocolGovernance", m.ProtocolGovernance, "governance"), deployment.deployer, "governance owner");
+  const previousCode = await monad.client.getCode({ address: report.previous.address });
+  equal(viem.keccak256(previousCode), report.previous.codeHash, "previous module code");
+  const bindings = { governance: m.ProtocolGovernance, core: m.TermbookCore, router: m.AtomicSpotRouter, registry: m.IntegrationRegistry };
+  for (const [method, expected] of Object.entries(bindings)) equal(await monad.read("AtomicSpotModule", report.previous.address, method), expected, `previous module.${method}`);
+  if (!resumed && normalize(previousCode) === normalize(compiled.deployedBytecode.object)) {
+    clearOperation(operation, simulate); log(JSON.stringify({ configured: true, component: "AtomicSpotModule", address: m.AtomicSpotModule })); return;
+  }
+  persist();
+  if (!simulate) {
+    const plan = JSON.parse(fs.readFileSync(operationFile(`${operation}-simulation`), "utf8"));
+    if (!plan.completedAt || plan.build !== build || plan.sourceCommit !== sourceCommit) throw new Error("Run the current-build simulation first");
+    equal(plan.previous, report.previous, "simulated module baseline");
+    const gasPrice = await monad.client.getGasPrice();
+    const gas = plan.transactions.filter((tx) => !report.transactions.some((entry) => entry.name === tx.name && entry.status === "success"))
+      .reduce((sum, tx) => sum + BigInt(tx.gasLimit), 0n);
+    const budget = gas * (gasPrice > 100_000_000_000n ? gasPrice : 100_000_000_000n) * 11n / 10n + 10_000_000_000_000_000n;
+    if (await monad.client.getBalance({ address: deployment.deployer }) < budget) throw new Error("Insufficient testnet gas");
+  }
+  const address = await monad.deploy("AtomicSpotModule", Object.values(bindings));
+  const code = await monad.client.getCode({ address });
+  equal(normalize(code), normalize(compiled.deployedBytecode.object), "new module runtime");
+  for (const [method, expected] of Object.entries(bindings)) equal(await monad.read("AtomicSpotModule", address, method), expected, `new module.${method}`);
+  report.completedAt ??= new Date().toISOString(); persist();
+  if (!simulate) {
+    m.AtomicSpotModule = address;
+    installed.addresses.AtomicSpotModule = address;
+    installed.contractPins.AtomicSpotModule = { address, codeHash: viem.keccak256(code) };
+    installed.moduleUpdate = { sourceCommit, completedAt: report.completedAt };
+    if (installed.sourceVerification) installed.sourceVerification.contracts = installed.sourceVerification.contracts.filter((item) => item.name !== "AtomicSpotModule");
+    writeJsonAtomic(path.join(root, "deployments/testnet.json"), deployment);
+    const bindingsFile = path.join(root, "packages/bindings/src/generated/deployments.ts");
+    fs.writeFileSync(bindingsFile, fs.readFileSync(bindingsFile, "utf8").replace(/export const deployments: DeploymentMap = \{[\s\S]*?\n\};/,
+      `export const deployments: DeploymentMap = ${JSON.stringify(deployment.addresses, null, 2)};`));
+    const envFile = path.join(root, ".env");
+    fs.writeFileSync(envFile, fs.readFileSync(envFile, "utf8").replace(/^ATOMIC_SPOT_MODULE=.*\n?/m, "") + `ATOMIC_SPOT_MODULE=${address}\n`, { mode: 0o600 });
+    clearOperation(operation);
+  }
+  log(JSON.stringify({ simulated: simulate, verified: true, component: "AtomicSpotModule", address,
+    transaction: report.transactions.find((tx) => tx.name === "AtomicSpotModule").hash,
+    costMON: viem.formatEther(report.transactions.reduce((sum, tx) => sum + BigInt(tx.gasUsed) * BigInt(tx.effectiveGasPrice), 0n)) }));
+}
 
 async function main() {
   if (!simulate && alreadyConfigured("integrations")) { clearOperation("shared-integration-upgrade"); log(JSON.stringify({ configured: true, step: "integrations" })); return; }
@@ -177,7 +244,7 @@ async function main() {
   if (!simulate) clearOperation("shared-integration-upgrade", false);
 }
 
-const lockFile = operationFile("shared-integration-upgrade").replace(/\.json$/, ".lock");
+const lockFile = operationFile(refreshSpot ? "spot-module-update" : "shared-integration-upgrade").replace(/\.json$/, ".lock");
 let lock;
 try {
   if (!simulate) {
@@ -190,7 +257,7 @@ try {
     }
     lock = fs.openSync(lockFile, "wx", 0o600); fs.writeFileSync(lock, String(process.pid));
   }
-  await main();
+  if (refreshSpot) await refreshSpotModule(); else await main();
 } catch (cause) {
   error(cause instanceof Error ? cause.message.split("\n")[0] : "Shared integration upgrade failed"); process.exitCode = 1;
 } finally {

@@ -5,6 +5,7 @@ import { monadClient } from "../../src/chain/monad.client.js";
 import { keeperTransaction } from "../../src/chain/keeper.js";
 import { env } from "../../src/config/env.js";
 import { runUpgradeMonitorWorker, upgradeMonitorConfig } from "../../src/integration/upgrade-monitor.worker.js";
+import { proxyImplementationSlots } from "@termbook/schema";
 
 vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: vi.fn() }));
 vi.mock("../../src/chain/keeper.js", () => ({ keeperTransaction: vi.fn() }));
@@ -26,7 +27,8 @@ beforeEach(() => {
     proxy, implementation, monitor: signer, proxyCodeHash: codeHash, implementationCodeHash: codeHash,
     validUntil: 0n, observedBlock: 0n, revoked: false,
   })[functionName as "proxy"]);
-  getStorageAt.mockResolvedValue(`0x${"0".repeat(24)}${implementation.slice(2)}`);
+  getStorageAt.mockImplementation(async ({ slot }: { slot: string }) => slot === proxyImplementationSlots[0]
+    ? `0x${"0".repeat(24)}${implementation.slice(2)}` : `0x${"0".repeat(64)}`);
   getCode.mockResolvedValue("0x1234");
   vi.mocked(monadClient).mockReturnValue({ getChainId: async () => 10143,
     getBlock: async ({ blockTag }: { blockTag: string }) => ({ number: blockTag === "finalized" ? 10n : 12n,
@@ -45,8 +47,14 @@ describe("testnet upgrade monitor", () => {
     expect(decodeFunctionData({ abi: parseAbi(["function renew(uint64,bytes32,uint64)"]), data }).args).toEqual([10n, codeHash, 1000n]);
   });
   it("permanently revokes when the latest view detects an upgrade before finality", async () => {
-    getStorageAt.mockImplementation(async ({ blockNumber }: { blockNumber: bigint }) => blockNumber === 12n
-      ? `0x${"0".repeat(24)}${proxy.slice(2)}` : `0x${"0".repeat(24)}${implementation.slice(2)}`);
+    getStorageAt.mockImplementation(async ({ blockNumber, slot }: { blockNumber: bigint; slot: string }) => slot !== proxyImplementationSlots[0]
+      ? `0x${"0".repeat(64)}` : blockNumber === 12n ? `0x${"0".repeat(24)}${proxy.slice(2)}` : `0x${"0".repeat(24)}${implementation.slice(2)}`);
+    expect(await runUpgradeMonitorWorker()).toBe(1);
+    expect(vi.mocked(keeperTransaction).mock.calls[0]![0].operation).toBe(`upgrade-revoke:${guard}`);
+  });
+  it("checks and revokes a legacy OpenZeppelin proxy when its implementation changes", async () => {
+    getStorageAt.mockImplementation(async ({ blockNumber, slot }: { blockNumber: bigint; slot: string }) => slot !== proxyImplementationSlots[1]
+      ? `0x${"0".repeat(64)}` : `0x${"0".repeat(24)}${(blockNumber === 12n ? proxy : implementation).slice(2)}`);
     expect(await runUpgradeMonitorWorker()).toBe(1);
     expect(vi.mocked(keeperTransaction).mock.calls[0]![0].operation).toBe(`upgrade-revoke:${guard}`);
   });

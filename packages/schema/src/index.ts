@@ -17,3 +17,4 @@ export * from "./acceptance.js";
 export * from "./plugin.js";
 export * from "./read-program.js";
 export * from "./assessment.js";
+export * from "./proxy.js";

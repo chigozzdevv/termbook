@@ -236,6 +236,11 @@ factory binds the Core and collateral reader once; the plan creates the bound
 onchain guard; an RPC implementation-slot check alone does not satisfy admission.
 The shared components are deployed on Monad testnet. The operator's reviewed
 validation environment remains required; no live Kuru market has been admitted.
+`node scripts/setup-testnet-integrations.mjs --simulate --refresh-spot` checks a
+replacement of the immutable shared spot module; `--broadcast --refresh-spot`
+updates its platform address after that simulation. Existing integration
+versions keep their original module pins and require validation to move to the
+new module.
 All seven shared components have exact creation and runtime source matches on
 Sourcify. Their addresses and source matches are in `deployments/testnet.json`.
 The separate legacy Kuru-USDC House is configured there and remains unfunded.
@@ -251,8 +256,10 @@ liquidity. Its addresses and dependency pins are in `deployments/testnet.json`.
 `--broadcast` resumes the live setup. The existing Circle-USDC House can fund
 this market once admission passes.
 
-This testnet uses an explicitly trusted RPC monitor for Kuru's five proxy
-dependencies. `TestnetUpgradeGuard` pins the reviewed proxy and implementation
+This testnet uses an explicitly trusted RPC monitor for Kuru's proxy
+dependencies and Circle USDC's legacy OpenZeppelin proxy. The SDK and server
+pin the detected implementation slot, address and runtime code hash.
+`TestnetUpgradeGuard` pins the reviewed proxy and implementation
 code, accepts only its dedicated monitor's recent canonical-block attestations,
 and expires after 180 seconds without renewal. The worker checks finalized and
 latest implementation slots, then permanently revokes a guard on a detected
@@ -271,6 +278,20 @@ lifecycle tests and SDK validation runner exist, but the operator environment
 for running that suite against the deployed Kuru market is not implemented.
 Source verification, onchain configuration and live validation remain required
 before registration.
+
+The Kuru fork suite exercises borrowing, native MON custody and valuation,
+market buys and sells, repayment, borrower closure, and keeper recovery through
+the deployed market's actual bytecode. It also checks insufficient exit depth,
+expired monitor approval and changed implementation code:
+
+```sh
+KURU_FORK_RPC_URL=https://testnet-rpc.monad.xyz KURU_FORK_BLOCK=69773398 \
+  forge test --root contracts/evm --match-contract KuruForkTest -vv
+```
+
+These tests use fork-only balances, local Termbook deployments and a controlled
+price feed. They skip when `KURU_FORK_RPC_URL` is absent. They do not replace the
+SDK's admission suite, production oracle checks or live testnet receipts.
 
 ### Shared assessment
 

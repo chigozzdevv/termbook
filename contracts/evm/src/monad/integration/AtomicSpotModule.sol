@@ -116,7 +116,10 @@ contract AtomicSpotModule is IExecutionPolicy, IAppStateReader, IAppValueReader,
         uint256 found;
         for (uint256 i; i < config.markets.length; ++i) {
             AtomicSpotRouter.Route memory sell = router.route(config.markets[i].sellRoute);
-            if (!_dust(sell, _balance(sell.input, account), config.markets[i].dustLimit) && found++ == index) return (bytes32(uint256(uint160(sell.input))), config.markets[i].marketId);
+            if (!_dust(sell, _balance(sell.input, account), config.markets[i].dustLimit) && found++ == index) {
+                bytes32 marketId = config.markets[i].marketId;
+                return (keccak256(abi.encode(marketId, sell.input)), marketId);
+            }
         }
         revert Invalid();
     }

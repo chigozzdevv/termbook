@@ -1,7 +1,8 @@
 import { keccak256, type Address } from "viem";
 import { monadClient } from "../chain/monad.client.js";
 import { env } from "../config/env.js";
-import { importVerifiedSource, implementationSlot } from "./integration.source.js";
+import { importVerifiedSource } from "./integration.source.js";
+import { readProxyImplementation } from "../chain/proxy.js";
 
 export const platformService = {
   spot() {
@@ -24,10 +25,9 @@ export const platformService = {
     const block = await chain.getBlock({ blockTag: "finalized" });
     const code = await chain.getBytecode({ address: target, blockNumber: block.number });
     if (!code || code === "0x") throw new Error("integration-target-unavailable");
-    const storage = await chain.getStorageAt({ address: target, slot: implementationSlot, blockNumber: block.number });
-    if (storage && !/^0x0*$/.test(storage)) {
-      if (!/^0x0{24}[0-9a-fA-F]{40}$/.test(storage)) throw new Error("integration-proxy-layout-unsupported");
-      const implementation = `0x${storage.slice(-40)}` as Address;
+    const proxy = await readProxyImplementation(chain, target, block.number);
+    if (proxy) {
+      const implementation = proxy.implementation;
       const implCode = await chain.getBytecode({ address: implementation, blockNumber: block.number });
       if (!implCode || implCode === "0x") throw new Error("integration-implementation-unavailable");
       const [source, implementationSource] = await Promise.all([
@@ -35,7 +35,7 @@ export const platformService = {
         importVerifiedSource(env.monadChainId, implementation, implCode, null),
       ]);
       return { target, code_hash: keccak256(code), source_hash: source.sourceHash,
-        implementation, implementation_code_hash: keccak256(implCode), implementation_source_hash: implementationSource.sourceHash };
+        implementation, implementation_slot: proxy.slot, implementation_code_hash: keccak256(implCode), implementation_source_hash: implementationSource.sourceHash };
     }
     const source = await importVerifiedSource(env.monadChainId, target, code, null);
     return { target, code_hash: keccak256(code), source_hash: source.sourceHash };

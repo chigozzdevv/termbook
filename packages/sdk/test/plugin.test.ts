@@ -46,9 +46,9 @@ describe("portable integration definitions", () => {
     const d = definition();
     d.pins[0] = { ...d.pins[0]!, implementation: addr("8"), implementation_code_hash: d.pins[0]!.code_hash, implementation_slot };
     const client = { getChainId: vi.fn(async () => 143), getBlock: vi.fn(async () => context.block),
-      getBytecode: vi.fn(async () => "0x1234"), getStorageAt: vi.fn(async ({ address }) => address === addr("3") ? `0x${"0".repeat(24)}${addr("8").slice(2)}` : word("0")) };
+      getBytecode: vi.fn(async () => "0x1234"), getStorageAt: vi.fn(async ({ address, slot }) => address === addr("3") && slot === implementation_slot ? `0x${"0".repeat(24)}${addr("8").slice(2)}` : word("0")) };
     await expect(verify_definition(client as unknown as PublicClient, d)).resolves.toBeUndefined();
-    client.getStorageAt.mockResolvedValue(`0x${"0".repeat(24)}${addr("9").slice(2)}`);
+    client.getStorageAt.mockImplementation(async ({ address, slot }) => address === addr("3") && slot === implementation_slot ? `0x${"0".repeat(24)}${addr("9").slice(2)}` : word("0"));
     await expect(verify_definition(client as unknown as PublicClient, d)).rejects.toThrow("integration-implementation-changed");
   });
 });

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { atomicSpotModuleAbi, atomicSpotRouterAbi, readProgramAbi, integrationRegistryAbi,
   termbookCoreAbi, healthSourceAbi, appHealthReaderFactoryAbi } from "@termbook/bindings";
-import { decodeFunctionData, encodeAbiParameters, keccak256, stringToHex, toFunctionSelector, type Abi, type PublicClient } from "viem";
+import { decodeFunctionData, encodeAbiParameters, keccak256, stringToHex, toFunctionSelector, zeroAddress, type Abi, type PublicClient } from "viem";
 import { atomic_configuration, prepare_atomic_spot } from "../src/integration/atomic-spot.js";
 import { definition, addr, word } from "./plugin.fixture.js";
 
@@ -65,5 +65,18 @@ describe("atomic spot deployment plan", () => {
       .toBe(true);
     const wrong = options(); wrong.core = addr("f");
     await expect(prepare_atomic_spot(atomicDefinition(), wrong)).rejects.toThrow("integration-health-factory-invalid");
+  });
+  it("permits USDC buys and bounds native sells through the same router selector", async () => {
+    const d = atomicDefinition(); d.markets[0]!.base_asset = zeroAddress;
+    d.atomic_spot!.routes[0]!.output = zeroAddress; d.atomic_spot!.routes[1]!.input = zeroAddress;
+    for (const action of d.actions) action.signature = "function trade(bytes32,uint256,uint256) payable";
+    delete d.actions[1]!.spendToken; delete d.actions[1]!.spendPath; d.actions[1]!.valuePath = "amount.spend";
+    const result = await prepare_atomic_spot(d, options());
+    const policies = result.calls.filter((call) => call.target.toLowerCase() === addr("b"))
+      .map((call) => decodeFunctionData({ abi: integrationRegistryAbi, data: call.data }))
+      .filter((call) => call.functionName === "registerNativeValue");
+    expect(policies.map((call) => call.args?.slice(3))).toEqual([
+      [false, BigInt(d.atomic_spot!.max_holding), 255], [true, BigInt(d.atomic_spot!.max_holding), 1],
+    ]);
   });
 });

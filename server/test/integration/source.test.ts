@@ -7,6 +7,7 @@ vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: vi.fn() }));
 import { monadClient } from "../../src/chain/monad.client.js";
 import { env } from "../../src/config/env.js";
 import { validateIntegrationSources, verifyIntegrationSourcePins } from "../../src/integration/integration.source.js";
+import { proxyImplementationSlots } from "@termbook/schema";
 
 const target = `0x${"22".repeat(20)}` as const;
 const implementation = `0x${"33".repeat(20)}` as const;
@@ -64,5 +65,16 @@ describe("integration source admission", () => {
     const pins = await validateIntegrationSources([action], [{ target, sourceHash,
       implementation, implementationSourceHash: sourceHash }]);
     expect(pins).toMatchObject([{ implementation, implementationCodeHash: keccak256(code) }]);
+  });
+  it("pins a verified legacy implementation and rejects an undeclared proxy", async () => {
+    vi.mocked(monadClient).mockReturnValue({
+      getBlock: async () => ({ number: 100n }), getChainId: async () => 143, getBytecode: async () => code,
+      getStorageAt: async ({ slot }: { slot: string }) => slot === proxyImplementationSlots[1]
+        ? `0x${"00".repeat(12)}${implementation.slice(2)}` : `0x${"00".repeat(32)}`,
+    } as never);
+    await expect(validateIntegrationSources([action], [{ target, sourceHash }])).rejects.toThrow("integration-source-evidence-invalid");
+    const pins = await validateIntegrationSources([action], [{ target, sourceHash, implementation, implementationSourceHash: sourceHash }]);
+    expect(pins[0]).toMatchObject({ implementation, implementationSlot: proxyImplementationSlots[1] });
+    expect(await verifyIntegrationSourcePins(pins)).toBe(true);
   });
 });

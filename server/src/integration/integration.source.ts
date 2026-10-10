@@ -1,14 +1,15 @@
 import { createHash } from "node:crypto";
-import { keccak256, parseAbiItem, stringToHex, toFunctionSelector, toHex,
+import { keccak256, parseAbiItem, toFunctionSelector,
   type AbiFunction, type Address, type Hex } from "viem";
-import { capabilityDependencies, type CapabilityDefinition } from "@termbook/schema";
+import { capabilityDependencies, proxyImplementationSlots, proxyBeaconSlot, type CapabilityDefinition } from "@termbook/schema";
+import { readProxyImplementation } from "../chain/proxy.js";
 import { monadClient } from "../chain/monad.client.js";
 import { env } from "../config/env.js";
 
 const sourceApi = "https://sourcify.dev/server/v2/contract";
 const maxResponseBytes = 3_000_000;
-export const implementationSlot = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc";
-export const beaconSlot = toHex(BigInt(keccak256(stringToHex("eip1967.proxy.beacon"))) - 1n, { size: 32 });
+export const implementationSlot = proxyImplementationSlots[0];
+export const beaconSlot = proxyBeaconSlot;
 const zero = "0x0000000000000000000000000000000000000000";
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const wordPattern = /^0x[0-9a-fA-F]{64}$/;
@@ -101,7 +102,8 @@ export async function importVerifiedSource(
 export type SourceEvidence = { target: string; sourceHash: string;
   implementation?: string; implementationSourceHash?: string };
 export type SourcePin = { target: Address; codeHash: Hex; sourceHash: Hex;
-  implementation: Address | null; implementationCodeHash: Hex | null; implementationSourceHash: Hex | null };
+  implementation: Address | null; implementationSlot: Hex | null;
+  implementationCodeHash: Hex | null; implementationSourceHash: Hex | null };
 
 export async function validateIntegrationSources(
   actions: CapabilityDefinition[], evidence: SourceEvidence[],
@@ -120,17 +122,14 @@ export async function validateIntegrationSources(
   for (const targetKey of targets) {
     const target = targetKey as Address;
     const reviewed = byTarget.get(targetKey)!;
-    const [code, implementationWord, beaconWord] = await Promise.all([
+    const [code, proxy] = await Promise.all([
       chain.getBytecode({ address: target, blockNumber: finalized.number }),
-      chain.getStorageAt({ address: target, slot: implementationSlot, blockNumber: finalized.number }),
-      chain.getStorageAt({ address: target, slot: beaconSlot, blockNumber: finalized.number }),
+      readProxyImplementation(chain, target, finalized.number),
     ]);
-    if (!code || code === "0x" || beaconWord && BigInt(beaconWord) !== 0n
-      || implementationWord && !/^0x0{24}[0-9a-fA-F]{40}$/.test(implementationWord)) {
+    if (!code || code === "0x") {
       throw new Error("integration-source-proxy-invalid");
     }
-    const implementation = implementationWord && BigInt(implementationWord) !== 0n
-      ? `0x${implementationWord.slice(-40)}` as Address : null;
+    const implementation = proxy?.implementation ?? null;
     if (implementation && (!reviewed.implementation
       || reviewed.implementation.toLowerCase() !== implementation.toLowerCase()
       || !reviewed.implementationSourceHash)
@@ -161,7 +160,7 @@ export async function validateIntegrationSources(
         implementationCode ?? code, selector(action.signature), !!(action.valuePath || action.valueFromBound));
     }
     pins.push({ target, codeHash: keccak256(code), sourceHash: source.sourceHash as Hex,
-      implementation, implementationCodeHash, implementationSourceHash });
+      implementation, implementationSlot: proxy?.slot ?? null, implementationCodeHash, implementationSourceHash });
   }
   return pins;
 }
@@ -176,15 +175,13 @@ export async function verifyIntegrationSourcePins(pins: SourcePin[]): Promise<bo
       || !wordPattern.test(pin.sourceHash) || (pin.implementation !== null
       && (!addressPattern.test(pin.implementation) || !wordPattern.test(pin.implementationCodeHash ?? "")))
       || (pin.implementation === null && pin.implementationCodeHash !== null)) return false;
-    const [code, implementationWord, beaconWord] = await Promise.all([
+    const [code, proxy] = await Promise.all([
       chain.getBytecode({ address: pin.target, blockNumber: finalized.number }),
-      chain.getStorageAt({ address: pin.target, slot: implementationSlot, blockNumber: finalized.number }),
-      chain.getStorageAt({ address: pin.target, slot: beaconSlot, blockNumber: finalized.number }),
+      readProxyImplementation(chain, pin.target, finalized.number),
     ]);
-    if (!code || keccak256(code) !== pin.codeHash || beaconWord && BigInt(beaconWord) !== 0n) return false;
-    const implementation = implementationWord && BigInt(implementationWord) !== 0n
-      ? `0x${implementationWord.slice(-40)}` : zero;
-    if (implementation.toLowerCase() !== (pin.implementation ?? zero).toLowerCase()) return false;
+    if (!code || keccak256(code) !== pin.codeHash) return false;
+    if ((proxy?.implementation ?? zero).toLowerCase() !== (pin.implementation ?? zero).toLowerCase()
+      || (proxy?.slot ?? null) !== pin.implementationSlot) return false;
     if (pin.implementation) {
       const implementationCode = await chain.getBytecode({ address: pin.implementation, blockNumber: finalized.number });
       if (!implementationCode || keccak256(implementationCode) !== pin.implementationCodeHash) return false;

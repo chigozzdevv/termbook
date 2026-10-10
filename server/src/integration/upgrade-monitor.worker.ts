@@ -4,8 +4,8 @@ import { env } from "../config/env.js";
 import { monadClient } from "../chain/monad.client.js";
 import { keeperTransaction } from "../chain/keeper.js";
 import { logger } from "../logging/logger.js";
+import { readProxyImplementation } from "../chain/proxy.js";
 
-const implementationSlot = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc";
 const abi = parseAbi([
   "function proxy() view returns(address)", "function implementation() view returns(address)",
   "function monitor() view returns(address)", "function proxyCodeHash() view returns(bytes32)",
@@ -59,12 +59,11 @@ export async function runUpgradeMonitorWorker(): Promise<number> {
         if (monitor.toLowerCase() !== config.account.address.toLowerCase()) throw new Error("upgrade-monitor-signer-mismatch");
         if (revoked) continue;
         const checks = await Promise.all([finalized.number, latest.number].map(async (blockNumber) => {
-          const [slot, proxyCode, implementationCode] = await Promise.all([
-            client.getStorageAt({ address: proxy, slot: implementationSlot, blockNumber }),
+          const [layout, proxyCode, implementationCode] = await Promise.all([
+            readProxyImplementation(client, proxy, blockNumber),
             client.getCode({ address: proxy, blockNumber }), client.getCode({ address: implementation, blockNumber }),
           ]);
-          if (!slot || !/^0x0{24}[a-fA-F0-9]{40}$/.test(slot)) throw new Error("upgrade-monitor-storage-invalid");
-          return slot.slice(-40).toLowerCase() === implementation.slice(2).toLowerCase()
+          return layout?.implementation.toLowerCase() === implementation.toLowerCase()
             && !!proxyCode && keccak256(proxyCode).toLowerCase() === proxyHash.toLowerCase()
             && !!implementationCode && keccak256(implementationCode).toLowerCase() === implementationHash.toLowerCase();
         }));

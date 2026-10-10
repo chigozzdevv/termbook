@@ -108,7 +108,8 @@ export async function prepare_atomic_spot(input: PluginDefinition, options: {
     push(options.registry, registryAbi, "registerRecoveryCall", [version_id, base, approve, 68n, 255], "Allow bounded recovery approvals");
     push(options.registry, registryAbi, "setRecoveryCallValidator", [version_id, base, approve, config.module], "Verify recovery approval ownership");
   } else {
-    push(options.registry, registryAbi, "registerNativeValue", [version_id, config.router, trade, false, BigInt(config.max_holding), 1], "Bound native spot spending");
+    // The shared selector also handles ERC-20 buys with zero native value.
+    push(options.registry, registryAbi, "registerNativeValue", [version_id, config.router, trade, false, BigInt(config.max_holding), 255], "Bound native spot spending");
     push(options.registry, registryAbi, "registerNativeValue", [version_id, config.router, trade, true, BigInt(config.max_holding), 1], "Bound native recovery spending");
   }
   push(options.core, coreAbi, "configureExecutionPolicy", [version_id, config.module, 1, 0, options.max_health_age], "Configure spot execution and state checks");

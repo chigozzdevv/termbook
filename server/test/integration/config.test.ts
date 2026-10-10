@@ -59,7 +59,7 @@ const acceptance = { suite, evidenceHash: suiteHash(suite),
 const verifiedSources = [{ target: address("7"), sourceHash: `0x${"f".repeat(64)}` }];
 const sourcePins = [{ target: address("7"), codeHash: keccak256("0x1234"),
   sourceHash: verifiedSources[0]!.sourceHash, implementation: null,
-  implementationCodeHash: null, implementationSourceHash: null }];
+  implementationSlot: null, implementationCodeHash: null, implementationSourceHash: null }];
 let readerAdapter = address("9");
 
 beforeEach(() => {

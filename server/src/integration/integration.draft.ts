@@ -5,7 +5,8 @@ import {
 import { monadClient } from "../chain/monad.client.js";
 import { env } from "../config/env.js";
 import { decodeCoreAction } from "./integration.abi.js";
-import { beaconSlot, implementationSlot, importVerifiedSource } from "./integration.source.js";
+import { importVerifiedSource } from "./integration.source.js";
+import { readProxyImplementation } from "../chain/proxy.js";
 import type { integrationDraftSchema } from "./integration.schema.js";
 import type { z } from "zod";
 
@@ -105,22 +106,16 @@ export async function inspectIntegrationDraft(input: DraftInput) {
     if (signature.type !== "function" || !["nonpayable", "payable"].includes(signature.stateMutability)) {
       throw new Error("integration-draft-signature-invalid");
     }
-    const [code, implementationWord, beaconWord, receipt, transaction] = await Promise.all([
+    const [code, proxy, receipt, transaction] = await Promise.all([
       chain.getBytecode({ address: target, blockNumber: finalized.number }),
-      chain.getStorageAt({ address: target, slot: implementationSlot, blockNumber: finalized.number }),
-      chain.getStorageAt({ address: target, slot: beaconSlot, blockNumber: finalized.number }),
+      readProxyImplementation(chain, target, finalized.number).catch(() => { throw new Error("integration-draft-proxy-mismatch"); }),
       chain.getTransactionReceipt({ hash: entry.txHash as Hex }),
       chain.getTransaction({ hash: entry.txHash as Hex }),
     ]);
     if (!code || code === "0x" || !equal(keccak256(code), entry.codeHash)) {
       throw new Error("integration-draft-code-mismatch");
     }
-    if (beaconWord && BigInt(beaconWord) !== 0n || implementationWord
-      && !/^0x0{24}[0-9a-fA-F]{40}$/.test(implementationWord)) {
-      throw new Error("integration-draft-proxy-mismatch");
-    }
-    const implementation = implementationWord
-      ? `0x${implementationWord.slice(-40)}` as Address : zero as Address;
+    const implementation = proxy?.implementation ?? zero as Address;
     if (equal(implementation, zero) !== (entry.implementationCodeHash === undefined)) {
       throw new Error("integration-draft-proxy-mismatch");
     }
@@ -143,14 +138,15 @@ export async function inspectIntegrationDraft(input: DraftInput) {
     }
     const block = await chain.getBlock({ blockNumber: receipt.blockNumber });
     if (!equal(block.hash, receipt.blockHash)) throw new Error("integration-draft-reference-invalid");
-    const [referenceCode, referenceImplementationWord, referenceImplementationCode] = await Promise.all([
+    const [referenceCode, referenceProxy, referenceImplementationCode] = await Promise.all([
       chain.getBytecode({ address: target, blockNumber: receipt.blockNumber }),
-      chain.getStorageAt({ address: target, slot: implementationSlot, blockNumber: receipt.blockNumber }),
+      readProxyImplementation(chain, target, receipt.blockNumber),
       equal(implementation, zero) ? Promise.resolve(undefined)
         : chain.getBytecode({ address: implementation, blockNumber: receipt.blockNumber }),
     ]);
     if (!referenceCode || !equal(keccak256(referenceCode), entry.codeHash)
-      || !equal(referenceImplementationWord ?? "0x", implementationWord ?? "0x")
+      || (referenceProxy?.slot ?? null) !== (proxy?.slot ?? null)
+      || !equal(referenceProxy?.implementation ?? zero, implementation)
       || implementationCode && (!referenceImplementationCode
         || !equal(keccak256(referenceImplementationCode), keccak256(implementationCode)))) {
       throw new Error("integration-draft-reference-invalid");
@@ -165,6 +161,7 @@ export async function inspectIntegrationDraft(input: DraftInput) {
     entries.push({
       target, codeHash: entry.codeHash.toLowerCase(),
       implementation: equal(implementation, zero) ? null : implementation,
+      implementationSlot: proxy?.slot ?? null,
       implementationCodeHash: entry.implementationCodeHash?.toLowerCase() ?? null,
       signature: entry.signature, selector, source, implementationSource,
       parameters: signature.inputs.map((param) => ({ name: param.name, type: param.type })),

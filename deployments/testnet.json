@@ -36091,6 +36091,16 @@
             "runtimeMatch": "match",
             "creationMatch": "match",
             "url": "https://sourcify.dev/server/v2/contract/10143/0x3f6a0d6a83e50219626aa6a84fd237cb1877884d"
+          },
+          {
+            "name": "PriceProtectionImplementation",
+            "address": "0xcce9c12c7380e32cca30330de1768ee59529447b",
+            "verificationId": "8ff534a9-8e2d-4932-8c6b-40557c532932",
+            "matchId": "55893293",
+            "verifiedAt": "2026-10-10T20:27:24Z",
+            "runtimeMatch": "exact_match",
+            "creationMatch": "exact_match",
+            "url": "https://sourcify.dev/server/v2/contract/10143/0xcce9c12c7380e32cca30330de1768ee59529447b"
           }
         ]
       },
@@ -36145,7 +36155,7 @@
         "completedAt": "2026-10-10T09:03:25.885Z"
       },
       "priceUpdate": {
-        "sourceCommit": "0243aaa6686d27291febf54007961a0f2d70c3c4",
+        "sourceCommit": "74334c674d923fab79ccce12b3c29c52f429f36e",
         "completedAt": "2026-10-10T19:04:17.659Z",
         "storageUnchanged": true
       }

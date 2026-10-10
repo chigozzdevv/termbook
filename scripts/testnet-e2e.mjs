@@ -388,7 +388,7 @@ async function main() {
     }
     for (const entry of logs.filter((log) => log.topics[0] === repaymentTopic && log.topics[1]?.toLowerCase() === topic)) {
       const tx = await monad.client.getTransaction({ hash: entry.transactionHash });
-      if (tx.input.startsWith(viem.toFunctionSelector("recoverAccountCash(bytes32,uint256)"))
+      if (["recoverAccountCash(bytes32,uint256)", "repayAvailableCash(bytes32)"].some((signature) => tx.input.startsWith(viem.toFunctionSelector(signature)))
         && tx.from.toLowerCase() === keeper.toLowerCase()) repaymentHash = tx.hash;
     }
     if (!repaymentHash) throw new Error("Kuru independent repayment receipt is missing");

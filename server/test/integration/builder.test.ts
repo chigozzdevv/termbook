@@ -50,7 +50,7 @@ const repaymentInput = encodeFunctionData({ abi: parseAbi(["function recoverAcco
 const previous = { core: env.core, monadChainId: env.monadChainId };
 
 function chain(overrides: { appValue?: bigint; actionInput?: `0x${string}`; recoveryBlock?: bigint;
-  repaymentInput?: `0x${string}`; repaymentBlock?: bigint; recoverySender?: string } = {}) {
+  repaymentInput?: `0x${string}`; repaymentBlock?: bigint; repaymentAmount?: bigint; recoverySender?: string } = {}) {
   return {
     getChainId: vi.fn(async () => 143),
     getBlock: vi.fn(async ({ blockTag }: { blockTag?: string }) =>
@@ -81,7 +81,7 @@ function chain(overrides: { appValue?: bigint; actionInput?: `0x${string}`; reco
         topics: [recoveryTopic, recoveredCreditId, padHex(adapter, { size: 32 }), padHex(target, { size: 32 })],
       }] : hash === repaymentHash ? [{ address: core,
         topics: [repaidTopic, recoveredCreditId],
-        data: encodeAbiParameters([{ type: "uint256" }, { type: "uint256" }], [60n, 40n]),
+        data: encodeAbiParameters([{ type: "uint256" }, { type: "uint256" }], [overrides.repaymentAmount ?? 60n, 40n]),
       }] : [],
     })),
     getTransaction: vi.fn(async ({ hash }: { hash: string }) => ({ to: core, hash, blockHash, from: overrides.recoverySender ?? suite.actors.keeper,
@@ -105,6 +105,21 @@ describe("integration acceptance", () => {
     vi.mocked(monadClient).mockReturnValue(client as never);
     await validateIntegrationAcceptance(versionId, token, actions, acceptance, suite.manifestHash as `0x${string}`);
     expect(client.getTransactionReceipt).toHaveBeenCalledTimes(3);
+  });
+  it("accepts an independent keeper repayment of available account cash", async () => {
+    const input = encodeFunctionData({ abi: parseAbi(["function repayAvailableCash(bytes32)"]),
+      functionName: "repayAvailableCash", args: [recoveredCreditId] });
+    vi.mocked(monadClient).mockReturnValue(chain({ repaymentInput: input }) as never);
+    await validateIntegrationAcceptance(versionId, token, actions, acceptance, suite.manifestHash as `0x${string}`);
+  });
+  it("rejects available-cash evidence for a different credit or zero repayment", async () => {
+    const input = (id: `0x${string}`) => encodeFunctionData({ abi: parseAbi(["function repayAvailableCash(bytes32)"]),
+      functionName: "repayAvailableCash", args: [id] });
+    for (const options of [{ repaymentInput: input(activeCreditId) }, { repaymentInput: input(recoveredCreditId), repaymentAmount: 0n }]) {
+      vi.mocked(monadClient).mockReturnValue(chain(options) as never);
+      await expect(validateIntegrationAcceptance(versionId, token, actions, acceptance, suite.manifestHash as `0x${string}`))
+        .rejects.toThrow("integration-repayment-evidence-invalid");
+    }
   });
   it("requires execution-plan evidence for a distinct route key", async () => {
     vi.mocked(monadClient).mockReturnValue(chain() as never);

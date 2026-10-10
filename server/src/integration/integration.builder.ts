@@ -29,7 +29,8 @@ const appReaderAbi = parseAbi([
 const vaultAbi = parseAbi(["function asset() view returns (address)"]);
 const recoveryTopic = keccak256(stringToHex("AppRecoveryStep(bytes32,address,address,bytes32)"));
 const repaidTopic = keccak256(stringToHex("Repaid(bytes32,uint256,uint256)"));
-const recoverCashAbi = parseAbi(["function recoverAccountCash(bytes32 creditId,uint256 amount)"]);
+const recoverCashAbi = parseAbi(["function recoverAccountCash(bytes32 creditId,uint256 amount)",
+  "function repayAvailableCash(bytes32 creditId)"]);
 const zero = "0x0000000000000000000000000000000000000000";
 
 function equal(left: string, right: string): boolean {
@@ -206,11 +207,14 @@ export async function validateIntegrationAcceptance(
     || repayment.blockNumber === latestRecoveryBlock && repayment.transactionIndex <= latestRecoveryIndex) {
     throw new Error("integration-repayment-evidence-invalid");
   }
-  let repaymentAmount: bigint;
+  let repaymentAmount: bigint | undefined;
   try {
     const decoded = decodeFunctionData({ abi: recoverCashAbi, data: repaymentTx.input });
-    if (!equal(decoded.args[0], acceptance.recoveredCreditId) || decoded.args[1] === 0n) throw new Error();
-    repaymentAmount = decoded.args[1];
+    if (!equal(decoded.args[0], acceptance.recoveredCreditId)) throw new Error();
+    if (decoded.functionName === "recoverAccountCash") {
+      if (decoded.args[1] === 0n) throw new Error();
+      repaymentAmount = decoded.args[1];
+    }
   } catch {
     throw new Error("integration-repayment-evidence-invalid");
   }
@@ -220,7 +224,7 @@ export async function validateIntegrationAcceptance(
       || !equal(log.topics[1] ?? "", recoveryCreditTopic)) return false;
     try {
       const [amount] = decodeAbiParameters([{ type: "uint256" }, { type: "uint256" }], log.data);
-      return amount === repaymentAmount;
+      return amount > 0n && (repaymentAmount === undefined || amount === repaymentAmount);
     } catch {
       return false;
     }

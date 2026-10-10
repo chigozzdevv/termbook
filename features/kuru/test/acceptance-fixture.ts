@@ -73,11 +73,16 @@ export class Fixture {
     return this.chain.request({ method, params } as never);
   }
   private async receipt(hash: Hex) {
-    const deadline = Date.now() + 60_000;
+    const deadline = Date.now() + 180_000;
+    let nextMine = Date.now() + 5_000;
     while (Date.now() < deadline) {
       try { return await this.chain.getTransactionReceipt({ hash }); }
       catch (error) { if (!(error instanceof TransactionReceiptNotFoundError)) throw error; }
-      await delay(50);
+      if (Date.now() >= nextMine) {
+        await this.rpcCall("evm_mine");
+        nextMine = Date.now() + 5_000;
+      }
+      await delay(250);
     }
     throw new Error(`validation-receipt-timeout:${hash}`);
   }

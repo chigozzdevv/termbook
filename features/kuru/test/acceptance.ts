@@ -3,7 +3,7 @@ import { IntegrationValidationRunner, type ValidationCall } from "@termbook/sdk"
 import { encodeFunctionData, parseAbi, type Address, type Hex } from "viem";
 import { Fixture, signature, USDC, word, type Facility } from "./acceptance-fixture.js";
 
-const exclusions: IntegrationSuite["exclusions"] = [
+export const exclusions: IntegrationSuite["exclusions"] = [
   ...(["forced_cancel", "asynchronous_failure", "pending_limit", "partial_fill_slots", "duplicate_claim"] as const).map((id) => ({ id,
     reason: "This integration admits immediate fill-or-kill market trades only; it creates no pending orders or claims." })),
   { id: "forced_reduce", reason: "Spot holdings are sold by the forced-close path; this integration exposes no derivative position-reduction action." },

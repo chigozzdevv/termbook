@@ -24,6 +24,35 @@ async function scenario(runner: IntegrationValidationRunner) {
   await runner.assert({ label: 'state comparison', left: { observation: 'before', index: 0 }, operator: 'eq', right: { observation: 'after', index: 0 } });
 }
 describe('integration validation recorder', () => {
+  it('checks canonical fork pins without requiring the fork source-state snapshot', async () => {
+    const fork = { ...client(),
+      getBlock: vi.fn(async ({ blockNumber }: { blockNumber?: bigint }) => ({ number: blockNumber ?? 5n,
+        hash: suite.sourceBlock.hash, transactions: [tx], gasLimit: 20_000_000n })),
+      getBytecode: vi.fn(async ({ blockNumber }: { blockNumber: bigint }) => {
+        if (blockNumber === 1n) throw new Error('fork source state unavailable');
+        return '0x1234';
+      }),
+    };
+    const source = client();
+    const runner = new IntegrationValidationRunner(fork as unknown as PublicClient,
+      { ...context, mode: 'fork', forkRpcIdentity: suiteWord('f') }, [], { gasLimit: 1_000_000n, sourceClient: source as unknown as PublicClient });
+    await runner.verifyPins();
+    expect(source.getBytecode).toHaveBeenCalledWith(expect.objectContaining({ blockNumber: 1n }));
+    expect(fork.getBytecode).toHaveBeenCalledWith(expect.objectContaining({ blockNumber: 5n }));
+  });
+  it('rejects fork code that differs from the canonical source pin', async () => {
+    const fork = client(), source = client(); fork.getBytecode.mockResolvedValue('0x5678');
+    const runner = new IntegrationValidationRunner(fork as unknown as PublicClient,
+      { ...context, mode: 'fork', forkRpcIdentity: suiteWord('f') }, [], { gasLimit: 1_000_000n, sourceClient: source as unknown as PublicClient });
+    await expect(runner.verifyPins()).rejects.toThrow('integration-code-pin-invalid');
+  });
+  it('rejects a fork whose source-block hash differs from the canonical chain', async () => {
+    const fork = client(), source = client();
+    fork.getBlock.mockResolvedValue({ number: 1n, hash: suiteWord('f'), transactions: [tx], gasLimit: 20_000_000n });
+    const runner = new IntegrationValidationRunner(fork as unknown as PublicClient,
+      { ...context, mode: 'fork', forkRpcIdentity: suiteWord('f') }, [], { gasLimit: 1_000_000n, sourceClient: source as unknown as PublicClient });
+    await expect(runner.verifyPins()).rejects.toThrow('integration-source-block-invalid');
+  });
   it('records canonical state, transactions and bounded gas', async () => {
     const chain = client(), signer = wallet(); let saved: ValidationCheckpoint | undefined;
     const runner = new IntegrationValidationRunner(chain as unknown as PublicClient, context, [signer], { gasLimit: 1_000_000n, onProgress: (state) => { saved = state; } });

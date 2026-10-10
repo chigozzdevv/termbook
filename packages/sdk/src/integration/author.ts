@@ -81,7 +81,8 @@ export class Integrations {
       || Object.keys(session.cases).some((id) => !ids.includes(id as AcceptanceCaseId))) throw new Error("integration-scenarios-incomplete");
     if (environment.suite_client && session.context.mode !== "fork") throw new Error("integration-fork-client-invalid");
     const runner = new IntegrationValidationRunner(environment.suite_client ?? environment.client, session.context,
-      [input.wallet, ...session.wallets.filter((w) => w.address.toLowerCase() !== input.wallet.address.toLowerCase())], environment.options);
+      [input.wallet, ...session.wallets.filter((w) => w.address.toLowerCase() !== input.wallet.address.toLowerCase())],
+      { ...environment.options, ...(environment.suite_client ? { sourceClient: environment.client } : {}) });
     for (const id of ids) { const scenario = session.cases[id]; if (scenario) await runner.run(id, scenario); }
     const report = runner.finish(session.exclusions);
     if (session.probes.some((probe) => {

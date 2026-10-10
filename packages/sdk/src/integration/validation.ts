@@ -55,6 +55,7 @@ export class IntegrationValidationPendingError extends Error {
 }
 export type IntegrationValidationOptions = {
   gasLimit: bigint; timeoutMs?: number; pollIntervalMs?: number; signal?: AbortSignal;
+  sourceClient?: PublicClient;
   checkpoint?: ValidationCheckpoint; onProgress?: (checkpoint: ValidationCheckpoint) => void | Promise<void>;
 };
 export class IntegrationValidationRunner {
@@ -66,6 +67,7 @@ export class IntegrationValidationRunner {
   private pinsVerified = false;
   constructor(readonly chain: PublicClient, suite: ValidationCheckpoint["suite"], readonly wallets: Wallet[], readonly options: IntegrationValidationOptions) {
     integrationSuiteContextSchema.parse(suite);
+    if (options.sourceClient && suite.mode !== "fork") throw new Error("integration-fork-client-invalid");
     this.checkpoint = options.checkpoint ? structuredClone(options.checkpoint) : { suite, cases: [] };
     if (canonicalEvidence(this.checkpoint.suite) !== canonicalEvidence(suite) || options.gasLimit <= 0n) throw new Error("integration-validation-checkpoint-invalid");
     const timeout = options.timeoutMs ?? 30 * 60_000;
@@ -98,12 +100,23 @@ export class IntegrationValidationRunner {
   }
   async verifyPins(): Promise<void> {
     if (await this.chain.getChainId() !== this.checkpoint.suite.chainId) throw new Error("integration-chain-mismatch");
-    const block = await this.chain.getBlock({ blockNumber: BigInt(this.checkpoint.suite.sourceBlock.number) });
+    const source = this.options.sourceClient ?? this.chain;
+    if (source !== this.chain && await source.getChainId() !== this.checkpoint.suite.chainId) throw new Error("integration-chain-mismatch");
+    const block = await source.getBlock({ blockNumber: BigInt(this.checkpoint.suite.sourceBlock.number) });
     const finalized = await this.chain.getBlock({ blockTag: "finalized" });
     if (block.number > finalized.number || !same(block.hash, this.checkpoint.suite.sourceBlock.hash) || this.options.gasLimit > finalized.gasLimit) throw new Error("integration-source-block-invalid");
+    if (source !== this.chain) {
+      const canonical = await source.getBlock({ blockTag: "finalized" });
+      const fork = await this.chain.getBlock({ blockNumber: block.number });
+      if (block.number > canonical.number || !same(fork.hash, block.hash)) throw new Error("integration-source-block-invalid");
+    }
     for (const pin of this.checkpoint.suite.contracts) {
-      const code = await this.chain.getBytecode({ address: pin.target as Address, blockNumber: pin.fixture ? finalized.number : block.number });
+      const code = await (pin.fixture ? this.chain : source).getBytecode({ address: pin.target as Address, blockNumber: pin.fixture ? finalized.number : block.number });
       if (!code || code === "0x" || !same(keccak256(code), pin.codeHash)) throw new Error("integration-code-pin-invalid");
+      if (!pin.fixture && source !== this.chain) {
+        const current = await this.chain.getBytecode({ address: pin.target as Address, blockNumber: finalized.number });
+        if (!current || !same(keccak256(current), pin.codeHash)) throw new Error("integration-code-pin-invalid");
+      }
     }
   }
   async run(id: AcceptanceCaseId, scenario: (runner: IntegrationValidationRunner) => Promise<void>): Promise<void> {

@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { keccak256, toHex, parseAbi, type Address, type Hex } from "viem";
+import { createPublicClient, http, keccak256, toHex, parseAbi, type Address, type Hex } from "viem";
 import { IntegrationValidationRunner, atomic_configuration } from "@termbook/sdk";
 import type { IntegrationSuite } from "@termbook/schema";
 import { Fixture, word } from "./acceptance-fixture.js";
@@ -47,7 +47,9 @@ async function main() {
     forkRpcIdentity: word(rpc), actors: fixture.actors, contracts,
     ...(fixture instanceof DeploymentFixture ? { sourceBlock: fixture.sourceBlock } : {}) };
   const output = join(await mkdtemp(join(tmpdir(), "termbook-kuru-acceptance-")), "report.json");
-  const runner = new IntegrationValidationRunner(fixture.chain, context, fixture.wallets, { gasLimit: 16_000_000n, timeoutMs: 60 * 60_000,
+  const fork = deployed ? await fixture.rpcCall("anvil_nodeInfo") as unknown as { forkConfig: { forkUrl: string } } : undefined;
+  const sourceClient = fork ? createPublicClient({ transport: http(fork.forkConfig.forkUrl, { timeout: 60_000 }) }) : undefined;
+  const runner = new IntegrationValidationRunner(fixture.chain, context, fixture.wallets, { gasLimit: 16_000_000n, timeoutMs: 60 * 60_000, sourceClient,
     pollIntervalMs: 50, onProgress: async (checkpoint) => { await writeFile(output, JSON.stringify({ diagnostic: true, checkpoint }, null, 2)); } });
   const scenarios = await createScenarios(fixture, fixture.actors);
   for (const id of kuru_acceptance_cases) {
@@ -55,10 +57,14 @@ async function main() {
     process.stdout.write(`${id}: passed\n`);
   }
   const report = runner.finish(scenarios.exclusions);
+  await writeFile(output, JSON.stringify({ diagnostic: !deployed, ...(!deployed ? { reason: "isolated_protocol_fixture" } : {}), ...report }, null, 2));
+  process.stdout.write(`Acceptance report: ${output}\n`);
   const budget = report.suite.cases.reduce((n, c) => n + c.observations.length + c.transactions.length + c.simulations.length, contracts.length);
   if (budget > 512) throw new Error("integration-evidence-budget-exceeded");
-  const replay = new IntegrationValidationRunner(fixture.chain, context, [], { gasLimit: 16_000_000n, timeoutMs: 60 * 60_000 });
-  for (const item of report.suite.cases) await replay.run(item.id, (r) => r.replay(item));
+  const replay = new IntegrationValidationRunner(fixture.chain, context, [], { gasLimit: 16_000_000n, timeoutMs: 60 * 60_000, sourceClient });
+  for (const item of report.suite.cases) {
+    await replay.run(item.id, (r) => r.replay(item)); process.stdout.write(`${item.id}: replayed\n`);
+  }
   replay.finish(scenarios.exclusions);
   await writeFile(output, JSON.stringify({ diagnostic: !deployed, ...(!deployed ? { reason: "isolated_protocol_fixture" } : {}), ...report }, null, 2));
   if (deployed && live?.lifecycle) {

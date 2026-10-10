@@ -81,7 +81,8 @@ export async function runUpgradeMonitorWorker(): Promise<number> {
         if (result === "success") submitted++;
       } catch (cause) {
         logger.warn("upgrade-monitor-unavailable", { guard: guard.address,
-          reason: cause instanceof Error && /^upgrade-monitor-[a-z-]+$/.test(cause.message) ? cause.message : "upgrade-monitor-check-failed" });
+          reason: cause instanceof Error ? cause.message.match(/^(?:upgrade-monitor|keeper)-[a-z-]+(?=:|$)/)?.[0]
+            ?? "upgrade-monitor-check-failed" : "upgrade-monitor-check-failed" });
       }
     }
     return submitted;

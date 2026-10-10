@@ -32,7 +32,7 @@ async function main() {
     const amount = BigInt(report.topups[id]);
     if (amount !== 0n) await network.send(`fund:${name}`, "0x", addresses[name], amount);
   }
-  for (const [name, amount] of [["risk", "0.15"], ["collateral", "0.15"], ["monadConfirm", "0.15"], ["monadPublisher", "0.08"], ["solanaProof", "0.15"], ["oracle", "0.04"]]) {
+  for (const [name, amount] of [["risk", "0.15"], ["collateral", "0.15"], ["monadConfirm", "0.15"], ["monadPublisher", "0.08"], ["solanaProof", "0.15"], ["oracle", "0.2"]]) {
     await fund(monad, 10143, name, amount);
   }
   for (const name of ["ethereumPublisher", "sourceAction"]) await fund(ethereum, 11155111, name, "0.001");

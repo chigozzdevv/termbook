@@ -60,7 +60,8 @@ export async function runOracleWorker(): Promise<number> {
       if (result === "success") updated++;
     } catch (cause) {
       logger.warn("oracle-update-unavailable", { feed: feed.address,
-        reason: cause instanceof Error && /^oracle-[a-z-]+$/.test(cause.message) ? cause.message : "oracle-source-unavailable" });
+        reason: cause instanceof Error ? cause.message.match(/^(?:oracle|keeper)-[a-z-]+(?=:|$)/)?.[0]
+          ?? "oracle-source-unavailable" : "oracle-source-unavailable" });
     }
   }
   return updated;

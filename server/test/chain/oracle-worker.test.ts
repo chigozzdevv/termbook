@@ -3,6 +3,7 @@ import { keccak256 } from "viem";
 import { monadClient } from "../../src/chain/monad.client.js";
 import { keeperTransaction } from "../../src/chain/keeper.js";
 import { ratioFeedConfig, runOracleWorker } from "../../src/chain/oracle.worker.js";
+import { logger } from "../../src/logging/logger.js";
 
 vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: vi.fn() }));
 vi.mock("../../src/chain/keeper.js", () => ({ keeperTransaction: vi.fn() }));
@@ -65,5 +66,12 @@ describe("ratio oracle upkeep", () => {
     vi.stubEnv("RATIO_PRICE_FEEDS", JSON.stringify([{ address: feed, codeHash: hash }]));
     vi.stubEnv("RISK_KEEPER_KEY", key);
     expect(ratioFeedConfig).toThrow("oracle-keeper-key-conflict");
+  });
+  it("reports insufficient funding without exposing the full exception", async () => {
+    vi.mocked(keeperTransaction).mockRejectedValue(new Error("keeper-funding-insufficient: wallet=private-context"));
+    expect(await runOracleWorker()).toBe(0);
+    expect(logger.warn).toHaveBeenCalledWith("oracle-update-unavailable", {
+      feed, reason: "keeper-funding-insufficient",
+    });
   });
 });

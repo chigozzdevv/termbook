@@ -261,7 +261,7 @@ and `TESTNET_UPGRADE_GUARDS` in the root `.env`. These guards reject deployment
 and authorization outside Monad testnet (10143). An upgrade between monitor
 checks remains a trust window; this configuration is not production admission.
 
-Kuru's public source reproduces the executable margin-account and AMM-vault code
+Kuru's public source reproduces the executable margin-account, AMM-vault and forwarder code
 after normalizing deployment-specific immutables and compiler metadata. The
 OrderBook and factory builds still differ, and no exact verified compiler input
 was available from their public explorer or Sourcify records. Source verification

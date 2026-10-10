@@ -240,10 +240,10 @@ export async function validateIntegrationSources(
   return pins;
 }
 
-export async function verifyIntegrationSourcePins(pins: SourcePin[]): Promise<boolean> {
+export async function verifyIntegrationSourcePins(pins: SourcePin[], blockNumber?: bigint): Promise<boolean> {
   if (!pins.length || pins.length > 32) return false;
   const chain = monadClient();
-  const finalized = await chain.getBlock({ blockTag: "finalized" });
+  const finalized = { number: blockNumber ?? (await chain.getBlock({ blockTag: "finalized" })).number };
   if (await chain.getChainId() !== env.monadChainId) return false;
   for (const pin of pins) {
     if (!addressPattern.test(pin.target) || !wordPattern.test(pin.codeHash)

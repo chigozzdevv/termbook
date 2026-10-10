@@ -67,9 +67,9 @@ function tokenHash(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
-async function admitted(versionId: `0x${string}`, codeHash: string): Promise<boolean> {
+async function admitted(versionId: `0x${string}`, codeHash: string, blockNumber?: bigint): Promise<boolean> {
   const chain = monadClient();
-  const block = await chain.getBlock({ blockTag: "finalized" });
+  const block = { number: blockNumber ?? (await chain.getBlock({ blockTag: "finalized" })).number };
   const core = env.core as `0x${string}`;
   const [registry, health, exit, recoveryAdapter, actualChainId] = await Promise.all([
     chain.readContract({ address: core, abi: coreAbi, functionName: "integrationRegistry", blockNumber: block.number }),
@@ -132,14 +132,14 @@ async function admitted(versionId: `0x${string}`, codeHash: string): Promise<boo
     && execution[6] <= 32 && execution[7] > 0 && pinnedPolicy && pinnedReader;
 }
 
-async function admittedActions(versionId: `0x${string}`, actions: CapabilityDefinition[], category?: string, settlementAsset?: string): Promise<boolean> {
+async function admittedActions(versionId: `0x${string}`, actions: CapabilityDefinition[], category?: string, settlementAsset?: string, blockNumber?: bigint): Promise<boolean> {
   if (actions.length === 0) return false;
   const parsedCategory = useCaseSchema.safeParse(category);
   if (!parsedCategory.success) return false;
   try { assertActionRoutes(actions); actions.forEach((action) => assertStandardDefinition(action, parsedCategory.data)); }
   catch { return false; }
   const chain = monadClient();
-  const block = await chain.getBlock({ blockTag: "finalized" });
+  const block = { number: blockNumber ?? (await chain.getBlock({ blockTag: "finalized" })).number };
   const registry = await chain.readContract({ address: env.core as `0x${string}`, abi: coreAbi,
     functionName: "integrationRegistry", blockNumber: block.number });
   if (await chain.readContract({ address: env.core as `0x${string}`, abi: executionAbi, functionName: "executionVersion", blockNumber: block.number }).catch(() => 0n) !== 2n) return false;
@@ -219,10 +219,7 @@ export const integrationService = {
       || !Array.isArray(sourcePins) || sourcePins.length !== actionTargets?.size
       || new Set(sourcePins.map((pin) => pin.target.toLowerCase())).size !== sourcePins.length
       || sourcePins.some((pin) => !actionTargets?.has(pin.target.toLowerCase()))
-      || !addressPattern.test(String(row["settlementAsset"])) || /^0x0{40}$/i.test(String(row["settlementAsset"]))
-      || !await admitted(String(row["versionId"]) as `0x${string}`, String(row["codeHash"]))
-      || !await admittedActions(String(row["versionId"]) as `0x${string}`, actions, String(row["category"]), String(row["settlementAsset"]))
-      || !await verifyIntegrationSourcePins(sourcePins)) {
+      || !addressPattern.test(String(row["settlementAsset"])) || /^0x0{40}$/i.test(String(row["settlementAsset"]))) {
       throw new Error("integration-not-found");
     }
     if (!Number.isSafeInteger(env.monadChainId) || env.monadChainId <= 0
@@ -232,6 +229,12 @@ export const integrationService = {
     }
     const chain = monadClient();
     const block = await chain.getBlock({ blockTag: "finalized" });
+    const checks = await Promise.all([
+      admitted(String(row["versionId"]) as `0x${string}`, String(row["codeHash"]), block.number),
+      admittedActions(String(row["versionId"]) as `0x${string}`, actions, String(row["category"]), String(row["settlementAsset"]), block.number),
+      verifyIntegrationSourcePins(sourcePins, block.number),
+    ]);
+    if (!checks.every(Boolean)) throw new Error("integration-not-found");
     const packageDefinition = row["packageDefinition"] === undefined ? undefined : pluginDefinitionSchema.parse(row["packageDefinition"]);
     if (packageDefinition) {
       const packageHash = keccak256(stringToHex(canonicalEvidence(packageDefinition)));
@@ -240,7 +243,6 @@ export const integrationService = {
         || packageDefinition.chain_id !== env.monadChainId || packageDefinition.use_case !== useCase.data
         || packageDefinition.settlement_asset.toLowerCase() !== String(row["settlementAsset"]).toLowerCase()
         || canonicalEvidence(packageDefinition.actions) !== canonicalEvidence(actions)) throw new Error("integration-not-found");
-      await verify_definition(chain, packageDefinition, block.number);
     }
     try {
       const acceptance = integrationAcceptanceSchema.parse(row["acceptance"]);
@@ -249,7 +251,10 @@ export const integrationService = {
       const review = row["review"] as { evidenceHash?: string; mode?: string; reviewer?: `0x${string}`; forkReviewSignature?: `0x${string}` } | undefined;
       if (!review || review.evidenceHash?.toLowerCase() !== acceptance.evidenceHash.toLowerCase() || review.mode !== suite.mode) throw new Error("integration-review-missing");
       await requireForkReview(suite, review.forkReviewSignature, review.reviewer);
-      await verifySuitePins(chain, suite, block.number);
+      await Promise.all([
+        verifySuitePins(chain, suite, block.number),
+        packageDefinition ? verify_definition(chain, packageDefinition, block.number) : Promise.resolve(),
+      ]);
     } catch (cause) { throw new Error("integration-not-found", { cause }); }
     const settlementFactory = addressPattern.test(env.settlementFactory) && !/^0x0{40}$/i.test(env.settlementFactory)
       ? env.settlementFactory as `0x${string}` : undefined;

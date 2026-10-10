@@ -34,7 +34,7 @@ export async function resolveClientConfig(input: ClientConfig): Promise<Resolved
   if (!appToken || !tokenPattern.test(appToken)) throw new Error("app-token-invalid");
   const apiBase = publicUrl(process.env.TERMBOOK_PUBLIC_API_BASE);
   const response = await fetch(`${apiBase}/integrations/config?app_token=${encodeURIComponent(appToken)}`, {
-    headers: { Accept: "application/json" }, redirect: "error", signal: AbortSignal.timeout(10_000),
+    headers: { Accept: "application/json" }, redirect: "error", signal: AbortSignal.timeout(60_000),
   }).catch(() => null);
   if (!response?.ok) throw new Error("app-config-unavailable");
   const data = await response.json() as Record<string, unknown>;

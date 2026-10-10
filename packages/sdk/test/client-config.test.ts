@@ -21,6 +21,8 @@ const actions = [{ capability: "place_order", label: "Place order", target: addr
   price: { slippagePath: "slippage_bps", directionPath: "direction", maximumDirections: ["long"], minimumDirections: ["short"], markets: [versionId] } }];
 
 afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
@@ -59,6 +61,21 @@ describe("public SDK configuration", () => {
     expect(client.config.use_case).toBe("perps");
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(chain.readContract).toHaveBeenCalledWith(expect.objectContaining({ functionName: "isActive", blockTag: "finalized" }));
+  });
+
+  it("waits for full deployment verification when it exceeds ten seconds", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(AbortSignal, "timeout").mockImplementation((delay) => {
+      const controller = new AbortController(); setTimeout(() => controller.abort(), delay); return controller.signal;
+    });
+    const { fetcher } = setup(), response = await fetcher();
+    vi.stubGlobal("fetch", vi.fn((_url: string, request: { signal: AbortSignal }) => new Promise((resolve, reject) => {
+      const aborted = () => { clearTimeout(timer); reject(new Error("request timeout")); };
+      const timer = setTimeout(() => { request.signal.removeEventListener("abort", aborted); resolve(response); }, 20_000);
+      request.signal.addEventListener("abort", aborted, { once: true });
+    })));
+    const ready = expect(create_termbook({ app_token: token, wallet }).ready()).resolves.toBeUndefined();
+    await vi.advanceTimersByTimeAsync(20_000); await ready;
   });
 
   it("rejects missing or unknown integration use cases", async () => {

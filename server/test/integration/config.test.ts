@@ -143,6 +143,18 @@ describe("integration app token", () => {
     expect(integrationRepo.byTokenHash).toHaveBeenCalledWith(expect.stringMatching(/^[a-f0-9]{64}$/));
   });
 
+  it("checks token admission, prices and code at the same finalized block", async () => {
+    vi.mocked(integrationRepo.byTokenHash).mockResolvedValue({ category: "perps", versionId, codeHash, settlementAsset, actions,
+      acceptance, review: { evidenceHash: acceptance.evidenceHash, mode: suite.mode }, sourcePins, accepted: true, active: true, frozen: false } as never);
+    const chain = monadClient();
+    vi.mocked(chain.getBlock).mockResolvedValue({ number: 200n } as never);
+    await integrationService.resolve(`tbk_${"a".repeat(64)}`);
+    expect(chain.getBlock).toHaveBeenCalledTimes(1);
+    expect(verifyIntegrationSourcePins).toHaveBeenCalledWith(sourcePins, 200n);
+    expect(vi.mocked(chain.readContract).mock.calls.every(([request]) => request.blockNumber === 200n)).toBe(true);
+    expect(vi.mocked(chain.getBytecode).mock.calls.every(([request]) => request.blockNumber === 200n)).toBe(true);
+  });
+
   it("rejects a frozen local integration before returning deployment config", async () => {
     const result = await integrationService.approve({ applicationId, category: "perps", versionId, codeHash, settlementAsset, actions,
       verifiedSources, acceptance });

@@ -13,11 +13,12 @@
   },
   "dependencies": {
     "@defuse-protocol/one-click-sdk-typescript": "0.1.26",
+    "@envio-dev/hypersync-client": "0.7.2",
     "@noble/curves": "1.9.1",
+    "@solana/web3.js": "1.99.0",
     "@termbook/bindings": "workspace:^",
     "@termbook/schema": "workspace:^",
     "@termbook/sdk": "workspace:^",
-    "@solana/web3.js": "1.99.0",
     "bullmq": "^6.3.4",
     "dotenv": "^17.4.2",
     "fastify": "^5.12.4",

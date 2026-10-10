@@ -24,9 +24,11 @@ import { runExecutionWorker } from "./integration/execution.worker.js";
 import { runSolanaRelayWorker } from "./collateral/solana-relay.worker.js";
 import { solanaRelayConfig } from "./collateral/solana-relay.config.js";
 import { ratioFeedConfig, runOracleWorker } from "./chain/oracle.worker.js";
+import { assertEnvioConfig } from "./chain/envio.client.js";
 
 async function main(): Promise<void> {
   assertRuntimeConfig();
+  assertEnvioConfig();
   assertSettlementWorkerConfig();
   assertRecoveryWorkerConfig();
   indexerStart();

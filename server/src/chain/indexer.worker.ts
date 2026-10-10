@@ -7,6 +7,7 @@ import { indexerRepo } from "./indexer.repo.js";
 import { creditService } from "../credit/credit.service.js";
 import { queue } from "../queue/queue.client.js";
 import { env } from "../config/env.js";
+import { readCoreEvents } from "./envio.client.js";
 
 const coreEventAbi = [...termbookCoreAbi,
   ...testnetProxyAbi.filter((entry) => entry.type === "event" && entry.name !== "Initialized")];
@@ -46,14 +47,10 @@ export async function runIndexerWorker(start: bigint = indexerStart()): Promise<
       }
       return 0;
     }
-    const to = from + 499n < finalized.number ? from + 499n : finalized.number;
+    const { logs, nextBlock } = await readCoreEvents(chain, from, finalized.number);
+    if (nextBlock === from) return 0;
+    const to = nextBlock - 1n;
     const boundary = await chain.getBlock({ blockNumber: to });
-    const ranges = Array.from({ length: Number((to - from) / 100n) + 1 }, (_, index) => {
-      const fromBlock = from + BigInt(index) * 100n;
-      return { fromBlock, toBlock: fromBlock + 99n < to ? fromBlock + 99n : to };
-    });
-    const logs = (await Promise.all(ranges.map((range) =>
-      chain.getLogs({ address: env.core as Address, ...range })))).flat();
     const headers = new Map<string, string>();
     for (const log of logs) {
       if (log.removed || log.blockNumber < from || log.blockNumber > to
@@ -98,7 +95,7 @@ export async function runIndexerWorker(start: bigint = indexerStart()): Promise<
       }));
     }
     if (leaseLost) throw new Error("indexer-lease-lost");
-    await indexerRepo.advance(key, cursor.lease, to + 1n, boundary.hash);
+    await indexerRepo.advance(key, cursor.lease, nextBlock, boundary.hash);
     return logs.length;
   } finally {
     clearInterval(heartbeat);

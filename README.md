@@ -51,6 +51,15 @@ node --env-file=.env server/dist/worker.js
 Use `mongodb://127.0.0.1:27018/termbook_testnet_upgradeable?replicaSet=rs0&directConnection=true`
 with a one-member `rs0` replica set for integration admission transactions.
 MongoDB stores its data in the `termbook-testnet_mongo` volume managed by Docker.
+Set `ENVIO_API_TOKEN` in the root `.env` to use Envio HyperSync for Core event
+indexing. The endpoint defaults to `https://<MONAD_CHAIN_ID>.hypersync.xyz`;
+`ENVIO_HYPERSYNC_URL` can override it. Monad mainnet and testnet are supported.
+The worker scans up to 100,000 blocks per page, resumes from HyperSync's returned
+boundary, verifies event data against RPC receipts, and checks canonical block
+hashes through Monad RPC before advancing its durable MongoDB checkpoint.
+It indexes only through the RPC's finalized head. An unavailable archive keeps
+the checkpoint unchanged; without a token, the bounded RPC indexer is used.
+Create a token in the [Envio dashboard](https://envio.dev/app/api-tokens).
 An empty `REDIS_URL` uses the durable MongoDB queue. The local API uses port 3002. `/health` checks the API;
 `/ready` requires current finalized indexing and healthy risk scans.
 

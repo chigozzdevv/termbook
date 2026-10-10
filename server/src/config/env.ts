@@ -5,6 +5,8 @@ export const env = {
   mongoUrl: process.env["MONGO_URL"] ?? "mongodb://127.0.0.1:27017/termbook",
   redisUrl: process.env["REDIS_URL"] ?? "",
   rpcUrl: process.env["RPC_URL"] ?? "http://127.0.0.1:8545",
+  envioApiToken: process.env["ENVIO_API_TOKEN"] ?? "",
+  envioUrl: process.env["ENVIO_HYPERSYNC_URL"] ?? "",
   sourceRpcUrl: process.env["SOURCE_RPC_URL"] ?? "",
   sourceBeaconApiUrl: process.env["ETHEREUM_BEACON_API_URL"] ?? "",
   wormholeScanUrl: process.env["WORMHOLE_SCAN_URL"] ?? "",

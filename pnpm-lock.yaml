@@ -49,7 +49,7 @@ importers:
         version: link:../../packages/sdk
       viem:
         specifier: ^2.56.3
-        version: 2.56.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.6.2)
+        version: 2.56.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@4.6.2)
 
   packages/bindings:
     devDependencies:
@@ -105,12 +105,15 @@ importers:
       '@defuse-protocol/one-click-sdk-typescript':
         specifier: 0.1.26
         version: 0.1.26
+      '@envio-dev/hypersync-client':
+        specifier: 0.7.2
+        version: 0.7.2
       '@noble/curves':
         specifier: 1.9.1
         version: 1.9.1
       '@solana/web3.js':
         specifier: 1.99.0
-        version: 1.99.0(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)
+        version: 1.99.0(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)
       '@termbook/bindings':
         specifier: workspace:^
         version: link:../packages/bindings
@@ -137,7 +140,7 @@ importers:
         version: 9.10.0
       viem:
         specifier: ^2.56.3
-        version: 2.56.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.6.2)
+        version: 2.56.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@4.6.2)
       zod:
         specifier: ^4.6.2
         version: 4.6.2
@@ -183,6 +186,52 @@ packages:
   '@defuse-protocol/one-click-sdk-typescript@0.1.26':
     resolution: {integrity: sha512-vYoBgEbppergtYd/H1IaJW9Jm5mPrX+jAwuuhMvDFstirJB53KFe2HnGLTg0KNyg6qztbOeDK0sA/oEAee+EAw==}
     engines: {node: '>=16', pnpm: '>=8'}
+
+  '@envio-dev/hypersync-client-darwin-arm64@0.7.2':
+    resolution: {integrity: sha512-IRIjXWYiDLMUXymi5xDTqunzuaqwacsc9WHT4+OWuuvbWrRlIvXEMMi8HsBtEPNn7471pvpC2EeqW9qcPK2ekQ==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@envio-dev/hypersync-client-darwin-x64@0.7.2':
+    resolution: {integrity: sha512-OkthiAAvxdYnBDg3uGPaC7w035+4RsLVgzoNDefqfG0jkc1pYbFbmiW8JwZBExqVJArO0xi9kr+DvQbuE918ww==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [darwin]
+
+  '@envio-dev/hypersync-client-linux-arm64-gnu@0.7.2':
+    resolution: {integrity: sha512-g6xcaHjWHCAupL2uwwlwso86Mvu3cv5U+sGkFycX61I8ZeED9XKHBm9UQt1nSeI7eTHvgZdlP+aO92NVI9cjyg==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [linux]
+
+  '@envio-dev/hypersync-client-linux-x64-gnu@0.7.2':
+    resolution: {integrity: sha512-8SHhKQzu5hygw803MlvMZCZ093HKwGZXTunzzQN32ZB1xZu4XCI/7+0t/tMPBy8uOtMOjktESXlOida+3Vuzrg==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [linux]
+
+  '@envio-dev/hypersync-client-linux-x64-musl@0.7.2':
+    resolution: {integrity: sha512-G/Mc/D8GjPpETEq95smz75irns1ykp+w4lCpA+vS6HCzxP+P59NOj/tij8JDKBFL+q8S0bNBmv38UAIfi1QypA==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [linux]
+
+  '@envio-dev/hypersync-client-win32-arm64-msvc@0.7.2':
+    resolution: {integrity: sha512-biKhRZg9vO6DoPRPsODgavPwYScowIeWbZnOfZ8AhG6mGZqNZ9lOseJyAA1RqjOVDWmVUMEWdd6awexyc0eWSQ==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [win32]
+
+  '@envio-dev/hypersync-client-win32-x64-msvc@0.7.2':
+    resolution: {integrity: sha512-TP/lLS57UaVs0ZGPx3VW+S9EJ8xE24QXAL9fqHHC3Vbqw3osSdkrzfKZIDOXVAf5aGs+4aBo0glBfrY7SlTYQQ==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [win32]
+
+  '@envio-dev/hypersync-client@0.7.2':
+    resolution: {integrity: sha512-alx/hGpVqPQKWHLpepC3po6AxJ3GqV2HxdCIHE9v/SS9LQHxk9zbkqMqrTw4tOuY+XKl7AP7CecT46bC80c25Q==}
+    engines: {node: '>= 10'}
 
   '@esbuild/aix-ppc64@0.21.5':
     resolution: {integrity: sha512-1SDgH6ZSPTlggy1yI6+Dbkiz8xzpHJEVAlF/AM1tHPLsf5STom9rwtjE4hKAF20FfXXNTFqEYXyJNWh1GiZedQ==}
@@ -2690,6 +2739,37 @@ snapshots:
       - debug
       - supports-color
 
+  '@envio-dev/hypersync-client-darwin-arm64@0.7.2':
+    optional: true
+
+  '@envio-dev/hypersync-client-darwin-x64@0.7.2':
+    optional: true
+
+  '@envio-dev/hypersync-client-linux-arm64-gnu@0.7.2':
+    optional: true
+
+  '@envio-dev/hypersync-client-linux-x64-gnu@0.7.2':
+    optional: true
+
+  '@envio-dev/hypersync-client-linux-x64-musl@0.7.2':
+    optional: true
+
+  '@envio-dev/hypersync-client-win32-arm64-msvc@0.7.2':
+    optional: true
+
+  '@envio-dev/hypersync-client-win32-x64-msvc@0.7.2':
+    optional: true
+
+  '@envio-dev/hypersync-client@0.7.2':
+    optionalDependencies:
+      '@envio-dev/hypersync-client-darwin-arm64': 0.7.2
+      '@envio-dev/hypersync-client-darwin-x64': 0.7.2
+      '@envio-dev/hypersync-client-linux-arm64-gnu': 0.7.2
+      '@envio-dev/hypersync-client-linux-x64-gnu': 0.7.2
+      '@envio-dev/hypersync-client-linux-x64-musl': 0.7.2
+      '@envio-dev/hypersync-client-win32-arm64-msvc': 0.7.2
+      '@envio-dev/hypersync-client-win32-x64-msvc': 0.7.2
+
   '@esbuild/aix-ppc64@0.21.5':
     optional: true
 
@@ -3223,6 +3303,29 @@ snapshots:
       buffer: 6.0.3
       fast-stable-stringify: 1.0.0
       jayson: 4.3.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)
+      node-fetch: 2.7.0
+      rpc-websockets: 9.3.9
+      superstruct: 2.0.2
+    transitivePeerDependencies:
+      - bufferutil
+      - encoding
+      - typescript
+      - utf-8-validate
+
+  '@solana/web3.js@1.99.0(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)':
+    dependencies:
+      '@babel/runtime': 7.29.7
+      '@noble/curves': 1.9.7
+      '@noble/hashes': 1.8.0
+      '@solana/buffer-layout': 4.0.1
+      '@solana/codecs-numbers': 5.5.1(typescript@5.9.3)
+      agentkeepalive: 4.6.0
+      bn.js: 5.2.5
+      borsh: 0.7.0
+      bs58: 4.0.1
+      buffer: 6.0.3
+      fast-stable-stringify: 1.0.0
+      jayson: 4.3.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)
       node-fetch: 2.7.0
       rpc-websockets: 9.3.9
       superstruct: 2.0.2
@@ -4244,9 +4347,17 @@ snapshots:
     dependencies:
       ws: 7.5.13(bufferutil@4.1.0)(utf-8-validate@5.0.10)
 
+  isomorphic-ws@4.0.1(ws@7.5.13(bufferutil@4.1.0)(utf-8-validate@6.0.6)):
+    dependencies:
+      ws: 7.5.13(bufferutil@4.1.0)(utf-8-validate@6.0.6)
+
   isows@1.0.7(ws@8.21.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)):
     dependencies:
       ws: 8.21.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)
+
+  isows@1.0.7(ws@8.21.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)):
+    dependencies:
+      ws: 8.21.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)
 
   jayson@4.3.0(bufferutil@4.1.0)(utf-8-validate@5.0.10):
     dependencies:
@@ -4262,6 +4373,24 @@ snapshots:
       stream-json: 1.9.1
       uuid: 8.3.2
       ws: 7.5.13(bufferutil@4.1.0)(utf-8-validate@5.0.10)
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
+  jayson@4.3.0(bufferutil@4.1.0)(utf-8-validate@6.0.6):
+    dependencies:
+      '@types/connect': 3.4.38
+      '@types/node': 12.20.55
+      '@types/ws': 7.4.7
+      commander: 2.20.3
+      delay: 5.0.0
+      es6-promisify: 5.0.0
+      eyes: 0.1.8
+      isomorphic-ws: 4.0.1(ws@7.5.13(bufferutil@4.1.0)(utf-8-validate@6.0.6))
+      json-stringify-safe: 5.0.1
+      stream-json: 1.9.1
+      uuid: 8.3.2
+      ws: 7.5.13(bufferutil@4.1.0)(utf-8-validate@6.0.6)
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -4959,6 +5088,23 @@ snapshots:
       - utf-8-validate
       - zod
 
+  viem@2.56.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@4.6.2):
+    dependencies:
+      '@noble/curves': 1.9.1
+      '@noble/hashes': 1.8.0
+      '@scure/bip32': 1.7.0
+      '@scure/bip39': 1.6.0
+      abitype: 1.2.3(typescript@5.9.3)(zod@4.6.2)
+      isows: 1.0.7(ws@8.21.0(bufferutil@4.1.0)(utf-8-validate@6.0.6))
+      ox: 0.14.44(typescript@5.9.3)(zod@4.6.2)
+      ws: 8.21.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)
+    optionalDependencies:
+      typescript: 5.9.3
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+      - zod
+
   vite-node@2.1.9(@types/node@22.20.2):
     dependencies:
       cac: 6.7.14
@@ -5060,6 +5206,11 @@ snapshots:
     optionalDependencies:
       bufferutil: 4.1.0
       utf-8-validate: 5.0.10
+
+  ws@7.5.13(bufferutil@4.1.0)(utf-8-validate@6.0.6):
+    optionalDependencies:
+      bufferutil: 4.1.0
+      utf-8-validate: 6.0.6
 
   ws@8.21.0(bufferutil@4.1.0)(utf-8-validate@5.0.10):
     optionalDependencies:

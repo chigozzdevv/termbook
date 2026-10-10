@@ -1,10 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encodeAbiParameters, encodeEventTopics, parseAbi } from "viem";
 import { runIndexerWorker } from "../../src/chain/indexer.worker.js";
 import { monadClient } from "../../src/chain/monad.client.js";
 import { indexerRepo } from "../../src/chain/indexer.repo.js";
 import { creditService } from "../../src/credit/credit.service.js";
 import { queue } from "../../src/queue/queue.client.js";
+import * as eventSource from "../../src/chain/envio.client.js";
 
 vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: vi.fn() }));
 vi.mock("../../src/chain/indexer.repo.js", () => ({ indexerRepo: {
@@ -20,6 +21,7 @@ const event = parseAbi(["event CreditCreated(bytes32 indexed creditId,bytes32 in
 let calls: string[];
 const getLogs = vi.fn();
 const getBlock = vi.fn();
+afterEach(() => vi.restoreAllMocks());
 beforeEach(() => {
   vi.resetAllMocks();
   calls = [];
@@ -37,6 +39,21 @@ beforeEach(() => {
 });
 
 describe("durable finalized Core index", () => {
+  it("checkpoints only the completed Envio page, including pages with no matching events", async () => {
+    getBlock.mockImplementation(async ({ blockNumber }: { blockNumber?: bigint }) => ({ number: blockNumber ?? 1000n, hash: word("b") }));
+    vi.spyOn(eventSource, "readCoreEvents").mockResolvedValue({ logs: [], nextBlock: 201n, source: "envio" });
+    await runIndexerWorker(1n);
+    expect(indexerRepo.advance).toHaveBeenCalledWith(expect.any(String), "lease", 201n, word("b"));
+    expect(getLogs).not.toHaveBeenCalled();
+  });
+
+  it("does not mark an archive that is behind the RPC head as caught up", async () => {
+    vi.spyOn(eventSource, "readCoreEvents").mockResolvedValue({ logs: [], nextBlock: 1n, source: "envio" });
+    expect(await runIndexerWorker(1n)).toBe(0);
+    expect(indexerRepo.advance).not.toHaveBeenCalled();
+    expect(indexerRepo.record).not.toHaveBeenCalled();
+  });
+
   it("indexes a full checkpoint through the public RPC's bounded log windows", async () => {
     getBlock.mockImplementation(async ({ blockNumber }: { blockNumber?: bigint }) => ({ number: blockNumber ?? 500n, hash: word("b") }));
     getLogs.mockImplementation(async ({ fromBlock, toBlock }: { fromBlock: bigint; toBlock: bigint }) => {

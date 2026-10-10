@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { atomicSpotModuleAbi, atomicSpotRouterAbi, readProgramAbi, integrationRegistryAbi,
   termbookCoreAbi, healthSourceAbi, appHealthReaderFactoryAbi } from "@termbook/bindings";
 import { decodeFunctionData, encodeAbiParameters, keccak256, stringToHex, toFunctionSelector, zeroAddress, type Abi, type PublicClient } from "viem";
-import { atomic_configuration, prepare_atomic_spot } from "../src/integration/atomic-spot.js";
+import { atomic_configuration, prepare_atomic_spot, verify_health_registry } from "../src/integration/atomic-spot.js";
 import { definition, addr, word } from "./plugin.fixture.js";
 
 function atomicDefinition() {
@@ -26,11 +26,25 @@ function atomicDefinition() {
   return d;
 }
 const options = () => ({ client: { getChainId: vi.fn(async () => 143),
-  readContract: vi.fn(async ({ functionName }) => functionName === "core" ? addr("a") : addr("d")) } as unknown as PublicClient,
+  readContract: vi.fn(async ({ functionName }) => functionName === "core" ? addr("a") : functionName === "healthSource" ? addr("c") : addr("d")) } as unknown as PublicClient,
   registry: addr("b"), core: addr("a"), health_source: addr("c"), health_factory: addr("e"),
   maximum_spend: 100_000_000n, max_slippage_bps: 100, max_deviation_bps: 500, max_authorization_age: 300, max_health_age: 300 });
 
 describe("atomic spot deployment plan", () => {
+  it("binds readers on the registry behind an authenticated account health wrapper", async () => {
+    const opts = options();
+    const read = vi.mocked(opts.client.readContract);
+    read.mockImplementation(async ({ functionName }) => ({ core: addr("a"), healthSource: addr("f"), source: addr("c"),
+      governance: addr("b"), predict: addr("d") })[functionName as "core"] as never);
+    const plan = await prepare_atomic_spot(atomicDefinition(), opts);
+    expect(plan.calls.filter((call) => call.target === addr("c"))).toHaveLength(1);
+    expect(plan.calls.some((call) => call.target === addr("f"))).toBe(false);
+    read.mockImplementation(async ({ functionName }) => ({ core: addr("a"), healthSource: addr("f"), source: addr("e"),
+      governance: addr("b"), predict: addr("d") })[functionName as "core"] as never);
+    await expect(verify_health_registry(opts.client, opts.core, opts.health_source)).rejects.toThrow("integration-health-source-invalid");
+    read.mockRejectedValue(new Error("Wrapper has no governance setter"));
+    await expect(verify_health_registry(opts.client, opts.core, addr("f"))).rejects.toThrow("integration-health-source-invalid");
+  });
   it("encodes every deployment call against the generated ABI and activates after health and recovery", async () => {
     const d = atomicDefinition();
     const result = await prepare_atomic_spot(d, options());

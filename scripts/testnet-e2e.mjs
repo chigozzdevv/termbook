@@ -3,22 +3,24 @@ import fs from "node:fs";
 import process from "node:process";
 import { log, error } from "node:console";
 import { setTimeout as delay } from "node:timers/promises";
-import { canonicalJson, apiAuthorizationMessage } from "../packages/schema/dist/index.js";
+import { canonicalJson, apiAuthorizationMessage, selectCapability } from "../packages/schema/dist/index.js";
 import { viem, artifact, testnetRuntime, writeJsonAtomic } from "./testnet-runtime.mjs";
 
 const mode = process.argv[2];
 const fast = process.argv[3] === "--fast";
 const clean = process.argv[4] === "--clean";
-const native = process.argv[3] === "--native";
+const kuru = process.argv[3] === "--kuru";
+const native = process.argv[3] === "--native" || kuru;
 if (!["--begin", "--start", "--retry-default", "--advance", "--run", "--observe"].includes(mode) || clean && !fast
-  || process.argv.length !== (clean ? 5 : fast || native ? 4 : 3)) throw new Error("Use --begin, --start, --retry-default, --advance, --run, or --observe with optional --native or --fast and --clean");
-const journalName = native ? "native-e2e" : fast ? clean ? "fast-clean-e2e" : "fast-e2e" : "live-e2e";
-const publicName = native ? "testnet-native-e2e" : fast ? clean ? "testnet-fast-clean-e2e" : "testnet-fast-e2e" : "testnet-e2e";
+  || process.argv.length !== (clean ? 5 : fast || native ? 4 : 3)) throw new Error("Use --begin, --start, --retry-default, --advance, --run, or --observe with optional --kuru, --native, or --fast and --clean");
+const journalName = kuru ? "kuru-e2e" : native ? "native-e2e" : fast ? clean ? "fast-clean-e2e" : "fast-e2e" : "live-e2e";
+const publicName = kuru ? "testnet-kuru-e2e" : native ? "testnet-native-e2e" : fast ? clean ? "testnet-fast-clean-e2e" : "testnet-fast-e2e" : "testnet-e2e";
 const api = "http://127.0.0.1:3002";
 const erc20 = viem.parseAbi(["function approve(address,uint256) returns(bool)", "function balanceOf(address) view returns(uint256)"]);
 const wethAbi = viem.parseAbi(["function deposit() payable"]);
 const encode = (name, method, args) => viem.encodeFunctionData({ abi: artifact(name).abi, functionName: method, args });
-const amounts = native ? { collateral: viem.parseEther("2"), limit: 100_000n, draw: 100_000n, bond: 20_000n }
+const amounts = kuru ? { collateral: viem.parseEther("0.3"), limit: 10_000n, draw: 10_000n, bond: 20_000n }
+  : native ? { collateral: viem.parseEther("2"), limit: 100_000n, draw: 100_000n, bond: 20_000n }
   : { collateral: 200_000_000_000_000n, limit: 2_000_000n, draw: 1_000_000n, bond: 20_000n };
 const numericQuote = ["sourceChain", "collateralAmount", "limit", "setupDeadline", "maturity", "gracePeriod", "reservationBond", "nonce", "expiry", "aprBps", "originationFee", "commitmentFeeBps"];
 const quoteValue = (quote) => Object.fromEntries(Object.entries(quote).map(([key, value]) => [key, numericQuote.includes(key) ? BigInt(value) : value]));
@@ -34,12 +36,53 @@ async function main() {
   const nativeSetup = native ? readConfiguration("native") : undefined;
   const weth = native ? nativeSetup.asset : deployment.tokens[11155111].WETH;
   const collateralVault = native ? m.NativeCollateralVault : s.CollateralVault;
-  const appSetup = readConfiguration("app");
-  const app = appSetup.addresses.ReferenceAssetApp;
+  const appSetup = readConfiguration(kuru ? "kuru-integration" : "app");
+  if (!appSetup || appSetup.core.toLowerCase() !== m.TermbookCore.toLowerCase()) throw new Error("Configure the current integration first");
+  const app = kuru ? appSetup.definition.contracts.reader : appSetup.addresses.ReferenceAssetApp;
+  const sdk = kuru ? await import("../packages/sdk/dist/index.js") : undefined;
   const coreRead = (name, args = []) => monad.read("TermbookCore", m.TermbookCore, name, args);
+  const readPosition = (test) => kuru ? monad.read("AtomicSpotModule", app, "positionCount", [test.creditId, test.account])
+    : monad.read("ReferenceAssetApp", app, "positions", [test.account]);
+  async function kuruAction(test, direction, amount, credit) {
+    const definition = appSetup.definition;
+    const market = definition.markets[0];
+    const buying = direction === "buy";
+    const config = definition.atomic_spot;
+    const [price, block, protection] = await Promise.all([
+      monad.read("OracleRegistry", config.oracle, "read", [config.feed_id]), monad.client.getBlock(), coreRead("priceProtection"),
+    ]);
+    const slippage = Math.min(100, Number(await monad.read("PriceProtection", protection, "houseSlippage", [test.creditId])));
+    const action = { use_case: "spot", capability: "place_order", params: { market_id: market.market_id,
+      direction, order_type: "market", amount: { spend: amount }, slippage_bps: slippage } };
+    const bound = await monad.read("PriceProtection", protection, "deriveAmountBound", [price[0], amount, slippage,
+      buying ? market.quote_decimals : market.base_decimals, buying ? market.base_decimals : market.quote_decimals, buying, false]);
+    const plan = sdk.buildExecution(selectCapability(definition.actions, action), action, { borrower: account.address,
+      account: test.account, creditId: test.creditId, use_case: "spot", priceBound: bound }, usdc);
+    const authorization = { drawAmount: buying ? amounts.draw : 0n, maxDraw: buying ? amounts.draw : 0n,
+      nonce: credit.nonce + 1n, deadline: block.timestamp + 90n, revision: credit.revision, signer: account.address, signature: "0x",
+      price: { roundId: price[2], referencePrice: price[0], updatedAt: price[1], authorizedAt: block.timestamp,
+        bound, slippageBps: slippage, isMax: false } };
+    authorization.signature = await account.signMessage({ message: { raw: await coreRead("executionDigest", [test.creditId, plan, authorization]) } });
+    return JSON.parse(canonicalJson({ plan, authorization, probe: { action, credit_id: test.creditId, minimum_receive: bound } }));
+  }
   const now = (await monad.client.getBlock()).timestamp;
   if (!m.AccountHealthSource || (await coreRead("healthSource")).toLowerCase() !== m.AccountHealthSource.toLowerCase()) throw new Error("Authenticated health source is required");
   if (!await monad.read("IntegrationRegistry", m.IntegrationRegistry, "isActive", [appSetup.bundleId])) throw new Error("Test application is inactive");
+  if (kuru && mode !== "--observe") {
+    await sdk.verify_definition(monad.client, appSetup.definition);
+    if (!await monad.read("IntegrationRegistry", m.IntegrationRegistry, "dependenciesValid", [appSetup.bundleId])) throw new Error("Kuru dependency guards are not current");
+  }
+  if (kuru) {
+    if (!report.collateralAmount) {
+      const price = await monad.read("OracleRegistry", m.OracleRegistry, "read", [nativeSetup.priceId]);
+      const numerator = amounts.draw * 10n ** 30n * 10_000n;
+      const denominator = price[0] * BigInt(nativeSetup.retainedSourceBps) * 2n;
+      if (denominator <= 0n) throw new Error("Kuru collateral price is unavailable");
+      report.collateralAmount = String((numerator + denominator - 1n) / denominator);
+      if (mode !== "--observe") persist();
+    }
+    amounts.collateral = BigInt(report.collateralAmount);
+  }
   if (mode !== "--observe" && !native) {
     const registry = await coreRead("verifierRegistry");
     const [verifier, version, active] = await monad.read("VerifierRegistry", registry, "verifiers", [11155111n]);
@@ -82,7 +125,7 @@ async function main() {
       const previous = report.cases.default;
       if (!previous || (await coreRead("creditDetails", [previous.creditId])).facility !== 7) throw new Error("Abort the expired default setup before retrying");
     }
-    for (const kind of mode === "--retry-default" ? ["default-retry"] : fast ? ["repayment"] : ["repayment", "default"]) {
+    for (const kind of mode === "--retry-default" ? ["default-retry"] : fast ? ["repayment"] : kuru ? ["repayment", "default", "active"] : ["repayment", "default"]) {
       let test = report.cases[kind];
       if (!test) {
         const nonce = BigInt(Date.now());
@@ -97,7 +140,7 @@ async function main() {
           settlementAsset: usdc, limit: amounts.limit, bundleId: appSetup.bundleId,
           setupDeadline, maturity: kind.startsWith("default") ? setupDeadline + 120n : setupDeadline + 43_200n,
           gracePeriod: 60n, reservationBond: amounts.bond, nonce, expiry: setupDeadline,
-          termsHash: viem.keccak256(viem.stringToHex(`Termbook reference app ${kind} live test`)),
+          termsHash: viem.keccak256(viem.stringToHex(`Termbook ${kuru ? "Kuru" : "reference app"} ${kind} live test`)),
           revolving: false, aprBps: 0n, originationFee: 0n, commitmentFeeBps: 0n,
           reservationPolicyHash: policyHash, bondPayer: account.address, bondRefundRecipient: account.address, signature: "0x" };
         const digest = await coreRead("quoteDigestFull", [quote]);
@@ -146,6 +189,10 @@ async function main() {
         credit = await coreRead("creditDetails", [test.creditId]);
       }
       if (credit.facility === 4 && !test.drawVerified) {
+        if (kuru && !test.execution) {
+          const action = await kuruAction(test, "buy", amounts.draw, credit);
+          test.action = action.plan; test.execution = action.authorization; test.probe = action.probe; persist();
+        }
         test.action ??= { capability: viem.keccak256(viem.stringToHex("deposit")),
           market: viem.keccak256(viem.stringToHex("Termbook reference USDC position")),
           calls: [{ target: app, spendToken: usdc, spendAmount: String(amounts.draw), nativeValue: "0",
@@ -159,21 +206,36 @@ async function main() {
           test.execution = JSON.parse(canonicalJson(authorization));
           persist();
         }
-        await monad.call("TermbookCore", m.TermbookCore, "executePlan", [test.creditId, test.action, test.execution], `${test.kind}:borrow-and-deposit`);
+        const executed = await monad.call("TermbookCore", m.TermbookCore, "executePlan", [test.creditId, test.action, test.execution], `${test.kind}:borrow-and-deposit`);
+        if (kuru) { test.probe.tx_hash = executed.hash; persist(); }
         const [health, position, cash] = await Promise.all([
-          coreRead("previewHealth", [test.creditId]), monad.read("ReferenceAssetApp", app, "positions", [test.account]),
+          coreRead("previewHealth", [test.creditId]), readPosition(test),
           monad.client.readContract({ address: usdc, abi: erc20, functionName: "balanceOf", args: [test.account] }),
         ]);
-        if (health.debt !== amounts.draw || health.appValue !== amounts.draw || position !== amounts.draw
+        if (health.debt !== amounts.draw || (kuru ? health.appValue <= 0n || position !== 1n : health.appValue !== amounts.draw || position !== amounts.draw)
           || cash !== 0n || health.sourceValue >= health.debt || health.healthBps < 12_500n) throw new Error("Live draw or valuation mismatch");
         test.drawVerified = { at: new Date().toISOString(), ...JSON.parse(canonicalJson(health)), appPosition: String(position), accountCash: String(cash) };
-        test.state = test.kind.startsWith("default") ? "awaiting_default" : "repayment_pending";
+        test.state = test.kind.startsWith("default") ? "awaiting_default" : test.kind === "active" ? "active_for_admission" : "repayment_pending";
         persist();
         credit = await coreRead("creditDetails", [test.creditId]);
       }
       if (test.kind === "repayment" && test.drawVerified && credit.facility === 4) {
-        await monad.call("TermbookCore", m.TermbookCore, "exitApp", [test.creditId, viem.encodeAbiParameters(viem.parseAbiParameters("uint256"), [amounts.draw])], "repayment:exit-app");
-        await monad.call("TermbookCore", m.TermbookCore, "repayFromAccount", [test.creditId, amounts.draw], "repayment:repay");
+        if (kuru) {
+          if (!test.sell) { test.sell = await kuruAction(test, "sell", await monad.client.getBalance({ address: test.account }), credit); persist(); }
+          const sold = await monad.call("TermbookCore", m.TermbookCore, "executePlan", [test.creditId, test.sell.plan, test.sell.authorization], "repayment:sell");
+          test.sell.probe.tx_hash = sold.hash; persist();
+          await monad.call("TermbookCore", m.TermbookCore, "repayAvailableCash", [test.creditId], "repayment:repay-cash");
+          const remainder = await coreRead("creditDebt", [test.creditId]);
+          if (remainder > 0n) {
+            await monad.send("repayment:approve-shortfall", viem.encodeFunctionData({ abi: erc20, functionName: "approve", args: [m.TermbookCore, remainder] }), usdc);
+            await monad.call("TermbookCore", m.TermbookCore, "repay", [test.creditId, remainder], "repayment:repay-shortfall");
+          }
+          const excess = await monad.client.readContract({ address: usdc, abi: erc20, functionName: "balanceOf", args: [test.account] });
+          if (excess > 0n) await monad.call("TermbookCore", m.TermbookCore, "withdraw", [test.creditId, usdc, account.address, excess], "repayment:return-excess-cash");
+        } else {
+          await monad.call("TermbookCore", m.TermbookCore, "exitApp", [test.creditId, viem.encodeAbiParameters(viem.parseAbiParameters("uint256"), [amounts.draw])], "repayment:exit-app");
+          await monad.call("TermbookCore", m.TermbookCore, "repayFromAccount", [test.creditId, amounts.draw], "repayment:repay");
+        }
         await monad.call("TermbookCore", m.TermbookCore, "startClosing", [test.creditId], "repayment:start-closing");
         credit = await coreRead("creditDetails", [test.creditId]);
       }
@@ -222,9 +284,9 @@ async function main() {
   for (const test of Object.values(report.cases)) {
     const credit = await coreRead("creditDetails", [test.creditId]);
     const sourceLock = await source.read(native ? "NativeCollateralVault" : "CollateralVault", collateralVault, "locks", [test.lockId]);
-    const position = await monad.read("ReferenceAssetApp", app, "positions", [test.account]);
+    const appPosition = await readPosition(test);
     const accountReleased = await monad.read("CreditAccount", test.account, "released");
-    const completed = [6, 10].includes(credit.facility) && credit.debt === 0n && credit.collateralReturned && position === 0n && sourceLock[2] === 0n && accountReleased;
+    const completed = [6, 10].includes(credit.facility) && credit.debt === 0n && credit.collateralReturned && appPosition === 0n && sourceLock[2] === 0n && accountReleased;
     if (completed) {
       test.state = "completed";
       test.completedAt ??= new Date().toISOString();
@@ -232,22 +294,63 @@ async function main() {
     if (credit.facility === 7 && credit.collateralReturned && sourceLock[2] === 0n) test.state = "aborted_collateral_returned";
     observations.push({ kind: test.kind, creditId: test.creditId, lockId: test.lockId, account: test.account,
       state: test.state, facility: credit.facility, payment: credit.payment, debt: String(credit.debt),
-      collateralReturned: credit.collateralReturned, sourceLockedAmount: String(sourceLock[2]), appPosition: String(position), accountReleased,
+      collateralReturned: credit.collateralReturned, sourceLockedAmount: String(sourceLock[2]), appPosition: String(appPosition), accountReleased,
       maturity: String(credit.maturity), grace: String(credit.grace), drawVerified: test.drawVerified, failure: test.failure, completedAt: test.completedAt, completed });
   }
   report.observedAt = new Date().toISOString();
   report.observations = observations;
+  const lifecycleComplete = observations.some((test) => test.kind === "repayment" && test.completed)
+    && (fast || observations.some((test) => test.kind.startsWith("default") && test.completed));
+  if (kuru && lifecycleComplete && !report.lifecycle) {
+    const recovered = Object.values(report.cases).find((test) => test.kind.startsWith("default") && test.drawVerified);
+    const repayment = report.cases.repayment, active = report.cases.active;
+    if (!recovered?.probe?.tx_hash || !repayment?.sell?.probe?.tx_hash || !active?.drawVerified) throw new Error("Kuru lifecycle probes are incomplete");
+    const accepted = report.transactions.find((tx) => tx.name === `${recovered.kind}:accept`);
+    if (!accepted?.block) throw new Error("Kuru credit acceptance receipt is missing");
+    const finalized = await monad.client.getBlock({ blockTag: "finalized" });
+    const logs = [];
+    for (let from = BigInt(accepted.block); from <= finalized.number; from += 1000n) {
+      logs.push(...await monad.logClient.getLogs({ address: m.TermbookCore, fromBlock: from,
+        toBlock: from + 999n < finalized.number ? from + 999n : finalized.number }));
+    }
+    const topic = recovered.creditId.toLowerCase();
+    const recoveryTopic = viem.keccak256(viem.stringToHex("AppRecoveryStep(bytes32,address,address,bytes32)"));
+    const repaymentTopic = viem.keccak256(viem.stringToHex("Repaid(bytes32,uint256,uint256)"));
+    const recoveryHashes = [...new Set(logs.filter((entry) => entry.topics[0] === recoveryTopic
+      && entry.topics[1]?.toLowerCase() === topic).map((entry) => entry.transactionHash))];
+    if (!recoveryHashes.length) throw new Error("Kuru keeper recovery receipts are missing");
+    let repaymentHash, keeper;
+    for (const hash of recoveryHashes) {
+      const tx = await monad.client.getTransaction({ hash });
+      if (tx.from.toLowerCase() === account.address.toLowerCase() || keeper && keeper.toLowerCase() !== tx.from.toLowerCase()
+        || !await coreRead("recoveryKeepers", [tx.from])) throw new Error("Kuru recovery was not performed by an independent approved keeper");
+      keeper = tx.from;
+    }
+    for (const entry of logs.filter((log) => log.topics[0] === repaymentTopic && log.topics[1]?.toLowerCase() === topic)) {
+      const tx = await monad.client.getTransaction({ hash: entry.transactionHash });
+      if (tx.input.startsWith(viem.toFunctionSelector("recoverAccountCash(bytes32,uint256)"))
+        && tx.from.toLowerCase() === keeper.toLowerCase()) repaymentHash = tx.hash;
+    }
+    if (!repaymentHash) throw new Error("Kuru independent repayment receipt is missing");
+    report.probes = [recovered.probe, repayment.sell.probe];
+    report.lifecycle = { active_credit_id: active.creditId, recovered_credit_id: recovered.creditId,
+      action_transactions: { kuru_buy: { credit_id: recovered.creditId, tx_hash: recovered.probe.tx_hash },
+        kuru_sell: { credit_id: repayment.creditId, tx_hash: repayment.sell.probe.tx_hash } },
+      recovery_tx_hashes: recoveryHashes, repayment_tx_hash: repaymentHash };
+    report.validationKeeper = keeper; persist();
+  }
   if (mode !== "--observe") persist();
   writeJsonAtomic(operationFile(publicName), { network: "testnet", startedAt: report.startedAt, observedAt: report.observedAt,
     confirmationPolicy: native ? "Atomic Monad custody" : fast ? "Sepolia five-confirmation test policy" : "Full source finality",
-    scope: native ? "Native MON custody, USDC borrowing, API credit tracking and independent reference app recovery"
+    scope: kuru ? "Kuru market buys and sells, controlled MON holdings, USDC repayment, closure and independent keeper recovery"
+      : native ? "Native MON custody, USDC borrowing, API credit tracking and independent reference app recovery"
       : "Real Sepolia WETH custody, Wormhole proofs, Monad USDC borrowing and reference app recovery",
-    excluded: native ? "Collateral sale, Aurora conversions and real trading venues" : "Aurora conversions and real trading venue behavior",
+    excluded: kuru ? "Aurora conversions and full acceptance-suite admission" : native ? "Collateral sale, Aurora conversions and real trading venues" : "Aurora conversions and real trading venue behavior",
     drawAmount: String(amounts.draw), native, core: m.TermbookCore, app, observations,
+    ...(kuru && report.lifecycle ? { probes: report.probes, lifecycle: report.lifecycle, validationKeeper: report.validationKeeper } : {}),
     transactions: report.transactions.map((tx) => Object.fromEntries(Object.entries(tx).filter(([key]) => key !== "rawTransaction"))) });
   log(JSON.stringify({ observedAt: report.observedAt, cases: observations }));
-  return observations.some((test) => test.kind === "repayment" && test.completed)
-    && (fast || observations.some((test) => test.kind.startsWith("default") && test.completed));
+  return lifecycleComplete;
 }
 
 async function run() {

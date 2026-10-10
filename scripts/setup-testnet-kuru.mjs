@@ -4,12 +4,14 @@ import process from "node:process";
 import { log, error } from "node:console";
 import { createRequire } from "node:module";
 import { root, viem, testnetRuntime } from "./testnet-runtime.mjs";
-import { writeConfiguration, clearOperation } from "./testnet-state.mjs";
+import { writeConfiguration, clearOperation, operationFile } from "./testnet-state.mjs";
 import { proxyImplementationSlots, proxyBeaconSlot, resolveProxyImplementation } from "../packages/schema/dist/index.js";
 
 const simulate = process.argv.includes("--simulate");
-if (simulate === process.argv.includes("--broadcast") || process.argv.length !== 3
-  || process.argv.slice(2).some((a) => !["--simulate", "--broadcast"].includes(a))) throw new Error("Use --simulate or --broadcast");
+const configure = process.argv.includes("--configure");
+if (simulate === process.argv.includes("--broadcast") || process.argv.length !== (configure ? 4 : 3)
+  || process.argv.slice(2).some((a) => !["--simulate", "--broadcast", "--configure"].includes(a))) throw new Error("Use --simulate or --broadcast, optionally with --configure");
+const operation = configure ? "kuru-integration" : "kuru-setup";
 const factory = "0x7EFbE105Ca7415dE98F96622173458ac1c054630";
 const factoryAbi = viem.parseAbi([
   "function deployProxy(uint8,address,address,uint96,uint32,uint32,uint96,uint96,uint256,uint256,uint96) returns(address)",
@@ -28,13 +30,60 @@ const require = createRequire(path.join(root, "packages/sdk/package.json"));
 const { generatePrivateKey, privateKeyToAccount } = require("viem/accounts");
 
 async function main() {
-  const runtime = await testnetRuntime("kuru-setup", simulate);
+  const runtime = await testnetRuntime(operation, simulate);
   const { deployment, report, persist } = runtime;
   const network = await runtime.context(10143);
   const m = deployment.addresses[10143];
   const setup = deployment.configuration.native;
   if (!setup || setup.core.toLowerCase() !== m.TermbookCore.toLowerCase()) throw new Error("Admit native MON prices first");
   const usdc = deployment.tokens[10143].USDC;
+  if (configure) {
+    const { create_kuru } = await import("../features/kuru/dist/integration.js");
+    const { prepare_atomic_spot, package_integration, atomic_configuration } = await import("../packages/sdk/dist/index.js");
+    const market = deployment.configuration["kuru-market"];
+    if (!market || market.core.toLowerCase() !== m.TermbookCore.toLowerCase()
+      || !market.oracleGuard || market.dependencies.length !== 6 || market.dependencies.some((p) => !market.guards[p.address])) throw new Error("Complete the Kuru dependency and Oracle guards first");
+    const plugin = await create_kuru({ client: network.client, market_address: market.market, settlement_asset: usdc,
+      api_base: process.env["TERMBOOK_PUBLIC_API_BASE"] ?? "http://127.0.0.1:3002", maximum_input: 100_000n,
+      retained_bps: 9_500, recovery_costs: 1000n, max_holding: viem.parseEther("1"), dust_limit: 10_000_000_000n,
+      oracle: m.OracleRegistry, feed_id: setup.priceId });
+    const identity = package_integration(plugin);
+    if (report.versionId && report.versionId !== identity.version_id) throw new Error("Kuru configuration changed; reconcile the pending operation");
+    report.versionId = identity.version_id; report.definitionHash = identity.hash; persist();
+    const plan = await prepare_atomic_spot(plugin.definition, { client: network.client, registry: m.IntegrationRegistry,
+      core: m.TermbookCore, health_source: m.HealthSource, health_factory: m.AppHealthReaderFactory,
+      guards: { ...Object.fromEntries(Object.entries(market.guards).map(([target, pin]) => [target, pin.address])),
+        [m.OracleRegistry.toLowerCase()]: market.oracleGuard?.address },
+      max_slippage_bps: 100, max_deviation_bps: 500, max_authorization_age: 90, max_health_age: 90 });
+    const planHash = viem.keccak256(viem.toHex(JSON.stringify(plan.calls, (_, value) => typeof value === "bigint" ? String(value) : value)));
+    if (report.planHash && report.planHash !== planHash) throw new Error("Kuru governance plan changed");
+    report.planHash = planHash; persist();
+    if (!simulate) {
+      const simulation = JSON.parse(fs.readFileSync(operationFile(`${operation}-simulation`), "utf8"));
+      if (!simulation.completedAt || simulation.planHash !== planHash || simulation.versionId !== identity.version_id) throw new Error("Simulate this Kuru configuration first");
+      const remaining = simulation.transactions.filter((tx) => !report.transactions.some((sent) => sent.name === tx.name && sent.status === "success"));
+      const price = await network.client.getGasPrice();
+      const budget = remaining.reduce((gas, tx) => gas + BigInt(tx.gasLimit), 0n) * (price < 100_000_000_000n ? 100_000_000_000n : price) * 11n / 10n;
+      if (await network.client.getBalance({ address: deployment.deployer }) < budget + viem.parseEther("0.01")) throw new Error(`Kuru configuration requires ${viem.formatEther(budget)} test MON`);
+    }
+    for (const call of plan.calls) {
+      if (call.value !== 0n) throw new Error("Unexpected Kuru governance payment");
+      await network.governData(call.target, call.data, { description: call.description });
+    }
+    const config = atomic_configuration(plugin.definition);
+    if (await network.client.readContract({ address: config.config.module, abi: viem.parseAbi(["function configurationHashes(bytes32) view returns(bytes32)"]),
+      functionName: "configurationHashes", args: [identity.version_id] }) !== config.configuration_hash
+      || !await network.read("IntegrationRegistry", m.IntegrationRegistry, "isActive", [identity.version_id])) throw new Error("Kuru configuration verification failed");
+    report.completedAt = new Date().toISOString(); persist();
+    if (!simulate) {
+      writeConfiguration("kuru-integration", { core: m.TermbookCore, bundleId: identity.version_id, codeHash: identity.hash,
+        definition: plugin.definition, healthReader: plan.health_reader, planHash, completedAt: report.completedAt });
+      clearOperation(operation, false);
+    }
+    log(JSON.stringify({ simulated: simulate, configured: true, bundleId: identity.version_id,
+      transactions: report.transactions.length, admission: "requires SDK lifecycle validation" }));
+    return;
+  }
   const keyFile = path.join(root, ".testnet/upgrade-monitor.json");
   const stored = fs.existsSync(keyFile) ? JSON.parse(fs.readFileSync(keyFile, "utf8")) : undefined;
   const key = stored?.privateKey ?? generatePrivateKey();
@@ -102,6 +151,14 @@ async function main() {
     dependencies.push({ address, codeHash, ...(implementation !== viem.zeroAddress ? { implementation,
       implementationSlot: proxy.slot, implementationCodeHash: viem.keccak256(await network.client.getCode({ address: implementation })), guard: guards[address].address } : {}) });
   }
+  const oracleImplementation = await network.read("TestnetProxy", m.OracleRegistry, "proxyImplementation");
+  if (oracleImplementation.toLowerCase() !== deployment.proxies[10143].OracleRegistry.implementation.toLowerCase()) throw new Error("Oracle implementation changed");
+  const oracleGuardAddress = prior?.oracleGuard?.address ?? await network.deploy("ImplementationGuard", [m.OracleRegistry,
+    oracleImplementation, viem.toFunctionSelector("proxyImplementation()")], "KuruOracleGuard");
+  if (!await network.read("ImplementationGuard", oracleGuardAddress, "valid", [m.OracleRegistry])) throw new Error("Oracle guard is invalid");
+  const oracleGuard = { address: oracleGuardAddress, codeHash: viem.keccak256(await network.client.getCode({ address: oracleGuardAddress })),
+    proxy: m.OracleRegistry, implementation: oracleImplementation };
+  if (prior?.oracleGuard && oracleGuard.codeHash !== prior.oracleGuard.codeHash) throw new Error("Oracle guard code changed");
   if (!simulate) {
     const file = path.join(root, ".env");
     let env = fs.readFileSync(file, "utf8");
@@ -133,11 +190,15 @@ async function main() {
   if (!simulate) writeConfiguration("kuru-market", { core: m.TermbookCore, factory, market, vault, margin, forwarder,
     settlementAsset: usdc, monitor: monitor.address, trustModel: "testnet RPC monitor; 180-second expiring approval",
     bid: report.bid ?? prior.bid, ask: report.ask ?? prior.ask, makerBaseMON: "1", makerQuoteUSDC: "1", guards, dependencies,
-    completedAt: report.completedAt, transactions: report.transactions });
+    oracleGuard, completedAt: report.completedAt, transactions: report.transactions });
   const cost = report.transactions.reduce((sum, tx) => sum + BigInt(tx.gasUsed) * BigInt(tx.effectiveGasPrice), 0n);
   log(JSON.stringify({ simulated: simulate, market, guards: Object.keys(guards).length, transactions: report.transactions.length,
     gasMON: viem.formatEther(cost), liquidityMON: "1", liquidityUSDC: "1", admission: "pending validation" }));
   clearOperation("kuru-setup", simulate);
 }
 
-main().catch((cause) => { error(cause instanceof Error ? cause.message.split("\n")[0] : "Kuru setup failed"); process.exitCode = 1; });
+main().catch((cause) => {
+  if (cause && typeof cause === "object" && Array.isArray(cause.failures)) error(JSON.stringify({ error: cause.message, sources: cause.failures }));
+  else error(cause instanceof Error ? cause.message.split("\n")[0] : "Kuru setup failed");
+  process.exitCode = 1;
+});

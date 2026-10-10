@@ -6,7 +6,7 @@ vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: vi.fn() }));
 
 import { monadClient } from "../../src/chain/monad.client.js";
 import { env } from "../../src/config/env.js";
-import { validateIntegrationSources, verifyIntegrationSourcePins } from "../../src/integration/integration.source.js";
+import { importVerifiedSource, validateIntegrationSources, verifyIntegrationSourcePins } from "../../src/integration/integration.source.js";
 import { proxyImplementationSlots } from "@termbook/schema";
 
 const target = `0x${"22".repeat(20)}` as const;
@@ -45,6 +45,48 @@ afterEach(() => {
 });
 
 describe("integration source admission", () => {
+  function metadataSource(prefix = "60016000", offset = 4) {
+    const auxiliary = "a164736f6c634300060c000a";
+    const actual = `0x${prefix}${auxiliary}` as const;
+    const compiled = `0x60016000a164736f6c634300060b000a`;
+    const runtimeBytecode = { onchainBytecode: actual, recompiledBytecode: compiled,
+      cborAuxdata: { "1": { value: `0x${compiled.slice(10)}`, offset } },
+      transformations: [{ id: "1", offset, type: "replace", reason: "cborAuxdata" }] };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      runtimeMatch: "match", chainId: "143", address: target, matchId: "1", runtimeBytecode,
+      compilation: { compilerVersion: "0.6.12", fullyQualifiedName: "App.sol:App" },
+      sources: { "App.sol": { content: "contract App {}" } }, abi: parseAbi([signature]),
+    }))));
+    return { actual, runtimeBytecode };
+  }
+  it("accepts a verified metadata-only match while pinning the complete live bytecode", async () => {
+    const { actual } = metadataSource();
+    expect(await importVerifiedSource(143, target, actual, null)).toMatchObject({ runtimeMatch: "match", sourceHash });
+  });
+  it("rejects executable changes, incorrect metadata offsets and malformed metadata lengths", async () => {
+    let source = metadataSource("60026000");
+    await expect(importVerifiedSource(143, target, source.actual, null)).rejects.toThrow("integration-source-unverified");
+    source = metadataSource("60016000", 2);
+    await expect(importVerifiedSource(143, target, source.actual, null)).rejects.toThrow("integration-source-unverified");
+    source = metadataSource(); source.runtimeBytecode.onchainBytecode = `${source.actual.slice(0, -4)}0010`;
+    await expect(importVerifiedSource(143, target, source.runtimeBytecode.onchainBytecode, null)).rejects.toThrow("integration-source-unverified");
+  });
+  it("permits only declared immutable substitutions alongside the metadata match", async () => {
+    const { runtimeBytecode } = metadataSource();
+    const mutable = runtimeBytecode as unknown as { onchainBytecode: string; recompiledBytecode: string;
+      cborAuxdata: Record<string, { value: string; offset: number }>;
+      transformations: { id: string; offset: number; type: string; reason: string }[];
+      immutableReferences?: Record<string, { start: number; length: number }[]> };
+    const auxiliary = mutable.cborAuxdata["1"]!;
+    mutable.onchainBytecode = `0x60016000${"11".repeat(32)}${mutable.onchainBytecode.slice(10)}`;
+    mutable.recompiledBytecode = `0x60016000${"00".repeat(32)}${mutable.recompiledBytecode.slice(10)}`;
+    auxiliary.offset = 36; mutable.transformations[0]!.offset = 36;
+    mutable.transformations.unshift({ id: "2", offset: 4, type: "replace", reason: "immutable" });
+    mutable.immutableReferences = { "2": [{ start: 4, length: 32 }] };
+    expect(await importVerifiedSource(143, target, mutable.onchainBytecode as `0x${string}`, null)).toMatchObject({ runtimeMatch: "match" });
+    mutable.immutableReferences["2"]![0]!.length = 64;
+    await expect(importVerifiedSource(143, target, mutable.onchainBytecode as `0x${string}`, null)).rejects.toThrow("integration-source-unverified");
+  });
   it("pins the reviewed source and rejects a later proxy change", async () => {
     const pins = await validateIntegrationSources([action], [{ target, sourceHash }]);
     expect(pins).toMatchObject([{ target, codeHash: keccak256(code), sourceHash, implementation: null }]);

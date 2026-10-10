@@ -10,7 +10,7 @@ import { addr, word } from "./plugin.fixture.js";
 describe("standard use-case compilation", () => {
   it("builds immutable shared reads, action constraints, recovery and price rules before activation", async () => {
     const d = standardDefinition();
-    const client = { getChainId: vi.fn(async () => 143), readContract: vi.fn(async ({ functionName }) => functionName === "core" ? addr("b") : addr("e")) };
+    const client = { getChainId: vi.fn(async () => 143), readContract: vi.fn(async ({ functionName }) => functionName === "core" ? addr("b") : functionName === "healthSource" ? addr("1") : addr("e")) };
     const result = await prepare_use_case(d, { client: client as unknown as PublicClient, core: addr("b"), registry: addr("f"),
       health_source: addr("1"), health_factory: addr("2"), max_health_age: 300 });
     const abis: Record<string, Abi> = { [addr("8")]: useCaseReaderAbi, [addr("4")]: useCasePolicyAbi, [addr("9")]: useCaseRecoveryAbi,
@@ -49,7 +49,7 @@ describe("standard use-case compilation", () => {
   it("requires a reviewed guard for proxy dependencies", async () => {
     const d = standardDefinition(); d.pins[0]!.implementation = addr("e"); d.pins[0]!.implementation_code_hash = word("a");
     d.pins[0]!.implementation_slot = word("a"); d.verified_sources[0]!.implementation = addr("e"); d.verified_sources[0]!.implementation_source_hash = word("a");
-    const client = { getChainId: vi.fn(async () => 143), readContract: vi.fn(async ({ functionName }) => functionName === "core" ? addr("b") : addr("e")) };
+    const client = { getChainId: vi.fn(async () => 143), readContract: vi.fn(async ({ functionName }) => functionName === "core" ? addr("b") : functionName === "healthSource" ? addr("1") : addr("e")) };
     await expect(prepare_use_case(d, { client: client as unknown as PublicClient, core: addr("b"), registry: addr("f"),
       health_source: addr("1"), health_factory: addr("2"), max_health_age: 300 })).rejects.toThrow("integration-dependency-guard-required");
   });

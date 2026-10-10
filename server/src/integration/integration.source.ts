@@ -19,6 +19,53 @@ function record(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+function metadataMatch(runtime: Record<string, unknown>): boolean {
+  const compiled = runtime["recompiledBytecode"], actual = runtime["onchainBytecode"];
+  const changes = runtime["transformations"];
+  if (typeof compiled !== "string" || typeof actual !== "string" || !/^0x(?:[a-fA-F0-9]{2})+$/.test(compiled)
+    || !/^0x(?:[a-fA-F0-9]{2})+$/.test(actual) || compiled.length !== actual.length
+    || !Array.isArray(changes) || changes.length === 0 || changes.length > 128) return false;
+  const ranges: { start: number; length: number }[] = [];
+  let metadata = false;
+  for (const input of changes) {
+    const change = record(input);
+    if (change["type"] !== "replace" || typeof change["id"] !== "string"
+      || !Number.isSafeInteger(change["offset"]) || Number(change["offset"]) < 1) return false;
+    const offset = Number(change["offset"]);
+    let length: number;
+    if (change["reason"] === "cborAuxdata") {
+      const auxiliary = record(record(runtime["cborAuxdata"])[change["id"]]);
+      const value = auxiliary["value"];
+      if (auxiliary["offset"] !== offset || typeof value !== "string" || !/^0xa[1-9](?:[a-fA-F0-9]{2})+$/.test(value)) return false;
+      length = (value.length - 2) / 2;
+      const live = actual.slice(2 + offset * 2, 2 + (offset + length) * 2);
+      if (offset * 2 + value.length > compiled.length
+        || compiled.slice(2 + offset * 2, 2 + (offset + length) * 2).toLowerCase() !== value.slice(2).toLowerCase()
+        || !/^a[1-9](?:[a-fA-F0-9]{2})+$/.test(live)
+        || parseInt(value.slice(-4), 16) + 2 !== length || parseInt(live.slice(-4), 16) + 2 !== length) return false;
+      metadata = true;
+    } else if (change["reason"] === "immutable") {
+      const references = record(runtime["immutableReferences"])[change["id"]];
+      if (!Array.isArray(references) || !references.some((input) => {
+        const reference = record(input);
+        return reference["start"] === offset && reference["length"] === 32;
+      })) return false;
+      length = 32;
+    } else return false;
+    if (2 + (offset + length) * 2 > compiled.length) return false;
+    ranges.push({ start: offset, length });
+  }
+  ranges.sort((left, right) => left.start - right.start);
+  if (!metadata || ranges.some((range, index) => index > 0 && range.start < ranges[index - 1]!.start + ranges[index - 1]!.length)) return false;
+  const normalize = (code: string) => {
+    let result = code.toLowerCase();
+    for (const range of ranges) result = result.slice(0, 2 + range.start * 2) + "0".repeat(range.length * 2) + result.slice(2 + (range.start + range.length) * 2);
+    return result;
+  };
+  // Compiler-declared metadata and immutables may differ; every other byte must match.
+  return normalize(compiled) === normalize(actual);
+}
+
 function selector(signature: string): Hex {
   const item = parseAbiItem(signature);
   if (item.type !== "function" || !["nonpayable", "payable"].includes(item.stateMutability)) {
@@ -62,7 +109,7 @@ async function limitedJson(response: Response): Promise<Record<string, unknown>>
 export async function importVerifiedSource(
   chainId: number, address: Address, code: Hex, selector: Hex | null, payable?: boolean,
 ) {
-  const url = `${sourceApi}/${chainId}/${address}?fields=runtimeBytecode.onchainBytecode,abi,sources,compilation`;
+  const url = `${sourceApi}/${chainId}/${address}?fields=runtimeBytecode.onchainBytecode,runtimeBytecode.recompiledBytecode,runtimeBytecode.cborAuxdata,runtimeBytecode.transformations,runtimeBytecode.immutableReferences,abi,sources,compilation`;
   const response = await fetch(url, { signal: AbortSignal.timeout(15_000), redirect: "error" })
     .catch(() => null);
   if (!response) throw new Error("integration-source-unavailable");
@@ -71,7 +118,7 @@ export async function importVerifiedSource(
   const compilation = record(result["compilation"]);
   const sources = record(result["sources"]);
   const abi = result["abi"];
-  if (result["runtimeMatch"] !== "exact_match" || result["chainId"] !== String(chainId)
+  if (!(result["runtimeMatch"] === "exact_match" || result["runtimeMatch"] === "match" && metadataMatch(runtime)) || result["chainId"] !== String(chainId)
     || String(result["address"]).toLowerCase() !== address.toLowerCase()
     || String(runtime["onchainBytecode"]).toLowerCase() !== code.toLowerCase()
     || !Array.isArray(abi) || abi.length > 2048
@@ -95,7 +142,7 @@ export async function importVerifiedSource(
     return [path, content];
   });
   const sourceHash = `0x${createHash("sha256").update(JSON.stringify(contents)).digest("hex")}`;
-  return { address, matchId: result["matchId"], compilerVersion: compilation["compilerVersion"],
+  return { address, matchId: result["matchId"], runtimeMatch: result["runtimeMatch"], compilerVersion: compilation["compilerVersion"],
     contract: compilation["fullyQualifiedName"], sourceHash, files: files.map(([path]) => path), url };
 }
 

@@ -68,4 +68,16 @@ describe('integration acceptance report', () => {
     suite.manifestHash = suiteWord('f');
     await expect(requireForkReview(suite, signature, reviewer.address)).rejects.toThrow('integration-fork-review-invalid');
   });
+  it('rejects a gas limit that differs from the mined transaction', async () => {
+    const suite = report(), client = chain(), hash = suiteWord('e');
+    const tx = { hash, from: suite.actors.borrower, to: suite.core, data: suite.cases[0]!.simulations[0]!.data,
+      value: '0', succeeded: true, block: suite.sourceBlock, gasUsed: '30000', gasLimit: '30000' };
+    suite.cases[0]!.transactions.push(tx);
+    client.getBlock.mockResolvedValue({ number: 1n, hash: suite.sourceBlock.hash, transactions: [hash] as never[], gasLimit: 20_000_000n });
+    const rpc = { ...client, getTransaction: vi.fn(async () => ({ from: tx.from, to: tx.to, input: tx.data, value: 0n, gas: 100_000n })),
+      getTransactionReceipt: vi.fn(async () => ({ blockNumber: 1n, blockHash: suite.sourceBlock.hash,
+        transactionIndex: 0, status: 'success', gasUsed: 30_000n })) };
+    await expect(validateIntegrationSuite(rpc as unknown as PublicClient, suite.versionId as `0x${string}`,
+      suite.manifestHash as `0x${string}`, suite, suiteHash(suite), actions)).rejects.toThrow('integration-transaction-evidence-mismatch');
+  });
 });

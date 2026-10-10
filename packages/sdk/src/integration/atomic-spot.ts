@@ -30,6 +30,24 @@ export const coreAbi = parseAbi([
   `function configureExecutionAmountPrice(bytes32,bytes32,bytes32,${ruleTuple},${amountTuple})`,
 ]);
 export const healthAbi = parseAbi(["function setReader(bytes32,address,uint256,uint256)"]);
+const healthBindingAbi = parseAbi(["function healthSource() view returns(address)", "function governance() view returns(address)",
+  "function source() view returns(address)", "function core() view returns(address)"]);
+export async function verify_health_registry(client: PublicClient, core: Address, source: Address): Promise<void> {
+  try {
+    const [configured, governance] = await Promise.all([
+      client.readContract({ address: core, abi: healthBindingAbi, functionName: "healthSource", blockTag: "finalized" }),
+      client.readContract({ address: source, abi: healthBindingAbi, functionName: "governance", blockTag: "finalized" }),
+    ]);
+    if (governance === zeroAddress) throw new Error("integration-health-source-invalid");
+    if (configured.toLowerCase() !== source.toLowerCase()) {
+      const [wrappedSource, wrappedCore] = await Promise.all([
+        client.readContract({ address: configured, abi: healthBindingAbi, functionName: "source", blockTag: "finalized" }),
+        client.readContract({ address: configured, abi: healthBindingAbi, functionName: "core", blockTag: "finalized" }),
+      ]);
+      if (wrappedSource.toLowerCase() !== source.toLowerCase() || wrappedCore.toLowerCase() !== core.toLowerCase()) throw new Error("integration-health-source-invalid");
+    }
+  } catch (cause) { throw new Error("integration-health-source-invalid", { cause }); }
+}
 export const factoryAbi = parseAbi(["function core() view returns (address)", "function predict(bytes32,address,address) view returns (address)",
   "function create(bytes32,address,address) returns (address)"]);
 
@@ -80,6 +98,7 @@ export async function prepare_atomic_spot(input: PluginDefinition, options: {
   if (await options.client.getChainId() !== definition.chain_id
     || (await options.client.readContract({ address: options.health_factory, abi: factoryAbi, functionName: "core", blockTag: "finalized" })).toLowerCase()
       !== options.core.toLowerCase()) throw new Error("integration-health-factory-invalid");
+  await verify_health_registry(options.client, options.core, options.health_source);
   const health_reader = await options.client.readContract({ address: options.health_factory, abi: factoryAbi, functionName: "predict",
     args: [version_id, config.module as Address, config.module as Address], blockTag: "finalized" });
   const push = (target: Address, abi: readonly unknown[], name: string, args: readonly unknown[], description: string) => {

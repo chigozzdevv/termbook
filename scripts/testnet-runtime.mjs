@@ -133,9 +133,12 @@ export async function testnetRuntime(name, simulate) {
       return entry.address;
     }
     async function govern(name, target, functionName, args) {
+      return governData(target, encodeFunctionData({ abi: artifact(name).abi, functionName, args }), { name, functionName });
+    }
+    async function governData(target, data, description = {}) {
+      if (!viem.isAddress(target) || !/^0x(?:[a-fA-F0-9]{2}){4,}$/.test(data)) throw new Error("Invalid governance call");
       const governance = deployment.addresses[chainId].ProtocolGovernance;
       if (await read("ProtocolGovernance", governance, "timelock") !== 0n) throw new Error("Testnet delay changed");
-      const data = encodeFunctionData({ abi: artifact(name).abi, functionName, args });
       const salt = keccak256(data);
       const id = await read("ProtocolGovernance", governance, "actionId", [target, 0n, data, salt]);
       if (!await read("ProtocolGovernance", governance, "executed", [id])) {
@@ -144,12 +147,12 @@ export async function testnetRuntime(name, simulate) {
         if (!await client.readContract({ address: governance, abi: artifact("ProtocolGovernance").abi,
           functionName: "executed", args: [id], blockNumber: BigInt(execution.block) })) throw new Error("Governance execution unavailable");
       }
-      if (!report.governance.some((action) => action.id === id && action.chainId === chainId)) report.governance.push({ chainId, id, target, name, functionName });
+      if (!report.governance.some((action) => action.id === id && action.chainId === chainId)) report.governance.push({ chainId, id, target, ...description });
       persist();
     }
     const logUrl = !simulate && chainId === 10143 && process.env["TERMBOOK_CREDIT_RPC_URL"];
     const logClient = logUrl ? createPublicClient({ transport: http(logUrl, { timeout: 30_000 }) }) : client;
-    const result = { client, logClient, read, call, deploy, govern, send };
+    const result = { client, logClient, read, call, deploy, govern, governData, send };
     contexts.set(chainId, result);
     return result;
   }

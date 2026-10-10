@@ -3,7 +3,7 @@ import { useCaseReaderAbi, useCasePolicyAbi, useCaseRecoveryAbi, termbookCoreAbi
 import { encodeAbiParameters, encodeFunctionData, parseAbi, keccak256, stringToHex, toFunctionSelector, zeroAddress,
   type Address, type Hex, type PublicClient, type Abi } from "viem";
 import { compile_read_program, readProgramAbi } from "./read-program.js";
-import { registryAbi, healthAbi, factoryAbi, type GovernanceCall } from "./atomic-spot.js";
+import { registryAbi, healthAbi, factoryAbi, verify_health_registry, type GovernanceCall } from "./atomic-spot.js";
 
 const zero = `0x${"0".repeat(64)}` as Hex;
 const cases = ["spot", "perps", "vault", "staking", "liquidity"];
@@ -93,6 +93,7 @@ export async function prepare_use_case(input: PluginDefinition, options: {
     || await options.client.getChainId() !== c.definition.chain_id) throw new Error("integration-risk-limits-invalid");
   if ((await options.client.readContract({ address: options.health_factory, abi: factoryAbi, functionName: "core", blockTag: "finalized" })).toLowerCase()
     !== options.core.toLowerCase()) throw new Error("integration-health-factory-invalid");
+  await verify_health_registry(options.client, options.core, options.health_source);
   const targets = c.definition.contracts;
   const health_reader = await options.client.readContract({ address: options.health_factory, abi: factoryAbi, functionName: "predict",
     args: [c.version_id, targets.reader as Address, targets.recovery as Address], blockTag: "finalized" });

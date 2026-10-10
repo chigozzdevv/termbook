@@ -35690,6 +35690,146 @@
             "runtimeMatch": "exact_match",
             "creationMatch": "exact_match",
             "url": "https://sourcify.dev/server/v2/contract/10143/0x0b626A1a6EF46C4470Bc1acDe3C6d719cEB050Ed"
+          },
+          {
+            "name": "OracleRegistryImplementation",
+            "address": "0xcf757862d357243116e58b952ae0346ab2877aa5",
+            "verificationId": "b0644a74-4b46-4d1b-b2b3-ba23077751a7",
+            "matchId": "55868304",
+            "verifiedAt": "2026-10-10T10:03:31Z",
+            "runtimeMatch": "exact_match",
+            "creationMatch": "exact_match",
+            "url": "https://sourcify.dev/server/v2/contract/10143/0xcf757862d357243116e58b952ae0346ab2877aa5"
+          },
+          {
+            "name": "OracleRegistryProxy",
+            "address": "0x1b3a870b3b6411fe42bca77a036af8e3a8f1f0ed",
+            "verificationId": "fd6e0f6a-c533-4f66-bf7c-49b14ce7533a",
+            "matchId": "55868306",
+            "verifiedAt": "2026-10-10T10:03:36Z",
+            "runtimeMatch": "exact_match",
+            "creationMatch": "exact_match",
+            "url": "https://sourcify.dev/server/v2/contract/10143/0x1b3a870b3b6411fe42bca77a036af8e3a8f1f0ed"
+          },
+          {
+            "name": "KuruOracleGuard",
+            "address": "0xe733f432705109d44d233e59861fd8e004d0af3d",
+            "verificationId": "d98eecfe-8a59-4625-94b2-f0001cae5ef2",
+            "matchId": "55868311",
+            "verifiedAt": "2026-10-10T10:03:41Z",
+            "runtimeMatch": "exact_match",
+            "creationMatch": "exact_match",
+            "url": "https://sourcify.dev/server/v2/contract/10143/0xe733f432705109d44d233e59861fd8e004d0af3d"
+          },
+          {
+            "name": "KuruFactoryImplementation",
+            "address": "0xaaa0f0c4d49d09ef33ae758d88afab810ecbe1ed",
+            "verificationId": "8fadaad0-b58f-4a42-a6ad-9f3755884aab",
+            "matchId": "55868821",
+            "verifiedAt": "2026-10-10T10:19:47Z",
+            "runtimeMatch": "match",
+            "creationMatch": "match",
+            "url": "https://sourcify.dev/server/v2/contract/10143/0xaaa0f0c4d49d09ef33ae758d88afab810ecbe1ed"
+          },
+          {
+            "name": "KuruMarketProxy",
+            "address": "0x1f57a841540fe23c2989387c18f2cb1335cbae92",
+            "verificationId": "25df5cf4-4bef-4915-8c5f-47b5b3eed0a2",
+            "matchId": "55868801",
+            "verifiedAt": "2026-10-10T10:19:44Z",
+            "runtimeMatch": "match",
+            "creationMatch": null,
+            "url": "https://sourcify.dev/server/v2/contract/10143/0x1f57a841540fe23c2989387c18f2cb1335cbae92"
+          },
+          {
+            "name": "KuruFactoryProxy",
+            "address": "0x7efbe105ca7415de98f96622173458ac1c054630",
+            "verificationId": "d71f3725-bf1c-46fe-9540-8282a9e8724a",
+            "matchId": "55868802",
+            "verifiedAt": "2026-10-10T10:19:45Z",
+            "runtimeMatch": "match",
+            "creationMatch": null,
+            "url": "https://sourcify.dev/server/v2/contract/10143/0x7efbe105ca7415de98f96622173458ac1c054630"
+          },
+          {
+            "name": "KuruVaultProxy",
+            "address": "0xb3e16d13bee1abcdd048efcac26b5f10972e3720",
+            "verificationId": "a8c92cfa-d5be-4e99-b35e-f9dcc6af30a8",
+            "matchId": "55868815",
+            "verifiedAt": "2026-10-10T10:19:46Z",
+            "runtimeMatch": "match",
+            "creationMatch": null,
+            "url": "https://sourcify.dev/server/v2/contract/10143/0xb3e16d13bee1abcdd048efcac26b5f10972e3720"
+          },
+          {
+            "name": "KuruMarginProxy",
+            "address": "0xd029c2d98ff85d8f64799017fe00a59b1159ce02",
+            "verificationId": "cca1d15d-0dec-49d0-ace0-6ce6d58527a5",
+            "matchId": "55868818",
+            "verifiedAt": "2026-10-10T10:19:46Z",
+            "runtimeMatch": "match",
+            "creationMatch": null,
+            "url": "https://sourcify.dev/server/v2/contract/10143/0xd029c2d98ff85d8f64799017fe00a59b1159ce02"
+          },
+          {
+            "name": "KuruForwarderProxy",
+            "address": "0x681bb1508e14433b148a2549ba2726454adc9bb4",
+            "verificationId": "e7524ca0-d127-490c-80b7-1eafdfbf60ff",
+            "matchId": "55868819",
+            "verifiedAt": "2026-10-10T10:19:47Z",
+            "runtimeMatch": "match",
+            "creationMatch": null,
+            "url": "https://sourcify.dev/server/v2/contract/10143/0x681bb1508e14433b148a2549ba2726454adc9bb4"
+          },
+          {
+            "name": "KuruVaultImplementation",
+            "address": "0x4d54e0d60cab0cec0100cda8e00897bc933c5bb6",
+            "verificationId": "801d14eb-d44f-422f-9ca2-131a9a9f57ea",
+            "matchId": "55868741",
+            "verifiedAt": "2026-10-10T10:17:37Z",
+            "runtimeMatch": "match",
+            "creationMatch": "match",
+            "url": "https://sourcify.dev/server/v2/contract/10143/0x4d54e0d60cab0cec0100cda8e00897bc933c5bb6"
+          },
+          {
+            "name": "KuruMarginImplementation",
+            "address": "0xf10af40f060b7ae54a2d5da682becc981dfb52c3",
+            "verificationId": "c2de6d23-b545-4366-b49e-c324ef8036ec",
+            "matchId": "55868740",
+            "verifiedAt": "2026-10-10T10:17:37Z",
+            "runtimeMatch": "match",
+            "creationMatch": "match",
+            "url": "https://sourcify.dev/server/v2/contract/10143/0xf10af40f060b7ae54a2d5da682becc981dfb52c3"
+          },
+          {
+            "name": "KuruForwarderImplementation",
+            "address": "0x0d7295d5e52b9269000ea6e60cc29af7d1b1b38c",
+            "verificationId": "eec58dcd-e10f-4961-a115-33eb6617d2fa",
+            "matchId": "55868742",
+            "verifiedAt": "2026-10-10T10:17:38Z",
+            "runtimeMatch": "match",
+            "creationMatch": "match",
+            "url": "https://sourcify.dev/server/v2/contract/10143/0x0d7295d5e52b9269000ea6e60cc29af7d1b1b38c"
+          },
+          {
+            "name": "CircleUSDCProxy",
+            "address": "0x534b2f3a21130d7a60830c2df862319e593943a3",
+            "verificationId": "3391a524-15ba-47ab-9446-8e5bcb65cbfa",
+            "matchId": "55868570",
+            "verifiedAt": "2026-10-10T10:11:54Z",
+            "runtimeMatch": "match",
+            "creationMatch": "match",
+            "url": "https://sourcify.dev/server/v2/contract/10143/0x534b2f3a21130d7a60830c2df862319e593943a3"
+          },
+          {
+            "name": "CircleUSDCImplementation",
+            "address": "0x21240161521d6854be79f7d3a0a65c6beddb42fb",
+            "verificationId": "126f833d-2334-4cde-9146-b440c0434cf0",
+            "matchId": "55868571",
+            "verifiedAt": "2026-10-10T10:11:57Z",
+            "runtimeMatch": "match",
+            "creationMatch": "match",
+            "url": "https://sourcify.dev/server/v2/contract/10143/0x21240161521d6854be79f7d3a0a65c6beddb42fb"
           }
         ]
       },
@@ -35828,6 +35968,10 @@
         "0x681bb1508e14433b148a2549ba2726454adc9bb4": {
           "address": "0xb14c1a3cd810de2f4041d1732ee0b97b9b3ccfa3",
           "codeHash": "0x9f9f9ddba804cab3c34182afb8a8d5420c4f39608fcde4f900528b042bf794ef"
+        },
+        "0x534b2f3a21130d7a60830c2df862319e593943a3": {
+          "address": "0x28401ead71fbc85609e71fdd8f45629d0dfdc59b",
+          "codeHash": "0x28e76ea97df24783bbc9abbbf0bc9f4f389f36350d7bb6522a789d16bb67f1e6"
         }
       },
       "dependencies": [
@@ -35835,6 +35979,7 @@
           "address": "0x1f57a841540fe23c2989387c18f2cb1335cbae92",
           "codeHash": "0xae572ec3ca9b5f49c0364ca34edc5880b6b2837e47802e64e6b681bf2e74aa5c",
           "implementation": "0x72caE0a99C19B574e8a6De558F43fc1D019c9374",
+          "implementationSlot": "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc",
           "implementationCodeHash": "0x24c5974f233021f00d607bfa191d430f79565663fb90805ebcfca52de7333500",
           "guard": "0xf71b100ed5fc8d701d4c246eac66c47908b581f2"
         },
@@ -35842,6 +35987,7 @@
           "address": "0x7efbe105ca7415de98f96622173458ac1c054630",
           "codeHash": "0xae572ec3ca9b5f49c0364ca34edc5880b6b2837e47802e64e6b681bf2e74aa5c",
           "implementation": "0xAAa0f0C4d49d09EF33Ae758d88AFab810ECBE1Ed",
+          "implementationSlot": "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc",
           "implementationCodeHash": "0xadf3e1f5d9bc07f55d68556f5cca8b9c68381716f932f9b49169e152690583b9",
           "guard": "0x5692db019a54f5bbecd355b04d079cfc3f0bcb95"
         },
@@ -35849,6 +35995,7 @@
           "address": "0xb3e16d13bee1abcdd048efcac26b5f10972e3720",
           "codeHash": "0xae572ec3ca9b5f49c0364ca34edc5880b6b2837e47802e64e6b681bf2e74aa5c",
           "implementation": "0x4d54e0d60CaB0cec0100cdA8e00897bC933C5Bb6",
+          "implementationSlot": "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc",
           "implementationCodeHash": "0xde0b16a79cf8f711403e89093c1e82ce0e7813949dd0f5041b41da324fdd3dc3",
           "guard": "0x720ddce241c6998ccb1044d8de53f638375840a7"
         },
@@ -35856,6 +36003,7 @@
           "address": "0xd029c2d98ff85d8f64799017fe00a59b1159ce02",
           "codeHash": "0xae572ec3ca9b5f49c0364ca34edc5880b6b2837e47802e64e6b681bf2e74aa5c",
           "implementation": "0xF10af40F060b7AE54a2d5DA682BecC981DFB52C3",
+          "implementationSlot": "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc",
           "implementationCodeHash": "0xc7fe37d8820177aadb71ffaf4d8616da30140609b79c1eafd189c9ae8cca55fd",
           "guard": "0x2850c4cbb6369f459d3d82033e58861cdf9fbccb"
         },
@@ -35863,31 +36011,30 @@
           "address": "0x681bb1508e14433b148a2549ba2726454adc9bb4",
           "codeHash": "0xae572ec3ca9b5f49c0364ca34edc5880b6b2837e47802e64e6b681bf2e74aa5c",
           "implementation": "0x0d7295d5E52b9269000eA6e60CC29Af7D1B1B38c",
+          "implementationSlot": "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc",
           "implementationCodeHash": "0x9d6a005578dabcf5059cbac4a1fd928fc487a480e22911b10bbd20f5015aa0ed",
           "guard": "0xb14c1a3cd810de2f4041d1732ee0b97b9b3ccfa3"
+        },
+        {
+          "address": "0x534b2f3a21130d7a60830c2df862319e593943a3",
+          "codeHash": "0x96215e6049ed615cdc22fea7701e85458a8e51a2df3e7d45e8f9fa1d521b5a78",
+          "implementation": "0x21240161521D6854BE79F7D3a0A65c6BeDDB42fb",
+          "implementationSlot": "0x7050c9e0f4ca769c69bd3a8ef740bc37934f8e2c036e5a723fd8ee048ed3f8c3",
+          "implementationCodeHash": "0x634d53fa0836dac59ab39f677cedcf9f7b0953960ddb24830b46b6db80aa8e54",
+          "guard": "0x28401ead71fbc85609e71fdd8f45629d0dfdc59b"
         }
       ],
-      "completedAt": "2026-10-10T01:20:50.390Z",
+      "oracleGuard": {
+        "address": "0xe733f432705109d44d233e59861fd8e004d0af3d",
+        "codeHash": "0x645111866eec7decc0ba5894cef472a6497f11a791aec446155d8a71078cc0c2",
+        "proxy": "0x1b3a870b3b6411fe42bca77a036af8e3a8f1f0ed",
+        "implementation": "0xCf757862D357243116E58B952AE0346Ab2877aa5"
+      },
+      "completedAt": "2026-10-10T10:02:45.141Z",
       "contractPins": {
-        "KuruGuard-0x1f57a841540fe23c2989387c18f2cb1335cbae92": {
-          "address": "0xf71b100ed5fc8d701d4c246eac66c47908b581f2",
-          "codeHash": "0x1010f4b6122086f29e9db95fbb1135c60d063c50e9641f6a0580fc5f7df2201e"
-        },
-        "KuruGuard-0x7efbe105ca7415de98f96622173458ac1c054630": {
-          "address": "0x5692db019a54f5bbecd355b04d079cfc3f0bcb95",
-          "codeHash": "0xc72937db54fa59d0922a41780562a187fe76859ba7d3784cd83b4ea4f4955b5f"
-        },
-        "KuruGuard-0xb3e16d13bee1abcdd048efcac26b5f10972e3720": {
-          "address": "0x720ddce241c6998ccb1044d8de53f638375840a7",
-          "codeHash": "0x4266c22085bca5bedffa612e4e578f8df163fbbf2ab036d1a731dd2baec5bf36"
-        },
-        "KuruGuard-0xd029c2d98ff85d8f64799017fe00a59b1159ce02": {
-          "address": "0x2850c4cbb6369f459d3d82033e58861cdf9fbccb",
-          "codeHash": "0x06e526652f604b5aabfbd8351a2d289708a252ddb5c05900c107bc488d6897fc"
-        },
-        "KuruGuard-0x681bb1508e14433b148a2549ba2726454adc9bb4": {
-          "address": "0xb14c1a3cd810de2f4041d1732ee0b97b9b3ccfa3",
-          "codeHash": "0x9f9f9ddba804cab3c34182afb8a8d5420c4f39608fcde4f900528b042bf794ef"
+        "KuruOracleGuard": {
+          "address": "0xe733f432705109d44d233e59861fd8e004d0af3d",
+          "codeHash": "0x645111866eec7decc0ba5894cef472a6497f11a791aec446155d8a71078cc0c2"
         }
       }
     }

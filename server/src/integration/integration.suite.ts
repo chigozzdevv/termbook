@@ -118,7 +118,8 @@ export async function validateIntegrationSuite(chain: PublicClient, versionId: H
       if (!same(found.transactions[receipt.transactionIndex]!, tx.hash) || !same(receipt.blockHash, tx.block.hash)
         || receipt.blockNumber !== found.number || (receipt.status === "success") !== tx.succeeded || !actual.to || !same(actual.to, tx.to)
         || !same(actual.from, tx.from) || !same(actual.input, tx.data) || actual.value !== BigInt(tx.value)
-        || receipt.gasUsed !== BigInt(tx.gasUsed) || BigInt(tx.gasLimit) > gasBudget) throw new Error("integration-transaction-evidence-mismatch");
+        || receipt.gasUsed !== BigInt(tx.gasUsed) || actual.gas !== BigInt(tx.gasLimit)
+        || actual.gas > gasBudget) throw new Error("integration-transaction-evidence-mismatch");
     }
     for (const simulation of item.simulations) {
       const found = await canonical(simulation.block);

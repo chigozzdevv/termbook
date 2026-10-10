@@ -66,8 +66,11 @@ export { atomic_configuration, prepare_atomic_spot, atomicSpotAbi } from "./inte
 export type { GovernanceCall } from "./integration/atomic-spot.js";
 export { validate_callbacks } from "./integration/callbacks.js";
 export type { ActionProbe } from "./integration/callbacks.js";
+export { buildExecution } from "./app/execution.js";
 export { create_validation_environment } from "./integration/program.js";
 export type { ValidationProgram, ValidationStep } from "./integration/program.js";
+export { create_evidence_environment } from "./integration/evidence.js";
+export type { RecordedValidation } from "./integration/evidence.js";
 export { ReadProgramBuilder, compile_read_program, readProgramAbi } from "./integration/read-program.js";
 export { use_case_configuration, prepare_use_case } from "./integration/use-case.js";
 export { assess_state } from "./integration/assess.js";

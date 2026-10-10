@@ -1,7 +1,7 @@
-import { acceptanceCases, canonicalEvidence, integrationSuiteSchema, integrationSuiteContextSchema,
+import { acceptanceCases, acceptanceCaseSchema, canonicalEvidence, integrationSuiteSchema, integrationSuiteContextSchema,
   type AcceptanceCase, type AcceptanceCaseId, type EvidenceAssertion, type EvidenceObservation,
   type EvidenceSimulation, type EvidenceTransaction, type IntegrationSuite } from "@termbook/schema";
-import { BaseError, decodeAbiParameters, encodeFunctionData, keccak256, parseAbiItem, stringToHex,
+import { BaseError, decodeAbiParameters, decodeFunctionData, encodeFunctionData, keccak256, parseAbiItem, stringToHex,
   type Address, type Hex, type PublicClient, type TransactionReceipt } from "viem";
 import type { Wallet } from "../types/client.types.js";
 
@@ -128,7 +128,6 @@ export class IntegrationValidationRunner {
     if (!this.current) throw new Error("integration-case-invalid");
     const item = parseAbiItem(request.signature);
     if (item.type !== "function" || !["view", "pure"].includes(item.stateMutability) || item.outputs.length === 0) throw new Error("integration-state-read-invalid");
-    const block = await this.chain.getBlock({ blockTag: "finalized" });
     const data = encodeFunctionData({ abi: [item], functionName: item.name, args: request.args ?? [] } as never);
     const existing = this.current.observations.find((v) => v.id === request.id);
     if (existing) {
@@ -137,6 +136,7 @@ export class IntegrationValidationRunner {
       return existing;
     }
     if (this.current.observations.length >= 64) throw new Error("integration-case-budget-exceeded");
+    const block = await this.chain.getBlock({ blockTag: "finalized" });
     const result = await this.chain.call({ to: request.target, data, account: request.from, blockNumber: block.number });
     const observation: EvidenceObservation = { id: request.id, target: request.target, from: request.from, signature: request.signature,
       data, result: result.data ?? "0x", block: { number: String(block.number), hash: block.hash }, types: item.outputs.map((v) => v.type), phase: request.phase };
@@ -149,7 +149,6 @@ export class IntegrationValidationRunner {
     if (!this.current) throw new Error("integration-case-invalid");
     const item = parseAbiItem(request.signature);
     if (item.type !== "function") throw new Error("integration-call-invalid");
-    const block = await this.chain.getBlock({ blockTag: "finalized" });
     const data = encodeFunctionData({ abi: [item], functionName: item.name, args: request.args ?? [] } as never);
     const existing = this.current.simulations.find((v) => v.id === id);
     if (existing) {
@@ -158,12 +157,67 @@ export class IntegrationValidationRunner {
       return existing;
     }
     if (this.current.simulations.length >= 32) throw new Error("integration-case-budget-exceeded");
+    const reference = control ? this.current.simulations.find((v) => v.id === control) : undefined;
+    if (control && (!reference || reference.reverted || !same(reference.to, request.to)
+      || reference.data.slice(0, 10) !== data.slice(0, 10))) throw new Error("integration-failure-control-invalid");
+    const block = reference ? await this.chain.getBlock({ blockNumber: BigInt(reference.block.number) })
+      : await this.chain.getBlock({ blockTag: "finalized" });
+    if (reference && !same(block.hash, reference.block.hash)) throw new Error("integration-simulation-noncanonical");
     let result: Hex, reverted = false;
     try { result = (await this.chain.call({ to: request.to, account: request.from, data, value: request.value ?? 0n, blockNumber: block.number })).data ?? "0x"; }
     catch (error) { const reason = revertData(error); if (reason === undefined) throw error; result = reason; reverted = true; }
     const recorded: EvidenceSimulation = { id, from: request.from, to: request.to, data, value: String(request.value ?? 0n),
       block: { number: String(block.number), hash: block.hash }, reverted, result, control };
     this.current.simulations.push(recorded); await this.persist(); return recorded;
+  }
+  async replay(input: AcceptanceCase): Promise<void> {
+    this.interrupted();
+    const item = acceptanceCaseSchema.parse(input);
+    if (!this.current || this.current.id !== item.id || this.current.observations.length || this.current.transactions.length
+      || this.current.simulations.length || this.current.assertions.length) throw new Error("integration-replay-conflict");
+    const finalized = await this.chain.getBlock({ blockTag: "finalized" });
+    const canonical = async (reference: { number: string; hash: string }) => {
+      this.interrupted();
+      const block = await this.chain.getBlock({ blockNumber: BigInt(reference.number) });
+      if (block.number < BigInt(this.checkpoint.suite.sourceBlock.number) || block.number > finalized.number
+        || !same(block.hash, reference.hash)) throw new Error("integration-evidence-noncanonical");
+      return block;
+    };
+    for (const observation of item.observations) {
+      this.allowed(observation.target as Address);
+      const fn = parseAbiItem(observation.signature);
+      if (fn.type !== "function" || !["view", "pure"].includes(fn.stateMutability)
+        || fn.outputs.map((output) => output.type).join(",") !== observation.types.join(",")) throw new Error("integration-state-read-invalid");
+      const decoded = decodeFunctionData({ abi: [fn], data: observation.data as Hex });
+      if (!same(encodeFunctionData({ abi: [fn], functionName: fn.name, args: decoded.args ?? [] } as never), observation.data)
+        || observation.result.length !== 2 + fn.outputs.length * 64) throw new Error("integration-state-read-invalid");
+      const block = await canonical(observation.block);
+      const actual = await this.chain.call({ to: observation.target as Address, account: observation.from as Address,
+        data: observation.data as Hex, blockNumber: block.number });
+      if (!same(actual.data ?? "0x", observation.result)) throw new Error("integration-observation-mismatch");
+    }
+    for (const tx of item.transactions) {
+      this.allowed(tx.to as Address);
+      const [block, actual, receipt] = await Promise.all([canonical(tx.block),
+        this.chain.getTransaction({ hash: tx.hash as Hex }), this.chain.getTransactionReceipt({ hash: tx.hash as Hex })]);
+      if (!same(String(block.transactions[receipt.transactionIndex]), tx.hash) || !same(receipt.blockHash, block.hash)
+        || receipt.blockNumber !== block.number || !actual.to || !same(actual.to, tx.to) || !same(actual.from, tx.from)
+        || !same(actual.input, tx.data) || actual.value !== BigInt(tx.value) || (receipt.status === "success") !== tx.succeeded
+        || receipt.gasUsed !== BigInt(tx.gasUsed) || receipt.gasUsed > BigInt(tx.gasLimit)
+        || actual.gas !== BigInt(tx.gasLimit) || actual.gas > this.options.gasLimit) throw new Error("integration-transaction-evidence-mismatch");
+    }
+    for (const simulation of item.simulations) {
+      this.allowed(simulation.to as Address);
+      const block = await canonical(simulation.block);
+      let result: Hex, reverted = false;
+      try { result = (await this.chain.call({ to: simulation.to as Address, account: simulation.from as Address,
+        data: simulation.data as Hex, value: BigInt(simulation.value), blockNumber: block.number })).data ?? "0x"; }
+      catch (error) { const reason = revertData(error); if (reason === undefined) throw error; result = reason; reverted = true; }
+      if (reverted !== simulation.reverted || !same(result, simulation.result)) throw new Error("integration-simulation-mismatch");
+    }
+    assertIntegrationEvidence(item);
+    Object.assign(this.current, item);
+    await this.persist();
   }
   async transact(request: ValidationCall): Promise<EvidenceTransaction> {
     this.interrupted(); this.allowed(request.to);

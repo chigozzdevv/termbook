@@ -1,6 +1,6 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { decodeFunctionData, parseAbi, keccak256, zeroAddress, type PublicClient, type Address, type Hex } from "viem";
-import { create_kuru } from "../integration.js";
+import { create_kuru, KuruSourceUnavailableError } from "../integration.js";
 const addr = (n: string) => `0x${n.repeat(40)}` as Address;
 const word = (n: string) => `0x${n.repeat(64)}` as Hex;
 const params = [10000, 100000000n, addr("5"), 18n, addr("6"), 6n, 1, 1n, 2n ** 96n - 1n, 30n, 0n] as const;
@@ -77,5 +77,16 @@ describe("Kuru spot package", () => {
     for (const n of ["a", "b", "c", "d"]) expect(plugin.definition.pins.some((p) => p.target === addr(n))).toBe(true);
     read.mockImplementation(async ({ functionName, args }) => functionName === "marginAccountAddress" ? addr("e") : nativeRead(functionName, args));
     await expect(create_kuru(options())).rejects.toThrow("integration-kuru-dependency-mismatch");
+  });
+  it("reports every unavailable source without producing a partially verified plugin", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => url.includes("platform")
+      ? new Response(JSON.stringify({ chain_id: 143, router: addr("3"), module: addr("4"), read_program: addr("8") }))
+      : new Response(JSON.stringify({ error: "integration-source-unverified" }), { status: 400 })));
+    try { await create_kuru(options()); throw new Error("Expected source verification to fail"); }
+    catch (error) {
+      expect(error).toBeInstanceOf(KuruSourceUnavailableError);
+      const missing = (error as KuruSourceUnavailableError).failures.map((item) => item.target);
+      for (const n of ["3", "4", "7", "a", "b", "c", "d", "5", "6", "9"]) expect(missing).toContain(addr(n));
+    }
   });
 });

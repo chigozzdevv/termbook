@@ -269,16 +269,38 @@ and `TESTNET_UPGRADE_GUARDS` in the root `.env`. These guards reject deployment
 and authorization outside Monad testnet (10143). An upgrade between monitor
 checks remains a trust window; this configuration is not production admission.
 
-Kuru's public source reproduces the executable margin-account, AMM-vault and
-forwarder code after normalizing deployment-specific immutables and compiler
-metadata. The factory also reproduces with OpenZeppelin 5.4; its remaining
-difference is metadata embedded in the deployed proxy's creation code. The
-OrderBook build remains unmatched, and exact verified compiler inputs are not
-available from the checked public explorer or Sourcify records. The shared
-lifecycle tests and SDK validation runner exist, but the operator environment
-for running that suite against the deployed Kuru market is not implemented.
-Source verification, onchain configuration and live validation remain required
-before registration.
+Circle USDC, all five Kuru proxies, and the factory, margin-account, AMM-vault
+and forwarder implementations now have published Sourcify runtime matches. The
+source importer independently compares the compiled and live bytecode, allowing
+only compiler-declared metadata and immutable substitutions for a non-exact
+match. Full runtime hashes and implementation identities remain pinned. The
+OracleRegistry implementation, proxy and its direct implementation guard have
+exact matches. These records are in `deployments/testnet.json`.
+
+The deployed OrderBook implementation at
+`0x72caE0a99C19B574e8a6De558F43fc1D019c9374` still has no matching source build.
+The actual SDK source preflight now fails only for this implementation. Admission
+requires a matching compiler input; the public repository does not reproduce its
+executable bytecode.
+
+The operator commands are:
+
+```sh
+node scripts/setup-testnet-kuru.mjs --simulate --configure
+node scripts/setup-testnet-kuru.mjs --broadcast --configure
+node scripts/testnet-e2e.mjs --start --kuru
+node scripts/testnet-e2e.mjs --run --kuru
+node --env-file=.env --import tsx server/scripts/validate-integration.ts validation.json --admit --approve
+```
+
+Configuration binds the SDK definition and simulated governance plan before
+broadcast. Reader registration targets `HealthSource`; the SDK checks its
+binding through Core's authenticated `AccountHealthSource` wrapper. The live runner creates repayment, default-recovery and active
+valuation facilities. It records actual buy/sell calls and independent keeper
+recovery and repayment receipts for SDK validation. These Kuru commands have not
+completed against the live deployment. The complete Kuru acceptance scenario
+program also remains to be authored and executed; the six fork tests below do
+not supply the required acceptance report. No Kuru app token has been issued.
 
 The Kuru fork suite exercises borrowing, native MON custody and valuation,
 market buys and sells, repayment, borrower closure, and keeper recovery through
@@ -395,20 +417,31 @@ checks the economic meaning and coverage of every assertion before publication.
 Use `IntegrationValidationRunner` from the SDK, or run:
 
 ```sh
-node --import tsx scripts/validate-integration.ts validation.json
+node --import tsx server/scripts/validate-integration.ts validation.json
 ```
 
 The JSON config contains `rpcUrl`, `suite` metadata, `module`, `parameters`,
 `gasLimit`, `checkpoint`, and `output` paths. The reviewed module exports
 `createScenarios(parameters, actors)` returning named `cases` and justified
 `exclusions`. Cases call the recorder's `observe`, `simulate`, `transact`, and
-`assert` methods. Use the actual supported account and role model at minimum and
-maximum supported sizes. Set `TERMBOOK_VALIDATION_BORROWER_KEY`,
+`assert` methods. Rejection simulations use the successful control's exact
+canonical block, even when the finalized head advances. Use the actual supported
+account and role model at minimum and maximum supported sizes. Set `TERMBOOK_VALIDATION_BORROWER_KEY`,
 `TERMBOOK_VALIDATION_KEEPER_KEY`, and `TERMBOOK_VALIDATION_UNAUTHORIZED_KEY`
 for the three distinct wallets bound in the suite metadata. The runner saves
 state and submitted transaction hashes before waiting for finality; rerunning
-resumes the same case and transaction. The server records `validating` with a
-renewed lease, rejects concurrent submissions, and restores `ready_to_test` with
+resumes the same case and transaction. `create_evidence_environment` connects a
+completed report to the author SDK, rechecking its canonical reads, transaction
+inputs, receipts, actual gas limits, simulations and assertions. It requires the
+full reviewed report and live lifecycle references; it does not create cases or
+replace live testing. The CLI's `--admit` mode uses the same SDK validation,
+registration and optional `--approve` flow. Its `admission` config contains the
+verified `applicationId`, `apiBase`, plugin `module` and `factory`, factory
+`parameters`, tested `amount`, live `lifecycle` file, and a `tokenEnv` matching
+`TERMBOOK_*_APP_TOKEN`. The activated token is written to root `.env` and is not
+printed. Before activation, `--approve` is restricted to the server's authorized
+reviewer; fork reports also require the bound review signature. The server records
+`validating` with a renewed lease, rejects concurrent submissions, and restores `ready_to_test` with
 a failure code when validation fails.
 
 A fork report pins its finalized parent block and deployments. It is reviewed

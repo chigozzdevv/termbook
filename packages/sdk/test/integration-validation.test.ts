@@ -13,7 +13,7 @@ function client() {
     getBlock: vi.fn(async () => ({ number: 1n, hash: suite.sourceBlock.hash, transactions: [tx], gasLimit: 20_000_000n })),
     call: vi.fn(async () => ({ data: encodeAbiParameters([{ type: 'uint256' }], [1n]) })),
     getTransactionReceipt: vi.fn(async () => ({ blockNumber: 1n, blockHash: suite.sourceBlock.hash, transactionIndex: 0, status: 'success', gasUsed: 30_000n })),
-    getTransaction: vi.fn(async () => ({ from: suite.actors.borrower, to: suite.core, input: toFunctionSelector('act()'), value: 0n })),
+    getTransaction: vi.fn(async () => ({ from: suite.actors.borrower, to: suite.core, input: toFunctionSelector('act()'), value: 0n, gas: 1_000_000n })),
   };
 }
 function wallet() { return { address: suite.actors.borrower as Hex, writeContract: vi.fn(async () => tx), signTypedData: vi.fn() }; }
@@ -49,6 +49,40 @@ describe('integration validation recorder', () => {
     const chain = client(), signer = wallet(); chain.call.mockRejectedValue(new BaseError('RPC unavailable'));
     const runner = new IntegrationValidationRunner(chain as unknown as PublicClient, context, [signer], { gasLimit: 1_000_000n });
     await expect(runner.run('pause_failure', (r) => r.simulate('paused', { from: suite.actors.borrower as Hex, to: suite.core as Hex, signature: 'function act()' }).then(() => undefined))).rejects.toMatchObject({ cause: { message: expect.stringContaining('RPC unavailable') } });
+  });
+  it('runs a rejection against the exact block used by its positive control', async () => {
+    const chain = client(); let height = 1n;
+    chain.getBlock.mockImplementation(async (request?: { blockNumber?: bigint }) => ({ number: request?.blockNumber ?? height++,
+      hash: suite.sourceBlock.hash, transactions: [tx], gasLimit: 20_000_000n }));
+    chain.call.mockImplementation(async (request?: { account?: string }) => {
+      if (request?.account === suite.actors.unauthorized) throw Object.assign(new BaseError('execution reverted'), { data: '0x12345678' });
+      return { data: '0x' as Hex };
+    });
+    const runner = new IntegrationValidationRunner(chain as unknown as PublicClient, context, [], { gasLimit: 1_000_000n });
+    let controlBlock = '';
+    await runner.run('unauthorized_module', async (r) => {
+      const call = { from: suite.actors.borrower as Hex, to: suite.core as Hex, signature: 'function act()' };
+      const control = await r.simulate('control', call); controlBlock = control.block.number;
+      const rejected = await r.simulate('rejected', { ...call, from: suite.actors.unauthorized as Hex }, 'control');
+      expect(rejected.reverted).toBe(true); expect(rejected.block).toEqual(control.block);
+    });
+    expect(chain.getBlock).toHaveBeenCalledWith({ blockNumber: BigInt(controlBlock) });
+  });
+  it('rechecks recorded evidence and rejects fabricated reads or transaction gas', async () => {
+    const item = structuredClone(suite.cases.find((item) => item.id === 'bounded_calls')!);
+    const chain = client();
+    chain.call.mockImplementation(async (request?: { data?: Hex }) => ({ data: request?.data === toFunctionSelector('state()')
+      ? encodeAbiParameters([{ type: 'uint256' }], [1n]) : '0x' as Hex }));
+    item.transactions = [{ hash: tx, from: suite.actors.borrower, to: suite.core, data: toFunctionSelector('act()'),
+      value: '0', succeeded: true, block: suite.sourceBlock, gasUsed: '30000', gasLimit: '1000000' }];
+    const run = () => new IntegrationValidationRunner(chain as unknown as PublicClient, context, [], { gasLimit: 1_000_000n })
+      .run('bounded_calls', (r) => r.replay(item));
+    await expect(run()).resolves.toBeUndefined();
+    item.observations[0]!.result = encodeAbiParameters([{ type: 'uint256' }], [2n]);
+    await expect(run()).rejects.toMatchObject({ cause: { message: 'integration-observation-mismatch' } });
+    item.observations[0]!.result = encodeAbiParameters([{ type: 'uint256' }], [1n]);
+    item.transactions[0]!.gasLimit = '30000';
+    await expect(run()).rejects.toMatchObject({ cause: { message: 'integration-transaction-evidence-mismatch' } });
   });
   it('matches the server evidence digest and typed fork review', () => {
     expect(integrationEvidenceHash(suite)).toBe(keccak256(stringToHex(canonicalEvidence(suite))));

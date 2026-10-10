@@ -3,7 +3,11 @@ import path from "node:path";
 import process from "node:process";
 import { log, error } from "node:console";
 import { root, viem, artifact } from "./testnet-runtime.mjs";
-import { readConfiguration } from "./testnet-state.mjs";
+import { readConfiguration, writeJsonAtomic, operationFile, clearOperation } from "./testnet-state.mjs";
+import { setTimeout as delay } from "node:timers/promises";
+
+const publish = process.argv[2] === "--publish-sources";
+if (process.argv.length !== (publish ? 3 : 2)) throw new Error("Use no arguments or --publish-sources");
 
 const canonical = (value) => JSON.stringify(value, (_, entry) => typeof entry === "bigint" ? entry.toString() : entry);
 function equal(actual, expected, label) {
@@ -62,6 +66,80 @@ async function main() {
           ...(["UseCasePolicy", "UseCaseRecovery"].includes(name) ? { reader: a.UseCaseReader } : {}),
           ...(name === "AtomicSpotModule" ? { router: a.AtomicSpotRouter } : {}) };
     for (const [method, expected] of Object.entries(bindings)) equal(await read(name, address, method), expected, `${name}.${method}`);
+  }
+  if (publish) {
+    const extra = [
+      { name: "OracleRegistryImplementation", artifact: "OracleRegistry", address: deployment.proxies[10143].OracleRegistry.implementation },
+      { name: "OracleRegistryProxy", artifact: "TestnetProxy", address: m.OracleRegistry },
+      ...(deployment.configuration["kuru-market"]?.oracleGuard ? [{ name: "KuruOracleGuard", artifact: "ImplementationGuard",
+        address: deployment.configuration["kuru-market"].oracleGuard.address }] : []),
+    ];
+    const file = operationFile("integration-source-verification");
+    const jobs = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
+    const api = "https://sourcify.dev/server/v2";
+    report.sourceVerification ??= { contracts: [] };
+    for (const target of extra) {
+      const build = artifact(target.artifact), code = await client.getCode({ address: target.address, blockNumber: block.number });
+      const normalize = (value) => {
+        let result = value.slice(2);
+        for (const refs of Object.values(build.deployedBytecode.immutableReferences ?? {})) for (const { start, length } of refs) {
+          result = result.slice(0, start * 2) + "0".repeat(length * 2) + result.slice((start + length) * 2);
+        }
+        return result;
+      };
+      equal(normalize(code), normalize(build.deployedBytecode.object), `${target.name} compiled code`);
+      const url = `${api}/contract/10143/${target.address}`;
+      const currentResponse = await globalThis.fetch(url, { signal: globalThis.AbortSignal.timeout(20_000) });
+      let verified = currentResponse.ok ? await currentResponse.json() : null;
+      if (verified?.runtimeMatch !== "exact_match") {
+        const sources = {};
+        for (const [name, pin] of Object.entries(build.metadata.sources)) {
+          const sourceFile = path.resolve(root, "contracts/evm", name);
+          if (!name.endsWith(".sol") || !sourceFile.startsWith(`${root}${path.sep}`)) throw new Error("Invalid compiler source path");
+          const content = fs.readFileSync(sourceFile, "utf8");
+          equal(viem.keccak256(viem.toHex(content)), pin.keccak256, `${target.name} source ${name}`);
+          sources[name] = { content };
+        }
+        const settings = { ...build.metadata.settings }; delete settings.compilationTarget;
+        settings.outputSelection = { "*": { "*": ["abi", "evm.bytecode", "evm.deployedBytecode"] } };
+        const compiledTarget = Object.entries(build.metadata.settings.compilationTarget)[0];
+        const body = { stdJsonInput: { language: "Solidity", sources, settings }, compilerVersion: build.metadata.compiler.version,
+          contractIdentifier: compiledTarget.join(":") };
+        const inputHash = viem.keccak256(viem.toHex(JSON.stringify(body)));
+        let job = jobs[target.address.toLowerCase()];
+        if (job && job.inputHash !== inputHash) throw new Error("Source verification input changed");
+        if (!job) {
+          const response = await globalThis.fetch(`${api}/verify/10143/${target.address}`, { method: "POST",
+            headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: globalThis.AbortSignal.timeout(30_000) });
+          const result = await response.json();
+          if (!response.ok || !/^[a-f0-9-]{36}$/i.test(result.verificationId ?? "")) throw new Error(`Source publication rejected: ${target.name}`);
+          job = jobs[target.address.toLowerCase()] = { inputHash, verificationId: result.verificationId };
+          writeJsonAtomic(file, jobs);
+        }
+        const deadline = Date.now() + 120_000;
+        for (;;) {
+          const response = await globalThis.fetch(`${api}/verify/${job.verificationId}`, { signal: globalThis.AbortSignal.timeout(20_000) });
+          const status = await response.json();
+          if (!response.ok || status.error) throw new Error(`Source verification failed: ${target.name}`);
+          if (status.isJobCompleted) break;
+          if (Date.now() >= deadline) throw new Error(`Source verification pending: ${target.name}`);
+          await delay(2000);
+        }
+        const response = await globalThis.fetch(url, { signal: globalThis.AbortSignal.timeout(20_000) });
+        if (!response.ok) throw new Error(`Source verification unavailable: ${target.name}`);
+        verified = await response.json();
+      }
+      if (verified.runtimeMatch !== "exact_match") throw new Error(`Source did not match: ${target.name}`);
+      const record = { name: target.name, address: target.address,
+        ...(jobs[target.address.toLowerCase()] ? { verificationId: jobs[target.address.toLowerCase()].verificationId } : {}),
+        matchId: verified.matchId, verifiedAt: verified.verifiedAt, runtimeMatch: verified.runtimeMatch,
+        creationMatch: verified.creationMatch, url };
+      report.sourceVerification.contracts = report.sourceVerification.contracts.filter((item) => item.name !== target.name);
+      report.sourceVerification.contracts.push(record);
+      writeJsonAtomic(path.join(root, "deployments/testnet.json"), deployment);
+      log(JSON.stringify({ sourceVerified: target.name, address: target.address, runtimeMatch: verified.runtimeMatch }));
+    }
+    clearOperation("integration-source-verification");
   }
   equal((await client.getBlock({ blockNumber: block.number })).hash, block.hash, "canonical verification block");
   log(JSON.stringify({ verified: true, block: block.number.toString(), blockHash: block.hash,

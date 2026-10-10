@@ -22,13 +22,32 @@ export type KuruOptions = {
   oracle: Address; feed_id: Hex;
 };
 
+export class KuruSourceUnavailableError extends Error {
+  constructor(readonly failures: { target: Address; implementation?: Address; reason: string }[]) {
+    super("integration-kuru-sources-unavailable");
+  }
+}
+
 async function json<T>(api: string, path: string): Promise<T> {
   const response = await fetch(`${api}${path}`, { signal: AbortSignal.timeout(20_000), redirect: "error" });
-  if (!response.ok) throw new Error("integration-platform-unavailable");
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { error?: unknown } | null;
+    const reason = typeof body?.error === "string" && /^integration-[a-z-]+$/.test(body.error) ? body.error
+      : path.startsWith("/integrations/source") ? "integration-source-unavailable" : "integration-platform-unavailable";
+    throw new Error(reason);
+  }
   return response.json() as Promise<T>;
 }
 
 export async function create_kuru(options: KuruOptions): Promise<spot> {
+  const amount = (value: bigint) => {
+    if (!/^\d{1,78}$/.test(String(value)) || BigInt(value) >= 2n ** 128n) throw new Error("integration-kuru-limits-invalid");
+    return BigInt(value);
+  };
+  options = { ...options, maximum_input: amount(options.maximum_input), recovery_costs: amount(options.recovery_costs),
+    max_holding: amount(options.max_holding), dust_limit: amount(options.dust_limit) };
+  if (options.maximum_input === 0n || options.max_holding === 0n || options.dust_limit > options.max_holding
+    || !Number.isSafeInteger(options.retained_bps) || options.retained_bps <= 0 || options.retained_bps > 10_000) throw new Error("integration-kuru-limits-invalid");
   const runtime = globalThis as { process?: { env?: Record<string, string | undefined> } };
   const api = new URL(options.api_base ?? runtime.process?.env?.["TERMBOOK_PUBLIC_API_BASE"] ?? "");
   if (api.protocol !== "https:" && !(api.protocol === "http:" && ["localhost", "127.0.0.1"].includes(api.hostname))
@@ -62,7 +81,7 @@ export async function create_kuru(options: KuruOptions): Promise<spot> {
   const targets = [...new Set([platform.router, platform.module, platform.read_program, options.market_address,
     vault, factory, margin, forwarder, base, quote, options.oracle].filter((address) => address !== zeroAddress).map((address) => address.toLowerCase()))] as Address[];
   const pins = await Promise.all(targets.map((target) => pin_contract(client, target, block.number)));
-  const verified_sources = await Promise.all(pins.map(async (pin) => {
+  const sourceResults = await Promise.allSettled(pins.map(async (pin) => {
     const source = await json<PluginDefinition["verified_sources"][number] & { code_hash: Hex; implementation_code_hash?: Hex }>(api.origin,
       `/integrations/source?target=${pin.target}`);
     if (source.target.toLowerCase() !== pin.target.toLowerCase() || source.code_hash.toLowerCase() !== pin.code_hash.toLowerCase()
@@ -71,6 +90,15 @@ export async function create_kuru(options: KuruOptions): Promise<spot> {
     return { target: source.target, source_hash: source.source_hash, implementation: source.implementation,
       implementation_source_hash: source.implementation_source_hash };
   }));
+  const failures = sourceResults.flatMap((result, index) => result.status === "rejected" ? [{
+    target: pins[index]!.target as Address, implementation: pins[index]!.implementation as Address | undefined,
+    reason: result.reason instanceof Error ? result.reason.message : "integration-source-unavailable",
+  }] : []);
+  if (failures.length) throw new KuruSourceUnavailableError(failures);
+  const verified_sources = sourceResults.map((result) => {
+    if (result.status !== "fulfilled") throw new Error("integration-source-unavailable");
+    return result.value;
+  });
   const routes = (["buy", "sell"] as const).map((direction) => {
     const id = keccak256(stringToHex(canonicalEvidence({ protocol: "kuru", direction, market, pins,
       retained_bps: options.retained_bps, recovery_costs: String(options.recovery_costs), maximum_input: String(options.maximum_input), max_holding: String(options.max_holding), dust_limit: String(options.dust_limit) })));

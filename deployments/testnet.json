@@ -35764,6 +35764,31 @@
           "codeHash": "0x2a4051603380873257e9aa9d8a996cbe34c2c4a47acf2286799a390ffe618458"
         }
       }
+    },
+    "native": {
+      "core": "0x198995faab55a9d5d4dceab56abaaa273c26fad7",
+      "completedAt": "2026-10-10T00:53:53.709Z",
+      "asset": "0xFb8bf4c1CC7a94c73D209a149eA2AbEa852BC541",
+      "vault": "0x60137739e130157b18c69df63289d8b823c82854",
+      "pyth": "0xFC6bd9F9f0c6481c6Af3A7Eb46b296A5B85ed379",
+      "pythId": "0x31491744e2dbf6df7fcf4ac0820d18a609b49076d45066d3568424e62f686cd1",
+      "priceId": "0x9203f65b177651b13676de49447e68afdac95111488c99417042688821852203",
+      "retainedSourceBps": 8000,
+      "recoveryCosts": "1000",
+      "addresses": {
+        "MONPriceFeed": "0xc2f67d6b5ffaa63b6f2632dbde335c3814e5204f",
+        "MONLiveRatioPriceFeed": "0x24649d5f8ca08203d2a905ba49e8f6c35b38806b"
+      },
+      "contractPins": {
+        "MONPriceFeed": {
+          "address": "0xc2f67d6b5ffaa63b6f2632dbde335c3814e5204f",
+          "codeHash": "0xa27d273567c12bfde841c9fe362fa64093eafad55b49a06e50e759a6f769985f"
+        },
+        "MONLiveRatioPriceFeed": {
+          "address": "0x24649d5f8ca08203d2a905ba49e8f6c35b38806b",
+          "codeHash": "0xf4e74c731dd641480a6e6abeb014b9fad306ba2cc904fdc5376b2690ff747ecc"
+        }
+      }
     }
   },
   "deploymentBlocks": {

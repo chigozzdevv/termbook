@@ -927,8 +927,32 @@ node scripts/verify-testnet-e2e.mjs --fast --clean
 
 Runners resume unfinished journals under `.data/operations/`. Verification checks
 canonical receipts and eventual full source finality, then removes completed run
-files. Starting again after successful verification creates a new live test. MON price admission and Aurora settlement routes remain
-unconfigured.
+files. Starting again after successful verification creates a new live test.
+
+Native MON collateral is admitted on Monad testnet using Pyth MON/USD and the
+registered USDC/USD feed. The live MON/USDC ratio rejects stale prices and excessive
+confidence intervals. The admitted vault code, guardian, collateral risk policy and
+oracle-backed USDC bid floor are recorded in `deployments/testnet.json`.
+
+```sh
+node scripts/setup-testnet.mjs --simulate --native
+node scripts/setup-testnet.mjs --broadcast --native
+node scripts/testnet-e2e.mjs --start --native
+node scripts/verify-testnet-e2e.mjs --native
+```
+
+On 10 October 2026, two native MON-backed loans each locked 2 MON and borrowed
+0.10 test USDC through the reference app. Repayment and independent keeper recovery
+both completed with zero debt, returned native collateral, empty app positions and
+released account control. All 25 borrower and recovery receipts were independently
+checked as canonical and finalized. The repayment case borrowed 36 seconds after
+acceptance and closed after 51 seconds. The default case included a deliberate
+seven-minute maturity wait and a keeper gas top-up; it closed after 9m 39s.
+This test did not sell MON collateral or exercise a real trading venue.
+
+Envio has replayed the finalized Core event history into Docker MongoDB, and the
+local API and keeper readiness check passes. Aurora settlement routes remain
+unconfigured and their live tests are deferred.
 Aurora settlement exercises require a Studio application key and confirmed
 sandbox asset pairs for these testnets. Testnet governance has no waiting period.
 
@@ -1004,9 +1028,9 @@ USDC price, a recovery route, and the required governance configuration.
 
 | Asset | Lock location | Current implementation |
 | --- | --- | --- |
-| MON | Native MON enters `NativeCollateralVault` on Monad and is held as WMON. | Local custody, native return, WMON sale for USDC, and oracle-backed collateral-only health reader. The vault and USDC House are deployed on Monad testnet; feeds, risk bands, exit verifier, and market admission remain to be configured. |
-| ETH | WETH stays in `CollateralVault` on Ethereum. | The Wormhole route publishes Ethereum custody snapshots and Monad action authorizations as Guardian VAAs, with pinned emitters and payloads verified onchain. The native Beacon and Monad BFT verifier contracts remain available as a separate route. The replacement testnet WETH market is admitted. Live locks, borrowing, repayment, app recovery and returns passed on the previous deployment and need a rerun on the new addresses. WETH seizure and Aurora conversion still need a live exercise. |
-| SOL | Native SOL stays in a Solana program-derived account. | Monad publishes lock and action authorizations through Wormhole. The Solana program verifies posted VAAs and emits custody snapshots through the Wormhole shim; Monad verifies signed snapshot VAAs. The SDK connects a browser Solana wallet and posts VAAs. The devnet program retains its recorded testnet upgrade authority, and its verifiers are admitted on Monad testnet. Price admission and live recovery tests remain. |
+| MON | Native MON enters `NativeCollateralVault` on Monad and is held as WMON. | Vault, feeds, USDC sale policy and collateral admission are active. Live borrowing, repayment, independent app recovery and native returns passed. WMON collateral sale still needs a live exercise. |
+| ETH | WETH stays in `CollateralVault` on Ethereum. | The Wormhole route verifies custody snapshots and return authorizations onchain. The admitted replacement passed live reference-app borrowing, repayment, recovery and returns. The separate native consensus route remains available. WETH seizure and Aurora conversion still need a live exercise. |
+| SOL | Native SOL stays in a Solana program-derived account. | Posted Wormhole VAAs authorize source custody actions; Monad verifies signed snapshot VAAs. The devnet program, price feeds and separate source keeper are active. Live reference-app borrowing, repayment and collateral return passed. Default seizure and Aurora conversion still need a live exercise. |
 
 For SOL, Monad Core binds the lock and publishes its Wormhole authorization
 before a Solana wallet signs the SDK `SolanaSourceLockWallet` lock instruction.

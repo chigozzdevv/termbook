@@ -9,15 +9,17 @@ import { viem, artifact, testnetRuntime, writeJsonAtomic } from "./testnet-runti
 const mode = process.argv[2];
 const fast = process.argv[3] === "--fast";
 const clean = process.argv[4] === "--clean";
+const native = process.argv[3] === "--native";
 if (!["--begin", "--start", "--retry-default", "--advance", "--run", "--observe"].includes(mode) || clean && !fast
-  || process.argv.length !== (clean ? 5 : fast ? 4 : 3)) throw new Error("Use --begin, --start, --retry-default, --advance, --run, or --observe with optional --fast and --clean");
-const journalName = fast ? clean ? "fast-clean-e2e" : "fast-e2e" : "live-e2e";
-const publicName = fast ? clean ? "testnet-fast-clean-e2e" : "testnet-fast-e2e" : "testnet-e2e";
+  || process.argv.length !== (clean ? 5 : fast || native ? 4 : 3)) throw new Error("Use --begin, --start, --retry-default, --advance, --run, or --observe with optional --native or --fast and --clean");
+const journalName = native ? "native-e2e" : fast ? clean ? "fast-clean-e2e" : "fast-e2e" : "live-e2e";
+const publicName = native ? "testnet-native-e2e" : fast ? clean ? "testnet-fast-clean-e2e" : "testnet-fast-e2e" : "testnet-e2e";
 const api = "http://127.0.0.1:3002";
 const erc20 = viem.parseAbi(["function approve(address,uint256) returns(bool)", "function balanceOf(address) view returns(uint256)"]);
 const wethAbi = viem.parseAbi(["function deposit() payable"]);
 const encode = (name, method, args) => viem.encodeFunctionData({ abi: artifact(name).abi, functionName: method, args });
-const amounts = { collateral: 200_000_000_000_000n, limit: 2_000_000n, draw: 1_000_000n, bond: 20_000n };
+const amounts = native ? { collateral: viem.parseEther("2"), limit: 100_000n, draw: 100_000n, bond: 20_000n }
+  : { collateral: 200_000_000_000_000n, limit: 2_000_000n, draw: 1_000_000n, bond: 20_000n };
 const numericQuote = ["sourceChain", "collateralAmount", "limit", "setupDeadline", "maturity", "gracePeriod", "reservationBond", "nonce", "expiry", "aprBps", "originationFee", "commitmentFeeBps"];
 const quoteValue = (quote) => Object.fromEntries(Object.entries(quote).map(([key, value]) => [key, numericQuote.includes(key) ? BigInt(value) : value]));
 
@@ -25,18 +27,20 @@ async function main() {
   const runtime = await testnetRuntime(journalName, false);
   const { deployment, report, persist, account } = runtime;
   const monad = await runtime.context(10143);
-  const source = await runtime.context(11155111);
+  const source = native ? monad : await runtime.context(11155111);
   const m = deployment.addresses[10143];
   const s = deployment.addresses[11155111];
   const usdc = deployment.tokens[10143].USDC;
-  const weth = deployment.tokens[11155111].WETH;
+  const nativeSetup = native ? readConfiguration("native") : undefined;
+  const weth = native ? nativeSetup.asset : deployment.tokens[11155111].WETH;
+  const collateralVault = native ? m.NativeCollateralVault : s.CollateralVault;
   const appSetup = readConfiguration("app");
   const app = appSetup.addresses.ReferenceAssetApp;
   const coreRead = (name, args = []) => monad.read("TermbookCore", m.TermbookCore, name, args);
   const now = (await monad.client.getBlock()).timestamp;
   if (!m.AccountHealthSource || (await coreRead("healthSource")).toLowerCase() !== m.AccountHealthSource.toLowerCase()) throw new Error("Authenticated health source is required");
   if (!await monad.read("IntegrationRegistry", m.IntegrationRegistry, "isActive", [appSetup.bundleId])) throw new Error("Test application is inactive");
-  if (mode !== "--observe") {
+  if (mode !== "--observe" && !native) {
     const registry = await coreRead("verifierRegistry");
     const [verifier, version, active] = await monad.read("VerifierRegistry", registry, "verifiers", [11155111n]);
     const depth = await source.read("WormholeEthereumPublisher", s.WormholeEthereumPublisher, "confirmationDepth");
@@ -86,9 +90,9 @@ async function main() {
         const creditId = viem.keccak256(viem.encodeAbiParameters(viem.parseAbiParameters("bytes32,address,address,uint256"),
           [intentId, account.address, account.address, nonce]));
         const lockId = viem.keccak256(viem.encodeAbiParameters(viem.parseAbiParameters("bytes32,string"), [creditId, "source-lock"]));
-        const setupDeadline = now + (kind === "default-retry" ? 2700n : 1800n);
+        const setupDeadline = now + (native ? 300n : kind === "default-retry" ? 2700n : 1800n);
         const quote = { borrower: account.address, owner: account.address, intentId, house: account.address,
-          vault: m.HouseVault, sourceChain: 11155111n, collateralVault: s.CollateralVault,
+          vault: m.HouseVault, sourceChain: native ? 10143n : 11155111n, collateralVault,
           collateralAsset: weth, collateralAmount: amounts.collateral, returnRecipient: account.address,
           settlementAsset: usdc, limit: amounts.limit, bundleId: appSetup.bundleId,
           setupDeadline, maturity: kind.startsWith("default") ? setupDeadline + 120n : setupDeadline + 43_200n,
@@ -105,18 +109,25 @@ async function main() {
       await monad.send(`${kind}:approve-bond`, viem.encodeFunctionData({ abi: erc20, functionName: "approve", args: [m.HouseVault, amounts.bond] }), usdc);
       await monad.call("TermbookCore", m.TermbookCore, "acceptQuote", [quote], `${kind}:accept`);
       await post("/credits", { creditId: test.creditId, borrower: account.address, house: account.address });
-      await monad.call("TermbookCore", m.TermbookCore, "bindRemoteCollateral", [test.creditId, test.lockId], `${kind}:bind-lock`);
+      if (!native) await monad.call("TermbookCore", m.TermbookCore, "bindRemoteCollateral", [test.creditId, test.lockId], `${kind}:bind-lock`);
       await monad.call("AccountFactory", m.AccountFactory, "create", [test.creditId, account.address, m.TermbookCore], `${kind}:create-account`);
       test.account = await monad.read("AccountFactory", m.AccountFactory, "accountOf", [test.creditId]);
       await monad.call("TermbookCore", m.TermbookCore, "bindAccount", [test.creditId, test.account], `${kind}:bind-account`);
       test.lockRevision ??= String(await coreRead("creditRevision", [test.creditId]));
       persist();
-      await source.send(`${kind}:wrap-ETH`, viem.encodeFunctionData({ abi: wethAbi, functionName: "deposit" }), weth, amounts.collateral);
-      await source.send(`${kind}:approve-WETH`, viem.encodeFunctionData({ abi: erc20, functionName: "approve", args: [s.CollateralVault, amounts.collateral] }), weth);
-      const tx = await source.call("CollateralVault", s.CollateralVault, "lockRemoteWithDeadline", [test.lockId, test.creditId,
-        account.address, account.address, amounts.collateral, account.address, quote.setupDeadline, BigInt(test.lockRevision)], `${kind}:lock-WETH`);
-      test.lockTx = tx.hash;
-      await post("/collateral", { lockId: test.lockId, creditId: test.creditId, owner: account.address, amount: String(amounts.collateral) });
+      if (native) {
+        const tx = await monad.send(`${kind}:lock-MON`, encode("NativeCollateralVault", "lockNativeWithDeadline", [test.lockId,
+          test.creditId, account.address, amounts.collateral, account.address, quote.setupDeadline, BigInt(test.lockRevision)]), collateralVault, amounts.collateral);
+        test.lockTx = tx.hash;
+        await monad.call("TermbookCore", m.TermbookCore, "bindCollateral", [test.creditId, test.lockId], `${kind}:bind-lock`);
+      } else {
+        await source.send(`${kind}:wrap-ETH`, viem.encodeFunctionData({ abi: wethAbi, functionName: "deposit" }), weth, amounts.collateral);
+        await source.send(`${kind}:approve-WETH`, viem.encodeFunctionData({ abi: erc20, functionName: "approve", args: [s.CollateralVault, amounts.collateral] }), weth);
+        const tx = await source.call("CollateralVault", s.CollateralVault, "lockRemoteWithDeadline", [test.lockId, test.creditId,
+          account.address, account.address, amounts.collateral, account.address, quote.setupDeadline, BigInt(test.lockRevision)], `${kind}:lock-WETH`);
+        test.lockTx = tx.hash;
+        await post("/collateral", { lockId: test.lockId, creditId: test.creditId, owner: account.address, amount: String(amounts.collateral) });
+      }
       test.state = "awaiting_collateral_proof";
       persist();
     }
@@ -169,14 +180,14 @@ async function main() {
       const returnAllowed = credit.debt === 0n && !credit.collateralReturned
         && (credit.facility === 7 || test.drawVerified && (credit.facility === 5 || [8, 9].includes(credit.facility)));
       if (returnAllowed && !test.returnTx) {
-        const wormhole = await coreRead("ethereumWormholeCore");
-        const fee = await monad.client.readContract({ address: wormhole,
+        const wormhole = native ? undefined : await coreRead("ethereumWormholeCore");
+        const fee = native ? 0n : await monad.client.readContract({ address: wormhole,
           abi: viem.parseAbi(["function messageFee() view returns(uint256)"]), functionName: "messageFee" });
         const tx = await monad.send(`${test.kind}:authorize-return`, encode("TermbookCore", "authorizeReturn", [test.creditId, test.lockId, credit.collateralAmount]), m.TermbookCore, fee);
         test.returnTx = tx.hash;
         persist();
       }
-      if (test.returnTx && !credit.collateralReturned) {
+      if (!native && test.returnTx && !credit.collateralReturned) {
         test.returnActionHash ??= await coreRead("remoteReturnActionHash", [test.creditId]);
         if (!test.returnRegistered) {
           const response = await globalThis.fetch(`${api}/collateral/actions?creditId=${test.creditId}`);
@@ -210,7 +221,7 @@ async function main() {
   const observations = [];
   for (const test of Object.values(report.cases)) {
     const credit = await coreRead("creditDetails", [test.creditId]);
-    const sourceLock = await source.read("CollateralVault", s.CollateralVault, "locks", [test.lockId]);
+    const sourceLock = await source.read(native ? "NativeCollateralVault" : "CollateralVault", collateralVault, "locks", [test.lockId]);
     const position = await monad.read("ReferenceAssetApp", app, "positions", [test.account]);
     const accountReleased = await monad.read("CreditAccount", test.account, "released");
     const completed = [6, 10].includes(credit.facility) && credit.debt === 0n && credit.collateralReturned && position === 0n && sourceLock[2] === 0n && accountReleased;
@@ -228,9 +239,11 @@ async function main() {
   report.observations = observations;
   if (mode !== "--observe") persist();
   writeJsonAtomic(operationFile(publicName), { network: "testnet", startedAt: report.startedAt, observedAt: report.observedAt,
-    confirmationPolicy: fast ? "Sepolia five-confirmation test policy" : "Full source finality",
-    scope: "Real Sepolia WETH custody, Wormhole proofs, Monad USDC borrowing and reference app recovery",
-    excluded: "Aurora conversions and real trading venue behavior", core: m.TermbookCore, app, observations,
+    confirmationPolicy: native ? "Atomic Monad custody" : fast ? "Sepolia five-confirmation test policy" : "Full source finality",
+    scope: native ? "Native MON custody, USDC borrowing, API credit tracking and independent reference app recovery"
+      : "Real Sepolia WETH custody, Wormhole proofs, Monad USDC borrowing and reference app recovery",
+    excluded: native ? "Collateral sale, Aurora conversions and real trading venues" : "Aurora conversions and real trading venue behavior",
+    drawAmount: String(amounts.draw), native, core: m.TermbookCore, app, observations,
     transactions: report.transactions.map((tx) => Object.fromEntries(Object.entries(tx).filter(([key]) => key !== "rawTransaction"))) });
   log(JSON.stringify({ observedAt: report.observedAt, cases: observations }));
   return observations.some((test) => test.kind === "repayment" && test.completed)

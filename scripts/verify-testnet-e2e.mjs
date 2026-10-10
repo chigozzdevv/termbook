@@ -6,20 +6,22 @@ import { log, error } from 'node:console';
 import { root, viem, artifact } from './testnet-runtime.mjs';
 import { pacedHttp } from '../server/dist/chain/rpc.transport.js';
 const fast = process.argv[2] === '--fast';
+const native = process.argv[2] === '--native';
 const clean = process.argv[3] === '--clean';
-if (clean && !fast || process.argv.length !== (clean ? 4 : fast ? 3 : 2)) throw new Error('Use optional --fast and --clean');
-const publicName = fast ? clean ? 'testnet-fast-clean-e2e' : 'testnet-fast-e2e' : 'testnet-e2e';
+if (clean && !fast || process.argv.length !== (clean ? 4 : fast || native ? 3 : 2)) throw new Error('Use optional --native or --fast and --clean');
+const publicName = native ? 'testnet-native-e2e' : fast ? clean ? 'testnet-fast-clean-e2e' : 'testnet-fast-e2e' : 'testnet-e2e';
 
 async function main() {
   const deployment = JSON.parse(fs.readFileSync(path.join(root, 'deployments/testnet.json'), 'utf8'));
   const recorded = JSON.parse(fs.readFileSync(operationFile(publicName), 'utf8'));
   const appSetup = readConfiguration('app');
   const core = deployment.addresses[10143].TermbookCore;
-  if (recorded.network !== 'testnet' || recorded.core !== core || recorded.app !== appSetup.addresses.ReferenceAssetApp) throw new Error('E2E deployment mismatch');
+  if (Boolean(recorded.native) !== native || recorded.network !== 'testnet' || recorded.core !== core || recorded.app !== appSetup.addresses.ReferenceAssetApp) throw new Error('E2E deployment mismatch');
   const monad = viem.createPublicClient({ transport: pacedHttp('https://testnet-rpc.monad.xyz', 4) });
-  const source = viem.createPublicClient({ transport: viem.http('https://ethereum-sepolia-rpc.publicnode.com') });
-  if (await monad.getChainId() !== 10143 || await source.getChainId() !== 11155111) throw new Error('E2E network mismatch');
-  const finalized = { 10143: await monad.getBlock({ blockTag: 'finalized' }), 11155111: await source.getBlock({ blockTag: 'finalized' }) };
+  const source = native ? monad : viem.createPublicClient({ transport: viem.http('https://ethereum-sepolia-rpc.publicnode.com') });
+  if (await monad.getChainId() !== 10143 || await source.getChainId() !== (native ? 10143 : 11155111)) throw new Error('E2E network mismatch');
+  const finalized = { 10143: await monad.getBlock({ blockTag: 'finalized' }),
+    ...(!native ? { 11155111: await source.getBlock({ blockTag: 'finalized' }) } : {}) };
   const read = (client, name, address, functionName, args, chainId) => client.readContract({ address, abi: artifact(name).abi, functionName, args, blockNumber: finalized[chainId].number });
   const checked = new Map();
   async function verifyFastProof(hash, creditId, applied = false, actionHash) {
@@ -60,7 +62,8 @@ async function main() {
   const observations = [];
   for (const t of recorded.observations) {
     const c = await read(monad, 'TermbookCore', core, 'creditDetails', [t.creditId], 10143);
-    const lock = await read(source, 'CollateralVault', deployment.addresses[11155111].CollateralVault, 'locks', [t.lockId], 11155111);
+    const lock = await read(source, native ? 'NativeCollateralVault' : 'CollateralVault', native ? deployment.addresses[10143].NativeCollateralVault
+      : deployment.addresses[11155111].CollateralVault, 'locks', [t.lockId], native ? 10143 : 11155111);
     const position = await read(monad, 'ReferenceAssetApp', recorded.app, 'positions', [t.account], 10143);
     const accountReleased = await read(monad, 'CreditAccount', t.account, 'released', [], 10143);
     const outcome = { kind: t.kind, creditId: t.creditId, facility: c.facility, payment: c.payment, debt: String(c.debt),
@@ -77,11 +80,12 @@ async function main() {
         catch { return []; }
       });
       const drawn = events.filter((entry) => entry.eventName === 'Drawn' && entry.args.creditId === t.creditId);
-      if (drawn.length !== 1 || drawn[0].args.amount !== 1_000_000n || drawn[0].args.debt !== 1_000_000n) throw new Error('Live draw event mismatch');
+      if (drawn.length !== 1 || drawn[0].args.amount !== BigInt(recorded.drawAmount ?? '1000000')
+        || drawn[0].args.debt !== BigInt(recorded.drawAmount ?? '1000000')) throw new Error('Live draw event mismatch');
       outcome.drawReceipt = await receipt(10143, draw.hash);
     }
     if ((outcome.repaymentComplete || outcome.recoveryComplete) && !draw) throw new Error('Completed test has no live draw');
-    for (const endpoint of ['collateral', 'collateral/actions']) {
+    for (const endpoint of native ? [] : ['collateral', 'collateral/actions']) {
       const response = await globalThis.fetch(`http://127.0.0.1:3002/${endpoint}?creditId=${t.creditId}`);
       if (!response.ok) throw new Error('Local E2E receipt index unavailable');
       const records = await response.json();
@@ -134,7 +138,7 @@ async function main() {
           steps.push(tx);
         }
       }
-      if (!exited || recovered !== 1_000_000n) throw new Error('Independent keeper did not exit and recover the full loan');
+      if (!exited || recovered !== BigInt(recorded.drawAmount ?? '1000000')) throw new Error('Independent keeper did not exit and recover the full loan');
       outcome.forcedRecoveryReceipts = steps;
       outcome.forcedRecoveryAmount = String(recovered);
     }
@@ -143,13 +147,32 @@ async function main() {
       return tx ? receipt(tx.chainId, tx.hash) : undefined;
     };
     const accept = await ownReceipt('accept');
-    const locked = await ownReceipt('lock-WETH');
+    const locked = await ownReceipt(native ? 'lock-MON' : 'lock-WETH');
     const repaid = await ownReceipt('repay');
     const authorized = await ownReceipt('authorize-return');
     const closed = await ownReceipt(t.kind === 'repayment' ? 'finish-close' : 'release-account');
-    const lockProof = outcome.collateralProofReceipt;
-    const applied = outcome.sourceReturnReceipt;
-    const confirmation = outcome.returnConfirmationReceipt;
+    const lockProof = native ? await ownReceipt('bind-lock') : outcome.collateralProofReceipt;
+    const applied = native ? authorized : outcome.sourceReturnReceipt;
+    const confirmation = native ? authorized : outcome.returnConfirmationReceipt;
+    if (native) {
+      if (!locked || !lockProof || !authorized || !closed) throw new Error('Native custody receipts missing');
+      const vault = deployment.addresses[10143].NativeCollateralVault;
+      const asset = await read(monad, 'NativeCollateralVault', vault, 'asset', [], 10143);
+      if (c.collateralVault.toLowerCase() !== vault.toLowerCase() || c.collateralAsset.toLowerCase() !== asset.toLowerCase()
+        || await read(monad, 'TermbookCore', core, 'collateralSourceChainOf', [t.creditId], 10143) !== 10143n) throw new Error('Native collateral binding mismatch');
+      const lockedReceipt = await monad.getTransactionReceipt({ hash: locked.hash });
+      const returnedReceipt = await monad.getTransactionReceipt({ hash: authorized.hash });
+      const events = artifact('NativeCollateralVault').abi;
+      const decoded = (r) => r.logs.filter((e) => e.address.toLowerCase() === deployment.addresses[10143].NativeCollateralVault.toLowerCase())
+        .map((e) => viem.decodeEventLog({ abi: events, topics: e.topics, data: e.data }));
+      const locks = decoded(lockedReceipt).filter((e) => e.eventName === 'Locked' && e.args.lockId === t.lockId && e.args.creditId === t.creditId);
+      const releases = decoded(returnedReceipt).filter((e) => e.eventName === 'Released' && e.args.lockId === t.lockId);
+      const transaction = await monad.getTransaction({ hash: locked.hash });
+      if (transaction.from.toLowerCase() !== c.borrower.toLowerCase() || transaction.value !== viem.parseEther('2')
+        || locks.length !== 1 || locks[0].args.owner.toLowerCase() !== c.borrower.toLowerCase()
+        || locks[0].args.amount !== viem.parseEther('2') || releases.length !== 1
+        || releases[0].args.amount !== locks[0].args.amount || releases[0].args.recipient.toLowerCase() !== c.returnRecipient.toLowerCase()) throw new Error('Native custody amount or recipient mismatch');
+    }
     const recovery = outcome.forcedRecoveryReceipts ?? [];
     const recoveryTimes = [...new Set(recovery.map((tx) => tx.timestamp))].sort((a, b) => a - b);
     const elapsed = (start, end) => start && end ? end.timestamp - start.timestamp : null;
@@ -186,7 +209,7 @@ async function main() {
     finalizedBlocks: Object.fromEntries(Object.entries(finalized).map(([id, b]) => [id, { number: String(b.number), hash: b.hash }])),
     house, observations, measuredFeesWei: fees, transactions: [...checked.values()],
     lifecycleComplete, allReceiptsFinalized, completed: lifecycleComplete && allReceiptsFinalized };
-  if (report.completed) { clearOperation(publicName); clearOperation(fast ? clean ? "fast-clean-e2e" : "fast-e2e" : "live-e2e"); }
+  if (report.completed) { clearOperation(publicName); clearOperation(native ? "native-e2e" : fast ? clean ? "fast-clean-e2e" : "fast-e2e" : "live-e2e"); }
   log(JSON.stringify({ verifiedAt: report.verifiedAt, completed: report.completed, observations }));
   if (!report.completed) process.exitCode = 1;
 }

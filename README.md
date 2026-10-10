@@ -302,9 +302,36 @@ broadcast. Reader registration targets `HealthSource`; the SDK checks its
 binding through Core's authenticated `AccountHealthSource` wrapper. The live runner creates repayment, default-recovery and active
 valuation facilities. It records actual buy/sell calls and independent keeper
 recovery and repayment receipts for SDK validation. These Kuru commands have not
-completed against the live deployment. The complete Kuru acceptance scenario
-program also remains to be authored and executed; the six fork tests below do
-not supply the required acceptance report. No Kuru app token has been issued.
+completed against the live deployment. No Kuru app token has been issued.
+
+The SDK fork acceptance runner implements all 36 applicable cases across the
+16 admission requirements. It checks controlled custody, independent valuation,
+unsafe-action rejection, repayment, final closure, isolated keeper recovery,
+interruption and retry, and cure restrictions. Seven explicit exclusions cover
+unsupported asynchronous orders, derivative reduction and retained positions.
+Each rejection has a successful control; recorded observations, transactions
+and simulations are replayed against their original blocks.
+
+Build the Solidity fixtures, start a local fork, then run the SDK suite in a
+second terminal:
+
+```sh
+forge build --root contracts/evm
+anvil --fork-url https://testnet-rpc.monad.xyz --chain-id 10143 \
+  --host 127.0.0.1 --port 18548 --slots-in-an-epoch 1 \
+  --disable-code-size-limit --gas-limit 30000000
+```
+
+```sh
+pnpm --filter @termbook/kuru test:acceptance
+```
+
+The runner accepts only a local Anvil fork. It uses public fixture keys, local
+Termbook contracts, controlled prices and fork-only funding and adverse state.
+Its report is written to a temporary directory and marked diagnostic and
+`not_admitted`. This validates the shared protocol against Kuru's actual
+deployed bytecode; live admission still requires the matching OrderBook source
+build and validation bound to the deployed Termbook configuration.
 
 The Kuru fork suite exercises borrowing, native MON custody and valuation,
 market buys and sells, repayment, borrower closure, and keeper recovery through

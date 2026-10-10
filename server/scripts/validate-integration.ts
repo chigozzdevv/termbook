@@ -36,7 +36,7 @@ const wallets: Wallet[] = Object.entries(suite.actors).filter(([role]) => !admit
   const wallet = createWalletClient({ account, chain, transport: http(config.rpcUrl) });
   return { address: account.address, getChainId: () => wallet.getChainId(), signTypedData: (data) => account.signTypedData(data as never),
     signMessage: (message) => account.signMessage({ message }), signDigest: (digest) => account.signMessage({ message: { raw: digest } }),
-    writeContract: (request) => wallet.writeContract(request as never) };
+    writeContract: (request) => wallet.writeContract({ ...request, account } as never) };
 });
 if (admit) {
   const admission = config.admission;

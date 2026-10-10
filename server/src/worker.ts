@@ -25,6 +25,7 @@ import { runSolanaRelayWorker } from "./collateral/solana-relay.worker.js";
 import { solanaRelayConfig } from "./collateral/solana-relay.config.js";
 import { ratioFeedConfig, runOracleWorker } from "./chain/oracle.worker.js";
 import { assertEnvioConfig } from "./chain/envio.client.js";
+import { runUpgradeMonitorWorker, upgradeMonitorConfig } from "./integration/upgrade-monitor.worker.js";
 
 async function main(): Promise<void> {
   assertRuntimeConfig();
@@ -35,6 +36,7 @@ async function main(): Promise<void> {
   riskKeeper();
   riskScanConfig();
   ratioFeedConfig();
+  upgradeMonitorConfig();
   recoveryRelayConfig();
   solanaProofConfig();
   await solanaRelayConfig();
@@ -72,6 +74,8 @@ async function main(): Promise<void> {
   let keeperActive: Promise<void> | undefined;
   let solanaTimer: ReturnType<typeof setTimeout> | undefined;
   let solanaActive: Promise<void> | undefined;
+  let upgradeTimer: ReturnType<typeof setTimeout> | undefined;
+  let upgradeActive: Promise<void> | undefined;
   const schedule = (): void => {
     if (stopping) return;
     active = tick().finally(() => {
@@ -110,7 +114,8 @@ async function main(): Promise<void> {
     clearTimeout(keeperTimer);
     clearTimeout(actionTimer);
     clearTimeout(solanaTimer);
-    await Promise.all([active, riskActive, keeperActive, actionActive, solanaActive]);
+    clearTimeout(upgradeTimer);
+    await Promise.all([active, riskActive, keeperActive, actionActive, solanaActive, upgradeActive]);
     await stopWorkers();
     await closeRedis();
     await mongoose.disconnect();
@@ -122,6 +127,13 @@ async function main(): Promise<void> {
   scheduleRisk();
   scheduleKeepers();
   scheduleActions();
+  const scheduleUpgradeMonitor = (): void => {
+    if (stopping) return;
+    upgradeActive = runUpgradeMonitorWorker().then(() => undefined).catch(() => {
+      logger.error("upgrade-monitor-failed");
+    }).finally(() => { if (!stopping) upgradeTimer = setTimeout(scheduleUpgradeMonitor, 5_000); });
+  };
+  scheduleUpgradeMonitor();
   const scheduleSolana = (): void => {
     if (stopping) return;
     solanaActive = runSolanaRelayWorker().then(() => undefined).catch(() => {

@@ -12,7 +12,7 @@ export async function runKeeperWorker(): Promise<number> {
     [env.monadChainId, env.rpcUrl, [env.settlementKeeperKey,
       env.collateralKeeperKey, env.monadConfirmKeeperKey, env.monadWormholePublisherKey,
       process.env["SOLANA_COLLATERAL_KEEPER_KEY"], process.env["ORACLE_KEEPER_KEY"],
-      process.env["RISK_KEEPER_KEY"], process.env["RECOVERY_RELAY_KEY"]]],
+      process.env["RISK_KEEPER_KEY"], process.env["RECOVERY_RELAY_KEY"], process.env["UPGRADE_MONITOR_KEY"]]],
     [ethereumSourceChain(), env.sourceRpcUrl, [env.sourceWormholePublisherKey, env.sourceActionKeeperKey,
       process.env["SOURCE_RECOVERY_RELAY_KEY"]]],
   ] as const) {

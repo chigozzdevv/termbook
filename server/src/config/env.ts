@@ -31,9 +31,18 @@ export const env = {
   authDomain: process.env["AUTH_DOMAIN"] ?? "api.termbook.local",
   authTtlSeconds: Number(process.env["AUTH_TTL_SECONDS"] ?? 900),
   adminWallets: (process.env["ADMIN_WALLETS"] ?? "").split(",").map((value) => value.trim().toLowerCase()).filter(Boolean),
+  localAppOrigins: (process.env["LOCAL_APP_ORIGINS"] ?? "").split(",").map((value) => value.trim()).filter(Boolean),
 };
 
 export function assertRuntimeConfig(): void {
+  if (env.localAppOrigins.length && (env.monadChainId !== 10143 || process.env["NODE_ENV"] === "production"
+    || env.adminWallets.length === 0 || env.localAppOrigins.some((origin) => {
+      try {
+        const url = new URL(origin);
+        return url.origin !== origin || url.protocol !== "http:" || url.username !== "" || url.password !== ""
+          || !["localhost", "127.0.0.1"].includes(url.hostname) || url.port === "";
+      } catch { return true; }
+    }))) throw new Error("local-application-config-invalid");
   validateAuroraProvider({ apiUrl: env.auroraApiUrl, publicKey: env.auroraQuotePublicKey, chainId: env.monadChainId });
   if (env.auroraApiKey) validateAuroraApiKey(env.auroraApiKey);
   if (!/^0x[a-fA-F0-9]{40}$/.test(env.core) || /^0x0{40}$/.test(env.core)) throw new Error("CORE_ADDRESS is required");

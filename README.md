@@ -275,7 +275,11 @@ source importer independently compares the compiled and live bytecode, allowing
 only compiler-declared metadata and immutable substitutions for a non-exact
 match. Full runtime hashes and implementation identities remain pinned. The
 OracleRegistry implementation, proxy and its direct implementation guard have
-exact matches. These records are in `deployments/testnet.json`.
+exact matches, as do all six testnet monitor guards. Circle's linked
+SignatureChecker library is verified with only its deployment-address call
+protection and compiler metadata differing. These records are in
+`deployments/testnet.json`. The admin-owned local Termbook Kuru application is
+origin verified at `http://127.0.0.1:3000`; it has not been admitted.
 
 The deployed OrderBook implementation at
 `0x72caE0a99C19B574e8a6De558F43fc1D019c9374` still has no matching source build.
@@ -394,6 +398,13 @@ may be direct app transactions, router transactions with one unambiguous traced
 app call, or existing Core actions. The response contains a candidate ID and
 imported source and call evidence; it does not assign economic meaning. Signed
 `POST /integrations/candidates/:id/details` resumes an interrupted candidate.
+
+For local Monad testnet E2E, `LOCAL_APP_ORIGINS=http://127.0.0.1:3000` explicitly
+allows that exact loopback origin. Its owner must be an `ADMIN_WALLETS` signer,
+and registration returns `verification.method: "local_operator"`. The signed
+origin-verification endpoint activates it without DNS. Removing the allowance
+or admin ownership disables admission. This option is rejected on mainnet and
+when `NODE_ENV=production`; public origins continue to require DNS verification.
 
 The owner submits a reviewed `category`, `versionId`, `codeHash`, settlement
 asset, `actions`, and `verifiedSources` to

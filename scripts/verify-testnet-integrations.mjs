@@ -73,6 +73,9 @@ async function main() {
       { name: "OracleRegistryProxy", artifact: "TestnetProxy", address: m.OracleRegistry },
       ...(deployment.configuration["kuru-market"]?.oracleGuard ? [{ name: "KuruOracleGuard", artifact: "ImplementationGuard",
         address: deployment.configuration["kuru-market"].oracleGuard.address }] : []),
+      ...Object.entries(deployment.configuration["kuru-market"]?.guards ?? {}).map(([proxy, guard]) => ({
+        name: `KuruMonitor-${proxy}`, artifact: "TestnetUpgradeGuard", address: guard.address,
+      })),
     ];
     const file = operationFile("integration-source-verification");
     const jobs = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
@@ -130,12 +133,15 @@ async function main() {
         verified = await response.json();
       }
       if (verified.runtimeMatch !== "exact_match") throw new Error(`Source did not match: ${target.name}`);
-      const record = { name: target.name, address: target.address,
+      const index = report.sourceVerification.contracts.findIndex((item) => item.name === target.name);
+      const previous = report.sourceVerification.contracts[index];
+      const record = { ...(previous?.address.toLowerCase() === target.address.toLowerCase() ? previous : {}),
+        name: target.name, address: target.address,
         ...(jobs[target.address.toLowerCase()] ? { verificationId: jobs[target.address.toLowerCase()].verificationId } : {}),
         matchId: verified.matchId, verifiedAt: verified.verifiedAt, runtimeMatch: verified.runtimeMatch,
         creationMatch: verified.creationMatch, url };
-      report.sourceVerification.contracts = report.sourceVerification.contracts.filter((item) => item.name !== target.name);
-      report.sourceVerification.contracts.push(record);
+      if (index < 0) report.sourceVerification.contracts.push(record);
+      else report.sourceVerification.contracts[index] = record;
       writeJsonAtomic(path.join(root, "deployments/testnet.json"), deployment);
       log(JSON.stringify({ sourceVerified: target.name, address: target.address, runtimeMatch: verified.runtimeMatch }));
     }

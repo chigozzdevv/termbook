@@ -6,6 +6,24 @@ afterEach(() => {
 });
 
 describe("runtime configuration", () => {
+  it("restricts local application origins to explicit admin-operated testnet development", async () => {
+    vi.stubEnv("CORE_ADDRESS", `0x${"11".repeat(20)}`);
+    vi.stubEnv("CORE_DOMAIN", `0x${"22".repeat(32)}`);
+    vi.stubEnv("MONAD_CHAIN_ID", "10143"); vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("ADMIN_WALLETS", `0x${"33".repeat(20)}`); vi.stubEnv("LOCAL_APP_ORIGINS", "http://localhost:3000");
+    const { assertRuntimeConfig, env } = await import("../../src/config/env.js");
+    expect(assertRuntimeConfig).not.toThrow();
+    for (const origin of ["https://localhost:3000", "http://localhost", "http://localhost:3000/path", "http://192.168.1.1:3000",
+      "http://user:pass@localhost:3000"]) {
+      env.localAppOrigins = [origin]; expect(assertRuntimeConfig).toThrow("local-application-config-invalid");
+    }
+    env.localAppOrigins = ["http://localhost:3000"]; env.monadChainId = 143;
+    expect(assertRuntimeConfig).toThrow("local-application-config-invalid");
+    env.monadChainId = 10143; vi.stubEnv("NODE_ENV", "production");
+    expect(assertRuntimeConfig).toThrow("local-application-config-invalid");
+    vi.stubEnv("NODE_ENV", "development"); env.adminWallets = [];
+    expect(assertRuntimeConfig).toThrow("local-application-config-invalid");
+  });
   it("accepts the three required Ethereum Beacon worker settings", async () => {
     vi.stubEnv("CORE_ADDRESS", `0x${"11".repeat(20)}`);
     vi.stubEnv("CORE_DOMAIN", `0x${"22".repeat(32)}`);

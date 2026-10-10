@@ -35830,6 +35830,75 @@
             "runtimeMatch": "match",
             "creationMatch": "match",
             "url": "https://sourcify.dev/server/v2/contract/10143/0x21240161521d6854be79f7d3a0a65c6beddb42fb"
+          },
+          {
+            "name": "KuruMonitor-0x1f57a841540fe23c2989387c18f2cb1335cbae92",
+            "address": "0xf71b100ed5fc8d701d4c246eac66c47908b581f2",
+            "verificationId": "eeae4ab7-4cbf-46fc-ae10-d1beb5bff694",
+            "matchId": "55870053",
+            "verifiedAt": "2026-10-10T11:05:11Z",
+            "runtimeMatch": "exact_match",
+            "creationMatch": "exact_match",
+            "url": "https://sourcify.dev/server/v2/contract/10143/0xf71b100ed5fc8d701d4c246eac66c47908b581f2"
+          },
+          {
+            "name": "KuruMonitor-0x7efbe105ca7415de98f96622173458ac1c054630",
+            "address": "0x5692db019a54f5bbecd355b04d079cfc3f0bcb95",
+            "verificationId": "6d2c98b0-5267-4fd7-aa63-82cd1578caac",
+            "matchId": "55870060",
+            "verifiedAt": "2026-10-10T11:05:13Z",
+            "runtimeMatch": "exact_match",
+            "creationMatch": "exact_match",
+            "url": "https://sourcify.dev/server/v2/contract/10143/0x5692db019a54f5bbecd355b04d079cfc3f0bcb95"
+          },
+          {
+            "name": "KuruMonitor-0xb3e16d13bee1abcdd048efcac26b5f10972e3720",
+            "address": "0x720ddce241c6998ccb1044d8de53f638375840a7",
+            "verificationId": "702589ed-9a79-4b3b-a719-7f397e380a0a",
+            "matchId": "55870061",
+            "verifiedAt": "2026-10-10T11:05:16Z",
+            "runtimeMatch": "exact_match",
+            "creationMatch": "exact_match",
+            "url": "https://sourcify.dev/server/v2/contract/10143/0x720ddce241c6998ccb1044d8de53f638375840a7"
+          },
+          {
+            "name": "KuruMonitor-0xd029c2d98ff85d8f64799017fe00a59b1159ce02",
+            "address": "0x2850c4cbb6369f459d3d82033e58861cdf9fbccb",
+            "verificationId": "ff6ee521-02c0-479b-97b7-5a1b7c1338c0",
+            "matchId": "55870063",
+            "verifiedAt": "2026-10-10T11:05:19Z",
+            "runtimeMatch": "exact_match",
+            "creationMatch": "exact_match",
+            "url": "https://sourcify.dev/server/v2/contract/10143/0x2850c4cbb6369f459d3d82033e58861cdf9fbccb"
+          },
+          {
+            "name": "KuruMonitor-0x681bb1508e14433b148a2549ba2726454adc9bb4",
+            "address": "0xb14c1a3cd810de2f4041d1732ee0b97b9b3ccfa3",
+            "verificationId": "58eb85b0-42e4-4079-911c-ae391ff87d97",
+            "matchId": "55870065",
+            "verifiedAt": "2026-10-10T11:05:22Z",
+            "runtimeMatch": "exact_match",
+            "creationMatch": "exact_match",
+            "url": "https://sourcify.dev/server/v2/contract/10143/0xb14c1a3cd810de2f4041d1732ee0b97b9b3ccfa3"
+          },
+          {
+            "name": "KuruMonitor-0x534b2f3a21130d7a60830c2df862319e593943a3",
+            "address": "0x28401ead71fbc85609e71fdd8f45629d0dfdc59b",
+            "verificationId": "ec47c0db-8881-4fb0-80f5-90710396624e",
+            "matchId": "55870066",
+            "verifiedAt": "2026-10-10T11:05:26Z",
+            "runtimeMatch": "exact_match",
+            "creationMatch": "exact_match",
+            "url": "https://sourcify.dev/server/v2/contract/10143/0x28401ead71fbc85609e71fdd8f45629d0dfdc59b"
+          },
+          {
+            "name": "CircleSignatureChecker",
+            "address": "0x3f6a0d6a83e50219626aa6a84fd237cb1877884d",
+            "matchId": "55870321",
+            "verifiedAt": "2026-10-10T11:12:15Z",
+            "runtimeMatch": "match",
+            "creationMatch": "match",
+            "url": "https://sourcify.dev/server/v2/contract/10143/0x3f6a0d6a83e50219626aa6a84fd237cb1877884d"
           }
         ]
       },
@@ -36037,6 +36106,13 @@
           "codeHash": "0x645111866eec7decc0ba5894cef472a6497f11a791aec446155d8a71078cc0c2"
         }
       }
+    },
+    "kuru-application": {
+      "applicationId": "60a78bce-f7bc-438d-afb5-8fedfa22866f",
+      "origin": "http://127.0.0.1:3000",
+      "owner": "0x4dbaba93dfdeeab43ce5bdc3335aa6e2dda44920",
+      "status": "verified",
+      "verification": "local_operator"
     }
   },
   "deploymentBlocks": {

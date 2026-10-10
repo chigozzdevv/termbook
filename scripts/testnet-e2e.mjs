@@ -3,7 +3,7 @@ import fs from "node:fs";
 import process from "node:process";
 import { log, error } from "node:console";
 import { setTimeout as delay } from "node:timers/promises";
-import { canonicalJson, apiAuthorizationMessage, selectCapability } from "../packages/schema/dist/index.js";
+import { canonicalJson, apiAuthorizationMessage, selectCapability, executionKey } from "../packages/schema/dist/index.js";
 import { viem, artifact, testnetRuntime, writeJsonAtomic } from "./testnet-runtime.mjs";
 
 const mode = process.argv[2];
@@ -41,25 +41,47 @@ async function main() {
   const app = kuru ? appSetup.definition.contracts.reader : appSetup.addresses.ReferenceAssetApp;
   const sdk = kuru ? await import("../packages/sdk/dist/index.js") : undefined;
   const coreRead = (name, args = []) => monad.read("TermbookCore", m.TermbookCore, name, args);
+  async function currentGuards() {
+    const deadline = Date.now() + 180_000;
+    for (;;) {
+      const block = await monad.client.getBlock();
+      const leases = await Promise.all(Object.values(deployment.configuration["kuru-market"].guards).map((guard) =>
+        monad.read("TestnetUpgradeGuard", guard.address, "validUntil")));
+      if (leases.every((lease) => lease >= block.timestamp + 30n)
+        && await monad.read("IntegrationRegistry", m.IntegrationRegistry, "dependenciesValid", [appSetup.bundleId])) return leases.reduce((minimum, lease) => lease < minimum ? lease : minimum) - 10n;
+      if (Date.now() >= deadline) throw new Error("Kuru dependency guards are not sufficiently current");
+      await delay(3_000);
+    }
+  }
   const readPosition = (test) => kuru ? monad.read("AtomicSpotModule", app, "positionCount", [test.creditId, test.account])
     : monad.read("ReferenceAssetApp", app, "positions", [test.account]);
   async function kuruAction(test, direction, amount, credit) {
+    await currentGuards();
     const definition = appSetup.definition;
     const market = definition.markets[0];
     const buying = direction === "buy";
-    const config = definition.atomic_spot;
-    const [price, block, protection] = await Promise.all([
-      monad.read("OracleRegistry", config.oracle, "read", [config.feed_id]), monad.client.getBlock(), coreRead("priceProtection"),
-    ]);
+    const protection = await coreRead("priceProtection");
     const slippage = Math.min(100, Number(await monad.read("PriceProtection", protection, "houseSlippage", [test.creditId])));
     const action = { use_case: "spot", capability: "place_order", params: { market_id: market.market_id,
       direction, order_type: "market", amount: { spend: amount }, slippage_bps: slippage } };
+    const selected = selectCapability(definition.actions, action);
+    const priceArgs = [appSetup.bundleId, viem.keccak256(viem.stringToHex(executionKey(selected))), viem.keccak256(viem.stringToHex(market.market_id))];
+    let price;
+    try { price = await monad.read("PriceProtection", protection, "priceReference", priceArgs); }
+    catch (error) {
+      const reverted = typeof error?.walk === "function" ? error.walk((item) => item.name === "ContractFunctionRevertedError") : undefined;
+      if (reverted?.data?.errorName !== "Stale") throw error;
+      await monad.call("PriceProtection", protection, "recordPrice", priceArgs, `${test.kind}:${direction}:price:${await monad.client.getBlockNumber()}`);
+      price = await monad.read("PriceProtection", protection, "priceReference", priceArgs);
+    }
+    const guardDeadline = await currentGuards();
+    const block = await monad.client.getBlock();
     const bound = await monad.read("PriceProtection", protection, "deriveAmountBound", [price[0], amount, slippage,
       buying ? market.quote_decimals : market.base_decimals, buying ? market.base_decimals : market.quote_decimals, buying, false]);
-    const plan = sdk.buildExecution(selectCapability(definition.actions, action), action, { borrower: account.address,
+    const plan = sdk.buildExecution(selected, action, { borrower: account.address,
       account: test.account, creditId: test.creditId, use_case: "spot", priceBound: bound }, usdc);
     const authorization = { drawAmount: buying ? amounts.draw : 0n, maxDraw: buying ? amounts.draw : 0n,
-      nonce: credit.nonce + 1n, deadline: block.timestamp + 90n, revision: credit.revision, signer: account.address, signature: "0x",
+      nonce: credit.nonce + 1n, deadline: guardDeadline < block.timestamp + 90n ? guardDeadline : block.timestamp + 90n, revision: credit.revision, signer: account.address, signature: "0x",
       price: { roundId: price[2], referencePrice: price[0], updatedAt: price[1], authorizedAt: block.timestamp,
         bound, slippageBps: slippage, isMax: false } };
     authorization.signature = await account.signMessage({ message: { raw: await coreRead("executionDigest", [test.creditId, plan, authorization]) } });
@@ -67,18 +89,28 @@ async function main() {
   }
   const now = (await monad.client.getBlock()).timestamp;
   if (!m.AccountHealthSource || (await coreRead("healthSource")).toLowerCase() !== m.AccountHealthSource.toLowerCase()) throw new Error("Authenticated health source is required");
-  if (!await monad.read("IntegrationRegistry", m.IntegrationRegistry, "isActive", [appSetup.bundleId])) throw new Error("Test application is inactive");
   if (kuru && mode !== "--observe") {
     await sdk.verify_definition(monad.client, appSetup.definition);
-    if (!await monad.read("IntegrationRegistry", m.IntegrationRegistry, "dependenciesValid", [appSetup.bundleId])) throw new Error("Kuru dependency guards are not current");
+    await currentGuards();
   }
+  if (!kuru && !await monad.read("IntegrationRegistry", m.IntegrationRegistry, "isActive", [appSetup.bundleId])) throw new Error("Test application is inactive");
   if (kuru) {
-    if (!report.collateralAmount) {
-      const price = await monad.read("OracleRegistry", m.OracleRegistry, "read", [nativeSetup.priceId]);
-      const numerator = amounts.draw * 10n ** 30n * 10_000n;
-      const denominator = price[0] * BigInt(nativeSetup.retainedSourceBps) * 2n;
+    if (!report.collateralAmount || report.collateralSizingVersion !== 2) {
+      const [price, policy] = await Promise.all([
+        monad.read("OracleRegistry", m.OracleRegistry, "read", [nativeSetup.priceId]),
+        monad.read("HouseRegistry", m.HouseRegistry, "policies", [account.address]),
+      ]);
+      if (!policy[12] || !policy[13]) throw new Error("Kuru House risk policy is inactive");
+      const costs = BigInt(nativeSetup.recoveryCosts) + BigInt(appSetup.definition.atomic_spot.recovery_costs);
+      const target = ((amounts.draw + costs) * (policy[7] + 500n) + 9_999n) / 10_000n;
+      const retainedApp = amounts.draw * 9_800n * BigInt(appSetup.definition.atomic_spot.retained_bps) / 100_000_000n;
+      const retainedSource = target > retainedApp ? target - retainedApp : amounts.draw / 2n;
+      if (retainedSource * 10_000n >= amounts.draw * BigInt(nativeSetup.retainedSourceBps)) throw new Error("Kuru test loan is too small for its recovery costs");
+      const numerator = retainedSource * 10n ** 30n * 10_000n;
+      const denominator = price[0] * BigInt(nativeSetup.retainedSourceBps);
       if (denominator <= 0n) throw new Error("Kuru collateral price is unavailable");
       report.collateralAmount = String((numerator + denominator - 1n) / denominator);
+      report.collateralSizingVersion = 2;
       if (mode !== "--observe") persist();
     }
     amounts.collateral = BigInt(report.collateralAmount);
@@ -123,7 +155,8 @@ async function main() {
     const policyHash = await monad.read("ReservationManager", m.ReservationManager, "policyHashes", [account.address, 1n]);
     if (mode === "--retry-default") {
       const previous = report.cases.default;
-      if (!previous || (await coreRead("creditDetails", [previous.creditId])).facility !== 7) throw new Error("Abort the expired default setup before retrying");
+      const previousCredit = previous && await coreRead("creditDetails", [previous.creditId]);
+      if (!previous || previous.drawVerified || ![6, 7].includes(previousCredit.facility)) throw new Error("Close the unused default facility before retrying");
     }
     for (const kind of mode === "--retry-default" ? ["default-retry"] : fast ? ["repayment"] : kuru ? ["repayment", "default", "active"] : ["repayment", "default"]) {
       let test = report.cases[kind];
@@ -182,6 +215,11 @@ async function main() {
   if (mode === "--advance" || mode === "--run" || mode === "--start") {
     for (const test of Object.values(report.cases)) {
       let credit = await coreRead("creditDetails", [test.creditId]);
+      if (kuru && test.kind.startsWith("default") && !test.drawVerified && credit.facility === 4 && now >= credit.maturity) {
+        await monad.call("TermbookCore", m.TermbookCore, "startClosing", [test.creditId], `${test.kind}:close-unused`);
+        test.failure = "matured_before_borrowing";
+        credit = await coreRead("creditDetails", [test.creditId]);
+      }
       if ([0, 1, 2, 3].includes(credit.facility) && now > credit.setupDeadline) {
         await monad.call("TermbookCore", m.TermbookCore, "abort", [test.creditId], `${test.kind}:abort-expired-setup`);
         test.failure = "setup_expired_before_borrowing";
@@ -190,6 +228,23 @@ async function main() {
         credit = await coreRead("creditDetails", [test.creditId]);
       }
       if (credit.facility === 4 && !test.drawVerified) {
+        const drawLabel = `${test.kind}:borrow-and-deposit`;
+        const attempts = report.transactions.filter((tx) => tx.name === drawLabel || tx.name.startsWith(`${drawLabel}:retry:`));
+        const failed = attempts.at(-1);
+        if (failed?.status === "reverted") {
+          const receipt = await monad.client.getTransactionReceipt({ hash: failed.hash });
+          if (receipt.status !== "reverted" || receipt.blockHash !== failed.blockHash || credit.debt !== 0n
+            || credit.nonce + 1n !== BigInt(test.execution.nonce)) throw new Error("Failed draw reconciliation mismatch");
+          if (attempts.length >= 3) throw new Error("Draw retry limit reached");
+          delete test.execution; delete test.action; delete test.probe; persist();
+        }
+        if (kuru && credit.collateralAmount < amounts.collateral) {
+          if (attempts.some((tx) => tx.status !== "reverted")) throw new Error("Reconcile the prepared draw before changing collateral");
+          const added = amounts.collateral - credit.collateralAmount;
+          await monad.send(`${test.kind}:collateral-cost-buffer`, encode("TermbookCore", "addCollateral", [test.creditId, added, 0n]), m.TermbookCore, added);
+          delete test.execution; delete test.action; delete test.probe; persist();
+          credit = await coreRead("creditDetails", [test.creditId]);
+        }
         if (kuru && !test.execution) {
           const action = await kuruAction(test, "buy", amounts.draw, credit);
           test.action = action.plan; test.execution = action.authorization; test.probe = action.probe; persist();
@@ -207,7 +262,8 @@ async function main() {
           test.execution = JSON.parse(canonicalJson(authorization));
           persist();
         }
-        const executed = await monad.call("TermbookCore", m.TermbookCore, "executePlan", [test.creditId, test.action, test.execution], `${test.kind}:borrow-and-deposit`);
+        const executed = await monad.call("TermbookCore", m.TermbookCore, "executePlan", [test.creditId, test.action, test.execution],
+          failed?.status === "reverted" ? `${drawLabel}:retry:${attempts.length}` : failed?.name ?? drawLabel);
         if (kuru) { test.probe.tx_hash = executed.hash; persist(); }
         const [health, position, cash] = await Promise.all([
           coreRead("previewHealth", [test.creditId]), readPosition(test),
@@ -222,6 +278,8 @@ async function main() {
       }
       if (test.kind === "repayment" && test.drawVerified && credit.facility === 4) {
         if (kuru) {
+          if (test.sell && !report.transactions.some((tx) => tx.name === "repayment:sell")
+            && BigInt(test.sell.authorization.deadline) <= (await monad.client.getBlock()).timestamp) { delete test.sell; persist(); }
           if (!test.sell) { test.sell = await kuruAction(test, "sell", await monad.client.getBalance({ address: test.account }), credit); persist(); }
           const sold = await monad.call("TermbookCore", m.TermbookCore, "executePlan", [test.creditId, test.sell.plan, test.sell.authorization], "repayment:sell");
           test.sell.probe.tx_hash = sold.hash; persist();
@@ -241,7 +299,8 @@ async function main() {
         credit = await coreRead("creditDetails", [test.creditId]);
       }
       const returnAllowed = credit.debt === 0n && !credit.collateralReturned
-        && (credit.facility === 7 || test.drawVerified && (credit.facility === 5 || [8, 9].includes(credit.facility)));
+        && (credit.facility === 7 || test.failure === "matured_before_borrowing" && credit.facility === 5
+          || test.drawVerified && (credit.facility === 5 || [8, 9].includes(credit.facility)));
       if (returnAllowed && !test.returnTx) {
         const wormhole = native ? undefined : await coreRead("ethereumWormholeCore");
         const fee = native ? 0n : await monad.client.readContract({ address: wormhole,
@@ -301,7 +360,7 @@ async function main() {
   report.observedAt = new Date().toISOString();
   report.observations = observations;
   const lifecycleComplete = observations.some((test) => test.kind === "repayment" && test.completed)
-    && (fast || observations.some((test) => test.kind.startsWith("default") && test.completed));
+    && (fast || observations.some((test) => test.kind.startsWith("default") && test.drawVerified && test.completed));
   if (kuru && lifecycleComplete && !report.lifecycle) {
     const recovered = Object.values(report.cases).find((test) => test.kind.startsWith("default") && test.drawVerified);
     const repayment = report.cases.repayment, active = report.cases.active;
@@ -382,4 +441,9 @@ async function run() {
     if (lock !== undefined) { fs.closeSync(lock); fs.unlinkSync(lockPath); }
   }
 }
-run().catch((cause) => { error(cause instanceof Error ? cause.message.split("\n")[0] : "Live testnet E2E failed"); process.exitCode = 1; });
+run().catch((cause) => {
+  const reverted = typeof cause?.walk === "function" ? cause.walk((item) => item.name === "ContractFunctionRevertedError") : undefined;
+  error(JSON.stringify({ message: cause instanceof Error ? cause.message.split("\n")[0] : "Live testnet E2E failed",
+    ...(reverted ? { contractError: reverted.data?.errorName, selector: reverted.raw?.slice(0, 10) } : {}) }));
+  process.exitCode = 1;
+});

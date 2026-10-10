@@ -51,6 +51,8 @@ describe("testnet upgrade monitor", () => {
     vi.mocked(keeperTransaction).mockResolvedValueOnce("pending").mockResolvedValue("busy");
     expect(await runUpgradeMonitorWorker()).toBe(0);
     expect(vi.mocked(keeperTransaction).mock.calls[0]![0].to).toBe(expired);
+    expect(keeperTransaction).toHaveBeenCalledTimes(1);
+    expect(getCode).not.toHaveBeenCalledWith(expect.objectContaining({ address: guard }));
   });
   it("revokes a review-bound guard when its signed permit is removed", async () => {
     vi.stubEnv("TESTNET_UPGRADE_GUARDS", JSON.stringify([{ address: guard, codeHash, runtimeReview: codeHash }]));
@@ -71,6 +73,11 @@ describe("testnet upgrade monitor", () => {
     const data = vi.mocked(keeperTransaction).mock.calls[0]![0].data;
     expect(decodeFunctionData({ abi: parseAbi(["function renew(uint64,bytes32,uint64)"]), data }).args).toEqual([10n, codeHash, 1000n]);
   });
+  it("accepts a finalized head equal to the latest head", async () => {
+    const client = vi.mocked(monadClient).mock.results[0]?.value ?? monadClient();
+    client.getBlock = vi.fn().mockResolvedValue({ number: 10n, timestamp: 1000n, hash: codeHash });
+    expect(await runUpgradeMonitorWorker()).toBe(1);
+  });
   it("permanently revokes when the latest view detects an upgrade before finality", async () => {
     getStorageAt.mockImplementation(async ({ blockNumber, slot }: { blockNumber: bigint; slot: string }) => slot !== proxyImplementationSlots[0]
       ? `0x${"0".repeat(64)}` : blockNumber === 12n ? `0x${"0".repeat(24)}${proxy.slice(2)}` : `0x${"0".repeat(24)}${implementation.slice(2)}`);
@@ -88,11 +95,11 @@ describe("testnet upgrade monitor", () => {
     expect(await runUpgradeMonitorWorker()).toBe(0);
     expect(keeperTransaction).not.toHaveBeenCalled();
   });
-  it("does not renew a revoked guard or a lease with more than a minute remaining", async () => {
+  it("does not renew a revoked guard or a lease with more than two minutes remaining", async () => {
     const original = readContract.getMockImplementation()!;
     readContract.mockImplementation(async (request) => request.functionName === "revoked" ? true : original(request));
     expect(await runUpgradeMonitorWorker()).toBe(0);
-    readContract.mockImplementation(async (request) => request.functionName === "validUntil" ? 1100n : original(request));
+    readContract.mockImplementation(async (request) => request.functionName === "validUntil" ? 1200n : original(request));
     expect(await runUpgradeMonitorWorker()).toBe(0);
     expect(keeperTransaction).not.toHaveBeenCalled();
   });

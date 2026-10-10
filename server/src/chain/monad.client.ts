@@ -4,10 +4,11 @@ import { pacedHttp } from "./rpc.transport.js";
 
 export type ChainEvent = { name: string; block: number; tx: string; blockHash?: string; parentHash?: string; logIndex?: number; data: Record<string, unknown> };
 
-let client: PublicClient | null = null;
+const clients = new Map<number, PublicClient>();
 
-export function monadClient(): PublicClient {
-  if (!client) client = createPublicClient({ transport: pacedHttp(env.rpcUrl) });
+export function monadClient(priority = 0): PublicClient {
+  let client = clients.get(priority);
+  if (!client) { client = createPublicClient({ transport: pacedHttp(env.rpcUrl, 8, priority) }); clients.set(priority, client); }
   return client;
 }
 

@@ -1,21 +1,46 @@
-import { setTimeout as delay } from "node:timers/promises";
 import { http, type Transport } from "viem";
 
-const schedules = new Map<string, { next: number }>();
+type Pending = { queuedAt: number; priority: number; order: number; run(): void; reject(error: Error): void };
+type Schedule = { next: number; counter: number; queue: Pending[]; timer?: ReturnType<typeof setTimeout> };
+const schedules = new Map<string, Schedule>();
 
-export function pacedHttp(url: string, requestsPerSecond = 8): Transport {
-  if (!Number.isSafeInteger(requestsPerSecond) || requestsPerSecond < 1 || requestsPerSecond > 1000) throw new Error("rpc-rate-invalid");
+export function pacedHttp(url: string, requestsPerSecond = 8, priority = 0): Transport {
+  if (!Number.isSafeInteger(requestsPerSecond) || requestsPerSecond < 1 || requestsPerSecond > 1000
+    || !Number.isInteger(priority) || priority < 0 || priority > 2) throw new Error("rpc-rate-invalid");
   const endpoint = new URL(url).toString();
-  const state = schedules.get(endpoint) ?? { next: 0 };
+  const state = schedules.get(endpoint) ?? { next: 0, counter: 0, queue: [] };
   schedules.set(endpoint, state);
+  const step = Math.ceil(1000 / requestsPerSecond);
+  const dispatch = (): void => {
+    state.timer = undefined;
+    const now = Date.now();
+    state.queue = state.queue.filter((item) => {
+      if (now - item.queuedAt <= 30_000) return true;
+      item.reject(new Error("rpc-queue-full")); return false;
+    });
+    state.queue.sort((a, b) => {
+      const rank = (item: Pending) => now - item.queuedAt >= 25_000 ? 3 : item.priority;
+      return rank(b) - rank(a) || a.queuedAt - b.queuedAt || a.order - b.order;
+    });
+    const next = state.queue.shift();
+    if (!next) return;
+    state.next = now + step;
+    next.run();
+    schedule();
+  };
+  const schedule = (): void => {
+    if (state.timer !== undefined || !state.queue.length) return;
+    if (state.next <= Date.now()) dispatch();
+    else state.timer = setTimeout(dispatch, state.next - Date.now());
+  };
   return (options) => {
     const transport = http(url)(options);
     const request: typeof transport.request = async (parameters, requestOptions) => {
-      const now = Date.now();
-      const start = Math.max(now, state.next);
-      if (start - now > 30_000) throw new Error("rpc-queue-full");
-      state.next = start + Math.ceil(1000 / requestsPerSecond);
-      if (start > now) await delay(start - now);
+      await new Promise<void>((resolve, reject) => {
+        if (state.queue.length >= requestsPerSecond * 30) { reject(new Error("rpc-queue-full")); return; }
+        state.queue.push({ queuedAt: Date.now(), priority, order: state.counter++, reject, run: resolve });
+        schedule();
+      });
       return transport.request(parameters, requestOptions);
     };
     return { ...transport, request };

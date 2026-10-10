@@ -26,6 +26,7 @@ import { solanaRelayConfig } from "./collateral/solana-relay.config.js";
 import { ratioFeedConfig, runOracleWorker } from "./chain/oracle.worker.js";
 import { assertEnvioConfig } from "./chain/envio.client.js";
 import { runUpgradeMonitorWorker, upgradeMonitorConfig } from "./integration/upgrade-monitor.worker.js";
+import { priceReferenceConfig, runPriceReferenceWorker } from "./chain/price-reference.worker.js";
 
 async function main(): Promise<void> {
   assertRuntimeConfig();
@@ -36,6 +37,7 @@ async function main(): Promise<void> {
   riskKeeper();
   riskScanConfig();
   ratioFeedConfig();
+  priceReferenceConfig();
   upgradeMonitorConfig();
   recoveryRelayConfig();
   solanaProofConfig();
@@ -76,6 +78,8 @@ async function main(): Promise<void> {
   let solanaActive: Promise<void> | undefined;
   let upgradeTimer: ReturnType<typeof setTimeout> | undefined;
   let upgradeActive: Promise<void> | undefined;
+  let priceTimer: ReturnType<typeof setTimeout> | undefined;
+  let priceActive: Promise<void> | undefined;
   const schedule = (): void => {
     if (stopping) return;
     active = tick().finally(() => {
@@ -115,7 +119,8 @@ async function main(): Promise<void> {
     clearTimeout(actionTimer);
     clearTimeout(solanaTimer);
     clearTimeout(upgradeTimer);
-    await Promise.all([active, riskActive, keeperActive, actionActive, solanaActive, upgradeActive]);
+    clearTimeout(priceTimer);
+    await Promise.all([active, riskActive, keeperActive, actionActive, solanaActive, upgradeActive, priceActive]);
     await stopWorkers();
     await closeRedis();
     await mongoose.disconnect();
@@ -134,6 +139,13 @@ async function main(): Promise<void> {
     }).finally(() => { if (!stopping) upgradeTimer = setTimeout(scheduleUpgradeMonitor, 5_000); });
   };
   scheduleUpgradeMonitor();
+  const schedulePrices = (): void => {
+    if (stopping) return;
+    priceActive = runPriceReferenceWorker().then(() => undefined).catch(() => {
+      logger.error("price-reference-monitor-failed");
+    }).finally(() => { if (!stopping) priceTimer = setTimeout(schedulePrices, 5_000); });
+  };
+  schedulePrices();
   const scheduleSolana = (): void => {
     if (stopping) return;
     solanaActive = runSolanaRelayWorker().then(() => undefined).catch(() => {

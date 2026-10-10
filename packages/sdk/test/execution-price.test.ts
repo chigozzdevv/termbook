@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { decodeFunctionData, keccak256, parseAbi, padHex, stringToHex } from "viem";
+import { ContractFunctionZeroDataError, decodeFunctionData, keccak256, parseAbi, padHex, stringToHex } from "viem";
 import type { CapabilityDefinition } from "@termbook/schema";
 import type { TermbookClient } from "../src/client/client.js";
 import { buildExecution } from "../src/app/execution.js";
@@ -21,6 +21,8 @@ function fixture() {
     if (method === "rule") return { oracle: address, feedId: keccak256(stringToHex("ETH")), priceDecimals: 8,
       maxSlippageBps: 100, maxAuthorizationAge: 60 };
     if (method === "houseSlippage") return 75;
+    if (method === "referenceVersion") return 1n;
+    if (method === "priceReference") return [2000n * 10n ** 18n, 900n, 3n, 990n];
     if (method === "read") return [2000n * 10n ** 18n, 900n, 3n];
     throw new Error(method);
   });
@@ -28,6 +30,34 @@ function fixture() {
   return { read, client };
 }
 describe("derived execution prices", () => {
+  it("uses authenticated checkpoints and fails closed when they are unavailable", async () => {
+    const { client, read } = fixture();
+    await executionPrice(client, credit, credit, definition, action);
+    expect(read.mock.calls.some((call) => call[2] === "priceReference")).toBe(true);
+    expect(read.mock.calls.some((call) => call[2] === "read")).toBe(false);
+    const original = read.getMockImplementation()!;
+    read.mockImplementation(async (...args) => {
+      if (args[2] === "priceReference") throw new Error("checkpoint-stale");
+      return original(...args);
+    });
+    await expect(executionPrice(client, credit, credit, definition, action)).rejects.toThrow("checkpoint-stale");
+    expect(read.mock.calls.some((call) => call[2] === "read")).toBe(false);
+  });
+  it("supports legacy contracts only when the capability getter is absent", async () => {
+    const { client, read } = fixture();
+    const original = read.getMockImplementation()!;
+    read.mockImplementation(async (...args) => {
+      if (args[2] === "referenceVersion") throw new ContractFunctionZeroDataError({ functionName: "referenceVersion" });
+      return original(...args);
+    });
+    await executionPrice(client, credit, credit, definition, action);
+    expect(read.mock.calls.some((call) => call[2] === "read")).toBe(true);
+    read.mockImplementation(async (...args) => {
+      if (args[2] === "referenceVersion") throw new Error("rpc-unavailable");
+      return original(...args);
+    });
+    await expect(executionPrice(client, credit, credit, definition, action)).rejects.toThrow("rpc-unavailable");
+  });
   it("derives the actual calldata bound and preserves the reviewed reference", async () => {
     const { client, read } = fixture();
     const quote = (await executionPrice(client, credit, credit, definition, action))!;
@@ -58,6 +88,8 @@ describe("derived execution prices", () => {
       if (method === "priceProtection") return address;
       if (method === "rule") return { oracle: address, feedId: credit, priceDecimals: 8, maxSlippageBps: 100, maxAuthorizationAge: 60 };
       if (method === "houseSlippage") return 75;
+      if (method === "referenceVersion") return 1n;
+      if (method === "priceReference") return [2000n * 10n ** 18n, 900n, 3n, 990n];
       if (method === "amountRules") return [0, 6, 18, true, false, true, address, `0x${"2".repeat(40)}`];
       if (method === "read") return [2000n * 10n ** 18n, 900n, 3n];
       throw new Error(method);

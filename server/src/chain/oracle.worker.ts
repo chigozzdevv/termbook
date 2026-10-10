@@ -35,7 +35,7 @@ export function ratioFeedConfig() {
 export async function runOracleWorker(): Promise<number> {
   const config = ratioFeedConfig();
   if (!config) return 0;
-  const client = monadClient();
+  const client = monadClient(1);
   if (await client.getChainId() !== env.monadChainId) throw new Error("oracle-keeper-chain-mismatch");
   const finalized = await client.getBlock({ blockTag: "finalized" });
   let updated = 0;

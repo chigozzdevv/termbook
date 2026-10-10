@@ -7,11 +7,13 @@ import { log, error } from "node:console";
 import { execFileSync } from "node:child_process";
 import { root, viem, artifact, testnetRuntime, writeJsonAtomic } from "./testnet-runtime.mjs";
 import { validateUpgradeArtifact, upgradeArtifactLoader } from "./upgrade-validation.mjs";
+import { executionKey } from "../packages/schema/dist/index.js";
 
 const simulate = process.argv[2] === "--simulate";
 const refreshSpot = process.argv[3] === "--refresh-spot";
-if (!["--simulate", "--broadcast"].includes(process.argv[2]) || process.argv.length !== (refreshSpot ? 4 : 3)) {
-  throw new Error("Use --simulate or --broadcast, optionally with --refresh-spot");
+const refreshPrices = process.argv[3] === "--refresh-prices";
+if (!["--simulate", "--broadcast"].includes(process.argv[2]) || process.argv.length !== (refreshSpot || refreshPrices ? 4 : 3)) {
+  throw new Error("Use --simulate or --broadcast, optionally with --refresh-spot or --refresh-prices");
 }
 const upgrades = ["FlowExecutor", "AccountFactory", "PriceProtection", "TermbookCore"];
 const shared = ["ReadProgram", "UseCaseReader", "UseCasePolicy", "UseCaseRecovery", "AtomicSpotRouter", "AtomicSpotModule", "AppHealthReaderFactory"];
@@ -21,6 +23,75 @@ const equal = (actual, expected, label) => {
   if (canonical(actual).toLowerCase() !== canonical(expected).toLowerCase()) throw new Error(`Verification failed: ${label}`);
 };
 const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+
+async function refreshPriceProtection() {
+  const name = "PriceProtection", operation = "price-protection-update";
+  const { deployment, report, persist, context } = await testnetRuntime(operation, simulate);
+  const monad = await context(10143), m = deployment.addresses[10143];
+  const candidate = implementationArtifact(name), build = viem.keccak256(candidate.bytecode.object);
+  if (report.build && report.build !== build || report.sourceCommit && report.sourceCommit !== sourceCommit) throw new Error("Price protection build changed");
+  report.baseline ??= deployment.proxies[10143][name];
+  report.build = build; report.sourceCommit = sourceCommit;
+  const baseline = report.baseline;
+  validateUpgradeArtifact(baseline, candidate);
+  equal(await monad.read("ProtocolGovernance", m.ProtocolGovernance, "governance"), deployment.deployer, "governance owner");
+  equal(await monad.read("ProtocolGovernance", m.ProtocolGovernance, "timelock"), 0n, "testnet delay");
+  equal(await monad.read("UpgradeController", m.UpgradeController, "owner"), m.ProtocolGovernance, "upgrade owner");
+  equal(await monad.read("TestnetProxy", m[name], "proxyAdmin"), baseline.admin, "proxy administrator");
+  equal(await monad.read("UpgradeController", m.UpgradeController, "contractIds", [m[name]]), baseline.contractId, "proxy identity");
+  const current = await monad.read("TestnetProxy", m[name], "proxyImplementation");
+  const pin = current.toLowerCase() === baseline.implementation.toLowerCase() ? baseline : report.proxy;
+  if (!pin || pin.implementation.toLowerCase() !== current.toLowerCase()) throw new Error("Price protection baseline changed");
+  equal(viem.keccak256(await monad.client.getCode({ address: current })), pin.implementationCodeHash, "live implementation");
+  const state = async () => {
+    const blockNumber = await monad.client.getBlockNumber();
+    const read = (functionName, args = []) => monad.client.readContract({ address: m[name], abi: candidate.abi, functionName, args, blockNumber });
+    const count = baseline.storageLayout.storage.reduce((max, field) => Math.max(max, Number(field.slot) + Math.ceil(Number(baseline.storageLayout.types[field.type].numberOfBytes) / 32)), 0);
+    const slots = await Promise.all(Array.from({ length: count }, (_, index) => monad.client.getStorageAt({ address: m[name], slot: viem.toHex(index, { size: 32 }), blockNumber })));
+    const rules = {};
+    for (const installed of Object.values(deployment.configuration ?? {}).filter((entry) => entry.definition?.actions && entry.bundleId)) {
+      for (const action of installed.definition.actions) for (const market of action.price?.markets ?? []) {
+        const args = [installed.bundleId, viem.keccak256(viem.stringToHex(executionKey(action))), market];
+        const id = await read("key", args);
+        rules[id] = [await read("rule", args), await read("ruleHashes", [id]), await read("amountRules", [id])];
+      }
+    }
+    return JSON.parse(canonical({ core: await read("core"), slots, rules }));
+  };
+  report.before ??= await state(); persist();
+  equal(await state(), report.before, "preserved price bindings");
+  if (!simulate && !report.completedAt) {
+    const plan = JSON.parse(fs.readFileSync(operationFile(`${operation}-simulation`), "utf8"));
+    if (!plan.completedAt || plan.build !== build || plan.sourceCommit !== sourceCommit) throw new Error("Run the current-build simulation first");
+    equal(plan.baseline.implementationCodeHash, baseline.implementationCodeHash, "simulated baseline");
+    const remaining = plan.transactions.filter((tx) => !report.transactions.some((item) => item.name === tx.name && item.status === "success"));
+    const gasPrice = await monad.client.getGasPrice();
+    const budget = remaining.reduce((sum, tx) => sum + BigInt(tx.gasLimit), 0n) * (gasPrice > 100_000_000_000n ? gasPrice : 100_000_000_000n) * 11n / 10n;
+    if (await monad.client.getBalance({ address: deployment.deployer }) < budget) throw new Error("Insufficient testnet gas");
+  }
+  const implementation = await monad.deploy(name, [viem.zeroAddress], `${name}CheckpointImplementation`);
+  const codeHash = viem.keccak256(candidate.deployedBytecode.object);
+  equal(viem.keccak256(await monad.client.getCode({ address: implementation })), codeHash, "candidate code");
+  equal(await monad.read(name, implementation, "upgradeContractId"), baseline.contractId, "candidate identity");
+  report.proxy = { ...baseline, implementation, implementationCodeHash: codeHash, storageLayout: candidate.storageLayout, abi: candidate.abi }; persist();
+  await monad.govern("UpgradeController", m.UpgradeController, "upgrade", [m[name], implementation, codeHash, "0x"]);
+  equal(await monad.read("TestnetProxy", m[name], "proxyImplementation"), implementation, "upgraded proxy");
+  equal(await monad.read(name, m[name], "referenceVersion"), 1n, "reference format");
+  equal(await state(), report.before, "preserved price bindings");
+  report.completedAt ??= new Date().toISOString(); persist();
+  if (!simulate) {
+    deployment.proxies[10143][name] = report.proxy;
+    m[`${name}Implementation`] = implementation;
+    deployment.configuration.integrations.priceUpdate = { sourceCommit, completedAt: report.completedAt, storageUnchanged: true };
+    if (deployment.configuration.integrations.sourceVerification) deployment.configuration.integrations.sourceVerification.contracts = deployment.configuration.integrations.sourceVerification.contracts.filter((item) => item.name !== name);
+    writeJsonAtomic(path.join(root, "deployments/testnet.json"), deployment);
+    const bindingsFile = path.join(root, "packages/bindings/src/generated/deployments.ts");
+    fs.writeFileSync(bindingsFile, fs.readFileSync(bindingsFile, "utf8").replace(/export const deployments: DeploymentMap = \{[\s\S]*?\n\};/, `export const deployments: DeploymentMap = ${JSON.stringify(deployment.addresses, null, 2)};`));
+    clearOperation(operation);
+  }
+  log(JSON.stringify({ simulated: simulate, verified: true, component: name, proxy: m[name], implementation,
+    costMON: viem.formatEther(report.transactions.reduce((sum, tx) => sum + BigInt(tx.gasUsed) * BigInt(tx.effectiveGasPrice), 0n)) }));
+}
 
 async function refreshSpotModule() {
   const operation = "spot-module-update";
@@ -244,7 +315,7 @@ async function main() {
   if (!simulate) clearOperation("shared-integration-upgrade", false);
 }
 
-const lockFile = operationFile(refreshSpot ? "spot-module-update" : "shared-integration-upgrade").replace(/\.json$/, ".lock");
+const lockFile = operationFile(refreshPrices ? "price-protection-update" : refreshSpot ? "spot-module-update" : "shared-integration-upgrade").replace(/\.json$/, ".lock");
 let lock;
 try {
   if (!simulate) {
@@ -257,7 +328,7 @@ try {
     }
     lock = fs.openSync(lockFile, "wx", 0o600); fs.writeFileSync(lock, String(process.pid));
   }
-  if (refreshSpot) await refreshSpotModule(); else await main();
+  if (refreshPrices) await refreshPriceProtection(); else if (refreshSpot) await refreshSpotModule(); else await main();
 } catch (cause) {
   error(cause instanceof Error ? cause.message.split("\n")[0] : "Shared integration upgrade failed"); process.exitCode = 1;
 } finally {

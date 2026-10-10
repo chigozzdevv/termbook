@@ -95,7 +95,7 @@ describe("standard execution routes", () => {
 describe("limit review and registered position state", () => {
   it("preserves a stricter limit, rejects a looser one and checks the route price key", async () => {
     const read = vi.fn(async (_address: string, _abi: unknown, method: string) => method === "priceProtection" ? address("a") : method === "rule"
-      ? { oracle: address("b"), feedId: market, priceDecimals: 18, maxSlippageBps: 100 } : method === "houseSlippage" ? 50
+      ? { oracle: address("b"), feedId: market, priceDecimals: 18, maxSlippageBps: 100 } : method === "houseSlippage" ? 50 : method === "referenceVersion" ? 1n
         : [3n * 10n ** 18n, 1000n, 1n]);
     const client = { config: { core: address("c") }, rpc: { read, client: { getBlock: async () => ({ timestamp: 1000n }) } } } as unknown as TermbookClient;
     const route = limitRoute("buy", "spend"), action = order("buy", "spend", "limit", 100_000_000n);

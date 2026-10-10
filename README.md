@@ -74,6 +74,13 @@ aggregators, and preserves the older observation timestamp. Its permissionless
 a 24-hour heartbeat; this setup uses a 25-hour age limit for testnet exercises.
 The worker refreshes pinned ratio feeds configured in `RATIO_PRICE_FEEDS` with a
 distinct `ORACLE_KEEPER_KEY`; stale or invalid source rounds remain rejected.
+The same keeper records authenticated execution-price checkpoints for admitted
+app rules. `PRICE_REFERENCE_RULES` can prime configured rules before admission
+using `{ bundle, capability, market }` hashes. Quotes use these checkpoints;
+execution still verifies the current guarded price, deviation and slippage.
+Refresh the existing price proxy with
+`node scripts/setup-testnet-integrations.mjs --simulate --refresh-prices`, then
+the corresponding `--broadcast` command after the simulation passes.
 
 The upgradeable deployment installs the borrower-owned account factory and
 `AccountHealthSource` before accepting any credit. This wrapper checks factory

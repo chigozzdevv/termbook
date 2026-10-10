@@ -57,10 +57,14 @@ contract PriceProtection is ProxyInitializable {
     mapping(bytes32 => uint16) public houseSlippage;
     mapping(bytes32 => bool) public creditBound;
     mapping(bytes32 => address) public oracleDependencyRegistries;
+    struct Reference { uint256 value; uint256 updatedAt; uint256 recordedAt; uint256 observedAt; }
+    mapping(bytes32 => mapping(uint80 => Reference)) private references;
+    mapping(bytes32 => uint80) private referenceRounds;
     error Unauthorized();
     error Invalid();
     error Stale();
     event RuleConfigured(bytes32 indexed bundleId, bytes32 indexed capability, bytes32 indexed market, bytes32 ruleHash);
+    event PriceRecorded(bytes32 indexed ruleId, uint80 indexed roundId, uint256 value, uint256 updatedAt);
     constructor(address core_) {
         if (core_ != address(0)) _initializePriceProtection(core_);
     }
@@ -129,6 +133,41 @@ contract PriceProtection is ProxyInitializable {
         houseSlippage[creditId] = maxSlippage;
         bundleSealed[bundle] = true;
     }
+    function referenceVersion() external pure returns (uint256) { return 1; }
+    function recordPrice(bytes32 bundle, bytes32 capability, bytes32 market) external {
+        bytes32 id = key(bundle, capability, market);
+        Rule memory value = rules[id];
+        _requireOracle(id, bundle, value);
+        (uint256 price, uint256 updated, uint80 round) = OracleRegistry(value.oracle).read(value.feedId);
+        Reference storage recorded = references[id][round];
+        if (recorded.recordedAt == 0) {
+            recorded.value = price; recorded.updatedAt = updated; recorded.recordedAt = block.timestamp;
+        } else if (recorded.value != price || recorded.updatedAt != updated) revert Invalid();
+        recorded.observedAt = block.timestamp;
+        referenceRounds[id] = round;
+        emit PriceRecorded(id, round, price, updated);
+    }
+    function priceReference(bytes32 bundle, bytes32 capability, bytes32 market)
+        external view returns (uint256 price, uint256 updatedAt, uint80 round, uint256 observedAt) {
+        bytes32 id = key(bundle, capability, market);
+        Rule memory value = rules[id];
+        _requireOracle(id, bundle, value);
+        round = referenceRounds[id];
+        Reference memory recorded = references[id][round];
+        if (recorded.recordedAt == 0 || block.timestamp - recorded.observedAt > value.maxAuthorizationAge) revert Stale();
+        (uint256 current,,) = OracleRegistry(value.oracle).read(value.feedId);
+        _requireDeviation(recorded.value, current, value.maxDeviationBps);
+        return (recorded.value, recorded.updatedAt, round, recorded.observedAt);
+    }
+    function _requireOracle(bytes32 id, bytes32 bundle, Rule memory value) private view {
+        if (value.oracle == address(0) || value.oracle.codehash != oracleCodeHashes[id]
+            || (oracleDependencyRegistries[id] != address(0)
+                && !IntegrationRegistry(oracleDependencyRegistries[id]).dependencyValid(bundle, value.oracle))) revert Invalid();
+    }
+    function _requireDeviation(uint256 referencePrice, uint256 current, uint16 maxDeviation) private pure {
+        uint256 difference = current > referencePrice ? current - referencePrice : referencePrice - current;
+        if (difference > FullMath.mulDiv(referencePrice, maxDeviation, 10_000, false)) revert Stale();
+    }
     function validate(bytes32 creditId, bytes32 bundle, ExecutionTypes.Action calldata action, Quote calldata quote)
         external view {
         bytes32 id = key(bundle, action.capability, action.market);
@@ -144,11 +183,18 @@ contract PriceProtection is ProxyInitializable {
             || quote.authorizedAt > block.timestamp || block.timestamp - quote.authorizedAt > value.maxAuthorizationAge
             || quote.updatedAt > quote.authorizedAt || action.calls.length <= value.callIndex) revert Invalid();
         OracleRegistry registry = OracleRegistry(value.oracle);
-        (uint256 refPrice, uint256 updated,) = registry.readRound(value.feedId, quote.roundId);
+        uint256 refPrice;
+        uint256 updated;
+        Reference memory recorded = references[id][quote.roundId];
+        if (recorded.recordedAt != 0 && recorded.recordedAt <= quote.authorizedAt
+            && block.timestamp - recorded.observedAt <= uint256(value.maxAuthorizationAge) * 2) {
+            refPrice = recorded.value; updated = recorded.updatedAt;
+        } else {
+            (refPrice, updated,) = registry.readRound(value.feedId, quote.roundId);
+        }
         (uint256 current,,) = registry.read(value.feedId);
-        uint256 difference = current > refPrice ? current - refPrice : refPrice - current;
-        if (refPrice != quote.referencePrice || updated != quote.updatedAt
-            || difference > FullMath.mulDiv(refPrice, value.maxDeviationBps, 10_000, false)) revert Stale();
+        if (refPrice != quote.referencePrice || updated != quote.updatedAt) revert Stale();
+        _requireDeviation(refPrice, current, value.maxDeviationBps);
         ExecutionTypes.Call calldata call_ = action.calls[value.callIndex];
         if (call_.target != value.target || bytes4(call_.data) != value.selector
             || _word(call_.data, value.priceWord) != quote.bound) revert Invalid();

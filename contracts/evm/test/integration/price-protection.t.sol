@@ -22,13 +22,16 @@ contract PriceFeedFixture {
     mapping(uint80 => int256) public answers;
     mapping(uint80 => uint256) public timestamps;
     bool public permission = true;
+    bool public history = true;
     function decimals() external pure returns (uint8) { return 8; }
     function update(int256 answer) external { answers[++round] = answer; timestamps[round] = block.timestamp; }
     function setPermission(bool value) external { permission = value; }
+    function setHistory(bool value) external { history = value; }
     function latestRoundData() external view returns (uint80, int256, uint256, uint256, uint80) {
         return (round, answers[round], timestamps[round], timestamps[round], round);
     }
     function getRoundData(uint80 id) external view returns (uint80, int256, uint256, uint256, uint80) {
+        require(history || id == round, "round-unavailable");
         return (id, answers[id], timestamps[id], timestamps[id], id);
     }
     function trade(uint256, uint256) external {}
@@ -75,6 +78,40 @@ contract PriceProtectionTest is Test {
         (uint256 refPrice, uint256 updated, uint80 round) = oracle.read(feedId);
         quote = PriceProtection.Quote(round, refPrice, updated, block.timestamp,
             protection.deriveBound(refPrice, 50, isMax, 8), 50, isMax);
+    }
+    function testRecordedLivePriceSurvivesAnUnderlyingRoundChange() public {
+        feed.setHistory(false);
+        protection.recordPrice(bundle, capability, market);
+        PriceProtection.Quote memory quote = _quote(false);
+        vm.warp(1001); feed.update(2001e8);
+        protection.validate(credit, bundle, _action(false, quote.bound), quote);
+        protection.recordPrice(bundle, capability, market);
+        protection.validate(credit, bundle, _action(false, quote.bound), quote);
+    }
+    function testCheckpointCannotAuthenticateAFabricatedReference() public {
+        protection.recordPrice(bundle, capability, market);
+        PriceProtection.Quote memory quote = _quote(false);
+        quote.referencePrice += 1e18;
+        vm.expectRevert(PriceProtection.Stale.selector);
+        protection.validate(credit, bundle, _action(false, quote.bound), quote);
+    }
+    function testExpiredCheckpointCannotBeReauthorizedAgainstALatestOnlyFeed() public {
+        feed.setHistory(false);
+        protection.recordPrice(bundle, capability, market);
+        PriceProtection.Quote memory quote = _quote(false);
+        vm.warp(1001); feed.update(2001e8);
+        vm.warp(1121); quote.authorizedAt = block.timestamp;
+        vm.expectRevert("round-unavailable");
+        protection.validate(credit, bundle, _action(false, quote.bound), quote);
+    }
+    function testCheckpointStopsWhenTheSourceGuardRevokesOrTheKeeperStops() public {
+        protection.recordPrice(bundle, capability, market);
+        vm.warp(1061);
+        vm.expectRevert(PriceProtection.Stale.selector);
+        protection.priceReference(bundle, capability, market);
+        feed.setPermission(false);
+        vm.expectRevert();
+        protection.recordPrice(bundle, capability, market);
     }
     function _spot(bool maxInput) internal returns (ExecutionTypes.Action memory action, PriceProtection.Quote memory quote, SpotTokenFixture token) {
         token = new SpotTokenFixture();

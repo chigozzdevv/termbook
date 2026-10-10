@@ -20,7 +20,9 @@ export async function runKeeperWorker(): Promise<number> {
     for (const key of keys) {
       if (!key) continue;
       const address = privateKeyToAccount(key as `0x${string}`).address;
-      const client = chainId === env.monadChainId ? monadClient() : createPublicClient({ transport: http(rpcUrl) });
+      const priority = key === process.env["UPGRADE_MONITOR_KEY"] ? 2
+        : key === process.env["ORACLE_KEEPER_KEY"] || key === process.env["RISK_KEEPER_KEY"] ? 1 : 0;
+      const client = chainId === env.monadChainId ? monadClient(priority) : createPublicClient({ transport: http(rpcUrl) });
       wallets.set(`${chainId}:${address.toLowerCase()}`, { client, chainId, address });
     }
   }

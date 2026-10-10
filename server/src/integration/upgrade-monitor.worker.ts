@@ -44,7 +44,7 @@ export async function runUpgradeMonitorWorker(): Promise<number> {
   if (!config || running) return 0;
   running = true;
   try {
-    const client = monadClient();
+    const client = monadClient(2);
     if (await client.getChainId() !== 10143) throw new Error("upgrade-monitor-chain-mismatch");
     const reviews = await approvedRuntimeReviews();
     let submitted = 0;
@@ -53,8 +53,9 @@ export async function runUpgradeMonitorWorker(): Promise<number> {
     leases.sort((a, b) => a.expiry < b.expiry ? -1 : a.expiry > b.expiry ? 1 : 0);
     for (const { guard } of leases) {
       try {
-        const [finalized, latest] = await Promise.all(["finalized", "latest"].map((blockTag) => client.getBlock({ blockTag: blockTag as "finalized" | "latest" })));
-        if (!finalized.hash || finalized.number >= latest.number || latest.timestamp < finalized.timestamp
+        const finalized = await client.getBlock({ blockTag: "finalized" });
+        const latest = await client.getBlock({ blockTag: "latest" });
+        if (!finalized.hash || finalized.number > latest.number || latest.timestamp < finalized.timestamp
           || latest.timestamp - finalized.timestamp > 30n) throw new Error("upgrade-monitor-finality-unavailable");
         const code = await client.getCode({ address: guard.address });
         if (!code || keccak256(code).toLowerCase() !== guard.codeHash.toLowerCase()) throw new Error("upgrade-monitor-guard-changed");
@@ -79,7 +80,7 @@ export async function runUpgradeMonitorWorker(): Promise<number> {
           || runtimeReviewSummary(review).id.toLowerCase() !== guard.runtimeReview.toLowerCase())
           || !!review && (review.expires_at <= Number(latest.timestamp)
           || review.implementation.toLowerCase() !== implementation.toLowerCase() || review.code_hash.toLowerCase() !== implementationHash.toLowerCase());
-        if (!changed && (validUntil > latest.timestamp + 60n || finalized.number <= observedBlock)) continue;
+        if (!changed && (validUntil > latest.timestamp + 120n || finalized.number <= observedBlock)) continue;
         const data = encodeFunctionData({ abi, functionName: changed ? "revoke" : "renew",
           args: changed ? [] : [finalized.number, finalized.hash, finalized.timestamp] } as never);
         await client.simulateContract({ address: guard.address, abi, functionName: changed ? "revoke" : "renew",
@@ -89,6 +90,7 @@ export async function runUpgradeMonitorWorker(): Promise<number> {
           to: guard.address, data });
         if (changed) logger.error("upgrade-monitor-dependency-changed", { guard: guard.address, proxy });
         if (result === "success") submitted++;
+        if (result === "pending" || result === "busy") break;
       } catch (cause) {
         logger.warn("upgrade-monitor-unavailable", { guard: guard.address,
           reason: cause instanceof Error ? cause.message.match(/^(?:upgrade-monitor|keeper)-[a-z-]+(?=:|$)/)?.[0]

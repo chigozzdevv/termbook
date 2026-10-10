@@ -657,6 +657,86 @@ export const priceProtectionAbi = [
   },
   {
     "type": "function",
+    "name": "priceReference",
+    "inputs": [
+      {
+        "name": "bundle",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "capability",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "market",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "price",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "updatedAt",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "round",
+        "type": "uint80",
+        "internalType": "uint80"
+      },
+      {
+        "name": "observedAt",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "recordPrice",
+    "inputs": [
+      {
+        "name": "bundle",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "capability",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "market",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "referenceVersion",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
     "name": "rule",
     "inputs": [
       {
@@ -1081,6 +1161,37 @@ export const priceProtectionAbi = [
         "type": "uint64",
         "indexed": false,
         "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "PriceRecorded",
+    "inputs": [
+      {
+        "name": "ruleId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "roundId",
+        "type": "uint80",
+        "indexed": true,
+        "internalType": "uint80"
+      },
+      {
+        "name": "value",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "updatedAt",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false

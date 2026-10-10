@@ -10,9 +10,10 @@ import { proxyImplementationSlots, proxyBeaconSlot, resolveProxyImplementation }
 const simulate = process.argv.includes("--simulate");
 const configure = process.argv.includes("--configure");
 const reviewRuntime = process.argv.includes("--review-runtime");
-if (configure && reviewRuntime || simulate === process.argv.includes("--broadcast") || process.argv.length !== (configure || reviewRuntime ? 4 : 3)
-  || process.argv.slice(2).some((a) => !["--simulate", "--broadcast", "--configure", "--review-runtime"].includes(a))) throw new Error("Use --simulate or --broadcast, optionally with --configure or --review-runtime");
-const operation = configure ? "kuru-integration" : reviewRuntime ? "kuru-runtime-review" : "kuru-setup";
+const liquidity = process.argv.includes("--liquidity");
+if ([configure, reviewRuntime, liquidity].filter(Boolean).length > 1 || simulate === process.argv.includes("--broadcast") || process.argv.length !== (configure || reviewRuntime || liquidity ? 4 : 3)
+  || process.argv.slice(2).some((a) => !["--simulate", "--broadcast", "--configure", "--review-runtime", "--liquidity"].includes(a))) throw new Error("Use --simulate or --broadcast, optionally with --configure, --review-runtime or --liquidity");
+const operation = liquidity ? "kuru-liquidity" : configure ? "kuru-integration" : reviewRuntime ? "kuru-runtime-review" : "kuru-setup";
 const factory = "0x7EFbE105Ca7415dE98F96622173458ac1c054630";
 const factoryAbi = viem.parseAbi([
   "function deployProxy(uint8,address,address,uint96,uint32,uint32,uint96,uint96,uint256,uint256,uint96) returns(address)",
@@ -24,6 +25,8 @@ const marketAbi = viem.parseAbi([
   "function kuruAmmVault() view returns(address)", "function addBuyOrder(uint32,uint96,bool)",
   "function addSellOrder(uint32,uint96,bool)", "function s_orderIdCounter() view returns(uint40)",
   "function getL2Book(uint32,uint32) view returns(bytes)",
+  "function s_orders(uint40) view returns(address,uint96,uint40,uint40,uint40,uint32,uint32,bool)",
+  "function batchCancelOrders(uint40[])",
 ]);
 const tokenAbi = viem.parseAbi(["function approve(address,uint256) returns(bool)"]);
 const marginAbi = viem.parseAbi(["function deposit(address,address,uint256) payable"]);
@@ -38,6 +41,55 @@ async function main() {
   const setup = deployment.configuration.native;
   if (!setup || setup.core.toLowerCase() !== m.TermbookCore.toLowerCase()) throw new Error("Admit native MON prices first");
   const usdc = deployment.tokens[10143].USDC;
+  if (liquidity) {
+    const installed = deployment.configuration["kuru-market"];
+    if (!installed || installed.core.toLowerCase() !== m.TermbookCore.toLowerCase()) throw new Error("Current Kuru market required");
+    const market = installed.market;
+    const params = await network.client.readContract({ address: market, abi: marketAbi, functionName: "getMarketParams" });
+    if (params[2] !== viem.zeroAddress || params[4].toLowerCase() !== usdc.toLowerCase() || params[3] !== 18n || params[5] !== 6n) throw new Error("Maker market assets changed");
+    const price = await network.read("OracleRegistry", m.OracleRegistry, "read", [setup.priceId]);
+    const tick = BigInt(params[6]), precision = BigInt(params[0]);
+    if (!simulate && !report.orderIds) {
+      const plan = JSON.parse(fs.readFileSync(operationFile(`${operation}-simulation`), "utf8"));
+      if (!plan.completedAt) throw new Error("Liquidity simulation required");
+      for (const id of plan.orderIds) {
+        const order = await network.client.readContract({ address: market, abi: marketAbi, functionName: "s_orders", args: [BigInt(id)] });
+        if (order[0].toLowerCase() !== deployment.deployer.toLowerCase() || order[1] === 0n) throw new Error("Simulated maker order changed");
+      }
+      for (const field of ["orderIds", "reference", "bid", "ask", "size"]) report[field] = plan[field];
+      persist();
+    }
+    if (!report.orderIds) {
+      const count = await network.client.readContract({ address: market, abi: marketAbi, functionName: "s_orderIdCounter" });
+      if (count > 100n) throw new Error("Maker order scan limit exceeded");
+      report.orderIds = [];
+      for (let id = 1n; id <= count; id++) {
+        const order = await network.client.readContract({ address: market, abi: marketAbi, functionName: "s_orders", args: [id] });
+        if (order[0].toLowerCase() === deployment.deployer.toLowerCase() && order[1] > 0n) report.orderIds.push(String(id));
+      }
+      report.reference = String(price[0]);
+      report.bid = String(price[0] * precision * 9950n / 10n ** 18n / 10_000n / tick * tick);
+      report.ask = String((price[0] * precision * 10050n / 10n ** 18n / 10_000n + tick - 1n) / tick * tick);
+      report.size = String(params[1]); persist();
+    }
+    const difference = price[0] > BigInt(report.reference) ? price[0] - BigInt(report.reference) : BigInt(report.reference) - price[0];
+    if (difference * 10_000n > BigInt(report.reference) * 25n) throw new Error("Maker reference moved; reconcile the liquidity plan before repricing");
+    if (!simulate) {
+      const plan = JSON.parse(fs.readFileSync(operationFile(`${operation}-simulation`), "utf8"));
+      if (!plan.completedAt || plan.bid !== report.bid || plan.ask !== report.ask || JSON.stringify(plan.orderIds) !== JSON.stringify(report.orderIds)) throw new Error("Matching liquidity simulation required");
+    }
+    const ids = report.orderIds.map(BigInt);
+    if (ids.length) await network.send("cancel-owned-maker-orders", viem.encodeFunctionData({ abi: marketAbi, functionName: "batchCancelOrders", args: [ids] }), market);
+    await network.send("refresh-maker-bid", viem.encodeFunctionData({ abi: marketAbi, functionName: "addBuyOrder", args: [Number(report.bid), BigInt(report.size), true] }), market);
+    await network.send("refresh-maker-ask", viem.encodeFunctionData({ abi: marketAbi, functionName: "addSellOrder", args: [Number(report.ask), BigInt(report.size), true] }), market);
+    report.completedAt ??= new Date().toISOString(); persist();
+    if (!simulate) { installed.bid = report.bid; installed.ask = report.ask; installed.liquidityUpdatedAt = report.completedAt;
+      const { writeJsonAtomic } = await import("./testnet-state.mjs");
+      writeJsonAtomic(path.join(root, "deployments/testnet.json"), deployment); clearOperation(operation); }
+    log(JSON.stringify({ simulated: simulate, market, bid: report.bid, ask: report.ask,
+      costMON: viem.formatEther(report.transactions.reduce((sum, tx) => sum + BigInt(tx.gasUsed) * BigInt(tx.effectiveGasPrice), 0n)) }));
+    return;
+  }
   if (reviewRuntime) {
     const { runtimeReviewData, runtimeReviewSummary } = await import("../packages/sdk/dist/index.js");
     const { runtimeReviewSchema } = await import("../packages/schema/dist/index.js");

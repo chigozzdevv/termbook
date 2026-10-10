@@ -1,11 +1,13 @@
 import { executionKey, type CapabilityDefinition } from "@termbook/schema";
-import { encodeAbiParameters, keccak256, parseAbi, stringToHex } from "viem";
+import { BaseError, ContractFunctionZeroDataError, encodeAbiParameters, keccak256, parseAbi, stringToHex } from "viem";
 import type { TermbookClient } from "../client/client.js";
 import type { TermAction } from "@termbook/schema";
 import { executionMarket, type ExecutionPrice } from "./execution.js";
 
 const coreAbi = parseAbi(["function priceProtection() view returns (address)"]);
 const protectionAbi = parseAbi([
+  "function referenceVersion() pure returns (uint256)",
+  "function priceReference(bytes32,bytes32,bytes32) view returns (uint256 value,uint256 updatedAt,uint80 roundId,uint256 observedAt)",
   "function rule(bytes32,bytes32,bytes32) view returns ((address oracle,bytes32 feedId,address target,bytes4 selector,uint8 callIndex,uint8 priceDecimals,uint16 priceWord,uint16 directionWord,uint16 maxSlippageBps,uint16 maxDeviationBps,uint32 maxAuthorizationAge,uint256 maximumDirection,uint256 minimumDirection))",
   "function houseSlippage(bytes32) view returns (uint16)",
   "function amountRules(bytes32) view returns (uint16 amountWord,uint8 inputDecimals,uint8 outputDecimals,bool inverse,bool maxInput,bool active,address inputAsset,address outputAsset)",
@@ -84,8 +86,18 @@ export async function executionPrice(client: TermbookClient, creditId: `0x${stri
     }
     return previous;
   }
+  let referenceVersion = 0n;
+  try { referenceVersion = await client.rpc.read<bigint>(protection, protectionAbi, "referenceVersion"); }
+  catch (error) {
+    const absent = error instanceof BaseError ? error.walk((cause) => cause instanceof ContractFunctionZeroDataError) : undefined;
+    if (!(absent instanceof ContractFunctionZeroDataError)) throw error;
+  }
+  if (referenceVersion !== 0n && referenceVersion !== 1n) throw new Error("action-price-version-unsupported");
   const [value, block] = await Promise.all([
-    client.rpc.read<readonly [bigint, bigint, bigint]>(rule.oracle, oracleAbi, "read", [rule.feedId]),
+    referenceVersion === 1n
+      ? client.rpc.read<readonly [bigint, bigint, bigint, bigint]>(protection, protectionAbi, "priceReference",
+        [bundle, keccak256(stringToHex(executionKey(definition))), market])
+      : client.rpc.read<readonly [bigint, bigint, bigint]>(rule.oracle, oracleAbi, "read", [rule.feedId]),
     client.rpc.client.getBlock({ blockTag: "latest" }),
   ]);
   return { roundId: value[2], referencePrice: value[0], updatedAt: value[1], authorizedAt: block.timestamp,

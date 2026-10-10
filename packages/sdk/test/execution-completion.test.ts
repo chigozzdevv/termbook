@@ -63,11 +63,16 @@ describe("finalized action completion", () => {
     expect(await completeExecution(f.client, id, checkpoint!)).toMatchObject({ status: "expired", draw: 100n });
   });
   it("does not turn a refund into debt repayment or an unresolved order into success", async () => {
-    const f = fixture(); f.state.filled = 30n; f.state.refunded = 20n; f.state.remaining = 50n;
-    const reconcile = vi.fn(async () => ({ tx: hash }));
-    await expect(completeExecution(f.client, id, f.checkpoint, { timeoutMs: 20, pollIntervalMs: 1, maxReconciliations: 1 }, reconcile))
-      .rejects.toMatchObject({ checkpoint: { stage: "pending", tx: hash }, outcomes: [{ filled: 30n, refunded: 20n, remaining: 50n }] });
-    expect(reconcile).toHaveBeenCalledOnce();
+    vi.useFakeTimers();
+    try {
+      const f = fixture(); f.state.filled = 30n; f.state.refunded = 20n; f.state.remaining = 50n;
+      const reconcile = vi.fn(async () => ({ tx: hash }));
+      const pending = expect(completeExecution(f.client, id, f.checkpoint, { timeoutMs: 20, pollIntervalMs: 1, maxReconciliations: 1 }, reconcile))
+        .rejects.toMatchObject({ checkpoint: { stage: "pending", tx: hash }, outcomes: [{ filled: 30n, refunded: 20n, remaining: 50n }] });
+      await vi.advanceTimersByTimeAsync(25);
+      await pending;
+      expect(reconcile).toHaveBeenCalledOnce();
+    } finally { vi.useRealTimers(); }
   });
   it("rejects substituted checkpoints and changed canonical receipt hashes", async () => {
     const f = fixture();

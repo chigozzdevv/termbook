@@ -42,7 +42,8 @@ async function main() {
     equal(await read("UpgradeController", m.UpgradeController, "contractIds", [proxy]), pin.contractId, `${name} identity`);
     equal(viem.keccak256(await client.getCode({ address: pin.implementation, blockNumber: block.number })), pin.implementationCodeHash, `${name} code`);
   }
-  for (const name of ["FlowExecutor", "AccountFactory", "PriceProtection", "TermbookCore"]) {
+  const compiledUpgrades = report.priceUpdate ? ["PriceProtection"] : ["FlowExecutor", "AccountFactory", "PriceProtection", "TermbookCore"];
+  for (const name of compiledUpgrades) {
     equal(deployment.proxies[10143][name].implementationCodeHash, viem.keccak256(artifact(name).deployedBytecode.object), `${name} compiled code`);
   }
   const a = report.addresses;
@@ -57,7 +58,8 @@ async function main() {
       }
       return `0x${result}`;
     };
-    equal(normalize(code), normalize(compiled.object), `${name} compiled runtime`);
+    if (report.priceUpdate) equal(viem.keccak256(code), report.contractPins[name]?.codeHash, `${name} installed code`);
+    else equal(normalize(code), normalize(compiled.object), `${name} compiled runtime`);
     const bindings = name === "ReadProgram" ? { governance: m.ProtocolGovernance }
       : name === "AppHealthReaderFactory" ? { core: m.TermbookCore, collateralReader: m.CollateralHealthReader }
         : { governance: m.ProtocolGovernance, core: m.TermbookCore,
@@ -69,6 +71,7 @@ async function main() {
   }
   if (publish) {
     const extra = [
+      { name: "PriceProtectionImplementation", artifact: "PriceProtection", address: deployment.proxies[10143].PriceProtection.implementation },
       { name: "OracleRegistryImplementation", artifact: "OracleRegistry", address: deployment.proxies[10143].OracleRegistry.implementation },
       { name: "OracleRegistryProxy", artifact: "TestnetProxy", address: m.OracleRegistry },
       ...(deployment.configuration["kuru-market"]?.oracleGuard ? [{ name: "KuruOracleGuard", artifact: "ImplementationGuard",

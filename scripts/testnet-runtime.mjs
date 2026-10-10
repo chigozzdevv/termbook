@@ -211,8 +211,8 @@ export async function testnetRuntime(name, simulate) {
       const salt = keccak256(data);
       const id = await read("ProtocolGovernance", governance, "actionId", [target, 0n, data, salt]);
       if (!await read("ProtocolGovernance", governance, "executed", [id])) {
-        const queued = await call("ProtocolGovernance", governance, "queue", [target, 0n, data, salt], `queue:${id}`);
-        const execution = await call("ProtocolGovernance", governance, "execute", [target, 0n, data, salt], `execute:${id}`, simulate ? undefined : BigInt(queued.block));
+        await call("ProtocolGovernance", governance, "queue", [target, 0n, data, salt], `queue:${id}`);
+        const execution = await call("ProtocolGovernance", governance, "execute", [target, 0n, data, salt], `execute:${id}`);
         if (!await client.readContract({ address: governance, abi: artifact("ProtocolGovernance").abi,
           functionName: "executed", args: [id], blockNumber: BigInt(execution.block) })) throw new Error("Governance execution unavailable");
       }

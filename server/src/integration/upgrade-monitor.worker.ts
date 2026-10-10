@@ -48,7 +48,10 @@ export async function runUpgradeMonitorWorker(): Promise<number> {
     if (await client.getChainId() !== 10143) throw new Error("upgrade-monitor-chain-mismatch");
     const reviews = await approvedRuntimeReviews();
     let submitted = 0;
-    for (const guard of config.guards) {
+    const leases = await Promise.all(config.guards.map(async (guard) => ({ guard,
+      expiry: await client.readContract({ address: guard.address, abi, functionName: "validUntil" }).catch(() => 0n) })));
+    leases.sort((a, b) => a.expiry < b.expiry ? -1 : a.expiry > b.expiry ? 1 : 0);
+    for (const { guard } of leases) {
       try {
         const [finalized, latest] = await Promise.all(["finalized", "latest"].map((blockTag) => client.getBlock({ blockTag: blockTag as "finalized" | "latest" })));
         if (!finalized.hash || finalized.number >= latest.number || latest.timestamp < finalized.timestamp

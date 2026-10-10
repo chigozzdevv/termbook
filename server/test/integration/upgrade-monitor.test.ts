@@ -42,6 +42,16 @@ beforeEach(() => {
 afterEach(() => { env.monadChainId = 10143; vi.unstubAllEnvs(); });
 
 describe("testnet upgrade monitor", () => {
+  it("prioritizes expired guards when only one renewal can be submitted", async () => {
+    const expired = `0x${"55".repeat(20)}` as const;
+    vi.stubEnv("TESTNET_UPGRADE_GUARDS", JSON.stringify([{ address: guard, codeHash }, { address: expired, codeHash }]));
+    const original = readContract.getMockImplementation()!;
+    readContract.mockImplementation(async (request) => request.functionName === "validUntil"
+      ? request.address === expired ? 0n : 1050n : original(request));
+    vi.mocked(keeperTransaction).mockResolvedValueOnce("pending").mockResolvedValue("busy");
+    expect(await runUpgradeMonitorWorker()).toBe(0);
+    expect(vi.mocked(keeperTransaction).mock.calls[0]![0].to).toBe(expired);
+  });
   it("revokes a review-bound guard when its signed permit is removed", async () => {
     vi.stubEnv("TESTNET_UPGRADE_GUARDS", JSON.stringify([{ address: guard, codeHash, runtimeReview: codeHash }]));
     expect(await runUpgradeMonitorWorker()).toBe(1);

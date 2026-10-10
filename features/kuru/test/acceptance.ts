@@ -121,7 +121,10 @@ export async function createScenarios(input: unknown, actors: IntegrationSuite["
           const control = await r.simulate("control", request); if (control.reverted) throw new Error("validation-control-reverted");
           if (id === "pause_failure") await f.call("TermbookCore", "setPaused", [true]);
           else if (id === "permission_loss") await f.call("PriceFeedFixture", "setPermission", [false]);
-          else if (id === "stale_oracle") { await f.rpcCall("evm_increaseTime", [61]); await f.mine(); }
+          else if (id === "stale_oracle") {
+            const now = (await f.chain.getBlock()).timestamp;
+            await f.rpcCall("evm_setNextBlockTimestamp", [Number(now + 61n)]); await f.mine();
+          }
           else await f.call("TestnetUpgradeGuard", "revoke", [], f.actors.borrower, f.guards[0]);
           const tx = await r.transact(request); if (tx.succeeded) throw new Error(`validation-failure-accepted:${id}`);
           await snapshot(r, v, "after"); await unchanged(r);

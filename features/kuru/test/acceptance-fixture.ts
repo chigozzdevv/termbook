@@ -1,8 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { createPublicClient, createWalletClient, defineChain, http, getContractAddress, keccak256, stringToHex,
   encodeFunctionData, parseAbi, decodeAbiParameters, toHex, type Abi, type AbiFunction, type AbiParameter,
-  type Address, type Hex, type PublicClient } from "viem";
+  TransactionReceiptNotFoundError, type Address, type Hex, type PublicClient } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import type { Wallet, ValidationCall } from "@termbook/sdk";
 import { proxyImplementationSlots, type AcceptanceCaseId } from "@termbook/schema";
@@ -64,12 +65,21 @@ export class Fixture {
         signDigest: async (digest) => { const s = await account.sign({ hash: digest }); return s; },
         writeContract: async (request) => {
           const hash = await client.writeContract({ ...request, account, gasPrice: 1_000_000_000_000n } as never);
-          await this.chain.waitForTransactionReceipt({ hash }); await this.finalize(); return hash;
+          await this.receipt(hash); await this.finalize(); return hash;
         } };
     });
   }
   async rpcCall(method: string, params: unknown[] = []) {
     return this.chain.request({ method, params } as never);
+  }
+  private async receipt(hash: Hex) {
+    const deadline = Date.now() + 60_000;
+    while (Date.now() < deadline) {
+      try { return await this.chain.getTransactionReceipt({ hash }); }
+      catch (error) { if (!(error instanceof TransactionReceiptNotFoundError)) throw error; }
+      await delay(50);
+    }
+    throw new Error(`validation-receipt-timeout:${hash}`);
   }
   async finalize() {
     const [latest, finalized] = await Promise.all([this.chain.getBlock({ blockTag: "latest" }), this.chain.getBlock({ blockTag: "finalized" })]);
@@ -92,7 +102,7 @@ export class Fixture {
       hash = await this.rpcCall("eth_sendTransaction", [{ from: request.from, to: request.to,
         data: encodeFunctionData({ abi: [fn], functionName: fn.name, args: request.args ?? [] } as never), gas: toHex(16_000_000), gasPrice: toHex(1_000_000_000_000n), value: toHex(request.value ?? 0n) }]) as Hex;
     }
-    const receipt = await this.chain.waitForTransactionReceipt({ hash });
+    const receipt = await this.receipt(hash);
     if (!wallet) await this.finalize();
     if (receipt.status !== "success") {
       await this.chain.simulateContract({ address: request.to, abi: [fn, ...(await artifact("TermbookCore")).abi.filter((item) => item.type === "error")],
@@ -111,7 +121,7 @@ export class Fixture {
     const a = await artifact(name);
     const wallet = createWalletClient({ account: this.keys[0]!, transport: http(this.rpc) });
     const hash = await wallet.deployContract({ abi: a.abi, bytecode: a.bytecode.object, args, chain: null, gas: 28_000_000n, gasPrice: 1_000_000_000_000n });
-    const receipt = await this.chain.waitForTransactionReceipt({ hash });
+    const receipt = await this.receipt(hash);
     if (receipt.status !== "success" || !receipt.contractAddress) throw new Error(`validation-deployment-failed:${name}`);
     return this.addresses[name] = receipt.contractAddress;
   }

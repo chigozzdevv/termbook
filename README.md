@@ -325,6 +325,8 @@ interruption and retry, and cure restrictions. Seven explicit exclusions cover
 unsupported asynchronous orders, derivative reduction and retained positions.
 Each rejection has a successful control; recorded observations, transactions
 and simulations are replayed against their original blocks.
+All 36 cases have also passed and replayed using the deployed Termbook contracts
+on a local fork. Live configuration and lifecycle admission remain pending.
 
 Build the Solidity fixtures, start a local fork, then run the SDK suite in a
 second terminal:

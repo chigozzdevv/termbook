@@ -54,7 +54,9 @@ export class DeploymentFixture extends Fixture {
     }
     const runtimePath = new URL("../../../scripts/testnet-runtime.mjs", import.meta.url).href;
     const { warmForkStorage } = await import(runtimePath);
-    await warmForkStorage(this.chain, slots);
+    await warmForkStorage(this.chain, slots, (completed: number, total: number) => {
+      if (completed % 256 === 0 || completed === total) process.stdout.write(`Loaded ${completed}/${total} facility storage slots\n`);
+    });
   }
   override async call(name: string, method: string, args: readonly unknown[] = [], from = this.actors.borrower, target = this.addresses[name]!) {
     if (from === this.actors.borrower && ((name === "TermbookCore" && ["setLocalCollateralVault", "setPaused", "configureReservationPolicy"].includes(method))

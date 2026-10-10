@@ -50,27 +50,45 @@ export async function warmReadProgram(client, target, data) {
   await warmForkStorage(client, [...slots].map((slot) => ({ target, slot })));
 }
 
-export async function warmForkStorage(client, keys) {
+export async function warmForkStorage(client, keys, onProgress) {
   const { forkConfig: fork } = await client.request({ method: "anvil_nodeInfo", params: [] });
   if (!fork?.forkUrl || !Number.isSafeInteger(fork.forkBlockNumber)) throw new Error("Simulation fork source unavailable");
-  for (let offset = 0; offset < keys.length; offset += 32) {
-    const chunk = keys.slice(offset, offset + 32);
-    const response = await globalThis.fetch(fork.forkUrl, { method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify(chunk.map(({ target, slot }, id) => ({ jsonrpc: "2.0", id, method: "eth_getStorageAt", params: [target, slot, viem.toHex(fork.forkBlockNumber)] }))),
-      signal: globalThis.AbortSignal.timeout(30_000) });
-    const values = await response.json();
-    if (!response.ok || !Array.isArray(values) || values.length !== chunk.length) throw new Error("Simulation storage prefetch failed");
+  const source = createPublicClient({ transport: http(fork.forkUrl, { timeout: 30_000, retryCount: 0 }) });
+  let completed = 0;
+  const load = async (chunk) => {
+    const body = JSON.stringify(chunk.map(({ target, slot }, id) => ({ jsonrpc: "2.0", id, method: "eth_getStorageAt", params: [target, slot, viem.toHex(fork.forkBlockNumber)] })));
+    let values;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const response = await globalThis.fetch(fork.forkUrl, { method: "POST", headers: { "content-type": "application/json" }, body,
+          signal: globalThis.AbortSignal.timeout(30_000) });
+        const result = await response.json();
+        if (!response.ok || !Array.isArray(result) || result.length !== chunk.length
+          || new Set(result.map((item) => item?.id)).size !== chunk.length
+          || result.some((item) => !Number.isInteger(item?.id) || item.id < 0 || item.id >= chunk.length)) throw new Error("Invalid storage response");
+        values = result; break;
+      } catch {
+        if (attempt === 2) throw new Error("Simulation storage prefetch failed after three attempts");
+        await delay(1000 * (attempt + 1));
+      }
+    }
     for (let group = 0; group < chunk.length; group += 8) await Promise.all(chunk.slice(group, group + 8).map(async ({ target, slot }, index) => {
       const i = group + index;
       let value = values.find((item) => item.id === i)?.result;
       for (let retry = 0; !/^0x[a-fA-F0-9]{1,64}$/.test(value ?? "") && retry < 3; retry++) {
         await delay(1000);
-        value = await createPublicClient({ transport: http(fork.forkUrl, { timeout: 30_000 }) })
-          .getStorageAt({ address: target, slot, blockNumber: BigInt(fork.forkBlockNumber) });
+        value = await source.getStorageAt({ address: target, slot, blockNumber: BigInt(fork.forkBlockNumber) }).catch(() => undefined);
       }
       if (!/^0x[a-fA-F0-9]{1,64}$/.test(value ?? "")) throw new Error(`Simulation storage value unavailable (${values.find((item) => item.id === i)?.error?.code ?? "missing"})`);
       await client.request({ method: "anvil_setStorageAt", params: [target, slot, viem.toHex(BigInt(value), { size: 32 })] });
     }));
+    completed += chunk.length;
+    if (onProgress) await onProgress(completed, keys.length);
+  };
+  for (let offset = 0; offset < keys.length; offset += 32) {
+    const batches = [];
+    for (let start = offset; start < Math.min(offset + 32, keys.length); start += 8) batches.push(keys.slice(start, start + 8));
+    await Promise.all(batches.map(load));
   }
 }
 

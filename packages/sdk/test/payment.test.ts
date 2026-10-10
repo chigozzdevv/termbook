@@ -84,9 +84,10 @@ describe("remote payment completion", () => {
     expect(result.checkpoint.stage).toBe("complete");
   });
   it("does not report repayment from inbox receipts or resend an interrupted source transfer", async () => {
-    const f = fixture(); f.rpc.client.simulateContract.mockRejectedValue(new Error("paused"));
+    const f = fixture(), stop = new AbortController();
+    f.rpc.client.simulateContract.mockImplementation(async () => { stop.abort(); throw new Error("paused"); });
     let checkpoint: PaymentCheckpoint | undefined;
-    await expect(remotePayment(f.client, f.input, { sourceWallet: f.wallet, timeoutMs: 30, pollIntervalMs: 1,
+    await expect(remotePayment(f.client, f.input, { sourceWallet: f.wallet, signal: stop.signal, pollIntervalMs: 1,
       onProgress: (next) => { checkpoint = next; } })).rejects.toBeInstanceOf(PaymentPendingError);
     expect(f.values.applied).toBe(0n); expect(checkpoint?.sourceTx).toBe(w("c"));
     f.rpc.client.simulateContract.mockResolvedValue(undefined);

@@ -369,9 +369,9 @@ async function main() {
     if (!accepted?.block) throw new Error("Kuru credit acceptance receipt is missing");
     const finalized = await monad.client.getBlock({ blockTag: "finalized" });
     const logs = [];
-    for (let from = BigInt(accepted.block); from <= finalized.number; from += 1000n) {
+    for (let from = BigInt(accepted.block); from <= finalized.number; from += 100n) {
       logs.push(...await monad.logClient.getLogs({ address: m.TermbookCore, fromBlock: from,
-        toBlock: from + 999n < finalized.number ? from + 999n : finalized.number }));
+        toBlock: from + 99n < finalized.number ? from + 99n : finalized.number }));
     }
     const topic = recovered.creditId.toLowerCase();
     const recoveryTopic = viem.keccak256(viem.stringToHex("AppRecoveryStep(bytes32,address,address,bytes32)"));

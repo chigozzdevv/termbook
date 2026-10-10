@@ -9,7 +9,10 @@ const marketAbi = parseAbi([
   "function getMarketParams() view returns (uint32,uint96,address,uint256,address,uint256,uint32,uint96,uint96,uint256,uint256)",
   "function marketState() view returns (uint8)",
   "function isTrustedForwarder(address) view returns (bool)",
+  "function kuruAmmVault() view returns(address)",
 ]);
+const vaultAbi = parseAbi(["function owner() view returns(address)", "function market() view returns(address)", "function marginAccount() view returns(address)"]);
+const factoryAbi = parseAbi(["function marginAccountAddress() view returns(address)", "function TRUSTED_FORWARDER() view returns(address)"]);
 const routerAbi = parseAbi(["function trade(bytes32 routeId,uint256 amountIn,uint256 minimumOut) payable returns (uint256)"]);
 const tokenAbi = parseAbi(["function balanceOf(address) view returns (uint256)"]);
 const UINT96 = 2n ** 96n - 1n;
@@ -45,10 +48,19 @@ export async function create_kuru(options: KuruOptions): Promise<spot> {
   }
   if (await client.readContract({ address: options.market_address, abi: marketAbi, functionName: "isTrustedForwarder",
     args: [platform.router], blockNumber: block.number })) throw new Error("integration-forwarder-unsafe");
+  const vault = await client.readContract({ address: options.market_address, abi: marketAbi, functionName: "kuruAmmVault", blockNumber: block.number });
+  const [factory, vaultMarket, margin] = await Promise.all((["owner", "market", "marginAccount"] as const).map((functionName) =>
+    client.readContract({ address: vault, abi: vaultAbi, functionName, blockNumber: block.number })));
+  const [factoryMargin, forwarder] = await Promise.all((["marginAccountAddress", "TRUSTED_FORWARDER"] as const).map((functionName) =>
+    client.readContract({ address: factory, abi: factoryAbi, functionName, blockNumber: block.number })));
+  if (vaultMarket.toLowerCase() !== options.market_address.toLowerCase() || margin.toLowerCase() !== factoryMargin.toLowerCase()
+    || [vault, factory, margin, forwarder].some((a) => a === zeroAddress)
+    || !await client.readContract({ address: options.market_address, abi: marketAbi, functionName: "isTrustedForwarder",
+      args: [forwarder], blockNumber: block.number })) throw new Error("integration-kuru-dependency-mismatch");
   const market = { market_id: options.market_address.toLowerCase(), address: options.market_address,
     base_asset: base, quote_asset: quote, base_decimals: Number(baseDecimals), quote_decimals: Number(quoteDecimals) };
   const targets = [...new Set([platform.router, platform.module, platform.read_program, options.market_address,
-    base, quote, options.oracle].filter((address) => address !== zeroAddress).map((address) => address.toLowerCase()))] as Address[];
+    vault, factory, margin, forwarder, base, quote, options.oracle].filter((address) => address !== zeroAddress).map((address) => address.toLowerCase()))] as Address[];
   const pins = await Promise.all(targets.map((target) => pin_contract(client, target, block.number)));
   const verified_sources = await Promise.all(pins.map(async (pin) => {
     const source = await json<PluginDefinition["verified_sources"][number] & { code_hash: Hex; implementation_code_hash?: Hex }>(api.origin,

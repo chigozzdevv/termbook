@@ -238,10 +238,35 @@ The shared components are deployed on Monad testnet. The operator's reviewed
 validation environment remains required; no live Kuru market has been admitted.
 All seven shared components have exact creation and runtime source matches on
 Sourcify. Their addresses and source matches are in `deployments/testnet.json`.
-The separate Kuru testnet House and its upgradeable vault are configured there
-as well. That House is unfunded. The documented Kuru market still needs compatible
-source, upgrade and liquidity checks. A funded market with verified dependencies and a supported upgrade guard
-is required before its live lifecycle suite can pass or an app token can be issued.
+The separate legacy Kuru-USDC House is configured there and remains unfunded.
+The Circle-USDC market below uses the existing funded House. Verified sources,
+reviewed guards and a passing lifecycle suite are required before an app token
+can be issued.
+
+On 10 October 2026, the official Kuru factory created a MON/Circle-USDC testnet
+market at `0x1F57a841540fe23C2989387c18F2CB1335CBAe92`. The testnet operator
+supplied 1 MON and 1 test USDC to its margin account and placed both bid and ask
+liquidity. Its addresses and dependency pins are in `deployments/testnet.json`.
+`node scripts/setup-testnet-kuru.mjs --simulate` checks setup on a current fork;
+`--broadcast` resumes the live setup. The existing Circle-USDC House can fund
+this market once admission passes.
+
+This testnet uses an explicitly trusted RPC monitor for Kuru's five proxy
+dependencies. `TestnetUpgradeGuard` pins the reviewed proxy and implementation
+code, accepts only its dedicated monitor's recent canonical-block attestations,
+and expires after 180 seconds without renewal. The worker checks finalized and
+latest implementation slots, then permanently revokes a guard on a detected
+change. Its key and pinned guard list are configured as `UPGRADE_MONITOR_KEY`
+and `TESTNET_UPGRADE_GUARDS` in the root `.env`. These guards reject deployment
+and authorization outside Monad testnet (10143). An upgrade between monitor
+checks remains a trust window; this configuration is not production admission.
+
+Kuru's public source reproduces the executable margin-account and AMM-vault code
+after normalizing deployment-specific immutables and compiler metadata. The
+OrderBook and factory builds still differ, and no exact verified compiler input
+was available from their public explorer or Sourcify records. Source verification
+and the operator's live borrowing, buy, sell, repayment and independent recovery
+suite remain required before registration.
 
 ### Shared assessment
 

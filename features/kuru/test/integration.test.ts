@@ -11,8 +11,14 @@ function client() {
 }
 const options = () => ({ client: client(), market_address: addr("7"), settlement_asset: addr("6"), api_base: "https://api.termbook.org",
   maximum_input: 1000_000_000n, retained_bps: 9500, recovery_costs: 10n, max_holding: 1000n * 10n ** 18n, dust_limit: 1_000_000_000_000n, oracle: addr("9"), feed_id: word("b") });
+function nativeRead(functionName: string, args?: string[]) {
+  if (functionName === "getMarketParams") return params;
+  if (functionName === "isTrustedForwarder") return args?.[0] === addr("d");
+  return ({ kuruAmmVault: addr("a"), owner: addr("b"), market: addr("7"), marginAccount: addr("c"),
+    marginAccountAddress: addr("c"), TRUSTED_FORWARDER: addr("d") })[functionName as "owner"] ?? 10n ** 18n;
+}
 beforeEach(() => {
-  read = vi.fn(async ({ functionName }) => functionName === "getMarketParams" ? params : functionName === "isTrustedForwarder" ? false : 10n ** 18n);
+  read = vi.fn(async ({ functionName, args }) => nativeRead(functionName, args));
   vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(url.includes("platform")
     ? { chain_id: 143, router: addr("3"), module: addr("4"), read_program: addr("8") }
     : { target: new URL(url).searchParams.get("target"), code_hash: keccak256("0x1234"), source_hash: word("c") }), { status: 200 })));
@@ -51,8 +57,7 @@ describe("Kuru spot package", () => {
   it("supports Kuru's price precision above the settlement token's decimals", async () => {
     const official = [100_000_000, 10_000_000_000n, zeroAddress, 18n, addr("6"), 6n, 100,
       2_000_000_000_000n, 2_000_000_000_000_000_000n, 0n, 0n] as const;
-    read.mockImplementation(async ({ functionName }) => functionName === "getMarketParams" ? official
-      : functionName === "isTrustedForwarder" ? false : 10n ** 18n);
+    read.mockImplementation(async ({ functionName, args }) => functionName === "getMarketParams" ? official : nativeRead(functionName, args));
     const plugin = await create_kuru(options());
     const buy = plugin.definition.atomic_spot!.routes[0]!;
     const encoded = 1_000_000n * BigInt(buy.numerator) / BigInt(buy.denominator);
@@ -66,5 +71,11 @@ describe("Kuru spot package", () => {
     expect(plan.calls[0]!.spend_amount).toBe(0n);
     const state = await plugin.account.read(context);
     expect((await plugin.exit.next({ ...context, state, slippage_bps: 50, minimum_receive: async () => 1n })).status).toBe("execute");
+  });
+  it("pins the vault, margin account, factory and forwarder with the market", async () => {
+    const plugin = await create_kuru(options());
+    for (const n of ["a", "b", "c", "d"]) expect(plugin.definition.pins.some((p) => p.target === addr(n))).toBe(true);
+    read.mockImplementation(async ({ functionName, args }) => functionName === "marginAccountAddress" ? addr("e") : nativeRead(functionName, args));
+    await expect(create_kuru(options())).rejects.toThrow("integration-kuru-dependency-mismatch");
   });
 });

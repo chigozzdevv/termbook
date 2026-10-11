@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowUpRight, Info } from "lucide-react";
+import { ArrowUpRight } from "lucide-react";
 import type { OpenOptions } from "@termbook/sdk";
 import { Button } from "@/components/ui/button";
 import { amountUnits, estimate } from "./amount";
@@ -51,11 +51,10 @@ export function Order({ market, account, connected, ready, busy, stale, failed, 
         <dt>Trading fee</dt><dd>{market ? `${market.fee_bps / 100}%` : "—"}</dd></dl>
       {problem && <p id="trade-error" className="kuru-error" role="alert">{problem}</p>}
       <Button type="submit" className="w-full" disabled={busy || opening || connected && (!ready || !amount || !!problem || unavailable)}>
-        {!connected ? "Connect wallet" : opening ? "Opening Termbook…" : failed ? "Trading unavailable" : !ready ? "Checking integration…" : direction === "buy" ? "Review buy" : "Review sell"}<ArrowUpRight size={15} />
+        {opening ? "Opening Termbook…" : connected && failed ? "Trading unavailable" : connected && !ready ? "Checking integration…" : "Use Termbook"}<ArrowUpRight size={15} />
       </Button>
     </form>
-    <div className="kuru-order-credit"><Info size={15} aria-hidden="true" /><p>{direction === "buy" ? "Use your account funds. Termbook can draw approved credit for the shortfall." : "Sale proceeds return to your Credit Account. Repay or close in Termbook."}</p></div>
-    <Button variant="secondary" className="w-full" disabled={!ready || opening} onClick={() => void open({ tab: "account", creditId: account?.id })}>{account ? "Manage credit" : "Set up credit"}</Button>
+    {account && <Button variant="secondary" className="mt-3 w-full" disabled={!ready || opening} onClick={() => void open({ tab: "account", creditId: account.id })}>Manage credit</Button>}
     {market && <p className="kuru-limit">Testnet · Up to {market.maximum_buy} USDC per buy</p>}
   </section>;
 }

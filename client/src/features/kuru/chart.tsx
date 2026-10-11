@@ -43,7 +43,6 @@ export function Chart({ trades, error }: { trades: Trade[]; error: string }) {
     <div className="kuru-chart-area"><div ref={container} className="kuru-chart-canvas" />
       {!bars.length && <p className="kuru-chart-empty" role="status">{error || "No recent trades in this market."}</p>}
     </div>
-    <p className="kuru-chart-note">Finalized trades · Times shown in UTC · Charts by <a href="https://www.tradingview.com" target="_blank" rel="noopener noreferrer">TradingView</a></p>
     {error && bars.length > 0 && <p className="kuru-error" role="status">{error}</p>}
   </section>;
 }

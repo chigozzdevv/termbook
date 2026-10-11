@@ -10,7 +10,7 @@ export const deployments: DeploymentMap = {
     "HouseRegistry": "0xc9b93dab6eace6cc71682adde1892be365fe41e2",
     "VerifierRegistryImplementation": "0xa8b67b847749219768fc5f4e9a8097a9af5f503d",
     "VerifierRegistry": "0xfcf701c5e73aa9b5d839d5209a8137a4071d852c",
-    "FlowExecutorImplementation": "0xdf59d3abc5cb83fb41a92a70932a7bf260cf1f6a",
+    "FlowExecutorImplementation": "0xa4d557aa6ed8057136b6d1e6131026c532fd8729",
     "FlowExecutor": "0xfd4f7878df5f4e51a1b78d7ec2428acb1ddb3558",
     "ReservationManagerImplementation": "0xa82b21d04ec8b9fbd8ffdef737648e8342c242f1",
     "ReservationManager": "0xf70614f0c1991819cfd80298f1f45b8756f30b24",
@@ -50,12 +50,13 @@ export const deployments: DeploymentMap = {
     "SepoliaConfirmationClient": "0x053ec9f44822700113347b2f97c9b2dad05cf5b7",
     "SepoliaConfirmationVerifier": "0x1ba7a86b05c9116ea71b8389c116292f44c5ba46",
     "ReadProgram": "0x2ed2c74faca711835ee58ea8f9e8f2b137a1c465",
-    "UseCaseReader": "0x43e0ceb5df801fd7809489ae958b37195921134b",
-    "UseCasePolicy": "0xc9a9b5dcb4e3123ea1a4c25b961c55d01518c814",
-    "UseCaseRecovery": "0x3b68b553a2327aa4cfba7c73c2e867becb74d1ff",
+    "UseCaseReader": "0xcd8e05ba31c93b975b41fad1679c99bd290fa9d6",
+    "UseCasePolicy": "0x30c14f8b8fdd6c13719843ccf8bd8be457b7181c",
+    "UseCaseRecovery": "0x3cef8dce8b85edb5807dd49eb8c5f12c1e737c87",
     "AtomicSpotRouter": "0xf3e33781e2b5c6265da2f2775b339cc5a94a50d1",
     "AtomicSpotModule": "0x0b626a1a6ef46c4470bc1acde3c6d719ceb050ed",
-    "AppHealthReaderFactory": "0x8caa65ee0cadaa7dba9185c01e5790a53fd61c2c"
+    "AppHealthReaderFactory": "0x8caa65ee0cadaa7dba9185c01e5790a53fd61c2c",
+    "SpotOrderTracker": "0x84a150710ade003a1dace839898250879f42da6e"
   },
   "11155111": {
     "ProtocolGovernance": "0xb0e8089b8067dbe49ef67e2c8d2dd1ab710d3387",

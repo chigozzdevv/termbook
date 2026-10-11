@@ -1,0 +1,138 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: var(--font-inter), Helvetica, sans-serif;
+  --font-heading: var(--font-redaction), Times, serif;
+  --color-background: #101213;
+  --color-panel: #181a1b;
+  --color-line: #2b2e30;
+  --color-foreground: #eae9e4;
+  --color-muted: #93999d;
+  --color-accent: #5555ff;
+  --color-success: #00d578;
+  --color-danger: #ff7581;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    background: var(--color-background);
+    overflow-x: hidden;
+  }
+  body {
+    margin: 0;
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.4;
+  }
+  button,
+  a,
+  select {
+    -webkit-tap-highlight-color: transparent;
+  }
+  button,
+  select {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+  :is(button, a):focus-visible {
+    outline: 2px solid #8585ff;
+    outline-offset: 3px;
+  }
+  :is(button, a):focus:not(:focus-visible) {
+    outline: none;
+  }
+  dialog::backdrop {
+    background: #0009;
+  }
+}
+
+@layer components {
+  .gutter {
+    @apply px-14 max-[740px]:px-8 max-[430px]:px-6;
+  }
+  .field {
+    @apply m-0 h-[42px] w-full min-w-0 rounded-lg border border-[#41444b] bg-[#111416] px-[11px] py-2 text-sm text-foreground outline-none focus:border-[#7070ff] focus:ring-2 focus:ring-accent/12;
+  }
+  .field-label {
+    @apply mb-4 grid min-w-0 gap-[7px] text-[13px] text-[#b8bdc0];
+  }
+  .number {
+    @apply text-left font-mono text-xs tracking-[-.3px] text-[#d7dcde] tabular-nums;
+  }
+  .data-table {
+    @apply w-full min-w-[1080px] border-collapse text-left text-xs leading-[1.4];
+  }
+  .data-table th {
+    @apply whitespace-nowrap px-3 pt-3 pb-[10px] text-left text-[13px] font-medium text-muted;
+  }
+  .data-table td {
+    @apply h-[38px] border-b border-[#2b2d2f] px-3 py-[7px] text-left align-middle whitespace-nowrap;
+  }
+  .data-table tbody tr:last-child td {
+    @apply border-b-0;
+  }
+  .data-table tbody tr:hover {
+    @apply bg-[#202226];
+  }
+  .orders-table {
+    @apply min-w-[1260px];
+  }
+  .orders-table :is(th, td) {
+    @apply px-[10px];
+  }
+  .action-cell {
+    @apply sticky right-0 z-1 min-w-[78px] border-l border-line bg-panel;
+  }
+  .facts {
+    @apply mb-6 grid grid-cols-3 gap-x-6 gap-y-5 max-[740px]:grid-cols-2 max-[430px]:grid-cols-1;
+  }
+  .facts dt {
+    @apply mb-[6px] text-[11px] text-muted;
+  }
+  .facts dd {
+    @apply m-0 font-mono text-xs leading-[1.5] wrap-anywhere;
+  }
+  .transaction {
+    @apply grid grid-cols-[1fr_1.3fr_auto] items-start gap-4 border-t border-line pt-3 text-xs max-[740px]:grid-cols-1;
+  }
+  .supply-result {
+    @apply mt-5 grid grid-cols-[1fr_auto] gap-x-4 gap-y-[10px] border-t border-line pt-[18px] text-[13px];
+  }
+  .supply-result dt {
+    @apply text-muted;
+  }
+  .supply-result dd {
+    @apply m-0 text-left font-mono leading-[1.4] wrap-anywhere;
+  }
+}
+
+@media (pointer: coarse) {
+  .field {
+    font-size: 16px;
+    min-height: 44px;
+  }
+  .touch-target {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .data-table td:has(.identifier) {
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+}
+
+@media (max-width: 430px) {
+  .field {
+    font-size: 16px;
+  }
+}

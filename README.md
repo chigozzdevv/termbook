@@ -5,6 +5,13 @@ chain and draw funds from a House through a restricted Credit Account.
 
 See `termbook.md` for the required behavior specification.
 
+## Documentation
+
+Run `pnpm dev:client` and open `http://127.0.0.1:4178/docs` for the developer
+guides, integration interfaces, Kuru example, SDK reference and operator setup.
+Content lives in `client/src/features/docs/content/` with links and action
+examples checked by the client test suite.
+
 ## Layout
 
 - `contracts/evm/` Foundry project for Monad and Ethereum contracts

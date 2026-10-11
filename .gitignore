@@ -10,3 +10,5 @@ lib/
 *.log
 .DS_Store
 coverage/
+.next/
+*.tsbuildinfo

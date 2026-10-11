@@ -2,7 +2,7 @@ import js from "@eslint/js";
 import ts from "typescript-eslint";
 
 export default ts.config(
-  { ignores: ["**/dist/**", "**/out/**", "**/cache/**", "**/lib/**", "contracts/lib/**"] },
+  { ignores: ["**/dist/**", "**/out/**", "**/cache/**", "**/lib/**", "contracts/lib/**", "client/**"] },
   js.configs.recommended,
   ...ts.configs.recommended,
   {

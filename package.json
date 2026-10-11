@@ -5,10 +5,11 @@
   "type": "module",
   "packageManager": "pnpm@10.0.0",
   "scripts": {
+    "dev:client": "pnpm --filter @termbook/client dev",
     "build": "pnpm -r build",
-    "lint": "eslint . --max-warnings=0",
+    "lint": "eslint . --max-warnings=0 && pnpm --filter @termbook/client lint",
     "typecheck": "pnpm -r typecheck",
-    "test": "vitest run",
+    "test": "vitest run && pnpm --filter @termbook/client test",
     "test:contracts": "forge test --root contracts/evm",
     "codegen": "pnpm --filter @termbook/bindings codegen"
   },

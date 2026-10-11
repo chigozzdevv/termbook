@@ -5,7 +5,8 @@
 .kuru-identity { font-size: 17px; padding-left: 20px; border-left: 1px solid #53595d; gap: 8px; }
 .kuru-wallet { justify-self: end; gap: 8px; }
 .kuru-network { justify-self: center; }
-.kuru-network-select { height: 34px; min-height: 34px; padding-block: 7px; padding-left: 12px; font-size: 12px; background: transparent; }
+.kuru-network-select { height: 34px; min-height: 34px; padding-block: 7px; padding-left: 12px; font-size: 12px; background: transparent; border: 0; border-radius: 0; }
+.kuru-network-select:focus-visible { outline: 2px solid #8585ff; outline-offset: 3px; box-shadow: none; }
 .kuru-network-select option { background: var(--color-background); }
 .kuru-disconnect { padding: 8px; color: var(--color-muted); }
 .kuru-market-header { border: 1px solid var(--color-line); border-bottom: 0; padding: 14px 20px; display: flex; align-items: center; gap: 40px; }

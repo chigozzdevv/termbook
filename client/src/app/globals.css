@@ -44,11 +44,11 @@
   textarea {
     font: inherit;
   }
-  :is(button, a):focus-visible {
+  :is(button, a, select):focus-visible {
     outline: 2px solid #8585ff;
     outline-offset: 3px;
   }
-  :is(button, a):focus:not(:focus-visible) {
+  :is(button, a, select):focus:not(:focus-visible) {
     outline: none;
   }
   dialog::backdrop {
@@ -61,7 +61,7 @@
     @apply px-14 max-[740px]:px-8 max-[430px]:px-6;
   }
   .field {
-    @apply m-0 h-[42px] w-full min-w-0 rounded-lg border border-[#41444b] bg-[#111416] px-[11px] py-2 text-sm text-foreground outline-none focus:border-[#7070ff] focus:ring-2 focus:ring-accent/12;
+    @apply m-0 h-[42px] w-full min-w-0 rounded-lg border border-[#41444b] bg-[#111416] px-[11px] py-2 text-sm text-foreground outline-none focus-visible:border-[#7070ff] focus-visible:ring-2 focus-visible:ring-accent/12;
   }
   .field-label {
     @apply mb-4 grid min-w-0 gap-[7px] text-[13px] text-[#b8bdc0];
@@ -114,6 +114,14 @@
   .supply-result dd {
     @apply m-0 text-left font-mono leading-[1.4] wrap-anywhere;
   }
+}
+
+html[data-focus-mode="pointer"] :is(button, a, select, [tabindex]):focus {
+  outline: none;
+}
+html[data-focus-mode="pointer"] select.field:focus {
+  border-color: #41444b;
+  box-shadow: none;
 }
 
 @media (pointer: coarse) {

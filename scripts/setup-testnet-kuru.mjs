@@ -162,19 +162,34 @@ async function main() {
         if ((await network.client.waitForTransactionReceipt({ hash })).status !== "success") throw new Error("Simulated Kuru monitor renewal failed");
       }
     }
-    const plugin = await create_kuru({ client: network.client, market_address: market.market, settlement_asset: usdc,
+    let definitionClient = network.client, sourceBlock;
+    if (simulate) {
+      const { forkConfig } = await network.client.request({ method: "anvil_nodeInfo", params: [] });
+      if (!forkConfig?.forkUrl || !Number.isSafeInteger(forkConfig.forkBlockNumber)) throw new Error("Configuration simulation requires a pinned fork");
+      const source = viem.createPublicClient({ transport: viem.http(forkConfig.forkUrl, { timeout: 30_000 }) });
+      sourceBlock = await source.getBlock({ blockNumber: BigInt(forkConfig.forkBlockNumber) });
+      if (sourceBlock.hash !== (await network.client.getBlock({ blockNumber: sourceBlock.number })).hash) throw new Error("Configuration fork is not canonical");
+      definitionClient = source.extend((client) => ({
+        getBlock: () => client.getBlock({ blockNumber: sourceBlock.number }),
+        readContract: (request) => client.readContract({ ...request, blockTag: undefined, blockNumber: sourceBlock.number }),
+        getBytecode: (request) => client.getBytecode({ ...request, blockTag: undefined, blockNumber: sourceBlock.number }),
+        getStorageAt: (request) => client.getStorageAt({ ...request, blockTag: undefined, blockNumber: sourceBlock.number }),
+      }));
+    }
+    const plugin = await create_kuru({ client: definitionClient, market_address: market.market, settlement_asset: usdc,
       api_base: process.env["TERMBOOK_PUBLIC_API_BASE"] ?? "http://127.0.0.1:3002", maximum_input: 100_000n,
       retained_bps: 9_500, recovery_costs: 1000n, max_holding: viem.parseEther("1"), dust_limit: 10_000_000_000n,
       oracle: m.OracleRegistry, feed_id: setup.priceId });
     const identity = package_integration(plugin);
     if (report.versionId && report.versionId !== identity.version_id) throw new Error("Kuru configuration changed; reconcile the pending operation");
     report.versionId = identity.version_id; report.definitionHash = identity.hash; persist();
-    const plan = await (plugin.definition.assessment ? prepare_use_case : prepare_atomic_spot)(plugin.definition, { client: network.client, registry: m.IntegrationRegistry,
+    const plan = await (plugin.definition.assessment ? prepare_use_case : prepare_atomic_spot)(plugin.definition, { client: definitionClient, registry: m.IntegrationRegistry,
       core: m.TermbookCore, health_source: m.HealthSource, health_factory: m.AppHealthReaderFactory,
       guards: { ...Object.fromEntries(Object.entries(market.guards).map(([target, pin]) => [target, pin.address])),
         [m.OracleRegistry.toLowerCase()]: market.oracleGuard?.address },
       max_slippage_bps: 100, max_deviation_bps: 500, max_authorization_age: 90, max_state_age: 90,
-      max_health_age: Number(deployment.configuration.setup.maxAgeSeconds) });
+      max_health_age: Math.min(900, Number(deployment.configuration.setup.maxAgeSeconds)) });
+    if (sourceBlock && (await definitionClient.getBlock()).hash !== sourceBlock.hash) throw new Error("Configuration source block changed");
     const planHash = viem.keccak256(viem.toHex(JSON.stringify(plan.calls, (_, value) => typeof value === "bigint" ? String(value) : value)));
     if (report.planHash && report.planHash !== planHash) throw new Error("Kuru governance plan changed");
     report.planHash = planHash; persist();

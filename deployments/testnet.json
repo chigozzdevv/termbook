@@ -36337,17 +36337,24 @@
           "function isTrustedForwarder(address) view returns(bool)",
           "function kuruAmmVault() view returns(address)",
           "function placeAndExecuteMarketBuy(uint96,uint256,bool,bool) payable returns(uint256)",
-          "function placeAndExecuteMarketSell(uint96,uint256,bool,bool) payable returns(uint256)"
+          "function placeAndExecuteMarketSell(uint96,uint256,bool,bool) payable returns(uint256)",
+          "function addBuyOrder(uint32,uint96,bool)",
+          "function addSellOrder(uint32,uint96,bool)",
+          "function batchCancelOrders(uint40[])",
+          "function s_orderIdCounter() view returns(uint40)",
+          "function s_orders(uint40) view returns(address,uint96,uint40,uint40,uint40,uint32,uint32,bool)",
+          "function s_buyPricePoints(uint256) view returns(uint40,uint40)",
+          "function s_sellPricePoints(uint256) view returns(uint40,uint40)"
         ],
         "maximum_input": "100000",
-        "approved_at": 1791640185,
-        "expires_at": 1792244985,
+        "approved_at": 1791735714,
+        "expires_at": 1792340514,
         "reviewer": "0x4DbAba93dfdEEAb43CE5Bdc3335aA6E2DDa44920",
-        "signature": "0xb26725689f73357bd84ad75617c43bb0fe1c01be1ac4b6782602d3e47239e2d92966031b0fdd4ab822800a94eb3c1314221df7d94ae3838e19d928625e3a8ec31b"
+        "signature": "0xab3d0d1dfcef4f23d66f20e92114bcb01a499be226ff1375301723004afe747e36bee0c4e2894102eec379bc8bd5fc9d97873d77cef12aa1859dcc10237b26311c"
       },
       "summary": {
-        "id": "0xbcffacf8ab661be5811d0cbae7112174cc81cc6ce7d0d66b1a8a964982e877ae",
-        "expires_at": 1792244985,
+        "id": "0xa25d88346ecc8a2a0b9ed1778b49a295c0ad412044f8e4f78a467c82620034d0",
+        "expires_at": 1792340514,
         "maximum_input": "100000"
       },
       "trustModel": "Testnet operator-approved bytecode; source build unverified; expiring RPC upgrade monitor"
@@ -39360,6 +39367,60 @@
           "address": "0x3cef8dce8b85edb5807dd49eb8c5f12c1e737c87",
           "codeHash": "0x73d9931417a21fa2b65fe2afff2b0d502c1d2e9e609517129e31df9ecfdca3c8"
         }
+      },
+      "sourceVerification": {
+        "contracts": [
+          {
+            "name": "SpotOrderTracker",
+            "address": "0x84a150710ade003a1dace839898250879f42da6e",
+            "verificationId": "c874d28c-dec7-46a3-bf9a-9d164a396779",
+            "matchId": "55933094",
+            "verifiedAt": "2026-10-11T16:21:07Z",
+            "runtimeMatch": "exact_match",
+            "creationMatch": "exact_match",
+            "url": "https://sourcify.dev/server/v2/contract/10143/0x84a150710ade003a1dace839898250879f42da6e"
+          },
+          {
+            "name": "UseCaseReader",
+            "address": "0xcd8e05ba31c93b975b41fad1679c99bd290fa9d6",
+            "verificationId": "7ddfef63-7617-45b1-94c1-1f15b7fc3054",
+            "matchId": "55933112",
+            "verifiedAt": "2026-10-11T16:21:21Z",
+            "runtimeMatch": "exact_match",
+            "creationMatch": "exact_match",
+            "url": "https://sourcify.dev/server/v2/contract/10143/0xcd8e05ba31c93b975b41fad1679c99bd290fa9d6"
+          },
+          {
+            "name": "UseCasePolicy",
+            "address": "0x30c14f8b8fdd6c13719843ccf8bd8be457b7181c",
+            "verificationId": "17695275-8e3f-4376-acca-28a27da3fed7",
+            "matchId": "55933115",
+            "verifiedAt": "2026-10-11T16:21:31Z",
+            "runtimeMatch": "exact_match",
+            "creationMatch": "exact_match",
+            "url": "https://sourcify.dev/server/v2/contract/10143/0x30c14f8b8fdd6c13719843ccf8bd8be457b7181c"
+          },
+          {
+            "name": "UseCaseRecovery",
+            "address": "0x3cef8dce8b85edb5807dd49eb8c5f12c1e737c87",
+            "verificationId": "34cb5b41-5626-4a10-8da0-99435293ff57",
+            "matchId": "55933116",
+            "verifiedAt": "2026-10-11T16:21:43Z",
+            "runtimeMatch": "exact_match",
+            "creationMatch": "exact_match",
+            "url": "https://sourcify.dev/server/v2/contract/10143/0x3cef8dce8b85edb5807dd49eb8c5f12c1e737c87"
+          },
+          {
+            "name": "FlowExecutorImplementation",
+            "address": "0xa4d557aa6ed8057136b6d1e6131026c532fd8729",
+            "verificationId": "f680eb90-c1ae-48e8-b9f2-f87e76cfbcfb",
+            "matchId": "55933117",
+            "verifiedAt": "2026-10-11T16:21:52Z",
+            "runtimeMatch": "exact_match",
+            "creationMatch": "exact_match",
+            "url": "https://sourcify.dev/server/v2/contract/10143/0xa4d557aa6ed8057136b6d1e6131026c532fd8729"
+          }
+        ]
       }
     }
   },

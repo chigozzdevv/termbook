@@ -188,7 +188,7 @@ async function main() {
       guards: { ...Object.fromEntries(Object.entries(market.guards).map(([target, pin]) => [target, pin.address])),
         [m.OracleRegistry.toLowerCase()]: market.oracleGuard?.address },
       max_slippage_bps: 100, max_deviation_bps: 500, max_authorization_age: 90, max_state_age: 90,
-      max_health_age: Math.min(900, Number(deployment.configuration.setup.maxAgeSeconds)) });
+      max_health_age: Number(deployment.configuration.setup.maxAgeSeconds) });
     if (sourceBlock && (await definitionClient.getBlock()).hash !== sourceBlock.hash) throw new Error("Configuration source block changed");
     const planHash = viem.keccak256(viem.toHex(JSON.stringify(plan.calls, (_, value) => typeof value === "bigint" ? String(value) : value)));
     if (report.planHash && report.planHash !== planHash) throw new Error("Kuru governance plan changed");

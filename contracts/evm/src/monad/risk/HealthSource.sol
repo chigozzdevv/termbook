@@ -23,6 +23,7 @@ contract HealthSource is IHealthSource, ProxyInitializable {
 
     event ReaderSet(bytes32 indexed bundleId, address indexed reader, uint256 version, uint256 maxAge);
     event ReaderDisabled(bytes32 indexed bundleId);
+    event ReaderMaxAgeSet(bytes32 indexed bundleId, uint256 maxAge);
 
     error Unauthorized();
     error Invalid();
@@ -68,6 +69,15 @@ contract HealthSource is IHealthSource, ProxyInitializable {
         if (msg.sender != governance) revert Unauthorized();
         readers[bundleId].active = false;
         emit ReaderDisabled(bundleId);
+    }
+
+    function setMaxAge(bytes32 bundleId, uint256 maxAge) external {
+        if (msg.sender != governance) revert Unauthorized();
+        Reader storage config = readers[bundleId];
+        if (!config.active || config.impl.code.length == 0 || config.impl.codehash != config.codeHash
+            || maxAge == 0 || maxAge > 7 days) revert Invalid();
+        config.maxAge = maxAge;
+        emit ReaderMaxAgeSet(bundleId, maxAge);
     }
 
     function isReaderActive(bytes32 bundleId) external view returns (bool) {

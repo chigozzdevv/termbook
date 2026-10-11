@@ -313,6 +313,9 @@ async function main() {
         const drawLabel = `${test.kind}:borrow-and-deposit`;
         const attempts = report.transactions.filter((tx) => tx.name === drawLabel || tx.name.startsWith(`${drawLabel}:retry:`));
         const failed = attempts.at(-1);
+        if (test.execution && !failed && BigInt(test.execution.deadline) <= (await monad.client.getBlock()).timestamp) {
+          delete test.execution; delete test.action; delete test.probe; persist();
+        }
         if (failed?.status === "reverted") {
           const receipt = await monad.client.getTransactionReceipt({ hash: failed.hash });
           if (receipt.status !== "reverted" || receipt.blockHash !== failed.blockHash || credit.debt !== 0n

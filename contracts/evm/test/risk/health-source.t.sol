@@ -104,6 +104,34 @@ contract HealthSourceTest is Test {
         source.setReader(bundleId, address(replacement), 4, 1 days);
     }
 
+    function testGovernanceCanAlignFreshnessWithoutReplacingReader() public {
+        vm.warp(2 days);
+        feed.setAnswer(123_00000000, block.timestamp - 1 hours);
+        reader.setReading(HealthReading(500, 200, 1_000, 400, 10_000, 5_000, 50, block.timestamp - 1 hours));
+        source.setMaxAge(bundleId, 900);
+        vm.expectRevert(HealthSource.Stale.selector);
+        source.snapshot(creditId, bundleId, 4, 500);
+        source.setMaxAge(bundleId, 90_000);
+        assertEq(source.snapshot(creditId, bundleId, 4, 500).debt, 500);
+        (address impl, uint256 version, bool active, uint256 age, bytes32 codeHash) = source.readers(bundleId);
+        assertEq(impl, address(reader)); assertEq(version, 3); assertTrue(active);
+        assertEq(age, 90_000); assertEq(codeHash, address(reader).codehash);
+        feed.setAnswer(123_00000000, block.timestamp - 2 days);
+        vm.expectRevert(OracleRegistry.StaleFeed.selector);
+        source.snapshot(creditId, bundleId, 4, 500);
+    }
+
+    function testFreshnessChangesRequireGovernanceAndActivePinnedReader() public {
+        vm.prank(address(0xbad));
+        vm.expectRevert(HealthSource.Unauthorized.selector);
+        source.setMaxAge(bundleId, 300);
+        vm.expectRevert(HealthSource.Invalid.selector); source.setMaxAge(bundleId, 0);
+        vm.expectRevert(HealthSource.Invalid.selector); source.setMaxAge(bundleId, 7 days + 1);
+        vm.expectRevert(HealthSource.Invalid.selector); source.setMaxAge(bytes32(uint256(1)), 300);
+        source.disable(bundleId);
+        vm.expectRevert(HealthSource.Invalid.selector); source.setMaxAge(bundleId, 300);
+    }
+
     function testOracleFeedCannotChangeForExistingPriceId() public {
         MockAggregator replacement = new MockAggregator(8, 123_00000000);
         vm.expectRevert(OracleRegistry.InvalidFeed.selector);

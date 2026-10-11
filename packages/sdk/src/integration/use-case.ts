@@ -105,10 +105,12 @@ export function use_case_configuration(input: PluginDefinition) {
 
 export async function prepare_use_case(input: PluginDefinition, options: {
   client: PublicClient; registry: Address; core: Address; health_source: Address; health_factory: Address;
-  guards?: Record<string, Address>; max_health_age: number;
+  guards?: Record<string, Address>; max_health_age: number; max_state_age?: number;
 }): Promise<{ version_id: Hex; health_reader: Address; calls: GovernanceCall[] }> {
   const c = use_case_configuration(input);
-  if (!Number.isSafeInteger(options.max_health_age) || options.max_health_age < 1 || options.max_health_age > 900
+  const stateAge = options.max_state_age ?? Math.min(options.max_health_age, 900);
+  if (!Number.isSafeInteger(options.max_health_age) || options.max_health_age < 1 || options.max_health_age > 7 * 86400
+    || !Number.isSafeInteger(stateAge) || stateAge < 1 || stateAge > 900
     || await options.client.getChainId() !== c.definition.chain_id) throw new Error("integration-risk-limits-invalid");
   if ((await options.client.readContract({ address: options.health_factory, abi: factoryAbi, functionName: "core", blockTag: "finalized" })).toLowerCase()
     !== options.core.toLowerCase()) throw new Error("integration-health-factory-invalid");
@@ -152,7 +154,7 @@ export async function prepare_use_case(input: PluginDefinition, options: {
       if (rule.recovery) push(options.registry, registryAbi, "registerNativeValue", [c.version_id, rule.target, rule.selector, true, BigInt(rule.native_maximum), rule.native_word], "Bound native recovery");
     }
   }
-  push(options.core, termbookCoreAbi, "configureExecutionPolicy", [c.version_id, targets.execution, c.reader.maxPositions, c.reader.maxPending, options.max_health_age], "Bind execution and state");
+  push(options.core, termbookCoreAbi, "configureExecutionPolicy", [c.version_id, targets.execution, c.reader.maxPositions, c.reader.maxPending, stateAge], "Bind execution and state");
   push(options.core, termbookCoreAbi, "setAppRecoveryAdapter", [c.version_id, targets.recovery], "Bind recovery");
   push(options.core, termbookCoreAbi, "setExitPlanner", [c.version_id, targets.recovery], "Bind closure planning");
   push(options.core, termbookCoreAbi, "setExitVerifier", [c.version_id, targets.exit], "Bind exit verification");

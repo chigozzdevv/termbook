@@ -29,6 +29,20 @@ describe("standard use-case compilation", () => {
     expect(use_case_configuration(changed).version_id).not.toBe(config.version_id);
     expect(use_case_configuration(changed).recovery_hash).not.toBe(config.recovery_hash);
   });
+  it("separates oracle health freshness from execution state freshness", async () => {
+    const d = standardDefinition();
+    const client = { getChainId: vi.fn(async () => 143), readContract: vi.fn(async ({ functionName }) => functionName === "core" ? addr("b") : functionName === "healthSource" ? addr("1") : addr("e")) };
+    const options = { client: client as unknown as PublicClient, core: addr("b"), registry: addr("f"),
+      health_source: addr("1"), health_factory: addr("2"), max_health_age: 90_000, max_state_age: 90 };
+    const result = await prepare_use_case(d, options);
+    const state = result.calls.map((call) => { try { return decodeFunctionData({ abi: termbookCoreAbi, data: call.data }); } catch { return undefined; } })
+      .find((call) => call?.functionName === "configureExecutionPolicy");
+    expect(state?.args[4]).toBe(90);
+    const health = decodeFunctionData({ abi: healthSourceAbi, data: result.calls.find((call) => call.target === addr("1"))!.data });
+    expect(health.args[3]).toBe(90_000n);
+    await expect(prepare_use_case(d, { ...options, max_state_age: 901 })).rejects.toThrow("integration-risk-limits-invalid");
+    await expect(prepare_use_case(d, { ...options, max_health_age: 7 * 86400 + 1 })).rejects.toThrow("integration-risk-limits-invalid");
+  });
   it("rejects unpinned reads, self-reported quotes, missing lifecycle reads and unconstrained calls", () => {
     const d = standardDefinition(); d.assessment!.assets[0]!.quote!.target = addr("d");
     expect(() => pluginDefinitionSchema.parse(d)).toThrow();

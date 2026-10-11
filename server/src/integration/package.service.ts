@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { canonicalEvidence, capabilityDependencies, pluginDefinitionSchema, type PluginDefinition } from "@termbook/schema";
 import { verify_definition, atomic_configuration, atomicSpotAbi, readProgramAbi, use_case_configuration } from "@termbook/sdk";
-import { useCaseReaderAbi, useCasePolicyAbi, useCaseRecoveryAbi, priceProtectionAbi } from "@termbook/bindings";
+import { spotOrderTrackerAbi, useCaseReaderAbi, useCasePolicyAbi, useCaseRecoveryAbi, priceProtectionAbi } from "@termbook/bindings";
 import { keccak256, stringToHex, parseAbi, encodeAbiParameters, type Hex, type Address } from "viem";
 import { PackageModel } from "./package.model.js";
 import { applicationService } from "./application.service.js";
@@ -83,6 +83,13 @@ export async function verify_package_bindings(definition: PluginDefinition, vers
       [definition.contracts.recovery, useCaseRecoveryAbi, config.recovery_hash],
     ] as const) if (await chain.readContract({ address: address as Address, abi, functionName: "configurationHashes", args: [versionId], blockNumber: block.number }) !== expected) {
       throw new Error("integration-assessment-binding-invalid");
+    }
+    for (let i = 0; i < config.routes.length; ++i) if (await chain.readContract({ address: config.assessment.routes!.router as Address,
+      abi: atomicSpotAbi, functionName: "routeHashes", args: [config.assessment.routes!.values[i]!.id as Hex], blockNumber: block.number }) !== config.route_hashes[i]) throw new Error("integration-assessment-binding-invalid");
+    if (definition.assessment.orders) {
+      if (definition.assessment.orders.tracker.toLowerCase() !== platform.order_tracker?.toLowerCase()
+        || await chain.readContract({ address: definition.assessment.orders.tracker as Address, abi: spotOrderTrackerAbi,
+          functionName: "configurationHashes", args: [versionId], blockNumber: block.number }) !== config.order_hash) throw new Error("integration-assessment-binding-invalid");
     }
     for (const program of config.programs) if (await chain.readContract({ address: config.assessment.read_program as Address, abi: readProgramAbi,
       functionName: "programHashes", args: [program.id], blockNumber: block.number }) !== program.hash) throw new Error("integration-assessment-binding-invalid");

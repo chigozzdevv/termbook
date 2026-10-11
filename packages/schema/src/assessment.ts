@@ -15,16 +15,31 @@ export const assessmentAssetSchema = z.strictObject({
   maximum: uint128.refine((v) => BigInt(v) > 0n), dust: uint128,
   quote: z.strictObject({ target: address, program: program(2) }).optional(),
 }).refine((a) => BigInt(a.dust) < BigInt(a.maximum), "integration-asset-limit-invalid");
-const constraint = z.strictObject({ kind: z.enum(["exact", "account", "range", "spend"]),
+const constraint = z.strictObject({ kind: z.enum(["exact", "account", "range", "spend", "credit"]),
   exact: bytes32Schema, minimum: uint, maximum: uint,
 }).refine((w) => BigInt(w.minimum) <= BigInt(w.maximum)
   && (w.kind === "exact" ? w.minimum === "0" && w.maximum === "0"
-    : w.kind === "account" ? /^0x0{64}$/i.test(w.exact) && w.minimum === "0" && w.maximum === "0"
+    : (w.kind === "account" || w.kind === "credit") ? /^0x0{64}$/i.test(w.exact) && w.minimum === "0" && w.maximum === "0"
       : /^0x0{64}$/i.test(w.exact)), "integration-call-constraint-invalid");
+export const spotRouteSchema = z.strictObject({
+  id: word, target: address, input: addressSchema, output: addressSchema, selector: z.string().regex(/^0x[a-fA-F0-9]{8}$/),
+  amount_word: z.number().int().min(0).max(23), minimum_word: z.number().int().min(0).max(23),
+  numerator: uint.refine((v) => BigInt(v) > 0n), denominator: uint.refine((v) => BigInt(v) > 0n),
+  minimum_size: uint.refine((v) => BigInt(v) > 0n), maximum_size: uint, words: z.array(bytes32Schema).min(1).max(24),
+}).refine((v) => v.amount_word !== v.minimum_word && v.amount_word < v.words.length && v.minimum_word < v.words.length
+  && /^0x0{64}$/i.test(v.words[v.amount_word]!) && /^0x0{64}$/i.test(v.words[v.minimum_word]!)
+  && BigInt(v.minimum_size) <= BigInt(v.maximum_size), "integration-route-invalid");
 export const assessmentSchema = z.strictObject({
+  routes: z.strictObject({ router: address, values: z.array(spotRouteSchema).min(1).max(16) }).optional(),
   read_program: address, state_target: addressSchema,
   reads: z.strictObject({ meta: program(5).optional(), position: program(16).optional(),
     pending: program(14).optional(), reconcile: program(14).optional(), request: program(9).optional() }),
+  orders: z.strictObject({ tracker: address, rules: z.array(z.strictObject({
+    id: word, market_id: z.string().min(1).max(128), target: address, input: addressSchema, custody: address,
+    counter: program(1), state: program(6), balance: program(2), maximum_input: uint128, maximum_quantity: uint128, buy: z.boolean(),
+  })).min(1).max(32) }).optional(),
+  custody: z.array(z.strictObject({ target: address, program: program(2), token: addressSchema, maximum: uint128, dust: uint128 }))
+    .max(16).optional(),
   assets: z.array(assessmentAssetSchema).max(16),
   markets: z.array(z.strictObject({ market_id: z.string().min(1).max(128), receipt: addressSchema,
     asset0: assessmentAssetSchema, asset1: assessmentAssetSchema.optional(), maximum_exposure: uint128.refine((v) => BigInt(v) > 0n) })).max(16),
@@ -32,11 +47,12 @@ export const assessmentSchema = z.strictObject({
   max_positions: z.number().int().min(1).max(32), max_pending: z.number().int().min(0).max(32), max_requests: z.number().int().min(0).max(32),
   action_limits: z.array(z.strictObject({ action: z.string().min(1).max(128), maximum_input: uint128, maximum_exposure: uint128 })).min(1).max(32),
   calls: z.array(z.strictObject({ target: address, selector: z.string().regex(/^0x[a-fA-F0-9]{8}$/), recovery: z.boolean(),
-    native_maximum: uint, native_word: z.number().int().min(0).max(23).optional(), words: z.array(constraint).max(24) })).min(1).max(64),
-  recovery: z.array(z.strictObject({ phase: z.enum(["pending", "request", "position", "holding"]), market_id: z.string().max(128),
+    native_maximum: uint, native_word: z.number().int().min(0).max(255).optional(), words: z.array(constraint).max(24) })).min(1).max(64),
+  recovery: z.array(z.strictObject({ phase: z.enum(["pending", "request", "position", "holding", "custody"]), market_id: z.string().max(128),
     target: address, selector: z.string().regex(/^0x[a-fA-F0-9]{8}$/),
     words: z.array(z.strictObject({ source: z.enum(["literal", "account", "credit", "field", "minimum"]), value: bytes32Schema })).max(24),
     input: addressSchema, output: addressSchema, spend_field: z.number().int().min(0).max(15).optional(),
+    pending_status: z.number().int().min(1).max(6).optional(),
     minimum_field: z.number().int().min(0).max(15).optional(), asynchronous: z.boolean() })).min(1).max(64),
   prices: z.array(z.strictObject({ action: z.string().min(1).max(128), market_id: z.string().min(1).max(128), oracle: address,
     feed_id: word, target: address, selector: z.string().regex(/^0x[a-fA-F0-9]{8}$/), call_index: z.number().int().min(0).max(7),
@@ -50,13 +66,15 @@ export const assessmentSchema = z.strictObject({
 }).superRefine((v, ctx) => {
   const issue = () => ctx.addIssue({ code: "custom", message: "integration-assessment-invalid" });
   for (const values of [v.action_limits.map((a) => a.action), v.calls.map((c) => `${c.target}:${c.selector}`.toLowerCase()),
-    v.markets.map((m) => m.market_id), v.assets.map((a) => a.token.toLowerCase()), v.recovery.map((r) => `${r.phase}:${r.market_id}`),
+    v.markets.map((m) => m.market_id), v.assets.map((a) => a.token.toLowerCase()), v.recovery.map((r) => `${r.phase}:${r.market_id}:${r.pending_status ?? 0}`),
     v.prices.map((p) => `${p.action}:${p.market_id}`)]) if (new Set(values).size !== values.length) issue();
+  if (v.orders && (v.reads.meta || v.max_pending === 0 || new Set(v.orders.rules.map((r) => r.id)).size !== v.orders.rules.length)) issue();
+  if ((v.custody ?? []).some((c) => BigInt(c.maximum) === 0n || BigInt(c.dust) >= BigInt(c.maximum))) issue();
   if (v.assets.some((a) => !a.quote)) issue();
   if (v.max_requests > v.max_pending || (v.reads.pending || v.reads.request) && !v.reads.reconcile
     || (v.reads.position || v.reads.pending || v.reads.request) && !v.reads.meta) issue();
   for (const call of v.calls) if (BigInt(call.native_maximum) > 0n && (call.native_word === undefined
-    || call.native_word >= call.words.length || call.words[call.native_word]?.kind !== "range")) issue();
+    || call.native_word !== 255 && (call.native_word >= call.words.length || call.words[call.native_word]?.kind !== "range"))) issue();
   for (const rule of v.recovery) {
     if (rule.words.some((w) => w.source === "field" && BigInt(w.value) > 15n)
       || !v.calls.some((c) => c.recovery && c.target.toLowerCase() === rule.target.toLowerCase()

@@ -6,7 +6,7 @@ import { assess_state } from "./assess.js";
 import { package_integration, check_plan, type plugin, type ActionContext } from "./plugin.js";
 
 export type ActionProbe = { action: StandardAction; credit_id: Hex; tx_hash: Hex; minimum_receive?: bigint;
-  maximum_spend?: bigint; position_state?: ActionContext["position_state"] };
+  maximum_spend?: bigint; price_bound?: bigint; position_state?: ActionContext["position_state"] };
 const tokenAbi = parseAbi(["function balanceOf(address) view returns (uint256)"]);
 
 export async function validate_callbacks(client: PublicClient, value: plugin, input: {
@@ -34,17 +34,19 @@ export async function validate_callbacks(client: PublicClient, value: plugin, in
       args: [probe.credit_id], blockNumber: block.number });
     if (credit.bundleId.toLowerCase() !== version_id.toLowerCase()) throw new Error("integration-probe-credit-invalid");
     const route = selectCapability(definition.actions, probe.action);
-    const market = definition.markets.find((m) => String(probe.action.params["market_id" as keyof typeof probe.action.params]
-      ?? probe.position_state?.market_id ?? route.when?.market_id) === m.market_id);
+    const marketId = probe.action.params["market_id" as keyof typeof probe.action.params]
+      ?? probe.position_state?.market_id ?? route.when?.market_id;
+    const market = marketId === undefined && definition.markets.length === 1 ? definition.markets[0]
+      : definition.markets.find((m) => String(marketId) === m.market_id);
     if (!market) throw new Error("integration-probe-market-invalid");
     const context: ActionContext = { client, credit_id: probe.credit_id, account: credit.account, borrower: credit.borrower,
       block: { number: block.number, hash: block.hash }, action: probe.action, market,
-      minimum_receive: probe.minimum_receive, maximum_spend: probe.maximum_spend, position_state: probe.position_state };
+      minimum_receive: probe.minimum_receive, maximum_spend: probe.maximum_spend, price_bound: probe.price_bound, position_state: probe.position_state };
     const operation = (value.actions as Record<string, { build(context: ActionContext): Promise<unknown> }>)[probe.action.capability];
     if (!operation) throw new Error("integration-definition-mismatch");
     check_plan(definition, probe.action, await operation.build(context), context);
     const expected = buildExecution(route, probe.action, { borrower: credit.borrower, account: credit.account,
-      creditId: probe.credit_id, use_case: definition.use_case, priceBound: probe.minimum_receive ?? probe.maximum_spend,
+      creditId: probe.credit_id, use_case: definition.use_case, priceBound: probe.price_bound ?? probe.minimum_receive ?? probe.maximum_spend,
       state: probe.position_state }, definition.settlement_asset as Address);
     if (canonical(expected) !== canonical(decoded.args[1])) throw new Error("integration-probe-plan-mismatch");
   }

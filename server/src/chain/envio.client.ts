@@ -73,7 +73,39 @@ async function verifyReceipts(chain: PublicClient, logs: CoreLog[]): Promise<voi
   }));
 }
 
-export async function readCoreEvents(chain: PublicClient, from: bigint, finalized: bigint): Promise<EventBatch> {
+async function jsonPage(from: bigint, end: bigint): Promise<{ nextBlock: number; data: { logs: EnvioLog[] } }> {
+  const url = env.envioUrl || `https://${env.monadChainId}.hypersync.xyz`;
+  const request = async (path: string, body?: unknown) => {
+    const response = await fetch(`${url}${path}`, { method: body ? "POST" : "GET",
+      headers: { Authorization: `Bearer ${env.envioApiToken}`, "content-type": "application/json" },
+      ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(15_000) });
+    if (!response.ok) throw new Error("envio-query-unavailable");
+    const value: unknown = await response.json();
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("envio-page-invalid");
+    return value as Record<string, unknown>;
+  };
+  let chainId: unknown, page;
+  try {
+    chainId = (await request("/chain_id")).chain_id;
+    if (chainId !== env.monadChainId) throw new Error("envio-chain-mismatch");
+    page = await request("/query", { from_block: Number(from), to_block: Number(end),
+      logs: [{ address: [env.core] }], max_num_logs: 1000,
+      field_selection: { log: ["address", "block_number", "block_hash", "transaction_hash", "log_index", "data", "removed", "topic0", "topic1", "topic2", "topic3"] } });
+  } catch {
+    if (chainId !== undefined && chainId !== env.monadChainId) throw new Error("envio-chain-mismatch");
+    throw new Error("envio-query-unavailable");
+  }
+  if (typeof page.next_block !== "number" || !Array.isArray(page.data) || page.data.length > 10_000
+    || page.data.some((batch: { logs?: unknown }) => !batch || !Array.isArray(batch.logs))) throw new Error("envio-page-invalid");
+  const logs = page.data.flatMap((batch: { logs: Record<string, unknown>[] }) => batch.logs);
+  if (logs.length > 10_000 || logs.some((log: unknown) => !log || typeof log !== "object")) throw new Error("envio-page-invalid");
+  return { nextBlock: page.next_block, data: { logs: logs.map((log: Record<string, unknown>) => ({
+    address: log.address, blockNumber: log.block_number, blockHash: log.block_hash, transactionHash: log.transaction_hash,
+    logIndex: log.log_index, data: log.data, removed: log.removed, topics: [log.topic0, log.topic1, log.topic2, log.topic3],
+  })) as EnvioLog[] } };
+}
+
+export async function readCoreEvents(chain: PublicClient, from: bigint, finalized: bigint, transport: "native" | "json" = "native"): Promise<EventBatch> {
   if (from < 0n || finalized < from || finalized >= BigInt(Number.MAX_SAFE_INTEGER)) throw new Error("indexer-range-invalid");
   assertEnvioConfig();
   if (!env.envioApiToken) {
@@ -85,15 +117,18 @@ export async function readCoreEvents(chain: PublicClient, from: bigint, finalize
     const logs = (await Promise.all(ranges.map((range) => chain.getLogs({ address: env.core as Address, ...range })))).flat();
     return { logs: logs as CoreLog[], nextBlock: to + 1n, source: "rpc" };
   }
-  const client = await hypersync();
-  if (await client.getChainId() !== env.monadChainId) throw new Error("envio-chain-mismatch");
   const end = from + 100_000n < finalized + 1n ? from + 100_000n : finalized + 1n;
   let response;
-  try {
-    response = await client.get({ fromBlock: Number(from), toBlock: Number(end), logs: [{ address: [env.core] }],
-      fieldSelection: { log: ["Address", "BlockNumber", "BlockHash", "TransactionHash", "LogIndex", "Data", "Removed", "Topic0", "Topic1", "Topic2", "Topic3"] },
-      maxNumLogs: 1000 });
-  } catch { throw new Error("envio-query-unavailable"); }
+  if (transport === "json") response = await jsonPage(from, end);
+  else {
+    const client = await hypersync();
+    if (await client.getChainId() !== env.monadChainId) throw new Error("envio-chain-mismatch");
+    try {
+      response = await client.get({ fromBlock: Number(from), toBlock: Number(end), logs: [{ address: [env.core] }],
+        fieldSelection: { log: ["Address", "BlockNumber", "BlockHash", "TransactionHash", "LogIndex", "Data", "Removed", "Topic0", "Topic1", "Topic2", "Topic3"] },
+        maxNumLogs: 1000 });
+    } catch { throw new Error("envio-query-unavailable"); }
+  }
   if (!Number.isSafeInteger(response.nextBlock) || BigInt(response.nextBlock) < from || BigInt(response.nextBlock) > end
     || !Array.isArray(response.data.logs) || response.data.logs.length > 10_000) throw new Error("envio-page-invalid");
   const nextBlock = BigInt(response.nextBlock);

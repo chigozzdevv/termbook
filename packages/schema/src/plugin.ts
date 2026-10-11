@@ -70,10 +70,10 @@ export const pluginDefinitionSchema = z.strictObject({
     if (pin?.implementation?.toLowerCase() !== source.implementation?.toLowerCase()
       || Boolean(source.implementation) !== Boolean(source.implementation_source_hash)) issue("integration-source-pin-mismatch");
     const review = source.implementation_runtime_review;
-    if (review && (v.chain_id !== 10143 || !source.implementation || !v.atomic_spot
+    if (review && (v.chain_id !== 10143 || !source.implementation || !v.atomic_spot && !v.assessment
       || v.markets[0]?.address.toLowerCase() !== source.target.toLowerCase()
       || review.id.toLowerCase() !== source.implementation_source_hash?.toLowerCase()
-      || BigInt(v.atomic_spot.maximum_input) > BigInt(review.maximum_input))) issue("integration-runtime-review-invalid");
+      || (v.atomic_spot ? BigInt(v.atomic_spot.maximum_input) : BigInt(v.assessment?.action_limits.reduce((m, l) => BigInt(l.maximum_input) > BigInt(m) ? l.maximum_input : m, "0") ?? "0")) > BigInt(review.maximum_input))) issue("integration-runtime-review-invalid");
   }
   if (v.assessment) {
     const a = v.assessment;
@@ -81,9 +81,10 @@ export const pluginDefinitionSchema = z.strictObject({
       || v.use_case !== "spot" && (!a.reads.meta || !a.reads.position)
       || v.use_case === "liquidity" && a.markets.some((m) => !m.asset1)) issue("integration-assessment-invalid");
     const assets = [...a.assets, ...a.markets.flatMap((m) => [m.asset0, ...(m.asset1 ? [m.asset1] : [])])];
-    const programs = [...Object.values(a.reads), ...assets.map((asset) => asset.quote?.program)].filter((p) => p !== undefined);
-    const additional = [a.read_program, a.state_target, ...assets.flatMap((asset) => [asset.token, asset.oracle, asset.quote?.target ?? "0x" + "0".repeat(40)]),
-      ...a.calls.map((c) => c.target), ...a.recovery.flatMap((r) => [r.target, r.input, r.output]), ...a.prices.flatMap((p) => [p.oracle, p.target]),
+    const programs = [...Object.values(a.reads), ...assets.map((asset) => asset.quote?.program), ...(a.custody ?? []).map((c) => c.program), ...(a.orders?.rules ?? []).flatMap((r) => [r.counter, r.state, r.balance])].filter((p) => p !== undefined);
+    const additional = [a.routes?.router ?? "0x" + "0".repeat(40), ...(a.routes?.values ?? []).flatMap((r) => [r.target, r.input, r.output]), a.read_program, a.state_target, ...assets.flatMap((asset) => [asset.token, asset.oracle, asset.quote?.target ?? "0x" + "0".repeat(40)]),
+      a.orders?.tracker ?? "0x" + "0".repeat(40), ...(a.orders?.rules ?? []).flatMap((r) => [r.target, r.custody, r.input]),
+      ...(a.custody ?? []).flatMap((c) => [c.target, c.token]), ...a.calls.map((c) => c.target), ...a.recovery.flatMap((r) => [r.target, r.input, r.output]), ...a.prices.flatMap((p) => [p.oracle, p.target]),
       ...programs.flatMap((p) => p.queries.map((q) => q.target))];
     if (additional.some((target) => !/^0x0{40}$/i.test(target) && !targets.includes(target.toLowerCase()))) issue("integration-target-unpinned");
     if (a.markets.some((m) => !markets.includes(m.market_id)) || a.assets.some((asset) => asset.token.toLowerCase() === v.settlement_asset.toLowerCase())) issue("integration-assessment-invalid");
@@ -153,7 +154,7 @@ export const pluginHoldingSchema = z.strictObject({
 export const pluginOrderSchema = z.strictObject({
   order_id: id, market_id: id, owner: address, direction: z.enum(["buy", "sell", "long", "short"]),
   input_asset: addressSchema, remaining_input: amount, filled_input: amount,
-  output_asset: addressSchema, filled_output: amount, exposure: amount,
+  output_asset: addressSchema, filled_output: amount.optional(), exposure: amount,
   status: z.enum(["open", "partially_filled", "cancel_requested"]),
 });
 const liability = z.strictObject({ liability_id: id, asset: addressSchema, amount });

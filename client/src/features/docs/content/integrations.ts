@@ -1,5 +1,5 @@
 import { page, section, p, code, table, list, note, links, diagram } from "../model";
-import { kuruImplementation, kuruReadProgram } from "./kuru-source";
+import { kuruImplementation, kuruReadProgram, kuruOrders } from "./kuru-source";
 
 export const integrationPages = [
   page("integrations/overview", "App integrations", "Integration overview", "An app implements a standard TypeScript interface. Termbook verifies its execution, accounting and recovery rules.", [
@@ -244,15 +244,15 @@ const prepared = exchange.definition.atomic_spot
 const calls = prepared.calls;`),
       p("These SDK helpers prepare governance transactions; they do not make the author an administrator. Authorized activation must configure the readers, policies, recovery components and integration version before an app token becomes active.")),
   ]),
-  page("integrations/kuru", "App integrations", "Kuru: complete example", "The bundled atomic spot adapter implements the same interface other apps use.", [
+  page("integrations/kuru", "App integrations", "Kuru: complete example", "The bundled spot adapter implements the same interface other apps use.", [
     section("scope", "What this integration supports",
       table(["Feature", "Current Kuru adapter"], [
         ["Use case", "Spot: native MON / Circle test USDC."],
-        ["Actions", "Market buy and market sell, sized by amount.spend."],
-        ["Custody", "Purchased MON or USDC returns to the bound Credit Account."],
-        ["Orders", "Atomic execution; this adapter does not expose resting limit orders."],
-        ["Exit", "Protected sell of remaining MON; done only after approved dust and obligation checks."],
-        ["Assessment", "Shared atomic spot module plus a pinned, depth-aware read program."],
+        ["Actions", "Market buy/sell with spend sizing; limit buy/sell with spend or receive sizing; cancellation."],
+        ["Custody", "The Credit Account controls wallet holdings and its Kuru margin balances."],
+        ["Orders", "Shared tracking captures account-owned order IDs and reconciles partial/full fills. Limit orders remain open until filled or cancelled."],
+        ["Exit", "Cancel orders, verify refunds, withdraw venue balances and sell remaining MON. Closure checks debt and outstanding obligations."],
+        ["Assessment", "Shared reader, policy, recovery and order tracker; pinned native reads and executable depth."],
       ]),
       p("The implementation lives in server/src/kuru/integration.ts. An external team implements its own module using import type { spot } from @termbook/sdk. Kuru’s SDK or API can help build quotes, but execution and custody are still verified against its contracts.")),
     section("create", "Create the adapter",
@@ -265,8 +265,17 @@ import deployment from "./deployments/testnet.json" with { type: "json" };
 const definition = pluginDefinitionSchema.parse(
   deployment.configuration["kuru-integration"].definition,
 );
-const risk = definition.atomic_spot;
-if (!risk) throw new Error("atomic-spot-configuration-required");
+const assessment = definition.assessment;
+const risk = definition.atomic_spot ?? (assessment && {
+  maximum_input: assessment.action_limits.find((rule) => rule.action === "kuru_buy")!.maximum_input,
+  retained_bps: assessment.retained_bps,
+  recovery_costs: assessment.recovery_costs,
+  max_holding: assessment.assets[0]!.maximum,
+  dust_limit: assessment.assets[0]!.dust,
+  oracle: assessment.assets[0]!.oracle,
+  feed_id: assessment.assets[0]!.feed_id,
+});
+if (!risk) throw new Error("spot-configuration-required");
 
 const client = createPublicClient({
   chain: monadTestnet,
@@ -290,6 +299,9 @@ const kuru = await create_kuru({
     section("implementation", "Integration implementation",
       p("This is the current source, including initialization checks, call mapping, account reading and exit planning. It pins market, vault, factory, margin account, forwarder, assets, oracle and shared components."),
       code("server/src/kuru/integration.ts", kuruImplementation)),
+    section("orders", "Orders & venue custody",
+      p("The order adapter uses the shared tracker and assessment components. It returns the same spot interface: bounded actions, independently readable state and an exit plan. Activation requires validation of this version."),
+      code("server/src/kuru/orders.ts", kuruOrders)),
     section("quote-program", "Quote & recovery depth",
       p("The quote program validates the market’s parameter hash and state, reads bounded bid depth and calculates proceeds after fees. Recovery value uses executable depth and policy retention rather than an arbitrary frontend quote."),
       code("server/src/kuru/read.ts", kuruReadProgram)),

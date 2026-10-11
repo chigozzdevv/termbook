@@ -7,7 +7,7 @@ import { buildExecution } from "../app/execution.js";
 export type ReadContext = { client: PublicClient; credit_id: Hex; account: Address;
   block: { number: bigint; hash: Hex }; };
 export type ActionContext<A extends StandardAction = StandardAction> = ReadContext & {
-  borrower: Address; action: A; market: PluginMarket; minimum_receive?: bigint; maximum_spend?: bigint;
+  borrower: Address; action: A; price_bound?: bigint; market: PluginMarket; minimum_receive?: bigint; maximum_spend?: bigint;
   position_state?: { market_id: unknown; direction: string };
 };
 export type ExitContext<U extends UseCase = UseCase> = ReadContext & {
@@ -79,7 +79,7 @@ export function check_plan(definition: PluginDefinition, action: StandardAction,
   const route = selectCapability(definition.actions, action);
   const execution = buildExecution(route, action, { borrower: context.borrower, account: context.account,
     creditId: context.credit_id, use_case: definition.use_case,
-    priceBound: context.minimum_receive ?? context.maximum_spend, state: context.position_state }, definition.settlement_asset as Address);
+    priceBound: context.price_bound ?? context.minimum_receive ?? context.maximum_spend, state: context.position_state }, definition.settlement_asset as Address);
   const calls = execution.calls.map((call) => ({ target: call.target, data: call.data, value: call.nativeValue,
     spend_asset: call.spendToken, spend_amount: call.spendAmount }));
   if (canonicalEvidence(calls.map(wire)) !== canonicalEvidence(parsed.calls.map(wire))

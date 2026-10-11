@@ -11,12 +11,13 @@ import { executionKey } from "../packages/schema/dist/index.js";
 
 const simulate = process.argv[2] === "--simulate";
 const refreshSpot = process.argv[3] === "--refresh-spot";
+const refreshOrders = process.argv[3] === "--refresh-orders";
 const refreshPrices = process.argv[3] === "--refresh-prices";
-if (!["--simulate", "--broadcast"].includes(process.argv[2]) || process.argv.length !== (refreshSpot || refreshPrices ? 4 : 3)) {
-  throw new Error("Use --simulate or --broadcast, optionally with --refresh-spot or --refresh-prices");
+if (!["--simulate", "--broadcast"].includes(process.argv[2]) || process.argv.length !== (refreshSpot || refreshPrices || refreshOrders ? 4 : 3)) {
+  throw new Error("Use --simulate or --broadcast, optionally with --refresh-spot, --refresh-prices or --refresh-orders");
 }
-const upgrades = ["FlowExecutor", "AccountFactory", "PriceProtection", "TermbookCore"];
-const shared = ["ReadProgram", "UseCaseReader", "UseCasePolicy", "UseCaseRecovery", "AtomicSpotRouter", "AtomicSpotModule", "AppHealthReaderFactory"];
+const upgrades = refreshOrders ? ["FlowExecutor"] : ["FlowExecutor", "AccountFactory", "PriceProtection", "TermbookCore"];
+const shared = refreshOrders ? ["SpotOrderTracker", "UseCaseReader", "UseCasePolicy", "UseCaseRecovery"] : ["ReadProgram", "UseCaseReader", "UseCasePolicy", "UseCaseRecovery", "AtomicSpotRouter", "AtomicSpotModule", "AppHealthReaderFactory"];
 const implementationArtifact = upgradeArtifactLoader(path.join(root, "contracts/evm/out"));
 const canonical = (value) => JSON.stringify(value, (_, entry) => typeof entry === "bigint" ? entry.toString() : entry);
 const equal = (actual, expected, label) => {
@@ -158,8 +159,10 @@ async function refreshSpotModule() {
 }
 
 async function main() {
-  if (!simulate && alreadyConfigured("integrations")) { clearOperation("shared-integration-upgrade"); log(JSON.stringify({ configured: true, step: "integrations" })); return; }
-  const { deployment, report, persist, context } = await testnetRuntime("shared-integration-upgrade", simulate);
+  const operation = refreshOrders ? "shared-order-update" : "shared-integration-upgrade";
+  const configuration = refreshOrders ? "order-integrations" : "integrations";
+  if (!simulate && alreadyConfigured(configuration)) { clearOperation(operation); log(JSON.stringify({ configured: true, step: configuration })); return; }
+  const { deployment, report, persist, context } = await testnetRuntime(operation, simulate);
   const monad = await context(10143);
   const m = deployment.addresses[10143];
   if (deployment.upgradeMode !== "testnet-administrator") throw new Error("Upgradeable deployment required");
@@ -219,7 +222,7 @@ async function main() {
   if (!report.before) { report.before = await state(); persist(); }
   equal(await state(), report.before, "pre-upgrade state");
   if (!simulate && !report.completedAt) {
-    const plan = JSON.parse(fs.readFileSync(operationFile("shared-integration-upgrade-simulation"), "utf8"));
+    const plan = JSON.parse(fs.readFileSync(operationFile(`${operation}-simulation`), "utf8"));
     if (!plan.completedAt || plan.sourceCommit !== sourceCommit) throw new Error("Run the current-build simulation first");
     equal(plan.builds, builds, "simulated build");
     for (const name of upgrades) equal(plan.baselines[name].implementationCodeHash, report.baselines[name].implementationCodeHash, "simulated baseline");
@@ -249,13 +252,16 @@ async function main() {
     equal(await monad.read("TestnetProxy", m[name], "proxyImplementation"), implementation, `${name} upgraded proxy`);
     log(JSON.stringify({ simulated: simulate, upgraded: name, proxy: m[name], implementation }));
   }
-  const programs = await monad.deploy("ReadProgram", [m.ProtocolGovernance]);
+  const programs = refreshOrders ? m.ReadProgram : await monad.deploy("ReadProgram", [m.ProtocolGovernance]);
+  if (refreshOrders) await monad.deploy("SpotOrderTracker", [m.ProtocolGovernance, m.TermbookCore, m.IntegrationRegistry, programs]);
   const reader = await monad.deploy("UseCaseReader", [m.ProtocolGovernance, m.TermbookCore, m.IntegrationRegistry, programs]);
   await monad.deploy("UseCasePolicy", [m.ProtocolGovernance, m.TermbookCore, reader]);
   await monad.deploy("UseCaseRecovery", [m.ProtocolGovernance, m.TermbookCore, reader]);
-  const router = await monad.deploy("AtomicSpotRouter", [m.ProtocolGovernance, m.TermbookCore, m.IntegrationRegistry]);
-  await monad.deploy("AtomicSpotModule", [m.ProtocolGovernance, m.TermbookCore, router, m.IntegrationRegistry]);
-  await monad.deploy("AppHealthReaderFactory", [m.TermbookCore, m.CollateralHealthReader]);
+  const router = refreshOrders ? m.AtomicSpotRouter : await monad.deploy("AtomicSpotRouter", [m.ProtocolGovernance, m.TermbookCore, m.IntegrationRegistry]);
+  if (!refreshOrders) {
+    await monad.deploy("AtomicSpotModule", [m.ProtocolGovernance, m.TermbookCore, router, m.IntegrationRegistry]);
+    await monad.deploy("AppHealthReaderFactory", [m.TermbookCore, m.CollateralHealthReader]);
+  }
   for (const name of shared) {
     const address = report.addresses[name];
     const compiled = artifact(name).deployedBytecode;
@@ -270,8 +276,8 @@ async function main() {
     const bindings = name === "ReadProgram" ? { governance: m.ProtocolGovernance }
       : name === "AppHealthReaderFactory" ? { core: m.TermbookCore, collateralReader: m.CollateralHealthReader }
         : { governance: m.ProtocolGovernance, core: m.TermbookCore,
-          ...(["UseCaseReader", "AtomicSpotRouter", "AtomicSpotModule"].includes(name) ? { registry: m.IntegrationRegistry } : {}),
-          ...(name === "UseCaseReader" ? { programs } : {}),
+          ...(["UseCaseReader", "SpotOrderTracker", "AtomicSpotRouter", "AtomicSpotModule"].includes(name) ? { registry: m.IntegrationRegistry } : {}),
+          ...(["UseCaseReader", "SpotOrderTracker"].includes(name) ? { programs } : {}),
           ...(["UseCasePolicy", "UseCaseRecovery"].includes(name) ? { reader } : {}),
           ...(name === "AtomicSpotModule" ? { router } : {}) };
     for (const [method, expected] of Object.entries(bindings)) equal(await monad.read(name, address, method), expected, `${name}.${method}`);
@@ -287,7 +293,7 @@ async function main() {
       m[`${name}Implementation`] = report.proxies[name].implementation;
     }
     for (const name of shared) m[name] = report.addresses[name];
-    deployment.sharedIntegrations = { sourceCommit: report.sourceCommit, completedAt: report.completedAt, configuration: "integrations" };
+    deployment.sharedIntegrations = { sourceCommit: report.sourceCommit, completedAt: report.completedAt, configuration };
     writeJsonAtomic(path.join(root, "deployments/testnet.json"), deployment);
     const bindingsFile = path.join(root, "packages/bindings/src/generated/deployments.ts");
     const bindings = fs.readFileSync(bindingsFile, "utf8");
@@ -304,18 +310,19 @@ async function main() {
       transactions: report.transactions.map(({ rawTransaction: _raw, ...tx }) => tx) };
     const envFile = path.join(root, ".env");
     const variables = { SHARED_READ_PROGRAM: programs, SHARED_USE_CASE_READER: reader, SHARED_USE_CASE_POLICY: report.addresses.UseCasePolicy,
-      SHARED_USE_CASE_RECOVERY: report.addresses.UseCaseRecovery, ATOMIC_SPOT_ROUTER: router, ATOMIC_SPOT_MODULE: report.addresses.AtomicSpotModule };
+      SHARED_USE_CASE_RECOVERY: report.addresses.UseCaseRecovery, ATOMIC_SPOT_ROUTER: router, ATOMIC_SPOT_MODULE: refreshOrders ? m.AtomicSpotModule : report.addresses.AtomicSpotModule,
+      ...(refreshOrders ? { SHARED_SPOT_ORDER_TRACKER: report.addresses.SpotOrderTracker } : {}) };
     let env = fs.readFileSync(envFile, "utf8");
     for (const [key, value] of Object.entries(variables)) env = env.replace(new RegExp(`^${key}=.*\\n?`, "m"), "") + `${key}=${value}\n`;
     fs.writeFileSync(envFile, env, { mode: 0o600 });
-    writeConfiguration("integrations", integration);
+    writeConfiguration(configuration, integration);
   }
   const cost = report.transactions.reduce((sum, tx) => sum + BigInt(tx.gasUsed) * BigInt(tx.effectiveGasPrice), 0n);
   log(JSON.stringify({ simulated: simulate, verified: true, transactions: report.transactions.length, costMON: viem.formatEther(cost), addresses: Object.fromEntries(shared.map((name) => [name, report.addresses[name]])) }));
-  if (!simulate) clearOperation("shared-integration-upgrade", false);
+  if (!simulate) clearOperation(operation, false);
 }
 
-const lockFile = operationFile(refreshPrices ? "price-protection-update" : refreshSpot ? "spot-module-update" : "shared-integration-upgrade").replace(/\.json$/, ".lock");
+const lockFile = operationFile(refreshPrices ? "price-protection-update" : refreshSpot ? "spot-module-update" : refreshOrders ? "shared-order-update" : "shared-integration-upgrade").replace(/\.json$/, ".lock");
 let lock;
 try {
   if (!simulate) {

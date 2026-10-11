@@ -120,8 +120,11 @@ export class Fixture {
     return this.transact({ to: target, from, signature: await signature(name, method), args });
   }
   async read<M extends keyof ReadResults>(name: string, method: M, args: readonly unknown[] = [], target = this.addresses[name]!) {
-    return this.chain.readContract({ address: target, abi: (await artifact(name)).abi, functionName: method, args }) as Promise<ReadResults[M]>;
+    const component = this.component(name, method);
+    return this.chain.readContract({ address: target === this.addresses[name] ? component.target : target,
+      abi: (await artifact(component.name)).abi, functionName: method, args }) as Promise<ReadResults[M]>;
   }
+  component(name: string, _method: string) { return { name, target: this.addresses[name]! }; }
   async deploy(name: string, args: readonly unknown[] = []) {
     const a = await artifact(name);
     const wallet = createWalletClient({ account: this.keys[0]!, transport: http(this.rpc) });

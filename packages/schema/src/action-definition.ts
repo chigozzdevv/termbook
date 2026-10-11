@@ -25,13 +25,13 @@ export function assertStandardDefinition(definition: CapabilityDefinition, categ
       && !(definition.orderSizing && ["_derived.order_quantity", "_derived.order_spend"].includes(path))
       && !(definition.positionState && ["_state.market_id", "_state.direction"].includes(path))) throw new Error("action-parameter-path-invalid");
   }
-  for (const field of fields.filter((field) => !field.optional)) {
+  for (const field of fields.filter((field) => !field.optional && !(field.path === "expires_at" && definition.expiry === "none"))) {
     if (field.path === "amount" && category === "spot") {
       if (!definition.when?.sizing || !used.has(`amount.${definition.when.sizing}`) && !definition.orderSizing) throw new Error("action-sizing-definition-required");
     } else if (!used.has(field.path) && ![...used].some((path) => path.startsWith(`${field.path}.`))) throw new Error("action-parameter-unmapped");
   }
   if (limit && (!definition.price || (definition.price.kind ?? "price") !== "price" || definition.price.slippagePath
-    || definition.settlement !== "asynchronous" || !paths.includes("expires_at"))) throw new Error("action-limit-definition-invalid");
+    || definition.settlement !== "asynchronous" || (definition.expiry === "none" ? paths.includes("expires_at") : !paths.includes("expires_at")))) throw new Error("action-limit-definition-invalid");
   if (definition.orderSizing && (category !== "spot" || !limit || !definition.when?.direction
     || !["buy", "sell"].includes(definition.when.direction) || !paths.includes("_derived.order_quantity")
     || definition.orderSizing.baseAsset.toLowerCase() === definition.orderSizing.quoteAsset.toLowerCase()

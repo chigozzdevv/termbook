@@ -156,6 +156,9 @@ contract ExecutionManager is ProxyInitializable {
         uint256 slots;
         uint256 committed;
         uint256 liability;
+        address[32] memory inputAssets;
+        uint256[32] memory inputTotals;
+        uint256 inputCount;
         for (uint256 i; i < ids.length; ++i) {
             bytes32 id = ids[i];
             if (id == bytes32(0) || records[creditId][id].state.status != ExecutionTypes.Status.None) revert Invalid();
@@ -163,7 +166,15 @@ contract ExecutionManager is ProxyInitializable {
             _validateState(state, account, bundle.maxAge);
             if (!_active(state.status)) revert Invalid();
             slots += state.positionSlots;
-            committed += state.committed;
+            (bool hasAsset, bytes memory assetData) = bundle.policy.staticcall(
+                abi.encodeWithSignature("pendingInputAsset(bytes32,address,bytes32)", creditId, account, id));
+            if (hasAsset && assetData.length == 32) {
+                address asset = abi.decode(assetData, (address));
+                uint256 index;
+                while (index < inputCount && inputAssets[index] != asset) ++index;
+                if (index == inputCount) { inputAssets[inputCount++] = asset; }
+                inputTotals[index] += state.committed;
+            } else committed += state.committed;
             if (state.liability > state.maxLiability) revert Bounds();
             liability += state.maxLiability;
             records[creditId][id] = Record(action.capability, action.market, state.maxLiability, state.positionSlots, state);
@@ -172,10 +183,20 @@ contract ExecutionManager is ProxyInitializable {
             emit ActionPending(creditId, id, action.capability, action.market);
         }
         if (slots > reservation.positionSlots || committed > action.requiredInput || liability > reservation.exposure) revert Bounds();
+        for (uint256 i; i < inputCount; ++i) {
+            uint256 budget;
+            for (uint256 j; j < action.calls.length; ++j) {
+                ExecutionTypes.Call calldata call_ = action.calls[j];
+                if (inputAssets[i] == address(0)) budget += call_.nativeValue;
+                else if (call_.spendToken == inputAssets[i]) budget += call_.spendAmount;
+            }
+            if (inputTotals[i] > budget) revert Bounds();
+        }
         if (IAppStateReader(bundle.reader).positionCount(creditId, account) > reservation.positionsBefore
             + reservation.positionSlots) revert Bounds();
         reservedPositionSlots[creditId] += slots;
-        if (!_withinBounds(creditId, bundle, account)) revert Bounds();
+        _sync(creditId, bundleId, account);
+        if (breached[creditId]) revert Bounds();
     }
 
     function sync(bytes32 creditId, bytes32 bundleId, address account) external onlyCore returns (bool changed) {
@@ -208,6 +229,13 @@ contract ExecutionManager is ProxyInitializable {
             state.observedAt = observedAt;
             record.state = state;
             if (_active(state.status)) { ++i; continue; }
+            (bool tracked, bytes memory trackerData) = bundle.policy.staticcall(
+                abi.encodeWithSignature("pendingTracker(bytes32)", creditId));
+            if (tracked && trackerData.length == 32 && abi.decode(trackerData, (address)) != address(0)) {
+                (bool acknowledged,) = abi.decode(trackerData, (address)).call(
+                    abi.encodeWithSignature("acknowledge(bytes32,bytes32)", creditId, id));
+                if (!acknowledged) revert Invalid();
+            }
             bytes32 last = pendingIds[creditId][pendingIds[creditId].length - 1];
             pendingIds[creditId][i] = last;
             pendingIndex[creditId][last] = i + 1;

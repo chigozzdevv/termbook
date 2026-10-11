@@ -1,7 +1,7 @@
-import { atomic_configuration } from "@termbook/sdk";
+import { atomic_configuration, use_case_configuration } from "@termbook/sdk";
 import type { PluginDefinition, IntegrationSuite } from "@termbook/schema";
 import { decodeAbiParameters, encodeAbiParameters, encodeFunctionData, keccak256, parseAbi, toHex, zeroAddress, type Address, type Hex } from "viem";
-import { Fixture, artifact, USDC, MARKET, word, type Facility } from "./acceptance-fixture.js";
+import { Fixture, artifact, signature, USDC, MARKET, word, type Facility } from "./acceptance-fixture.js";
 
 type Deployment = { addresses: Record<string, Record<string, Address>>; configuration: {
   "kuru-integration": { definition: PluginDefinition; healthReader: Address };
@@ -25,14 +25,74 @@ export class DeploymentFixture extends Fixture {
     this.governance = deployed.ProtocolGovernance!;
     this.deployedHouse = deployed.HouseVault!;
     this.monitor = deployment.configuration["kuru-market"].monitor;
-    const configuration = atomic_configuration(deployment.configuration["kuru-integration"].definition);
-    const market = configuration.markets[0]!;
-    this.bundle = configuration.version_id; this.buy = market.buyCapability; this.sell = market.sellCapability;
-    this.buyRoute = market.buyRoute; this.sellRoute = market.sellRoute;
-    this.market = market.marketId; this.feedId = market.feedId; this.program = market.quoteProgram;
+    const definition = deployment.configuration["kuru-integration"].definition;
+    if (definition.assessment) {
+      const config = use_case_configuration(definition), market = config.reader.markets[0]!;
+      this.bundle = config.version_id; this.market = market.id; this.feedId = market.asset0.feed; this.program = market.asset0.quoteProgram;
+      this.buy = word("kuru_buy"); this.sell = word("kuru_sell");
+      this.buyRoute = definition.assessment.routes!.values[0]!.id as Hex; this.sellRoute = definition.assessment.routes!.values[1]!.id as Hex;
+    } else {
+      const config = atomic_configuration(definition), market = config.markets[0]!;
+      this.bundle = config.version_id; this.buy = market.buyCapability; this.sell = market.sellCapability;
+      this.buyRoute = market.buyRoute; this.sellRoute = market.sellRoute;
+      this.market = market.marketId; this.feedId = market.feedId; this.program = market.quoteProgram;
+    }
     for (const [target, pin] of Object.entries(deployment.configuration["kuru-market"].guards)) {
       this.guards.push(pin.address); this.addresses[`guard_${target}`] = pin.address;
     }
+  }
+  override component(name: string, method: string) {
+    const definition = this.deployment.configuration["kuru-integration"].definition;
+    if (name === "AtomicSpotModule" && definition.assessment) {
+      const recovery = ["nextExitStep", "canExit", "recoveryCall", "recoverySpend"].includes(method);
+      return { name: recovery ? "UseCaseRecovery" : "UseCaseReader", target: definition.contracts[recovery ? "recovery" : "reader"] as Address };
+    }
+    return super.component(name, method);
+  }
+  get orderDefinition() { return this.deployment.configuration["kuru-integration"].definition.assessment?.orders; }
+  async limitOrder(f: Facility, amount = 10_000n, draw = amount) {
+    if (!this.orderDefinition) throw new Error("validation-order-tracker-required");
+    const params = await this.chain.readContract({ address: MARKET, abi: parseAbi([
+      "function getMarketParams() view returns(uint32,uint96,address,uint256,address,uint256,uint32,uint96,uint96,uint256,uint256)"]), functionName: "getMarketParams" });
+    const price = this.bid + BigInt(params[6]);
+    if (price >= this.ask) throw new Error("validation-resting-price-unavailable");
+    const quantity = amount * BigInt(params[0]) * params[1] / 10n ** params[5] / price;
+    const rule = this.orderDefinition.rules.find((r) => r.buy)!;
+    const tracker = this.orderDefinition.tracker as Address;
+    const action = { capability: word("kuru_limit_buy_spend"), market: this.market, requiredInput: amount, exposureLimit: amount,
+      calls: [
+        { target: rule.custody as Address, spendToken: USDC, spendAmount: amount, nativeValue: 0n,
+          data: encodeFunctionData({ abi: parseAbi(["function deposit(address,address,uint256) payable"]), functionName: "deposit", args: [f.account, USDC, amount] }) },
+        { target: tracker, spendToken: zeroAddress, spendAmount: 0n, nativeValue: 0n,
+          data: encodeFunctionData({ abi: parseAbi(["function beginOrder(bytes32,bytes32,uint256,uint256)"]), functionName: "beginOrder", args: [f.id, rule.id as Hex, quantity * 10n ** params[3] / params[1], price] }) },
+        { target: MARKET, spendToken: zeroAddress, spendAmount: 0n, nativeValue: 0n,
+          data: encodeFunctionData({ abi: parseAbi(["function addBuyOrder(uint32,uint96,bool)"]), functionName: "addBuyOrder", args: [Number(price), quantity, false] }) },
+        { target: tracker, spendToken: zeroAddress, spendAmount: 0n, nativeValue: 0n,
+          data: encodeFunctionData({ abi: parseAbi(["function finishOrder(bytes32)"]), functionName: "finishOrder", args: [f.id] }) },
+      ] };
+    const [referencePrice, updatedAt, roundId] = await this.read("OracleRegistry", "read", [this.feedId]);
+    return this.authorizeOrder(f, action, draw, { roundId, referencePrice, updatedAt,
+      authorizedAt: (await this.chain.getBlock()).timestamp, bound: price, slippageBps: 100, isMax: true });
+  }
+  async cancelOrder(f: Facility, venueId: bigint) {
+    const tracker = this.orderDefinition?.tracker as Address;
+    if (!tracker) throw new Error("validation-order-tracker-required");
+    const action = { capability: word("kuru_cancel"), market: this.market, requiredInput: 0n, exposureLimit: 0n, calls: [
+      { target: tracker, spendToken: zeroAddress, spendAmount: 0n, nativeValue: 0n,
+        data: encodeFunctionData({ abi: parseAbi(["function beginCancel(bytes32,address,uint256)"]), functionName: "beginCancel", args: [f.id, MARKET, venueId] }) },
+      { target: MARKET, spendToken: zeroAddress, spendAmount: 0n, nativeValue: 0n,
+        data: encodeFunctionData({ abi: parseAbi(["function batchCancelOrders(uint40[])"]), functionName: "batchCancelOrders", args: [[Number(venueId)]] }) },
+    ] };
+    return this.authorizeOrder(f, action, 0n, { roundId: 0n, referencePrice: 0n, updatedAt: 0n, authorizedAt: 0n, bound: 0n, slippageBps: 0, isMax: false });
+  }
+  private async authorizeOrder(f: Facility, action: Parameters<NonNullable<Parameters<Fixture["execution"]>[3]>>[0], draw: bigint,
+    price: Parameters<NonNullable<Parameters<Fixture["execution"]>[3]>>[1]["price"]) {
+    const credit = await this.read("TermbookCore", "creditDetails", [f.id]);
+    const auth = { drawAmount: draw, maxDraw: draw, nonce: credit.nonce + 1n, deadline: (await this.chain.getBlock()).timestamp + 60n,
+      revision: credit.revision, signer: this.actors.borrower, signature: "0x" as Hex, price };
+    const digest = await this.read("TermbookCore", "executionDigest", [f.id, action, auth]);
+    auth.signature = await this.keys[0]!.sign({ hash: digest });
+    return { to: this.addresses.TermbookCore!, from: this.actors.borrower, signature: await signature("TermbookCore", "executePlan"), args: [f.id, action, auth] };
   }
   override async deploy(name: string, args: readonly unknown[] = []) {
     const address = await super.deploy(name, args); this.helpers.add(address.toLowerCase()); return address;
@@ -93,8 +153,9 @@ export class DeploymentFixture extends Fixture {
     this.sourceBlock = { number: String(block.number), hash: block.hash };
     const runtimePath = new URL("../../../scripts/testnet-runtime.mjs", import.meta.url).href;
     const { warmReadProgram } = await import(runtimePath);
-    const program = atomic_configuration(this.deployment.configuration["kuru-integration"].definition).quote_program;
-    await warmReadProgram(this.chain, this.addresses.ReadProgram, encodeFunctionData({ abi: (await artifact("ReadProgram")).abi,
+    const definition = this.deployment.configuration["kuru-integration"].definition;
+    const programs = definition.assessment ? use_case_configuration(definition).programs : [atomic_configuration(definition).quote_program];
+    for (const program of programs) await warmReadProgram(this.chain, this.addresses.ReadProgram, encodeFunctionData({ abi: (await artifact("ReadProgram")).abi,
       functionName: "configure", args: [program.id, program.program] }));
     for (const address of [...this.keys.map((key) => key.address), this.governance, this.monitor]) await this.rpcCall("anvil_setBalance", [address, toHex(10n ** 24n)]);
     await this.rpcCall("anvil_setBlockTimestampInterval", [1]);

@@ -1,4 +1,4 @@
-import { actionFunding, actionInputs, assertActionUseCase, type CapabilityDefinition, type CapabilityCall, type UseCase } from "@termbook/schema";
+import { transformArgument, actionFunding, actionInputs, assertActionUseCase, type CapabilityDefinition, type CapabilityCall, type UseCase } from "@termbook/schema";
 import { encodeFunctionData, parseAbiItem, type AbiParameter } from "viem";
 import type { TermAction } from "@termbook/schema";
 
@@ -82,10 +82,7 @@ export function buildCapabilityCall(definition: CapabilityCall, action: TermActi
     let value: unknown;
     if (argument.source === "input" || argument.source === "state") {
       value = atPath(argument.source === "state" ? context.state ?? {} : context.inputs ?? action.params, argument.path!);
-      if (argument.choices) {
-        if (typeof value !== "string" || !Object.prototype.hasOwnProperty.call(argument.choices, value)) throw new Error("action-input-invalid");
-        value = argument.choices[value];
-      }
+      value = transformArgument(argument, value);
     } else if (argument.source === "constant") value = argument.value;
     else if (argument.source === "borrower") value = context.borrower;
     else if (argument.source === "credit_account") value = context.account;

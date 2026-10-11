@@ -11,16 +11,19 @@ import {IAppStateReader} from "./IAppStateReader.sol";
 import {IAppValueReader} from "./IAppValueReader.sol";
 import {IAppCashReader} from "./IAppCashReader.sol";
 import {ExecutionTypes} from "./IExecutionPolicy.sol";
+import {SpotOrderTracker} from "./SpotOrderTracker.sol";
 
 contract UseCaseReader is IAppStateReader, IAppValueReader, IAppCashReader {
     using SafeTransferLib for address;
     enum UseCase { Spot, Perps, Vault, Staking, Liquidity }
     struct Asset { address token; address oracle; bytes32 feed; uint8 decimals; uint128 maximum; uint128 dust; bytes32 quoteProgram; address quoteTarget; }
     struct Market { bytes32 id; address receipt; Asset asset0; Asset asset1; uint128 maximumExposure; }
+    struct Custody { address target; bytes32 program; address token; uint128 maximum; uint128 dust; }
     struct Config {
         UseCase useCase; address settlement; address stateTarget; bytes32 metaProgram; bytes32 positionProgram;
         bytes32 pendingProgram; bytes32 requestProgram; bytes32 reconcileProgram; uint16 retainedBps; uint128 recoveryCosts;
         uint8 maxPositions; uint8 maxPending; uint8 maxRequests; Asset[] assets; Market[] markets;
+        address orderTracker; Custody[] custody;
     }
     struct Meta { uint256 positions; uint256 pending; uint256 requests; uint256 reserved; }
     struct Position {
@@ -47,6 +50,7 @@ contract UseCaseReader is IAppStateReader, IAppValueReader, IAppCashReader {
             || value.settlement.code.length == 0 || value.retainedBps == 0 || value.retainedBps > 10_000
             || value.maxPositions == 0 || value.maxPositions > 32 || value.maxPending > 32 || value.maxRequests > 32
             || value.assets.length > 16 || value.markets.length > 16
+            || value.custody.length > 16
             || value.useCase != UseCase.Spot && (value.metaProgram == bytes32(0) || value.positionProgram == bytes32(0))
             || value.metaProgram != bytes32(0) && value.stateTarget.code.length == 0) revert Invalid();
         bytes32[5] memory ids = [value.metaProgram, value.positionProgram, value.pendingProgram, value.requestProgram, value.reconcileProgram];
@@ -66,8 +70,22 @@ contract UseCaseReader is IAppStateReader, IAppValueReader, IAppCashReader {
             for (uint256 j; j < i; ++j) if (value.markets[j].id == market.id) revert Invalid();
             for (uint256 j; j < value.assets.length; ++j) if (market.receipt != address(0) && market.receipt == value.assets[j].token) revert Invalid();
         }
+        if (value.orderTracker != address(0) && (value.useCase != UseCase.Spot || value.metaProgram != bytes32(0)
+            || !registry.dependencyValid(bundle, value.orderTracker)
+            || SpotOrderTracker(value.orderTracker).configurationHashes(bundle) == bytes32(0))) revert Invalid();
+        for (uint256 i; i < value.custody.length; ++i) {
+            Custody calldata item = value.custody[i];
+            if (value.useCase != UseCase.Spot || item.maximum == 0 || item.dust >= item.maximum
+                || item.token != value.settlement && !_knownAsset(value, item.token)) revert Invalid();
+            _checkProgram(bundle, item.program, item.target);
+            for (uint256 j; j < i; ++j) if (value.custody[j].target == item.target && value.custody[j].token == item.token) revert Invalid();
+        }
         configs[bundle] = value;
         configurationHashes[bundle] = keccak256(abi.encode(value));
+    }
+    function _knownAsset(Config calldata value, address token) private pure returns (bool) {
+        for (uint256 i; i < value.assets.length; ++i) if (value.assets[i].token == token) return true;
+        return false;
     }
 
     function _checkAsset(bytes32 bundle, Asset calldata asset) private view {
@@ -105,7 +123,11 @@ contract UseCaseReader is IAppStateReader, IAppValueReader, IAppCashReader {
 
     function meta(bytes32 id, address account) public view returns (Meta memory result) {
         Config storage value = configs[_bundle(id, account)];
-        if (value.metaProgram == bytes32(0)) return result;
+        if (value.metaProgram == bytes32(0)) {
+            if (value.orderTracker != address(0)) result.pending = SpotOrderTracker(value.orderTracker).count(id);
+            if (result.pending > value.maxPending) revert Invalid();
+            return result;
+        }
         uint256[] memory data = programs.read(value.metaProgram, ReadProgram.Context(value.stateTarget, account, id, 0, 0));
         if (data.length != 5 || data[0] != uint256(uint160(account)) || data[1] > value.maxPositions
             || data[2] > value.maxPending || data[3] > value.maxRequests || data[2] + data[3] > value.maxPending
@@ -146,6 +168,7 @@ contract UseCaseReader is IAppStateReader, IAppValueReader, IAppCashReader {
 
     function order(bytes32 id, address account, uint256 index) public view returns (bytes32 orderId, ExecutionTypes.PendingState memory result) {
         Config storage value = configs[_bundle(id, account)];
+        if (value.orderTracker != address(0)) return SpotOrderTracker(value.orderTracker).at(id, index);
         if (index >= meta(id, account).pending) revert Invalid();
         uint256[] memory data = programs.read(value.pendingProgram, ReadProgram.Context(value.stateTarget, account, id, index, 0));
         (orderId, result) = _order(account, data);
@@ -154,6 +177,10 @@ contract UseCaseReader is IAppStateReader, IAppValueReader, IAppCashReader {
 
     function pendingExposure(bytes32 id, address account, uint256 index) external view returns (uint256) {
         Config storage value = configs[_bundle(id, account)];
+        if (value.orderTracker != address(0)) {
+            SpotOrderTracker(value.orderTracker).at(id, index);
+            return 0;
+        }
         if (index >= meta(id, account).pending) revert Invalid();
         uint256[] memory data = programs.read(value.pendingProgram, ReadProgram.Context(value.stateTarget, account, id, index, 0));
         _order(account, data);
@@ -161,6 +188,7 @@ contract UseCaseReader is IAppStateReader, IAppValueReader, IAppCashReader {
     }
     function reconcile(bytes32 id, address account, bytes32 pendingId) external view returns (ExecutionTypes.PendingState memory result) {
         Config storage value = configs[_bundle(id, account)];
+        if (value.orderTracker != address(0)) return SpotOrderTracker(value.orderTracker).state(id, pendingId);
         if (value.reconcileProgram == bytes32(0)) revert Invalid();
         uint256[] memory data = programs.read(value.reconcileProgram, ReadProgram.Context(value.stateTarget, account, id, uint256(pendingId), 0));
         (bytes32 actual, ExecutionTypes.PendingState memory state) = _order(account, data);
@@ -182,6 +210,7 @@ contract UseCaseReader is IAppStateReader, IAppValueReader, IAppCashReader {
         Config storage value = configs[_bundle(id, account)];
         count = meta(id, account).positions;
         for (uint256 i; i < value.assets.length; ++i) if (_balance(value.assets[i].token, account) > value.assets[i].dust) ++count;
+        for (uint256 i; i < value.custody.length; ++i) if (custodyBalance(id, account, i) > value.custody[i].dust) ++count;
     }
     function positionAt(bytes32 id, address account, uint256 index) external view returns (bytes32, bytes32) {
         uint256 nativePositions = meta(id, account).positions;
@@ -194,6 +223,10 @@ contract UseCaseReader is IAppStateReader, IAppValueReader, IAppCashReader {
                 for (uint256 j; j < value.markets.length; ++j) if (value.markets[j].asset0.token == value.assets[i].token) { market = value.markets[j].id; break; }
                 return (keccak256(abi.encode(account, value.assets[i].token)), market);
             }
+        }
+        for (uint256 i; i < value.custody.length; ++i) if (custodyBalance(id, account, i) > value.custody[i].dust) {
+            if (cursor++ == index) return (keccak256(abi.encode(account, value.custody[i].target, value.custody[i].token)),
+                bytes32(uint256(uint160(value.custody[i].token))));
         }
         revert Invalid();
     }
@@ -210,6 +243,24 @@ contract UseCaseReader is IAppStateReader, IAppValueReader, IAppCashReader {
 
     function _balance(address token, address account) private view returns (uint256) { return token == address(0) ? account.balance : token.balanceOf(account); }
     function balance(address token, address account) external view returns (uint256) { return _balance(token, account); }
+    function custodyBalance(bytes32 id, address account, uint256 index) public view returns (uint256) {
+        Config storage value = configs[_bundle(id, account)];
+        if (index >= value.custody.length) revert Invalid();
+        Custody storage item = value.custody[index];
+        uint256[] memory data = programs.read(item.program,
+            ReadProgram.Context(item.target, account, id, uint256(uint160(item.token)), 0));
+        if (data.length != 2 || data[0] != uint256(uint160(account)) || data[1] > item.maximum) revert Invalid();
+        return data[1];
+    }
+    function pendingDetails(bytes32 id, address account, bytes32 pendingId) external view returns (bytes32 market, address input, uint256 venueId) {
+        Config storage value = configs[_bundle(id, account)];
+        if (value.orderTracker == address(0)) revert Invalid();
+        return SpotOrderTracker(value.orderTracker).details(id, pendingId);
+    }
+    function _held(bytes32 id, address account, Config storage value, address token) private view returns (uint256 amount) {
+        for (uint256 i; i < value.custody.length; ++i) if (value.custody[i].token == token) amount += custodyBalance(id, account, i);
+        if (value.orderTracker != address(0)) amount += SpotOrderTracker(value.orderTracker).lockedBalance(id, token);
+    }
     function assetValue(Asset memory asset, uint256 amount, uint8 settlementDecimals) public view returns (uint256 result) {
         if (amount > asset.maximum) amount = asset.maximum;
         if (amount <= asset.dust) return 0;
@@ -256,7 +307,11 @@ contract UseCaseReader is IAppStateReader, IAppValueReader, IAppCashReader {
         Config storage value = configs[_bundle(id, account)];
         if (settlement != value.settlement) revert Invalid();
         uint8 decimals = _decimals(settlement);
-        for (uint256 i; i < value.assets.length; ++i) netValue += int256(assetValue(value.assets[i], _balance(value.assets[i].token, account), decimals));
+        uint256 venueCash = _held(id, account, value, settlement);
+        if (venueCash > uint256(type(int256).max)) revert Invalid();
+        netValue = int256(venueCash);
+        for (uint256 i; i < value.assets.length; ++i) netValue += int256(assetValue(value.assets[i],
+            _balance(value.assets[i].token, account) + _held(id, account, value, value.assets[i].token), decimals));
         Meta memory state = meta(id, account);
         bytes32[32] memory seen;
         for (uint256 i; i < state.positions; ++i) {
@@ -265,10 +320,10 @@ contract UseCaseReader is IAppStateReader, IAppValueReader, IAppCashReader {
             seen[i] = item.id;
             netValue += positionValue(id, account, i);
         }
-        for (uint256 i; i < state.pending; ++i) { (, ExecutionTypes.PendingState memory item) = order(id, account, i); netValue -= int256(item.maxLiability); }
         bytes32[32] memory pendingSeen;
-        for (uint256 i; i < state.pending; ++i) {
-            (bytes32 pendingId,) = order(id, account, i);
+        for (uint256 i; value.orderTracker == address(0) && i < state.pending; ++i) {
+            (bytes32 pendingId, ExecutionTypes.PendingState memory item) = order(id, account, i);
+            netValue -= int256(item.maxLiability);
             for (uint256 j; j < i; ++j) if (pendingSeen[j] == pendingId) revert Invalid();
             pendingSeen[i] = pendingId;
         }

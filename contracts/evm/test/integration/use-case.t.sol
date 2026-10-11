@@ -76,8 +76,8 @@ contract UseCaseTest is CoreFixture {
         oracle.setFeed(feed, address(price), 1 days, 8); oracle.setFeed(dollarFeed, address(dollarPrice), 1 days, 8);
         oracle.setFeedGuard(feed, address(new PriceFeedGuardFixture(price))); oracle.setFeedGuard(dollarFeed, address(new PriceFeedGuardFixture(dollarPrice)));
         core.setCredit(account, bundle, block.timestamp + 1 days);
-        reader = new UseCaseReader(address(this), address(core), address(registry), address(programs));
-        policy = new UseCasePolicy(address(this), address(core), address(reader)); recovery = new UseCaseRecovery(address(this), address(core), address(reader));
+        reader = UseCaseReader(deployCode("UseCaseReader.sol:UseCaseReader", abi.encode(address(this), address(core), address(registry), address(programs))));
+        policy = UseCasePolicy(deployCode("UseCasePolicy.sol:UseCasePolicy", abi.encode(address(this), address(core), address(reader)))); recovery = UseCaseRecovery(deployCode("UseCaseRecovery.sol:UseCaseRecovery", abi.encode(address(this), address(core), address(reader))));
         registry.approve(bundle, keccak256("definition"));
         address[8] memory targets = [address(venue), address(programs), address(base), address(dollar), address(oracle), address(reader), address(policy), address(recovery)];
         for (uint256 i; i < targets.length; ++i) registry.pinDependency(bundle, targets[i]);
@@ -187,7 +187,7 @@ contract UseCaseTest is CoreFixture {
         words[0] = UseCaseRecovery.Word(UseCaseRecovery.Source.Literal, bytes32(uint256(uint160(address(dollar)))));
         words[1] = UseCaseRecovery.Word(UseCaseRecovery.Source.Minimum, bytes32(0));
         words[2] = UseCaseRecovery.Word(UseCaseRecovery.Source.Account, bytes32(0));
-        rules[0] = UseCaseRecovery.Template(UseCaseRecovery.Phase.Position, market, address(venue), selector, words, address(0), address(dollar), 255, 10, false);
+        rules[0] = UseCaseRecovery.Template(UseCaseRecovery.Phase.Position, market, address(venue), selector, words, address(0), address(dollar), 255, 10, false, 0);
         recovery.configure(bundle, rules);
     }
     function testRecoveryUsesCappedValueAndReturnsFundsToAccount() public {
@@ -218,7 +218,7 @@ contract UseCaseTest is CoreFixture {
         words[1] = UseCasePolicy.Word(UseCasePolicy.Kind.Range, bytes32(0), 0, 200e6);
         words[2] = UseCasePolicy.Word(UseCasePolicy.Kind.Account, bytes32(0), 0, 0);
         UseCasePolicy.Call[] memory calls = new UseCasePolicy.Call[](1);
-        calls[0] = UseCasePolicy.Call(address(venue), venue.close.selector, false, words);
+        calls[0] = UseCasePolicy.Call(address(venue), venue.close.selector, false, words, 0, 255);
         UseCasePolicy.Action[] memory rules = new UseCasePolicy.Action[](1);
         rules[0] = UseCasePolicy.Action(keccak256("add_margin"), market, keccak256("add_margin"), 200e6, 200e6, false, calls);
         policy.configure(bundle, rules, calls);

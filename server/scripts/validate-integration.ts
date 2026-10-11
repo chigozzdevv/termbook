@@ -60,7 +60,8 @@ if (admit) {
   if (!live.lifecycle || !Array.isArray(live.probes)) throw new Error('integration-live-evidence-required');
   const evidence: RecordedValidation = { ...report, lifecycle: live.lifecycle, probes: live.probes.map((probe) => ({ ...probe,
     minimum_receive: probe.minimum_receive === undefined ? undefined : BigInt(probe.minimum_receive),
-    maximum_spend: probe.maximum_spend === undefined ? undefined : BigInt(probe.maximum_spend) })) };
+    maximum_spend: probe.maximum_spend === undefined ? undefined : BigInt(probe.maximum_spend),
+    price_bound: probe.price_bound === undefined ? undefined : BigInt(probe.price_bound) })) };
   const wallet = wallets.find((wallet) => wallet.address.toLowerCase() === suite.actors.borrower.toLowerCase())!;
   const sdk = create_sdk({ application_id: admission.applicationId, wallet, api_base: admission.apiBase,
     validation_environment: create_evidence_environment({ client, fork_client: forkClient, evidence, options: { gasLimit: BigInt(config.gasLimit), timeoutMs: config.timeoutMs } }) });

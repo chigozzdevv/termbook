@@ -40,7 +40,16 @@ export async function assess_state<U extends UseCase>(definition: PluginDefiniti
     const positions = "positions" in state ? state.positions as PluginStates["perps"]["positions"] : [];
     const orders = "orders" in state ? state.orders : [];
     const requests = "requests" in state ? state.requests : [];
-    const held = state.holdings.filter((h) => !equal(h.held_at, context.account));
+    const custody = c.reader.custody;
+    for (let index = 0; index < custody.length; index++) {
+      const slot = custody[index]!;
+      const actual = await context.client.readContract({ address: reader, abi: useCaseReaderAbi, functionName: "custodyBalance",
+        args: [context.credit_id, context.account, BigInt(index)], blockNumber: context.block.number });
+      const holdings = state.holdings.filter((h) => equal(h.held_at, slot.target) && equal(h.asset, slot.token));
+      if (holdings.length > 1 || holdings.length === 0 && actual > 0n || holdings[0] && holdings[0].amount !== actual) throw new Error("integration-holding-mismatch");
+    }
+    const held = state.holdings.filter((h) => !equal(h.held_at, context.account)
+      && !custody.some((slot) => equal(h.held_at, slot.target) && equal(h.asset, slot.token)));
     if (BigInt(definition.use_case === "spot" ? held.length : positions.length) !== meta.positions
       || BigInt(orders.length) !== meta.pending || BigInt(requests.length) !== meta.requests) throw new Error("integration-state-count-mismatch");
     for (let index = 0; index < Number(meta.positions); index++) {
@@ -85,9 +94,17 @@ export async function assess_state<U extends UseCase>(definition: PluginDefiniti
     for (let index = 0; index < Number(meta.pending); index++) {
       const [id, actual] = await context.client.readContract({ address: reader, abi: useCaseReaderAbi, functionName: "order",
         args: [context.credit_id, context.account, BigInt(index)], blockNumber: context.block.number });
-      const item = orders.find((o) => equal(idWord(o.order_id), id));
+      const details = c.assessment.orders ? await context.client.readContract({ address: reader, abi: useCaseReaderAbi,
+        functionName: "pendingDetails", args: [context.credit_id, context.account, id], blockNumber: context.block.number }) : undefined;
+      const item = orders.find((o) => details ? o.order_id === String(details[2]) : equal(idWord(o.order_id), id));
       if (!item || item.remaining_input !== actual.remaining || item.filled_input !== actual.filled
         || (item.status === "cancel_requested") !== (actual.status === 2)) throw new Error("integration-order-mismatch");
+      const orderMarket = details && definition.markets.find((m) => equal(keccak256(stringToHex(m.market_id)), details[0]));
+      const buying = orderMarket && equal(details![1], orderMarket.quote_asset);
+      if (details && (!orderMarket || !equal(keccak256(stringToHex(item.market_id)), details[0]) || !equal(item.input_asset, details[1])
+        || !equal(details[1], buying ? orderMarket.quote_asset : orderMarket.base_asset)
+        || !equal(item.output_asset, buying ? orderMarket.base_asset : orderMarket.quote_asset) || item.direction !== (buying ? "buy" : "sell")
+        || item.filled_output !== undefined && item.filled_output !== 0n)) throw new Error("integration-order-mismatch");
       const exposure = await context.client.readContract({ address: reader, abi: useCaseReaderAbi, functionName: "pendingExposure",
         args: [context.credit_id, context.account, BigInt(index)], blockNumber: context.block.number });
       if (item.exposure !== exposure) throw new Error("integration-order-mismatch");

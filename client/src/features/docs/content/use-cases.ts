@@ -79,7 +79,7 @@ export const useCasePages = [
       p("Market IDs in these generic examples are illustrative. For Kuru use its registered address-based market ID. A buy can draw settlement credit; a sell spends owned tokens and returns proceeds to the account. Repayment remains a separate operation.")),
     section("limits", "Limit orders",
       code("Buy · receive a fixed amount", actionCode("spot", 2)),
-      p("Read limit_price using the registered integration’s declared scale, not a universal 18-decimal assumption. expires_at is Unix seconds and must be in the future, within the permitted expiry window.")),
+      p("Read limit_price using the registered integration’s declared scale. Integrations with native expiry require expires_at in Unix seconds. A venue without enforced expiry declares expiry: none and rejects expires_at. Kuru prices use 18 decimals; its orders remain open until filled or cancelled.")),
     section("exit", "Exit requirements", p("Cancel pending orders, reconcile fills, withdraw any venue-held assets and sell remaining admitted holdings through protected routes. Shared assessment must account for committed funds and sale depth."), status),
   ]),
   page("integrations/perps", "Use cases", "Perps", "Manage margin and notional exposure with independently verifiable positions.", [

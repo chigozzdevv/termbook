@@ -10,7 +10,7 @@ export const platformService = {
     if ([router, module, reader].some((value) => !/^0x[a-fA-F0-9]{40}$/.test(value ?? "") || /^0x0{40}$/i.test(value ?? ""))) {
       throw new Error("integration-platform-unavailable");
     }
-    return { chain_id: env.monadChainId, router, module, read_program: reader };
+    return { chain_id: env.monadChainId, router, module, read_program: reader, ...process.env["SHARED_SPOT_ORDER_TRACKER"] ? this.useCase() : {} };
   },
   useCase() {
     const execution = process.env["SHARED_USE_CASE_POLICY"], reader = process.env["SHARED_USE_CASE_READER"],
@@ -18,7 +18,9 @@ export const platformService = {
     if ([execution, reader, recovery, read_program].some((value) => !/^0x[a-fA-F0-9]{40}$/.test(value ?? "") || /^0x0{40}$/i.test(value ?? ""))) {
       throw new Error("integration-platform-unavailable");
     }
-    return { chain_id: env.monadChainId, contracts: { execution, reader, recovery, exit: recovery }, read_program };
+    const order_tracker = process.env["SHARED_SPOT_ORDER_TRACKER"] || undefined;
+    if (order_tracker !== undefined && (!/^0x[a-fA-F0-9]{40}$/.test(order_tracker) || /^0x0{40}$/i.test(order_tracker))) throw new Error("integration-platform-unavailable");
+    return { chain_id: env.monadChainId, contracts: { execution, reader, recovery, exit: recovery }, read_program, order_tracker };
   },
   async source(target: Address) {
     const chain = monadClient();

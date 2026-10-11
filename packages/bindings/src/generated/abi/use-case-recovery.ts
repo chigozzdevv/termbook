@@ -138,6 +138,11 @@ export const useCaseRecoveryAbi = [
             "name": "asynchronous",
             "type": "bool",
             "internalType": "bool"
+          },
+          {
+            "name": "pendingStatus",
+            "type": "uint8",
+            "internalType": "uint8"
           }
         ]
       }

@@ -2,11 +2,12 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createPublicClient, http, keccak256, toHex, parseAbi, type Address, type Hex } from "viem";
-import { IntegrationValidationRunner, atomic_configuration } from "@termbook/sdk";
-import type { IntegrationSuite } from "@termbook/schema";
+import { IntegrationValidationRunner, atomic_configuration, use_case_configuration } from "@termbook/sdk";
+import type { IntegrationSuite, PluginDefinition } from "@termbook/schema";
 import { Fixture, word } from "./acceptance-fixture.js";
 import { DeploymentFixture } from "./deployment-fixture.js";
 import { createScenarios, kuru_acceptance_cases } from "./acceptance.js";
+import { orderCases } from "./orders-acceptance.js";
 
 async function main() {
   const rpc = process.argv[2] ?? "http://127.0.0.1:18548";
@@ -17,20 +18,23 @@ async function main() {
   const borrower = deployed ? JSON.parse(await readFile(".testnet/evm.json", "utf8")).privateKey : undefined;
   if (deployed && (!keeper || !/^0x[a-fA-F0-9]{64}$/.test(keeper))) throw new Error("validation-live-keeper-key-required");
   const fixture = deployed ? new DeploymentFixture(rpc, deployment, [borrower as Hex, keeper as Hex, toHex(0xbadn, { size: 32 })]) : new Fixture(rpc);
+  const caseIds = [...kuru_acceptance_cases, ...(fixture instanceof DeploymentFixture && fixture.orderDefinition ? orderCases : [])];
   await fixture.setup();
   process.stdout.write("Kuru fork fixture configured\n");
-  const ids = [...kuru_acceptance_cases, "control", "duplicate_control", "cure_control", "isolation_control"];
+  const ids = [...caseIds, "control", "duplicate_control", "cure_control", "isolation_control", "order_control"];
   if (fixture instanceof DeploymentFixture) await fixture.warmCredits(ids);
   for (const id of ids) {
     await fixture.facility(id);
     process.stdout.write(`Prepared ${id}\n`);
   }
   const block = await fixture.chain.getBlock({ blockTag: "finalized" });
-  const identity = deployed ? atomic_configuration(deployment.configuration["kuru-integration"].definition) : undefined;
-  const live = deployed ? await readFile(".data/operations/testnet-kuru-e2e.json", "utf8")
+  const definition: PluginDefinition | undefined = deployment?.configuration["kuru-integration"].definition;
+  const identity = definition ? (definition.assessment ? use_case_configuration : atomic_configuration)(definition) : undefined;
+  const liveFile = definition?.assessment?.orders ? "testnet-kuru-orders-e2e.json" : "testnet-kuru-e2e.json";
+  const live = deployed ? await readFile(`.data/operations/${liveFile}`, "utf8")
     .then((value) => JSON.parse(value))
     .catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; return undefined; }) : undefined;
-  const names = ["TermbookCore", "FlowExecutor", "ReservationManager", "PriceProtection", "RiskEngine", "HouseRegistry", "IntegrationRegistry", "OracleRegistry", "CollateralHealthReader", "AppHealthReader", "HealthSource", "AccountHealthSource", "AtomicSpotRouter", "AtomicSpotModule", "ReadProgram", "AccountFactory", "HouseVault", "InboxFactory", "CollateralVault", "SpotAcceptanceProbe", "MockERC20", "PriceFeedFixture", "USDPriceFeedFixture", "SpotCallbackFixture", "CallbackRouter", "Circle", "Kuru"];
+  const names = ["TermbookCore", "FlowExecutor", "ReservationManager", "PriceProtection", "RiskEngine", "HouseRegistry", "IntegrationRegistry", "OracleRegistry", "CollateralHealthReader", "AppHealthReader", "HealthSource", "AccountHealthSource", "AtomicSpotRouter", "AtomicSpotModule", "SpotOrderTracker", "UseCaseReader", "UseCasePolicy", "UseCaseRecovery", "ReadProgram", "AccountFactory", "HouseVault", "InboxFactory", "CollateralVault", "SpotAcceptanceProbe", "MockERC20", "PriceFeedFixture", "USDPriceFeedFixture", "SpotCallbackFixture", "CallbackRouter", "Circle", "Kuru"];
   const targets = [...new Set([...(deployed ? names.map((name) => fixture.addresses[name]!).filter(Boolean) : Object.values(fixture.addresses)), ...fixture.guards,
     ...[...fixture.facilities.values()].map((v) => v.account), ...(identity?.definition.pins.map((p) => p.target as Address) ?? []),
     ...(fixture instanceof DeploymentFixture ? [fixture.liveHouse, ...[...fixture.helpers].map((v) => v as Address)] : [])].map((v) => v.toLowerCase() as Address))];
@@ -54,7 +58,7 @@ async function main() {
   const runner = new IntegrationValidationRunner(fixture.chain, context, fixture.wallets, { gasLimit: 16_000_000n, timeoutMs: 60 * 60_000, sourceClient,
     pollIntervalMs: 50, onProgress: async (checkpoint) => { await writeFile(output, JSON.stringify({ diagnostic: true, checkpoint }, null, 2)); } });
   const scenarios = await createScenarios(fixture, fixture.actors);
-  for (const id of kuru_acceptance_cases) {
+  for (const id of caseIds) {
     await runner.run(id, scenarios.cases[id]!);
     process.stdout.write(`${id}: passed\n`);
   }
@@ -71,11 +75,13 @@ async function main() {
   await writeFile(output, JSON.stringify({ diagnostic: !deployed, ...(!deployed ? { reason: "isolated_protocol_fixture" } : {}), ...report }, null, 2));
   if (deployed && live?.lifecycle) {
     const base = new URL("../../../", import.meta.url).pathname;
-    const options = deployment.configuration["kuru-integration"].definition.atomic_spot;
+    const options = definition!.atomic_spot ?? { ...definition!.assessment, maximum_input: definition!.assessment!.action_limits.find((a) => a.action === "kuru_buy")!.maximum_input,
+      max_holding: definition!.assessment!.assets[0]!.maximum, dust_limit: definition!.assessment!.assets[0]!.dust,
+      oracle: definition!.assessment!.assets[0]!.oracle, feed_id: definition!.assessment!.assets[0]!.feed_id };
     const suite = { ...report.suite, cases: undefined, exclusions: undefined };
     await writeFile(join(output, "../admission.json"), JSON.stringify({ rpcUrl: "https://testnet-rpc.monad.xyz", forkRpcUrl: rpc, suite, module: `${base}server/test/kuru/acceptance.ts`, gasLimit: "16000000", checkpoint: "checkpoint.json", output: "report.json", timeoutMs: 3_600_000,
       admission: { applicationId: deployment.configuration["kuru-application"].applicationId, apiBase: "http://127.0.0.1:3002", module: `${base}server/dist/kuru/integration.js`, factory: "create_kuru", parameters: {
-        market_address: deployment.configuration["kuru-market"].market, settlement_asset: identity!.definition.settlement_asset, api_base: "http://127.0.0.1:3002", maximum_input: options.maximum_input, retained_bps: options.retained_bps, recovery_costs: options.recovery_costs, max_holding: options.max_holding, dust_limit: options.dust_limit, oracle: options.oracle, feed_id: options.feed_id }, amount: "10000", lifecycle: `${base}.data/operations/testnet-kuru-e2e.json`, tokenEnv: "TERMBOOK_KURU_APP_TOKEN" } }, null, 2));
+        market_address: deployment.configuration["kuru-market"].market, settlement_asset: identity!.definition.settlement_asset, api_base: "http://127.0.0.1:3002", maximum_input: options.maximum_input, retained_bps: options.retained_bps, recovery_costs: options.recovery_costs, max_holding: options.max_holding, dust_limit: options.dust_limit, oracle: options.oracle, feed_id: options.feed_id }, amount: "10000", lifecycle: `${base}.data/operations/${liveFile}`, tokenEnv: "TERMBOOK_KURU_APP_TOKEN" } }, null, 2));
   }
   process.stdout.write(`${report.suite.cases.length} acceptance cases passed and replayed; ${report.suite.exclusions.length} inapplicable cases excluded\n`);
   process.stdout.write(`Acceptance report: ${output}\n`);

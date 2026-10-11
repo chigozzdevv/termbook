@@ -9,7 +9,7 @@ import {IAppCallValidator} from "./IAppCallValidator.sol";
 contract UseCasePolicy is IExecutionPolicy, IAppCallValidator {
     enum Kind { Exact, Account, Range, Spend, Credit }
     struct Word { Kind kind; bytes32 exact; uint256 minimum; uint256 maximum; }
-    struct Call { address target; bytes4 selector; bool recovery; Word[] words; }
+    struct Call { address target; bytes4 selector; bool recovery; Word[] words; uint256 maximumNative; uint8 nativeWord; }
     struct Action { bytes32 id; bytes32 market; bytes32 operation; uint128 maximumInput; uint128 maximumExposure; bool asynchronous; Call[] calls; }
     address public immutable governance;
     TermbookCore public immutable core;
@@ -47,7 +47,7 @@ contract UseCasePolicy is IExecutionPolicy, IAppCallValidator {
     }
 
     function _checkCall(Call calldata call_) private view {
-        if (call_.target.code.length == 0 || call_.selector == bytes4(0) || call_.words.length > 24) revert Invalid();
+        if (call_.target.code.length == 0 || call_.selector == bytes4(0) || call_.words.length > 24 || call_.maximumNative != 0 && call_.nativeWord != 255 && call_.nativeWord >= call_.words.length) revert Invalid();
         for (uint256 j; j < call_.words.length; ++j) {
             Word calldata word = call_.words[j];
             if (word.minimum > word.maximum || word.kind == Kind.Exact && (word.minimum != 0 || word.maximum != 0)
@@ -84,11 +84,13 @@ contract UseCasePolicy is IExecutionPolicy, IAppCallValidator {
             || action.calls.length != rule.calls.length || action.exposureLimit > rule.maximumExposure
             || _priced(rule.operation) && core.priceProtection().rule(credit.bundleId, action.capability, action.market).oracle == address(0)) revert Invalid();
         for (uint256 i; i < action.calls.length; ++i) if (!_validateRule(rule.calls[i], action.calls[i].target,
-            action.calls[i].data, account, action.calls[i].spendAmount, false, id)) revert Invalid();
+            action.calls[i].data, account, action.calls[i].spendAmount, false, id, action.calls[i].nativeValue)) revert Invalid();
         uint256 positions = reader.positionCount(id, account);
         uint256 pending = reader.pendingCount(id, account);
         positionSlots = _creates(rule.operation) ? 1 : 0;
-        if (positionSlots != 0 && !rule.asynchronous && reader.config(credit.bundleId).useCase == UseCaseReader.UseCase.Spot) {
+        UseCaseReader.Config memory config = reader.config(credit.bundleId);
+        if (config.orderTracker != address(0)) positionSlots = uint8(config.maxPositions - positions);
+        if (config.orderTracker == address(0) && positionSlots != 0 && !rule.asynchronous && config.useCase == UseCaseReader.UseCase.Spot) {
             for (uint256 i; i < positions; ++i) { (, bytes32 market) = reader.positionAt(id, account, i); if (market == action.market) { positionSlots = 0; break; } }
         }
         beforeState = bytes32((positions << 248) | (pending << 240) | (uint256(positionSlots) << 232) | _exposure(id, account));
@@ -126,6 +128,12 @@ contract UseCasePolicy is IExecutionPolicy, IAppCallValidator {
     function pendingState(bytes32 id, address account, bytes32 pendingId) external view returns (ExecutionTypes.PendingState memory) {
         return reader.reconcile(id, account, pendingId);
     }
+    function pendingInputAsset(bytes32 id, address account, bytes32 pendingId) external view returns (address input) {
+        (, input,) = reader.pendingDetails(id, account, pendingId);
+    }
+    function pendingTracker(bytes32 id) external view returns (address) {
+        return reader.config(core.creditDetails(id).bundleId).orderTracker;
+    }
 
     function validateAction(bytes32 bundle, address target, bytes calldata data, address account, uint256 spend) external view returns (bool) {
         return _validate(bundle, target, data, account, spend, false);
@@ -136,13 +144,17 @@ contract UseCasePolicy is IExecutionPolicy, IAppCallValidator {
     function _validate(bytes32 bundle, address target, bytes calldata data, address account, uint256 spend, bool recovery) private view returns (bool) {
         if (data.length < 4 || account == address(0)) return false;
         Call storage rule = calls[bundle][target][bytes4(data)];
-        return _validateRule(rule, target, data, account, spend, recovery, bytes32(0));
+        (bool ok, bytes memory value) = account.staticcall(abi.encodeWithSignature("creditId()"));
+        bytes32 id = ok && value.length == 32 ? abi.decode(value, (bytes32)) : bytes32(0);
+        return _validateRule(rule, target, data, account, spend, recovery, id, type(uint256).max);
     }
-    function _validateRule(Call storage rule, address target, bytes calldata data, address account, uint256 spend, bool recovery, bytes32 creditId) private view returns (bool) {
+    function _validateRule(Call storage rule, address target, bytes calldata data, address account, uint256 spend, bool recovery, bytes32 creditId, uint256 nativeValue) private view returns (bool) {
         if (rule.target != target || bytes4(data) != rule.selector || account == address(0) || recovery && !rule.recovery || data.length != 4 + rule.words.length * 32) return false;
+        if (nativeValue != type(uint256).max && (nativeValue > rule.maximumNative || rule.maximumNative == 0 && nativeValue != 0)) return false;
         for (uint256 i; i < rule.words.length; ++i) {
             uint256 word;
             assembly ("memory-safe") { word := calldataload(add(data.offset, add(4, mul(i, 32)))) }
+            if (nativeValue != type(uint256).max && rule.maximumNative != 0 && rule.nativeWord == i && word != nativeValue) return false;
             Word storage constraint = rule.words[i];
             if (constraint.kind == Kind.Exact && bytes32(word) != constraint.exact
                 || constraint.kind == Kind.Account && word != uint256(uint160(account))

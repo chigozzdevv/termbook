@@ -20,12 +20,15 @@ export const capabilityArgumentSchema = z.strictObject({
   label: z.string().min(1).max(80).optional(),
   min: z.string().regex(/^\d+$/).optional(),
   max: z.string().regex(/^\d+$/).optional(),
+  singleton: z.boolean().optional(),
+  scale: z.strictObject({ numerator: z.string().regex(/^[1-9]\d{0,77}$/), denominator: z.string().regex(/^[1-9]\d{0,77}$/) }).optional(),
   choices: z.record(z.string().min(1).max(80), z.union([z.string(), z.boolean()])).optional(),
 }).superRefine((value, ctx) => {
   if (["input", "state"].includes(value.source) && !value.path) ctx.addIssue({ code: "custom", message: "action-input-path-required" });
   if (!["input", "state"].includes(value.source) && (value.path || value.min || value.max || value.choices)) {
     ctx.addIssue({ code: "custom", message: "action-internal-argument-invalid" });
   }
+  if ((value.singleton || value.scale) && !["input", "state"].includes(value.source)) ctx.addIssue({ code: "custom", message: "action-transform-invalid" });
   if ((value.source === "constant") !== (value.value !== undefined)) ctx.addIssue({ code: "custom", message: "action-constant-invalid" });
   if (value.min && value.max && BigInt(value.min) > BigInt(value.max)) {
     ctx.addIssue({ code: "custom", message: "action-bounds-invalid" });
@@ -62,6 +65,7 @@ export const capabilityDefinitionSchema = capabilityCallSchema.extend({
     order_type: z.enum(["market", "limit"]).optional(),
     sizing: z.enum(["spend", "receive"]).optional(),
   }).optional(),
+  expiry: z.enum(["native", "none"]).optional(),
   orderSizing: z.strictObject({
     baseAsset: addressSchema, quoteAsset: addressSchema,
     baseDecimals: z.number().int().min(0).max(36), quoteDecimals: z.number().int().min(0).max(36),
@@ -130,6 +134,9 @@ export function actionInputs(definition: CapabilityDefinition, action: TermActio
   assertStandardAction(action);
   if (!matchesAction(definition, action)) throw new Error("capability-denied");
   if ("_derived" in action.params) throw new Error("action-input-invalid");
+  if (definition.when?.order_type === "limit" || definition.capability === "modify_order") {
+    if (definition.expiry === "none" ? action.params.expires_at !== undefined : action.params.expires_at === undefined) throw new Error("action-expiry-unsupported");
+  }
   if (!definition.orderSizing) return action.params;
   const sizing = definition.orderSizing;
   const params = action.params;
@@ -161,6 +168,22 @@ function inputAt(params: Record<string, unknown>, path: string): unknown {
     value = (value as Record<string, unknown>)[part];
   }
   return value;
+}
+
+export function transformArgument(argument: z.infer<typeof capabilityArgumentSchema>, input: unknown): unknown {
+  let value = input;
+  if (argument.choices) {
+    if (typeof value !== "string" || !Object.prototype.hasOwnProperty.call(argument.choices, value)) throw new Error("action-input-invalid");
+    value = argument.choices[value];
+  }
+  if (argument.scale) {
+    if (!/^\d{1,78}$/.test(String(value))) throw new Error("action-input-invalid");
+    const numerator = BigInt(argument.scale.numerator), denominator = BigInt(argument.scale.denominator);
+    const scaled = BigInt(String(value)) * numerator;
+    if (scaled % denominator !== 0n || scaled / denominator >= 2n ** 256n) throw new Error("action-precision-invalid");
+    value = scaled / denominator;
+  }
+  return argument.singleton ? [value] : value;
 }
 
 export function actionFunding(definition: CapabilityDefinition, action: TermAction, priceBound?: bigint): bigint {
@@ -196,10 +219,7 @@ export function actionFunding(definition: CapabilityDefinition, action: TermActi
   for (const argument of calls.flatMap((call) => call.arguments)) {
     if (argument.source !== "input") continue;
     let value = inputAt(params, argument.path!);
-    if (argument.choices) {
-      if (typeof value !== "string" || !Object.prototype.hasOwnProperty.call(argument.choices, value)) throw new Error("action-input-invalid");
-      value = argument.choices[value];
-    }
+    value = transformArgument({ ...argument, singleton: false }, value);
     if (argument.min !== undefined || argument.max !== undefined) {
       if ((typeof value !== "bigint" && typeof value !== "number" && typeof value !== "string")
         || typeof value === "number" && !Number.isSafeInteger(value)

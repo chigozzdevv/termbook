@@ -5,8 +5,15 @@ import { createPublicClient, http, parseAbi, formatUnits, zeroAddress, type Hex 
 import type { TermbookClient, CreditSummary } from "@termbook/sdk";
 import { get } from "./data";
 
-export type AccountView = CreditSummary & { mon: string; usdc: string; health: string | null };
+export type AccountView = CreditSummary & { mon: string; usdc: string; venueMon: string; venueUsdc: string;
+  orders: { id: string; direction: "buy" | "sell"; remaining: string; filled: string; status: "open" | "partially filled" | "cancelling" }[]; health: string | null };
 const tokenAbi = parseAbi(["function balanceOf(address) view returns(uint256)"]);
+const custodyAbi = parseAbi(["function getBalance(address,address) view returns(uint256)"]);
+const ordersAbi = parseAbi([
+  "function count(bytes32) view returns(uint256)",
+  "function at(bytes32,uint256) view returns(bytes32,(bytes32 positionId,uint256 committed,uint256 filled,uint256 refunded,uint256 remaining,uint256 liability,uint256 maxLiability,uint256 deadline,uint256 observedAt,uint8 positionSlots,address refundRecipient,uint8 status))",
+  "function details(bytes32,bytes32) view returns(bytes32,address,uint256)",
+]);
 
 export function useCredit(client?: TermbookClient) {
   const [snapshot, setSnapshot] = useState<{ client: TermbookClient; rows: AccountView[]; error: string }>();
@@ -42,7 +49,25 @@ export function useCredit(client?: TermbookClient) {
             rpc.readContract({ address: client!.config.settlementAsset!, abi: tokenAbi, functionName: "balanceOf", args: [summary.account], blockNumber: block.number }),
           ]);
           const health = await credit.account.health().catch(() => null);
+          let venueMon = 0n, venueUsdc = 0n;
+          const orders: AccountView["orders"] = [];
+          const config = client!.config.integration_definition?.assessment?.orders;
+          if (config && summary.account && summary.account !== zeroAddress) {
+            const custody = config.rules[0]!.custody as Hex;
+            [venueMon, venueUsdc] = await Promise.all([zeroAddress, client!.config.settlementAsset!].map((token) => rpc.readContract({
+              address: custody, abi: custodyAbi, functionName: "getBalance", args: [summary.account!, token], blockNumber: block.number })));
+            const count = await rpc.readContract({ address: config.tracker as Hex, abi: ordersAbi, functionName: "count", args: [id], blockNumber: block.number });
+            if (count > 32n) throw new Error("Order list unavailable");
+            for (let index = 0n; index < count; index++) {
+              const [pendingId, state] = await rpc.readContract({ address: config.tracker as Hex, abi: ordersAbi, functionName: "at", args: [id, index], blockNumber: block.number });
+              const [, token, venueId] = await rpc.readContract({ address: config.tracker as Hex, abi: ordersAbi, functionName: "details", args: [id, pendingId], blockNumber: block.number });
+              const buy = token.toLowerCase() === client!.config.settlementAsset!.toLowerCase();
+              orders.push({ id: String(venueId), direction: buy ? "buy" : "sell", remaining: formatUnits(state.remaining, buy ? 6 : 18),
+                filled: formatUnits(state.filled, buy ? 6 : 18), status: state.status === 2 ? "cancelling" : state.filled > 0n ? "partially filled" : "open" });
+            }
+          }
           return { ...summary, mon: formatUnits(mon, 18), usdc: formatUnits(usdc, 6),
+            venueMon: formatUnits(venueMon, 18), venueUsdc: formatUnits(venueUsdc, 6), orders,
             health: health?.value !== null && health?.value !== undefined ? (Number(health.value) / 100).toFixed(2) : null };
         }));
         if (active) setSnapshot({ client: client!, rows: accounts.filter((account): account is AccountView => !!account), error: "" });

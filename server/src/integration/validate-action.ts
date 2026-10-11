@@ -1,5 +1,5 @@
 import { encodeFunctionData, parseAbiItem } from "viem";
-import { actionInputs, capabilityCalls, type CapabilityDefinition, type TermAction } from "@termbook/schema";
+import { transformArgument, actionInputs, capabilityCalls, type CapabilityDefinition, type TermAction } from "@termbook/schema";
 
 function atPath(params: Record<string, unknown>, path: string): unknown {
   let value: unknown = params;
@@ -25,7 +25,7 @@ export function validateActionCall(definition: CapabilityDefinition, action: Ter
     if (argument.source === "constant") return argument.value;
     if (argument.source === "state") return argument.choices?.long ?? "1";
     const value = atPath(params, argument.path!);
-    return argument.choices && typeof value === "string" ? argument.choices[value] : value;
+    return transformArgument(argument, value);
   });
   try { encodeFunctionData({ abi: [item], functionName: item.name, args: args as never }); }
   catch { throw new Error("action-input-invalid"); }

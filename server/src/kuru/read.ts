@@ -40,3 +40,33 @@ export function kuru_quote_program(parameter_hash: Hex, size_precision: bigint, 
   const quote = p.multiply_divide(gross, quoteScale, price);
   return p.finish([available, p.multiply_divide(quote, p.subtract(bps, fee), bps)]);
 }
+
+export function kuru_counter_program() {
+  const p = new ReadProgramBuilder();
+  const query = p.query(zeroAddress, encodeFunctionData({ abi: parseAbi(["function s_orderIdCounter() view returns (uint40)"]), functionName: "s_orderIdCounter" }), { gas_limit: 30_000 });
+  return p.finish([p.word(query, p.constant(0n))]);
+}
+
+export function kuru_balance_program() {
+  const p = new ReadProgramBuilder(), account = p.account(), token = p.index();
+  const query = p.query(zeroAddress, encodeFunctionData({ abi: parseAbi(["function getBalance(address,address) view returns (uint256)"]),
+    functionName: "getBalance", args: [zeroAddress, zeroAddress] }), { arguments: [{ word: 0, register: account }, { word: 1, register: token }], gas_limit: 50_000 });
+  return p.finish([account, p.word(query, p.constant(0n))]);
+}
+
+export function kuru_order_program(size_precision: bigint, price_precision: bigint, base_decimals: bigint, quote_decimals: bigint) {
+  const p = new ReadProgramBuilder(), id = p.index(), zero = p.constant(0n), one = p.constant(1n);
+  const order = p.query(zeroAddress, encodeFunctionData({ abi: parseAbi(["function s_orders(uint40) view returns (address,uint96,uint40,uint40,uint40,uint32,uint32,bool)"]),
+    functionName: "s_orders", args: [0] }), { arguments: [{ word: 0, register: id }], gas_limit: 50_000 });
+  const owner = p.word(order, zero), size = p.word(order, one), price = p.word(order, p.constant(5n)), buy = p.word(order, p.constant(7n));
+  const head = (side: "buy" | "sell") => {
+    const query = p.query(zeroAddress, encodeFunctionData({ abi: parseAbi([`function s_${side}PricePoints(uint256) view returns (uint40,uint40)`]),
+      functionName: `s_${side}PricePoints`, args: [0n] }), { arguments: [{ word: 0, register: price }], gas_limit: 40_000 });
+    return p.word(query, zero);
+  };
+  const first = p.select(buy, head("buy"), head("sell"));
+  const active = p.and(p.less(zero, owner), p.and(p.less(zero, first), p.and(p.less_equal(first, id), p.less(zero, size))));
+  const quantity = p.multiply_divide(size, p.constant(10n ** base_decimals), p.constant(size_precision));
+  const quote = p.multiply_divide(p.multiply_divide(size, price, p.constant(size_precision)), p.constant(10n ** quote_decimals), p.constant(price_precision));
+  return p.finish([owner, p.select(active, p.select(buy, quote, quantity), zero), p.select(active, quantity, zero), price, buy, active]);
+}

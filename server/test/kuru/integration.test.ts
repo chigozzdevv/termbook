@@ -1,4 +1,6 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+import { buildExecution, use_case_configuration } from "@termbook/sdk";
+import { selectCapability } from "@termbook/schema";
 import { decodeFunctionData, parseAbi, keccak256, zeroAddress, type PublicClient, type Address, type Hex } from "viem";
 import { create_kuru, KuruSourceUnavailableError } from "../../src/kuru/integration.js";
 const addr = (n: string) => `0x${n.repeat(40)}` as Address;
@@ -89,4 +91,66 @@ describe("Kuru spot integration", () => {
       for (const n of ["3", "4", "7", "a", "b", "c", "d", "5", "6", "9"]) expect(missing).toContain(addr(n));
     }
   });
+  async function trackedPlugin() {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(url.includes("platform")
+      ? { chain_id: 143, router: addr("3"), module: addr("4"), read_program: addr("8"), order_tracker: addr("e"),
+        contracts: { execution: addr("1"), reader: addr("2"), recovery: addr("f"), exit: addr("f") } }
+      : { target: new URL(url).searchParams.get("target"), code_hash: keccak256("0x1234"), source_hash: word("c") }))));
+    read.mockImplementation(async ({ functionName, args }) => functionName === "deadline" ? 2_000_000_000n : nativeRead(functionName, args));
+    return create_kuru(options());
+  }
+  it("compiles shared custody, bounded order capture and singleton cancellation", async () => {
+    const plugin = await trackedPlugin();
+    const config = use_case_configuration(plugin.definition);
+    expect(config.reader.orderTracker).toBe(addr("e"));
+    expect(config.reader.custody).toHaveLength(2);
+    expect(config.orders).toHaveLength(2);
+    const cancel = config.actions.find((a) => a.operation === keccak256("0x63616e63656c5f6f72646572"));
+    expect(cancel!.calls[1]!.words).toHaveLength(3);
+    expect(cancel!.calls[1]!.words.slice(0, 2).map((w) => BigInt(w.exact))).toEqual([32n, 1n]);
+    const buys = config.actions.filter((a) => a.id === keccak256("0x6b7572755f6c696d69745f6275795f7370656e64"));
+    expect(buys[0]!.calls[0]!.maximumNative).toBe(0n);
+    expect(buys[0]!.maximumExposure).toBe(buys[0]!.maximumInput);
+  });
+  it("builds funded limit buys and sells with venue precision and captures the order", async () => {
+    const plugin = await trackedPlugin();
+    const context = { client: client(), credit_id: word("d"), account: addr("2"), borrower: addr("1"),
+      block: { number: 1n, hash: word("a") }, market: plugin.markets[0]! };
+    for (const direction of ["buy", "sell"] as const) {
+      const plan = await plugin.actions.place_order.build({ ...context, action: { use_case: "spot", capability: "place_order",
+        params: { market_id: addr("7"), direction, order_type: "limit", amount: { receive: direction === "buy" ? 10n ** 18n : 2_000_000n }, limit_price: 2n * 10n ** 18n } } });
+      expect(plan.calls).toHaveLength(4);
+      const order = decodeFunctionData({ abi: parseAbi([`function add${direction === "buy" ? "Buy" : "Sell"}Order(uint32,uint96,bool)`]), data: plan.calls[2]!.data as Hex });
+      expect(order.args).toEqual([20000, 100000000n, false]);
+      expect(plan.calls[0]!.spend_asset).toBe(direction === "buy" ? addr("6") : addr("5"));
+      expect(plan.completion.kind).toBe("pending");
+    }
+    const cancel = await plugin.actions.cancel_order!.build({ ...context, action: { use_case: "spot", capability: "cancel_order", params: { order_id: "7" } } });
+    const decoded = decodeFunctionData({ abi: parseAbi(["function batchCancelOrders(uint40[])" ]), data: cancel.calls[1]!.data as Hex });
+    expect(decoded.args).toEqual([[7]]);
+  });
+  it("keeps SDK execution budgets within the admitted shared action limits", async () => {
+    const plugin = await trackedPlugin(), config = use_case_configuration(plugin.definition);
+    for (const direction of ["buy", "sell"] as const) for (const order_type of ["market", "limit"] as const) {
+      const action = { use_case: "spot" as const, capability: "place_order" as const, params: {
+        market_id: addr("7"), direction, order_type, amount: { spend: direction === "buy" ? 2_000_000n : 10n ** 18n },
+        ...(order_type === "limit" ? { limit_price: 2n * 10n ** 18n } : { slippage_bps: 50 }) } };
+      const route = selectCapability(plugin.definition.actions, action);
+      const execution = buildExecution(route, action, { borrower: addr("1"), account: addr("2"), creditId: word("d"), use_case: "spot",
+        priceBound: order_type === "limit" ? 20_000n : direction === "buy" ? 10n ** 18n : 2_000_000n }, addr("6"));
+      const admitted = config.actions.find((a) => a.id === execution.capability)!;
+      expect(execution.requiredInput <= admitted.maximumInput).toBe(true);
+      expect(execution.exposureLimit <= admitted.maximumExposure).toBe(true);
+    }
+  });
+  it("rejects unsupported expiry and prices between venue ticks", async () => {
+    const plugin = await trackedPlugin();
+    const context = { client: client(), credit_id: word("d"), account: addr("2"), borrower: addr("1"),
+      block: { number: 1n, hash: word("a") }, market: plugin.markets[0]! };
+    const action = { use_case: "spot" as const, capability: "place_order" as const,
+      params: { market_id: addr("7"), direction: "buy" as const, order_type: "limit" as const, amount: { spend: 2_000_000n }, limit_price: 2n * 10n ** 18n } };
+    await expect(plugin.actions.place_order.build({ ...context, action: { ...action, params: { ...action.params, expires_at: Math.floor(Date.now() / 1000) + 60 } } })).rejects.toThrow("action-expiry-unsupported");
+    await expect(plugin.actions.place_order.build({ ...context, action: { ...action, params: { ...action.params, limit_price: action.params.limit_price + 1n } } })).rejects.toThrow("integration-order-price-invalid");
+  });
+
 });

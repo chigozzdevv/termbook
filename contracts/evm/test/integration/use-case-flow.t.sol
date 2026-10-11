@@ -30,14 +30,14 @@ contract UseCaseSpotFlowTest is AtomicSpotTest {
         words[0] = UseCasePolicy.Word(UseCasePolicy.Kind.Range, bytes32(0), 0, type(uint256).max);
         words[1] = UseCasePolicy.Word(UseCasePolicy.Kind.Spend, bytes32(0), 1, 1000 ether);
         words[2] = UseCasePolicy.Word(UseCasePolicy.Kind.Range, bytes32(0), 1, type(uint256).max);
-        calls[0] = UseCasePolicy.Call(address(router), router.trade.selector, true, words);
+        calls[0] = UseCasePolicy.Call(address(router), router.trade.selector, true, words, 0, 255);
         UseCasePolicy.Action[] memory actions = new UseCasePolicy.Action[](2);
         for (uint256 i; i < 2; ++i) {
             UseCasePolicy.Call[] memory specific = new UseCasePolicy.Call[](1);
             UseCasePolicy.Word[] memory constraints = new UseCasePolicy.Word[](3);
             constraints[0] = UseCasePolicy.Word(UseCasePolicy.Kind.Exact, i == 0 ? buyRoute : sellRoute, 0, 0);
             constraints[1] = words[1]; constraints[2] = words[2];
-            specific[0] = UseCasePolicy.Call(address(router), router.trade.selector, false, constraints);
+            specific[0] = UseCasePolicy.Call(address(router), router.trade.selector, false, constraints, 0, 255);
             actions[i] = UseCasePolicy.Action(i == 0 ? buy : sell, marketId, keccak256("place_order"), i == 0 ? uint128(200e6) : 0, 200e6, false, specific);
         }
         standardPolicy.configure(bundle, actions, calls);
@@ -47,7 +47,7 @@ contract UseCaseSpotFlowTest is AtomicSpotTest {
         args[1] = UseCaseRecovery.Word(UseCaseRecovery.Source.Field, bytes32(uint256(1)));
         args[2] = UseCaseRecovery.Word(UseCaseRecovery.Source.Minimum, bytes32(0));
         exits[0] = UseCaseRecovery.Template(UseCaseRecovery.Phase.Holding, bytes32(uint256(uint160(address(base)))), address(router), router.trade.selector,
-            args, address(base), address(usdc), 1, 2, false);
+            args, address(base), address(usdc), 1, 2, false, 0);
         standardRecovery.configure(bundle, exits);
         core.configureExecutionPolicy(bundle, address(standardPolicy), 1, 0, 60);
         core.setAppRecoveryAdapter(bundle, address(standardRecovery)); core.setExitPlanner(bundle, address(standardRecovery)); core.setExitVerifier(bundle, address(standardRecovery));

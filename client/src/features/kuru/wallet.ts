@@ -92,13 +92,14 @@ export function useWallet(market?: Market) {
       await sdk.ready();
       const definition = sdk.config.integration_definition;
       if (sdk.config.chainId !== 10143 || definition?.use_case !== "spot"
+        || sdk.config.versionId?.toLowerCase() !== market.version_id.toLowerCase()
         || definition.markets.length !== 1 || definition.markets[0].market_id !== market.market_id
         || sdk.config.settlementAsset?.toLowerCase() !== market.quote_asset.toLowerCase()) throw new Error("Integration configuration changed. Refresh before trading.");
       if (active) { setSession({ sdk, connection }); setError(""); }
     };
     void init().catch(() => { if (active) setError("Trading is temporarily unavailable. The integration checks did not pass. Retry connection."); });
     return () => { active = false; setSession(undefined); modal.current?.close(); };
-  }, [connection, market?.app_token, market?.market_id, market?.quote_asset, revision]);
+  }, [connection, market?.app_token, market?.market_id, market?.quote_asset, market?.version_id, revision]);
 
   const disconnect = useCallback(() => { modal.current?.close(); setSession(undefined); setConnection(undefined); setError(""); }, []);
   const open = useCallback(async (options: OpenOptions) => {

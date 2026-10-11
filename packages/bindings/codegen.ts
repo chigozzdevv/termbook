@@ -64,6 +64,7 @@ const contracts = {
   AtomicSpotModule: "atomic-spot-module",
   ReadProgram: "read-program",
   UseCaseReader: "use-case-reader",
+  SpotOrderTracker: "spot-order-tracker",
   UseCasePolicy: "use-case-policy",
   UseCaseRecovery: "use-case-recovery",
   IAppRecoveryFunding: "app-recovery-funding",

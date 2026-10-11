@@ -57,6 +57,7 @@ export * from "./abi/atomic-spot-router.js";
 export * from "./abi/atomic-spot-module.js";
 export * from "./abi/read-program.js";
 export * from "./abi/use-case-reader.js";
+export * from "./abi/spot-order-tracker.js";
 export * from "./abi/use-case-policy.js";
 export * from "./abi/use-case-recovery.js";
 export * from "./abi/app-recovery-funding.js";

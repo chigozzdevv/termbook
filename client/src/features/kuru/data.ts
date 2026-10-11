@@ -10,6 +10,7 @@ export const marketSchema = z.object({
   base_decimals: z.literal(18), quote_decimals: z.literal(6), block: z.string().regex(/^\d+$/),
   timestamp: z.number().int().positive(), state: z.number().int().min(0), fee_bps: z.number().int().min(0).max(9999),
   maximum_buy: decimal, app_token: z.string().regex(/^tbk_[a-f0-9]{64}$/).nullable(),
+  version_id: z.string().regex(/^0x[a-fA-F0-9]{64}$/), order_types: z.array(z.enum(["market", "limit"])).min(1).max(2), price_tick: decimal,
   bids: z.array(level).max(16), asks: z.array(level).max(16),
 });
 const tradeSchema = z.object({ id: z.string(), tx: z.string().regex(/^0x[a-fA-F0-9]{64}$/),

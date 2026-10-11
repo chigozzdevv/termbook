@@ -228,24 +228,30 @@ the tested definition. An upgraded dependency requires a new validated version.
 SDK preparation checks pins; Core enforces policies and guards during execution.
 The full lifecycle suite runs at admission.
 
-The Kuru package currently declares immediate market buys and sells with spend
-sizing on markets quoted in the House's USDC. Its shared router keeps outputs
-in the Credit Account and converts Kuru's precision into raw token units.
-The shared module values available sell depth conservatively, caps it by a
-base/settlement oracle, enforces holdings limits, and plans borrower closure and
-keeper recovery. Bounded recovery approvals are cleared in the sale transaction.
+The Kuru package declares market buys and sells with spend sizing, and limit buys
+and sells with spend or receive sizing. Markets quote the House's USDC. The shared
+router keeps market outputs in the Credit Account. Limit orders belong to that
+account inside Kuru; the shared `SpotOrderTracker` captures their IDs, reconciles
+fills and verifies cancellation refunds. The reader aggregates wallet balances,
+venue balances and committed inputs before applying executable sell depth and
+the independent oracle cap. Closure and keeper recovery cancel orders, withdraw
+venue balances, sell holdings and settle debt. Bounded approvals are cleared in
+the same transaction.
 Approved dust limits use base-token units; dust has no credit value and stays
 in the account when control returns to a debt-free borrower.
-Resting limit orders, margin-account orders and intermediate quote-asset routes
-are not declared by this package.
+Kuru limit orders remain open until filled or cancelled. Requests containing
+`expires_at` are rejected because this venue cannot enforce expiry. Intermediate
+quote-asset routes are not declared. Existing atomic versions retain their rules;
+limit actions require activation of the updated shared assessment version.
 
 Operators deploy `ReadProgram`, `UseCaseReader`, `UseCasePolicy`,
-`UseCaseRecovery`, `AtomicSpotRouter`, `AtomicSpotModule`, and
+`UseCaseRecovery`, `SpotOrderTracker`, `AtomicSpotRouter`, `AtomicSpotModule`, and
 `AppHealthReaderFactory`. Configure `SHARED_READ_PROGRAM`,
 `SHARED_USE_CASE_READER`, `SHARED_USE_CASE_POLICY`, `SHARED_USE_CASE_RECOVERY`,
-`ATOMIC_SPOT_ROUTER`, and `ATOMIC_SPOT_MODULE` with their addresses.
-`await prepare_atomic_spot` produces the governance calls for immutable routes,
-dependency guards, amount/price rules, health accounting and activation. Its
+`SHARED_SPOT_ORDER_TRACKER`, `ATOMIC_SPOT_ROUTER`, and `ATOMIC_SPOT_MODULE` with their addresses.
+`await prepare_use_case` configures tracked spot orders; `prepare_atomic_spot`
+configures immediate trades. Both produce governance calls for immutable routes,
+dependency guards, amount/price rules, health accounting and activation. The health
 factory binds the Core and collateral reader once; the plan creates the bound
 `AppHealthReader` after registering recovery. Every proxy dependency needs a reviewed
 onchain guard; an RPC implementation-slot check alone does not satisfy admission.
@@ -256,8 +262,15 @@ replacement of the immutable shared spot module; `--broadcast --refresh-spot`
 updates its platform address after that simulation. Existing integration
 versions keep their original module pins and require validation to move to the
 new module.
-All seven shared components have exact creation and runtime source matches on
-Sourcify. Their addresses and source matches are in `deployments/testnet.json`.
+`node scripts/setup-testnet-integrations.mjs --simulate --refresh-orders` checks
+the `FlowExecutor` proxy upgrade and deploys the new immutable reader, policy,
+recovery and order tracker. `--broadcast --refresh-orders` applies that plan.
+The Core address stays unchanged. Existing facility and integration records are
+checked before and after the upgrade. Configure and validate the new Kuru version
+before issuing its app token.
+The previously deployed atomic shared components have exact creation and runtime
+source matches on Sourcify. Their addresses and source matches are in
+`deployments/testnet.json`. Verify the new order components after deploying them.
 The separate legacy Kuru-USDC House is configured there and remains unfunded.
 The Circle-USDC market below uses the existing funded House. Verified sources,
 reviewed guards and a passing lifecycle suite are required before an app token
@@ -315,6 +328,12 @@ node --env-file=.env scripts/testnet-e2e.mjs --start --kuru
 node --env-file=.env scripts/testnet-e2e.mjs --run --kuru
 node --env-file=.env --import tsx server/scripts/validate-integration.ts validation.json --admit --approve
 ```
+
+After the shared order upgrade and integration reconfiguration, use
+`--start --kuru-orders` and `--run --kuru-orders`. This uses a separate journal,
+tests all seven advertised actions, checks controlled venue balances, and
+defaults a resting order for independent keeper cancellation and repayment.
+The SDK admission runner selects the evidence for the configured version.
 
 Configuration binds the SDK definition and simulated governance plan before
 broadcast. Reader registration targets `HealthSource`; the SDK checks its
@@ -438,6 +457,8 @@ The bounded read format normalizes native getters to these ordered outputs:
 | Position | owner, ID, market, quantity0, quantity1, rewards0, rewards1, margin, notional, signed PnL, liability, executable value, shares, staked, liquidity, claim time |
 | Pending/reconciliation | owner, ID, position ID, committed, filled, refunded, remaining, maximum exposure, liability, maximum liability, deadline, reserved position slots, refund recipient, status |
 | Withdrawal | owner, ID, market, quantity0, quantity1, liability, executable value, claim time, replaced position ID |
+| Tracked spot order | owner, remaining input, remaining base quantity, price, buy flag, active flag |
+| Venue balance | owner, available balance |
 
 Programs contain bounded static calls and arithmetic, checked return sizes and
 optional immutable parameter hashes. Every queried dependency is pinned. Native
@@ -449,13 +470,14 @@ Recovery checks actual proceeds, bounded spending, state progress and portfolio
 value. It clears approvals in the same transaction. The modal requests approved
 steps; the shared contracts enforce them. Asset valuation caps limit credited
 value; excess donated tokens remain recoverable through bounded exit steps.
-The Kuru package currently covers
-immediate market buys and sells quoted in House USDC. Other declared operations
+The Kuru package covers market trades, resting limit orders and cancellation
+quoted in House USDC. Other declared operations
 need matching native reads, call rules and validated recovery steps. Monad testnet's
 `FlowExecutor`, `AccountFactory`, `PriceProtection`, and Core have been upgraded
 for these versions. Existing immutable Credit Accounts retain their old code and
 use their existing recovery adapters; newly funded recovery calls need new accounts.
-The shared components are deployed; live Kuru lifecycle validation is pending.
+The admitted atomic version has completed live lifecycle validation. The tracked
+order version requires its own deployment-bound acceptance report and live tests.
 
 ### Transaction-reference admission
 
@@ -944,8 +966,9 @@ implementation. Initialization calldata may be supplied as the final argument.
 After governance ownership moves to a multisig, approve the prepared queue
 transaction through that multisig, then resume `--broadcast`.
 
-Credit inventories are read from finalized Core events. `TERMBOOK_CREDIT_RPC_URL`
-optionally supplies a Monad testnet RPC with a larger log range for
+Credit inventories are read from finalized Core events. A configured Envio archive
+supplies receipt-verified events. `TERMBOOK_CREDIT_RPC_URL` explicitly selects a
+Monad testnet RPC with a larger log range for
 shared integration checks. Its chain and finalized block must match the primary
 RPC. The public endpoint's small log range can make a full scan slow.
 

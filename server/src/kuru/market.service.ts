@@ -7,7 +7,7 @@ import { decimalRatio, decodeBook, marketAbi, tradeEvent } from "./market.js";
 
 const marketAddress = /^0x[a-fA-F0-9]{40}$/;
 const word = /^0x[a-fA-F0-9]{64}$/;
-let deployment: Promise<{ address: Address; from: bigint; quote: Address; maximum: string }> | undefined;
+let deployment: Promise<{ address: Address; from: bigint; quote: Address; maximum: string; version: string; orderTypes: ("market" | "limit")[] }> | undefined;
 function market() {
   return deployment ??= readFile(new URL("../../../deployments/testnet.json", import.meta.url), "utf8").then((raw) => {
     const saved = JSON.parse(raw);
@@ -17,8 +17,12 @@ function market() {
     const from = saved.deploymentBlocks?.[String(env.monadChainId)];
     if (!/^\d+$/.test(String(from)) || env.monadChainId !== 10143 || definition?.chain_id !== env.monadChainId || !marketAddress.test(entry?.address)
       || !marketAddress.test(entry?.quote_asset) || entry?.base_asset !== zeroAddress) throw new Error("kuru-market-unavailable");
+    const maximum = definition.atomic_spot?.maximum_input ?? definition.assessment?.action_limits?.find((a: { action: string }) => a.action === "kuru_buy")?.maximum_input;
+    if (!/^\d+$/.test(maximum ?? "") || !word.test(config["kuru-integration"].bundleId ?? "")) throw new Error("kuru-market-unavailable");
+    const orderTypes = (["market", "limit"] as const).filter((type) => definition.actions.some((a: { capability: string; when?: { order_type?: string } }) =>
+      a.capability === "place_order" && a.when?.order_type === type));
     return { address: entry.address as Address, quote: entry.quote_asset as Address,
-      from: BigInt(from), maximum: definition.atomic_spot.maximum_input as string };
+      from: BigInt(from), maximum, version: config["kuru-integration"].bundleId, orderTypes };
   });
 }
 
@@ -36,7 +40,7 @@ export async function marketSnapshot() {
       chain.readContract({ address: config.address, abi: marketAbi, functionName: "marketState", blockNumber: block.number }),
       chain.readContract({ address: config.address, abi: marketAbi, functionName: "getL2Book", args: [16, 16], blockNumber: block.number }),
     ]);
-    const [price, size, base, baseDecimals, quote, quoteDecimals,,,, fee] = params;
+    const [price, size, base, baseDecimals, quote, quoteDecimals, tick,,, fee] = params;
     if (base !== zeroAddress || quote.toLowerCase() !== config.quote.toLowerCase() || baseDecimals !== 18n || quoteDecimals !== 6n
       || fee >= 10_000n) throw new Error("kuru-market-unavailable");
     const token = process.env["TERMBOOK_KURU_APP_TOKEN"];
@@ -44,6 +48,7 @@ export async function marketSnapshot() {
       base_asset: base, quote_asset: quote, base_decimals: Number(baseDecimals), quote_decimals: Number(quoteDecimals),
       block: String(block.number), timestamp: Number(block.timestamp), state, fee_bps: Number(fee),
       maximum_buy: decimalRatio(BigInt(config.maximum), 10n ** quoteDecimals),
+      version_id: config.version, order_types: config.orderTypes, price_tick: decimalRatio(BigInt(tick), BigInt(price)),
       app_token: /^tbk_[a-f0-9]{64}$/.test(token ?? "") ? token : null,
       ...decodeBook(book, block.number, BigInt(price), size) };
     snapshot = { data, expires: Date.now() + 3000 };

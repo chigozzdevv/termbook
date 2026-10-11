@@ -13,7 +13,7 @@ const spotOrder = {
   market_id: id, direction: z.enum(["buy", "sell"]), amount: sizing,
 };
 const marketSpot = z.strictObject({ ...spotOrder, order_type: z.literal("market"), slippage_bps: bps });
-const limitSpot = z.strictObject({ ...spotOrder, order_type: z.literal("limit"), limit_price: positive, expires_at: expiry });
+const limitSpot = z.strictObject({ ...spotOrder, order_type: z.literal("limit"), limit_price: positive, expires_at: expiry.optional() });
 const position = { position_id: id };
 const perpsOrder = { market_id: id, direction: z.enum(["long", "short"]), amount: z.strictObject({ margin: positive, notional: positive }) };
 const perpsParams = z.union([
@@ -27,7 +27,7 @@ const assetAmounts = <T extends z.ZodType<{ asset_id: z.infer<typeof id> }>>(sch
 export const actionParameters = {
   spot: {
     place_order: z.union([marketSpot, limitSpot]),
-    modify_order: z.strictObject({ ...spotOrder, order_id: id, limit_price: positive, expires_at: expiry }),
+    modify_order: z.strictObject({ ...spotOrder, order_id: id, limit_price: positive, expires_at: expiry.optional() }),
     cancel_order: z.strictObject({ order_id: id }),
   },
   perps: {
@@ -123,7 +123,7 @@ export function standardActionFields(use_case: UseCase, capability: string, para
   if (!paths) throw new Error("capability-denied");
   return paths.flatMap((field): ActionField[] => {
     if (field === "protection") return params.order_type === "limit"
-      ? [{ path: "limit_price", type: "integer" }, { path: "expires_at", type: "integer" }]
+      ? [{ path: "limit_price", type: "integer" }, { path: "expires_at", type: "integer", ...(use_case === "spot" ? { optional: true } : {}) }]
       : [{ path: "slippage_bps", type: "integer" }];
     if (field === "amount" && use_case === "spot") return [{ path: "amount", type: "json" }];
     const path = field.replace(/\?$/, "");

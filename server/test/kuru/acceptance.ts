@@ -2,6 +2,8 @@ import { acceptanceCases, type AcceptanceCaseId, type IntegrationSuite } from "@
 import { IntegrationValidationRunner, type ValidationCall } from "@termbook/sdk";
 import { encodeFunctionData, parseAbi, type Address, type Hex } from "viem";
 import { Fixture, signature, USDC, word, type Facility } from "./acceptance-fixture.js";
+import { DeploymentFixture } from "./deployment-fixture.js";
+import { orderScenarios, orderCases } from "./orders-acceptance.js";
 
 export const exclusions: IntegrationSuite["exclusions"] = [
   ...(["forced_cancel", "asynchronous_failure", "pending_limit", "partial_fill_slots", "duplicate_claim"] as const).map((id) => ({ id,
@@ -18,8 +20,8 @@ export async function createScenarios(input: unknown, actors: IntegrationSuite["
   const call = async (name: string, method: string, args: readonly unknown[] = [], from = actors.borrower, to = f.addresses[name]!): Promise<ValidationCall> =>
     ({ to, from: from as Address, signature: await signature(name, method), args });
   const core = (method: string, args: readonly unknown[] = [], from = actors.borrower) => call("TermbookCore", method, args, from);
-  const read = async (r: Runner, id: string, name: string, method: string, args: readonly unknown[], phase: "before" | "after", target = f.addresses[name]!) =>
-    r.observe({ id, target, from: actors.borrower as Address, signature: await signature(name, method), args, phase });
+  const read = async (r: Runner, id: string, name: string, method: string, args: readonly unknown[], phase: "before" | "after", target = f.component(name, method).target) =>
+    r.observe({ id, target, from: actors.borrower as Address, signature: await signature(f.component(name, method).name, method), args, phase });
   const assert = (r: Runner, label: string, observation: string, operator: "eq" | "ne" | "gt" | "le" | "lt" | "ge", value: string | bigint | boolean, index = 0) =>
     r.assert({ label, left: { observation, index }, operator, right: { value: String(value) } });
   const same = (r: Runner, name: string) => r.assert({ label: `${name} unchanged`, left: { observation: `after_${name}`, index: 0 }, operator: "eq", right: { observation: `before_${name}`, index: 0 } });
@@ -260,5 +262,7 @@ export async function createScenarios(input: unknown, actors: IntegrationSuite["
       }
     };
   }
+  if (f instanceof DeploymentFixture && f.orderDefinition) return { cases: { ...cases, ...orderScenarios(f) },
+    exclusions: exclusions.filter((e) => !orderCases.includes(e.id as typeof orderCases[number])) };
   return { cases, exclusions };
 }

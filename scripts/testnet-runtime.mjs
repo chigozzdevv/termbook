@@ -237,7 +237,7 @@ export async function testnetRuntime(name, simulate) {
       if (!report.governance.some((action) => action.id === id && action.chainId === chainId)) report.governance.push({ chainId, id, target, ...description });
       persist();
     }
-    const logUrl = !simulate && chainId === 10143 && process.env["TERMBOOK_CREDIT_RPC_URL"];
+    const logUrl = chainId === 10143 && process.env["TERMBOOK_CREDIT_RPC_URL"];
     const logClient = logUrl ? createPublicClient({ transport: http(logUrl, { timeout: 30_000 }) }) : client;
     const result = { client, logClient, read, call, deploy, govern, governData, send };
     contexts.set(chainId, result);

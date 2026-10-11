@@ -3,6 +3,7 @@ import { pin_contract, check_state, check_plan, package_integration } from "@ter
 import { canonicalEvidence, pluginDefinitionSchema, type PluginDefinition, type CapabilityDefinition } from "@termbook/schema";
 import { encodeAbiParameters, encodeFunctionData, parseAbi, keccak256, stringToHex, zeroAddress,
   toFunctionSelector, type Address, type Hex, type PublicClient } from "viem";
+import { create_kuru_orders } from "./orders.js";
 import { kuru_quote_program } from "./read.js";
 
 const marketAbi = parseAbi([
@@ -53,7 +54,7 @@ export async function create_kuru(options: KuruOptions): Promise<spot> {
   if (api.protocol !== "https:" && !(api.protocol === "http:" && ["localhost", "127.0.0.1"].includes(api.hostname))
     || api.username || api.password || api.search || api.hash || api.pathname !== "/") throw new Error("integration-api-invalid");
   const client = options.client;
-  const platform = await json<{ chain_id: number; router: Address; module: Address; read_program: Address }>(api.origin, "/integrations/platform/spot");
+  const platform = await json<{ chain_id: number; router: Address; module: Address; read_program: Address; contracts?: PluginDefinition["contracts"]; order_tracker?: Address }>(api.origin, "/integrations/platform/spot");
   const chain_id = await client.getChainId();
   if (chain_id !== platform.chain_id) throw new Error("integration-chain-mismatch");
   const block = await client.getBlock({ blockTag: "finalized" });
@@ -79,7 +80,7 @@ export async function create_kuru(options: KuruOptions): Promise<spot> {
   const market = { market_id: options.market_address.toLowerCase(), address: options.market_address,
     base_asset: base, quote_asset: quote, base_decimals: Number(baseDecimals), quote_decimals: Number(quoteDecimals) };
   const targets = [...new Set([platform.router, platform.module, platform.read_program, options.market_address,
-    vault, factory, margin, forwarder, base, quote, options.oracle].filter((address) => address !== zeroAddress).map((address) => address.toLowerCase()))] as Address[];
+    vault, factory, margin, forwarder, base, quote, options.oracle, ...platform.order_tracker ? [platform.order_tracker, ...Object.values(platform.contracts ?? {})] : []].filter((address) => address !== zeroAddress).map((address) => address.toLowerCase()))] as Address[];
   const pins = await Promise.all(targets.map((target) => pin_contract(client, target, block.number)));
   const sourceResults = await Promise.allSettled(pins.map(async (pin) => {
     const source = await json<PluginDefinition["verified_sources"][number] & { code_hash: Hex; implementation_code_hash?: Hex }>(api.origin,
@@ -101,7 +102,7 @@ export async function create_kuru(options: KuruOptions): Promise<spot> {
     return result.value;
   });
   const routes = (["buy", "sell"] as const).map((direction) => {
-    const id = keccak256(stringToHex(canonicalEvidence({ protocol: "kuru", direction, market, pins,
+    const id = keccak256(stringToHex(canonicalEvidence({ protocol: "kuru", direction, market, pins, verified_sources,
       retained_bps: options.retained_bps, recovery_costs: String(options.recovery_costs), maximum_input: String(options.maximum_input), max_holding: String(options.max_holding), dust_limit: String(options.dust_limit) })));
     return { id, target: options.market_address, input: direction === "buy" ? quote : base, output: direction === "buy" ? base : quote,
       selector: toFunctionSelector(direction === "buy" ? "placeAndExecuteMarketBuy(uint96,uint256,bool,bool)" : "placeAndExecuteMarketSell(uint96,uint256,bool,bool)"),
@@ -147,6 +148,13 @@ export async function create_kuru(options: KuruOptions): Promise<spot> {
       completion: { kind: "atomic" } };
     return check_plan(definition, action, plan, context);
   };
+  if (platform.order_tracker) {
+    if (!platform.contracts) throw new Error("integration-platform-unavailable");
+    const plugin = create_kuru_orders(options, definition, { order_tracker: platform.order_tracker, contracts: platform.contracts },
+      margin, size, BigInt(price), BigInt(params[6]), BigInt(params[7]), BigInt(params[8]), params[10]);
+    package_integration(plugin);
+    return plugin;
+  }
   const plugin: spot = { name: definition.name, use_case: "spot", chain_id, markets: [market], definition,
     account: { async read(context) {
       const holdings = await Promise.all([base, quote].map(async (asset) => {

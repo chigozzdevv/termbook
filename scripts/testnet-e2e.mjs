@@ -9,12 +9,13 @@ import { viem, artifact, testnetRuntime, writeJsonAtomic } from "./testnet-runti
 const mode = process.argv[2];
 const fast = process.argv[3] === "--fast";
 const clean = process.argv[4] === "--clean";
-const kuru = process.argv[3] === "--kuru";
+const orders = process.argv[3] === "--kuru-orders";
+const kuru = process.argv[3] === "--kuru" || orders;
 const native = process.argv[3] === "--native" || kuru;
 if (!["--begin", "--start", "--retry-default", "--advance", "--run", "--observe"].includes(mode) || clean && !fast
-  || process.argv.length !== (clean ? 5 : fast || native ? 4 : 3)) throw new Error("Use --begin, --start, --retry-default, --advance, --run, or --observe with optional --kuru, --native, or --fast and --clean");
-const journalName = kuru ? "kuru-e2e" : native ? "native-e2e" : fast ? clean ? "fast-clean-e2e" : "fast-e2e" : "live-e2e";
-const publicName = kuru ? "testnet-kuru-e2e" : native ? "testnet-native-e2e" : fast ? clean ? "testnet-fast-clean-e2e" : "testnet-fast-e2e" : "testnet-e2e";
+  || process.argv.length !== (clean ? 5 : fast || native ? 4 : 3)) throw new Error("Use --begin, --start, --retry-default, --advance, --run, or --observe with optional --kuru-orders, --kuru, --native, or --fast and --clean");
+const journalName = orders ? "kuru-orders-e2e" : kuru ? "kuru-e2e" : native ? "native-e2e" : fast ? clean ? "fast-clean-e2e" : "fast-e2e" : "live-e2e";
+const publicName = orders ? "testnet-kuru-orders-e2e" : kuru ? "testnet-kuru-e2e" : native ? "testnet-native-e2e" : fast ? clean ? "testnet-fast-clean-e2e" : "testnet-fast-e2e" : "testnet-e2e";
 const api = "http://127.0.0.1:3002";
 const erc20 = viem.parseAbi(["function approve(address,uint256) returns(bool)", "function balanceOf(address) view returns(uint256)"]);
 const wethAbi = viem.parseAbi(["function deposit() payable"]);
@@ -40,6 +41,11 @@ async function main() {
   if (!appSetup || appSetup.core.toLowerCase() !== m.TermbookCore.toLowerCase()) throw new Error("Configure the current integration first");
   const app = kuru ? appSetup.definition.contracts.reader : appSetup.addresses.ReferenceAssetApp;
   const sdk = kuru ? await import("../packages/sdk/dist/index.js") : undefined;
+  if (kuru) {
+    if (Boolean(appSetup.definition.assessment?.orders) !== orders) throw new Error("Use --kuru-orders for the tracked-order integration, or --kuru for the atomic integration");
+    if (report.bundleId && report.bundleId !== appSetup.bundleId) throw new Error("Live test journal belongs to another integration version");
+    report.bundleId = appSetup.bundleId;
+  }
   const coreRead = (name, args = []) => monad.read("TermbookCore", m.TermbookCore, name, args);
   async function currentGuards() {
     const deadline = Date.now() + 180_000;
@@ -53,39 +59,114 @@ async function main() {
       await delay(3_000);
     }
   }
-  const readPosition = (test) => kuru ? monad.read("AtomicSpotModule", app, "positionCount", [test.creditId, test.account])
+  const readPosition = (test) => kuru ? monad.read(appSetup.definition.assessment ? "UseCaseReader" : "AtomicSpotModule", app, "positionCount", [test.creditId, test.account])
     : monad.read("ReferenceAssetApp", app, "positions", [test.account]);
   async function kuruAction(test, direction, amount, credit) {
-    await currentGuards();
     const definition = appSetup.definition;
     const market = definition.markets[0];
-    const buying = direction === "buy";
     const protection = await coreRead("priceProtection");
     const slippage = Math.min(100, Number(await monad.read("PriceProtection", protection, "houseSlippage", [test.creditId])));
     const action = { use_case: "spot", capability: "place_order", params: { market_id: market.market_id,
       direction, order_type: "market", amount: { spend: amount }, slippage_bps: slippage } };
+    return kuruPlan(test, action, credit, direction === "buy" ? amounts.draw : 0n);
+  }
+  async function kuruPlan(test, action, credit, draw = 0n) {
+    await currentGuards();
+    const definition = appSetup.definition, market = definition.markets[0];
+    const buying = action.params.direction === "buy", limit = action.params.order_type === "limit";
+    const protection = await coreRead("priceProtection");
     const selected = selectCapability(definition.actions, action);
-    const priceArgs = [appSetup.bundleId, viem.keccak256(viem.stringToHex(executionKey(selected))), viem.keccak256(viem.stringToHex(market.market_id))];
-    let price;
-    try { price = await monad.read("PriceProtection", protection, "priceReference", priceArgs); }
-    catch (error) {
-      const reverted = typeof error?.walk === "function" ? error.walk((item) => item.name === "ContractFunctionRevertedError") : undefined;
-      if (reverted?.data?.errorName !== "Stale") throw error;
-      await monad.call("PriceProtection", protection, "recordPrice", priceArgs, `${test.kind}:${direction}:price:${await monad.client.getBlockNumber()}`);
-      price = await monad.read("PriceProtection", protection, "priceReference", priceArgs);
+    let quote = { roundId: 0n, referencePrice: 0n, updatedAt: 0n, authorizedAt: 0n, bound: 0n, slippageBps: 0, isMax: false }, bound;
+    if (selected.price) {
+      const slippage = Math.min(100, Number(await monad.read("PriceProtection", protection, "houseSlippage", [test.creditId])));
+      const priceArgs = [appSetup.bundleId, viem.keccak256(viem.stringToHex(executionKey(selected))), viem.keccak256(viem.stringToHex(market.market_id))];
+      let price;
+      try { price = await monad.read("PriceProtection", protection, "priceReference", priceArgs); }
+      catch (error) {
+        const reverted = typeof error?.walk === "function" ? error.walk((item) => item.name === "ContractFunctionRevertedError") : undefined;
+        if (reverted?.data?.errorName !== "Stale") throw error;
+        await monad.call("PriceProtection", protection, "recordPrice", priceArgs, `${test.kind}:${executionKey(selected)}:price:${await monad.client.getBlockNumber()}`);
+        price = await monad.read("PriceProtection", protection, "priceReference", priceArgs);
+      }
+      if (limit) {
+        const params = await marketParams();
+        bound = BigInt(action.params.limit_price) * BigInt(params[0]) / 10n ** 18n;
+      } else bound = await monad.read("PriceProtection", protection, "deriveAmountBound", [price[0], BigInt(action.params.amount.spend), slippage,
+        buying ? market.quote_decimals : market.base_decimals, buying ? market.base_decimals : market.quote_decimals, buying, false]);
+      quote = { roundId: price[2], referencePrice: price[0], updatedAt: price[1], authorizedAt: 0n,
+        bound, slippageBps: slippage, isMax: limit && buying };
     }
     const guardDeadline = await currentGuards();
     const block = await monad.client.getBlock();
-    const bound = await monad.read("PriceProtection", protection, "deriveAmountBound", [price[0], amount, slippage,
-      buying ? market.quote_decimals : market.base_decimals, buying ? market.base_decimals : market.quote_decimals, buying, false]);
+    if (selected.price) quote.authorizedAt = block.timestamp;
     const plan = sdk.buildExecution(selected, action, { borrower: account.address,
       account: test.account, creditId: test.creditId, use_case: "spot", priceBound: bound }, usdc);
-    const authorization = { drawAmount: buying ? amounts.draw : 0n, maxDraw: buying ? amounts.draw : 0n,
+    if (draw > plan.requiredInput) draw = plan.requiredInput;
+    const authorization = { drawAmount: draw, maxDraw: draw,
       nonce: credit.nonce + 1n, deadline: guardDeadline < block.timestamp + 90n ? guardDeadline : block.timestamp + 90n, revision: credit.revision, signer: account.address, signature: "0x",
-      price: { roundId: price[2], referencePrice: price[0], updatedAt: price[1], authorizedAt: block.timestamp,
-        bound, slippageBps: slippage, isMax: false } };
+      price: quote };
     authorization.signature = await account.signMessage({ message: { raw: await coreRead("executionDigest", [test.creditId, plan, authorization]) } });
-    return JSON.parse(canonicalJson({ plan, authorization, probe: { action, credit_id: test.creditId, minimum_receive: bound } }));
+    return JSON.parse(canonicalJson({ plan, authorization, probe: { action, credit_id: test.creditId,
+      ...(limit ? { price_bound: bound } : bound !== undefined ? { minimum_receive: bound } : {}) } }));
+  }
+  const marketParams = () => monad.client.readContract({ address: appSetup.definition.markets[0].address,
+    abi: viem.parseAbi(["function getMarketParams() view returns(uint32,uint96,address,uint256,address,uint256,uint32,uint96,uint96,uint256,uint256)"]), functionName: "getMarketParams" });
+  async function restingPrice(direction) {
+    const market = appSetup.definition.markets[0], params = await marketParams();
+    const book = await monad.client.readContract({ address: market.address,
+      abi: viem.parseAbi(["function getL2Book(uint32,uint32) view returns(bytes)"]), functionName: "getL2Book", args: [1, 1] });
+    const words = viem.decodeAbiParameters(Array.from({ length: (book.length - 2) / 64 }, () => ({ type: "uint256" })), book);
+    const bid = words[1], ask = words[4], tick = BigInt(params[6]);
+    if (bid <= 0n || ask <= bid + tick) throw new Error("Kuru needs a resting price between the live bid and ask");
+    return (direction === "buy" ? bid + tick : ask + tick) * 10n ** 18n / BigInt(params[0]);
+  }
+  async function executeProbe(test, key, action, draw = 0n) {
+    test.orderTests ??= {};
+    let step = test.orderTests[key];
+    const label = `${test.kind}:${key}`, recorded = report.transactions.find((tx) => tx.name === label);
+    if (step && !recorded && BigInt(step.authorization.deadline) <= (await monad.client.getBlock()).timestamp) {
+      delete test.orderTests[key]; step = undefined; persist();
+    }
+    if (!step) {
+      step = test.orderTests[key] = await kuruPlan(test, action, await coreRead("creditDetails", [test.creditId]), draw);
+      persist();
+    }
+    const tx = await monad.call("TermbookCore", m.TermbookCore, "executePlan", [test.creditId, step.plan, step.authorization], label);
+    step.probe.tx_hash = tx.hash; persist(); return step;
+  }
+  async function orderProbes(test) {
+    if (test.ordersVerified) return;
+    const market = appSetup.definition.markets[0], tracker = appSetup.definition.assessment.orders.tracker;
+    const sell = { use_case: "spot", capability: "place_order", params: { market_id: market.market_id, direction: "sell", order_type: "market",
+      amount: { spend: (await monad.client.getBalance({ address: test.account })) / 4n }, slippage_bps: 100 } };
+    await executeProbe(test, "seed-orders", sell);
+    for (const direction of ["buy", "sell"]) for (const sizing of ["spend", "receive"]) {
+      const key = `limit-${direction}-${sizing}`;
+      if (test.orderTests[key]?.cancelled) continue;
+      if (!test.orderTests[key]) {
+        const price = await restingPrice(direction), params = await marketParams();
+        const lot = 10n ** BigInt(market.base_decimals) / params[1];
+        const baseQuantity = viem.parseEther("0.01") / lot * lot;
+        const amount = direction === "buy" ? sizing === "spend" ? 1000n : baseQuantity
+          : sizing === "spend" ? baseQuantity : baseQuantity * price * 10n ** BigInt(market.quote_decimals) / (10n ** 18n * 10n ** BigInt(market.base_decimals));
+        const action = { use_case: "spot", capability: "place_order", params: { market_id: market.market_id, direction,
+          order_type: "limit", amount: { [sizing]: amount }, limit_price: price } };
+        await executeProbe(test, key, action);
+      }
+      const placed = await executeProbe(test, key, test.orderTests[key].probe.action);
+      const receipt = await monad.client.getTransactionReceipt({ hash: placed.probe.tx_hash });
+      const events = viem.parseEventLogs({ abi: artifact("SpotOrderTracker").abi, logs: receipt.logs,
+        eventName: "OrderCaptured" }).filter((event) => event.address.toLowerCase() === tracker.toLowerCase()
+          && event.args.creditId === test.creditId);
+      if (events.length !== 1) throw new Error("Limit test must capture one resting order");
+      await executeProbe(test, `cancel-${direction}-${sizing}`, { use_case: "spot", capability: "cancel_order", params: { order_id: String(events[0].args.venueId) } });
+      const pending = await monad.read("UseCaseReader", app, "pendingCount", [test.creditId, test.account]);
+      if (pending !== 0n) throw new Error("Limit cancellation left a pending obligation");
+      placed.cancelled = true; persist();
+    }
+    const health = await coreRead("previewHealth", [test.creditId]);
+    if (health.appValue <= 0n || health.healthBps < 12_500n) throw new Error("Controlled venue funds are missing from healthy backing");
+    test.ordersVerified = new Date().toISOString(); persist();
   }
   const now = (await monad.client.getBlock()).timestamp;
   if (!m.AccountHealthSource || (await coreRead("healthSource")).toLowerCase() !== m.AccountHealthSource.toLowerCase()) throw new Error("Authenticated health source is required");
@@ -101,9 +182,10 @@ async function main() {
         monad.read("HouseRegistry", m.HouseRegistry, "policies", [account.address]),
       ]);
       if (!policy[12] || !policy[13]) throw new Error("Kuru House risk policy is inactive");
-      const costs = BigInt(nativeSetup.recoveryCosts) + BigInt(appSetup.definition.atomic_spot.recovery_costs);
+      const risk = appSetup.definition.assessment ?? appSetup.definition.atomic_spot;
+      const costs = BigInt(nativeSetup.recoveryCosts) + BigInt(risk.recovery_costs);
       const target = ((amounts.draw + costs) * (policy[7] + 500n) + 9_999n) / 10_000n;
-      const retainedApp = amounts.draw * 9_800n * BigInt(appSetup.definition.atomic_spot.retained_bps) / 100_000_000n;
+      const retainedApp = amounts.draw * 9_800n * BigInt(risk.retained_bps) / 100_000_000n;
       const retainedSource = target > retainedApp ? target - retainedApp : amounts.draw / 2n;
       if (retainedSource * 10_000n >= amounts.draw * BigInt(nativeSetup.retainedSourceBps)) throw new Error("Kuru test loan is too small for its recovery costs");
       const numerator = retainedSource * 10n ** 30n * 10_000n;
@@ -246,7 +328,10 @@ async function main() {
           credit = await coreRead("creditDetails", [test.creditId]);
         }
         if (kuru && !test.execution) {
-          const action = await kuruAction(test, "buy", amounts.draw, credit);
+          const action = orders && test.kind.startsWith("default") ? await kuruPlan(test, { use_case: "spot", capability: "place_order",
+            params: { market_id: appSetup.definition.markets[0].market_id, direction: "buy", order_type: "limit",
+              amount: { spend: amounts.draw }, limit_price: await restingPrice("buy") } }, credit, amounts.draw)
+            : await kuruAction(test, "buy", amounts.draw, credit);
           test.action = action.plan; test.execution = action.authorization; test.probe = action.probe; persist();
         }
         test.action ??= { capability: viem.keccak256(viem.stringToHex("deposit")),
@@ -269,13 +354,18 @@ async function main() {
           coreRead("previewHealth", [test.creditId]), readPosition(test),
           monad.client.readContract({ address: usdc, abi: erc20, functionName: "balanceOf", args: [test.account] }),
         ]);
-        if (health.debt !== amounts.draw || (kuru ? health.appValue <= 0n || position !== 1n : health.appValue !== amounts.draw || position !== amounts.draw)
+        const expectedDraw = BigInt(test.execution.drawAmount);
+        const resting = orders && test.kind.startsWith("default");
+        const pending = orders ? await monad.read("UseCaseReader", app, "pendingCount", [test.creditId, test.account]) : 0n;
+        if (health.debt !== expectedDraw || (kuru ? health.appValue <= 0n || (!resting && position !== 1n)
+          || resting && pending !== 1n : health.appValue !== amounts.draw || position !== amounts.draw)
           || cash !== 0n || health.sourceValue >= health.debt || health.healthBps < 12_500n) throw new Error("Live draw or valuation mismatch");
         test.drawVerified = { at: new Date().toISOString(), ...JSON.parse(canonicalJson(health)), appPosition: String(position), accountCash: String(cash) };
         test.state = test.kind.startsWith("default") ? "awaiting_default" : test.kind === "active" ? "active_for_admission" : "repayment_pending";
         persist();
         credit = await coreRead("creditDetails", [test.creditId]);
       }
+      if (orders && test.kind === "active" && test.drawVerified && credit.facility === 4) await orderProbes(test);
       if (test.kind === "repayment" && test.drawVerified && credit.facility === 4) {
         if (kuru) {
           if (test.sell && !report.transactions.some((tx) => tx.name === "repayment:sell")
@@ -360,7 +450,8 @@ async function main() {
   report.observedAt = new Date().toISOString();
   report.observations = observations;
   const lifecycleComplete = observations.some((test) => test.kind === "repayment" && test.completed)
-    && (fast || observations.some((test) => test.kind.startsWith("default") && test.drawVerified && test.completed));
+    && (fast || observations.some((test) => test.kind.startsWith("default") && test.drawVerified && test.completed))
+    && (!orders || Boolean(report.cases.active?.ordersVerified));
   if (kuru && lifecycleComplete && !report.lifecycle) {
     const recovered = Object.values(report.cases).find((test) => test.kind.startsWith("default") && test.drawVerified);
     const repayment = report.cases.repayment, active = report.cases.active;
@@ -392,21 +483,28 @@ async function main() {
         && tx.from.toLowerCase() === keeper.toLowerCase()) repaymentHash = tx.hash;
     }
     if (!repaymentHash) throw new Error("Kuru independent repayment receipt is missing");
-    report.probes = [recovered.probe, repayment.sell.probe];
+    report.probes = orders ? [active.probe, repayment.sell.probe,
+      ...["buy", "sell"].flatMap((direction) => ["spend", "receive"].map((sizing) => active.orderTests[`limit-${direction}-${sizing}`].probe)),
+      active.orderTests["cancel-buy-spend"].probe] : [recovered.probe, repayment.sell.probe];
+    const advertised = appSetup.definition.actions.map(executionKey);
+    const actual = report.probes.map((probe) => executionKey(selectCapability(appSetup.definition.actions, probe.action)));
+    if (new Set(actual).size !== advertised.length || actual.length !== advertised.length
+      || advertised.some((key) => !actual.includes(key))) throw new Error("Kuru action probes do not cover the admitted definition");
     report.lifecycle = { active_credit_id: active.creditId, recovered_credit_id: recovered.creditId,
-      action_transactions: { kuru_buy: { credit_id: recovered.creditId, tx_hash: recovered.probe.tx_hash },
-        kuru_sell: { credit_id: repayment.creditId, tx_hash: repayment.sell.probe.tx_hash } },
+      action_transactions: Object.fromEntries(report.probes.map((probe) => [executionKey(selectCapability(appSetup.definition.actions, probe.action)),
+        { credit_id: probe.credit_id, tx_hash: probe.tx_hash }])),
       recovery_tx_hashes: recoveryHashes, repayment_tx_hash: repaymentHash };
     report.validationKeeper = keeper; persist();
   }
   if (mode !== "--observe") persist();
   writeJsonAtomic(operationFile(publicName), { network: "testnet", startedAt: report.startedAt, observedAt: report.observedAt,
     confirmationPolicy: native ? "Atomic Monad custody" : fast ? "Sepolia five-confirmation test policy" : "Full source finality",
-    scope: kuru ? "Kuru market buys and sells, controlled MON holdings, USDC repayment, closure and independent keeper recovery"
+    scope: orders ? "Kuru market and limit buys and sells, cancellation, controlled venue funds, repayment, closure and independent order recovery"
+      : kuru ? "Kuru market buys and sells, controlled MON holdings, USDC repayment, closure and independent keeper recovery"
       : native ? "Native MON custody, USDC borrowing, API credit tracking and independent reference app recovery"
       : "Real Sepolia WETH custody, Wormhole proofs, Monad USDC borrowing and reference app recovery",
     excluded: kuru ? "Aurora conversions and full acceptance-suite admission" : native ? "Collateral sale, Aurora conversions and real trading venues" : "Aurora conversions and real trading venue behavior",
-    drawAmount: String(amounts.draw), native, core: m.TermbookCore, app, observations,
+    drawAmount: String(amounts.draw), native, core: m.TermbookCore, app, ...(kuru ? { bundleId: appSetup.bundleId } : {}), observations,
     ...(kuru && report.lifecycle ? { probes: report.probes, lifecycle: report.lifecycle, validationKeeper: report.validationKeeper } : {}),
     transactions: report.transactions.map((tx) => Object.fromEntries(Object.entries(tx).filter(([key]) => key !== "rawTransaction"))) });
   log(JSON.stringify({ observedAt: report.observedAt, cases: observations }));

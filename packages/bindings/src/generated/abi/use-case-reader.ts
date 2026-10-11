@@ -363,6 +363,43 @@ export const useCaseReaderAbi = [
                 "internalType": "uint128"
               }
             ]
+          },
+          {
+            "name": "orderTracker",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "custody",
+            "type": "tuple[]",
+            "internalType": "struct UseCaseReader.Custody[]",
+            "components": [
+              {
+                "name": "target",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "program",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "token",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "maximum",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "dust",
+                "type": "uint128",
+                "internalType": "uint128"
+              }
+            ]
           }
         ]
       }
@@ -629,6 +666,43 @@ export const useCaseReaderAbi = [
                 "internalType": "uint128"
               }
             ]
+          },
+          {
+            "name": "orderTracker",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "custody",
+            "type": "tuple[]",
+            "internalType": "struct UseCaseReader.Custody[]",
+            "components": [
+              {
+                "name": "target",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "program",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "token",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "maximum",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "dust",
+                "type": "uint128",
+                "internalType": "uint128"
+              }
+            ]
           }
         ]
       }
@@ -645,6 +719,35 @@ export const useCaseReaderAbi = [
         "name": "",
         "type": "address",
         "internalType": "contract TermbookCore"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "custodyBalance",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "index",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -866,6 +969,45 @@ export const useCaseReaderAbi = [
     "outputs": [
       {
         "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "pendingDetails",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "pendingId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "market",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "input",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "venueId",
         "type": "uint256",
         "internalType": "uint256"
       }

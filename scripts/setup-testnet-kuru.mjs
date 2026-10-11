@@ -112,7 +112,12 @@ async function main() {
         "function marketState() view returns(uint8)", "function isTrustedForwarder(address) view returns(bool)",
         "function kuruAmmVault() view returns(address)",
         "function placeAndExecuteMarketBuy(uint96,uint256,bool,bool) payable returns(uint256)",
-        "function placeAndExecuteMarketSell(uint96,uint256,bool,bool) payable returns(uint256)"] });
+        "function placeAndExecuteMarketSell(uint96,uint256,bool,bool) payable returns(uint256)",
+        "function addBuyOrder(uint32,uint96,bool)", "function addSellOrder(uint32,uint96,bool)",
+        "function batchCancelOrders(uint40[])", "function s_orderIdCounter() view returns(uint40)",
+        "function s_orders(uint40) view returns(address,uint96,uint40,uint40,uint40,uint32,uint32,bool)",
+        "function s_buyPricePoints(uint256) view returns(uint40,uint40)",
+        "function s_sellPricePoints(uint256) view returns(uint40,uint40)"] });
     if (!simulate) {
       review.signature = await runtime.account.signTypedData(runtimeReviewData(review));
       const file = path.join(root, ".env");
@@ -136,7 +141,7 @@ async function main() {
   }
   if (configure) {
     const { create_kuru } = await import("../server/dist/kuru/integration.js");
-    const { prepare_atomic_spot, package_integration, atomic_configuration } = await import("../packages/sdk/dist/index.js");
+    const { prepare_atomic_spot, prepare_use_case, use_case_configuration, package_integration, atomic_configuration } = await import("../packages/sdk/dist/index.js");
     const market = deployment.configuration["kuru-market"];
     if (!market || market.core.toLowerCase() !== m.TermbookCore.toLowerCase()
       || !market.oracleGuard || market.dependencies.length !== 6 || market.dependencies.some((p) => !market.guards[p.address])) throw new Error("Complete the Kuru dependency and Oracle guards first");
@@ -164,7 +169,7 @@ async function main() {
     const identity = package_integration(plugin);
     if (report.versionId && report.versionId !== identity.version_id) throw new Error("Kuru configuration changed; reconcile the pending operation");
     report.versionId = identity.version_id; report.definitionHash = identity.hash; persist();
-    const plan = await prepare_atomic_spot(plugin.definition, { client: network.client, registry: m.IntegrationRegistry,
+    const plan = await (plugin.definition.assessment ? prepare_use_case : prepare_atomic_spot)(plugin.definition, { client: network.client, registry: m.IntegrationRegistry,
       core: m.TermbookCore, health_source: m.HealthSource, health_factory: m.AppHealthReaderFactory,
       guards: { ...Object.fromEntries(Object.entries(market.guards).map(([target, pin]) => [target, pin.address])),
         [m.OracleRegistry.toLowerCase()]: market.oracleGuard?.address },
@@ -191,9 +196,11 @@ async function main() {
       if (call.value !== 0n) throw new Error("Unexpected Kuru governance payment");
       await network.governData(call.target, call.data, { description: call.description });
     }
-    const config = atomic_configuration(plugin.definition);
-    if (await network.client.readContract({ address: config.config.module, abi: viem.parseAbi(["function configurationHashes(bytes32) view returns(bytes32)"]),
-      functionName: "configurationHashes", args: [identity.version_id] }) !== config.configuration_hash
+    const config = plugin.definition.assessment ? use_case_configuration(plugin.definition) : atomic_configuration(plugin.definition);
+    const checkedTarget = plugin.definition.assessment ? plugin.definition.contracts.reader : config.config.module;
+    const checkedHash = plugin.definition.assessment ? config.reader_hash : config.configuration_hash;
+    if (await network.client.readContract({ address: checkedTarget, abi: viem.parseAbi(["function configurationHashes(bytes32) view returns(bytes32)"]),
+      functionName: "configurationHashes", args: [identity.version_id] }) !== checkedHash
       || !await network.read("IntegrationRegistry", m.IntegrationRegistry, "isActive", [identity.version_id])) throw new Error("Kuru configuration verification failed");
     report.completedAt = new Date().toISOString(); persist();
     if (!simulate) {

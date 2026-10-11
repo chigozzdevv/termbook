@@ -1,4 +1,4 @@
-import { artifact } from "./testnet-runtime.mjs";
+import { artifact, viem } from "./testnet-runtime.mjs";
 
 export async function loadCredits(deployment, network) {
   const client = network.client ?? network.publicClient;
@@ -25,7 +25,25 @@ export async function loadCredits(deployment, network) {
       return [...await logs(from, middle), ...await logs(middle + 1n, to)];
     }
   }
-  const created = await logs(BigInt(start), block.number);
+  const created = [];
+  if (logClient === client && process.env.ENVIO_API_TOKEN) {
+    const [{ readCoreEvents }, { env }] = await Promise.all([
+      import("../server/dist/chain/envio.client.js"), import("../server/dist/config/env.js"),
+    ]);
+    if (env.monadChainId !== 10143 || env.core.toLowerCase() !== core.toLowerCase()) throw new Error("Credit archive configuration mismatch");
+    let cursor = BigInt(start);
+    while (cursor <= block.number && BigInt(created.length) < expected) {
+      const page = await readCoreEvents(client, cursor, block.number, "json");
+      if (page.source !== "envio" || page.nextBlock <= cursor) throw new Error("Credit archive has not caught up");
+      for (const entry of page.logs) {
+        let decoded;
+        try { decoded = viem.decodeEventLog({ abi: [event], data: entry.data, topics: entry.topics, strict: true }); }
+        catch { continue; }
+        created.push({ ...entry, args: decoded.args });
+      }
+      cursor = page.nextBlock;
+    }
+  } else created.push(...await logs(BigInt(start), block.number));
   const ids = created.map((log) => log.args.creditId);
   if (BigInt(ids.length) !== expected || new Set(ids).size !== ids.length) throw new Error("Onchain credit inventory is incomplete");
   const observations = [];

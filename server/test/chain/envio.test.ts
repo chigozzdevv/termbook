@@ -12,7 +12,7 @@ const word = (digit: string) => `0x${digit.repeat(64)}`;
 const log = () => ({ address, blockNumber: 2, blockHash: word("b"), transactionHash: word("c"),
   logIndex: 0, data: "0x1234", topics: [word("d"), null, null, null], removed: false });
 const rpc = () => ({ getTransactionReceipt: mocks.receipt, getLogs: mocks.rpcLogs }) as unknown as PublicClient;
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
 beforeEach(() => {
   vi.resetModules();
@@ -95,6 +95,39 @@ describe("Envio event ingestion", () => {
     expect(await readCoreEvents(rpc(), 1n, 1000n)).toEqual({ logs: [], nextBlock: 501n, source: "rpc" });
     expect(mocks.rpcLogs).toHaveBeenCalledTimes(5);
     expect(mocks.construct).not.toHaveBeenCalled();
+  });
+  it("verifies JSON archive data with the same receipt checks", async () => {
+    const entry = log();
+    const fetcher = vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({ chain_id: 10143 }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ next_block: 10, data: [{ logs: [{
+        address, block_number: 2, block_hash: entry.blockHash, transaction_hash: entry.transactionHash,
+        log_index: 0, data: entry.data, topic0: entry.topics[0], removed: false,
+      }] }] }) });
+    vi.stubGlobal("fetch", fetcher);
+    const { readCoreEvents } = await import("../../src/chain/envio.client.js");
+    expect((await readCoreEvents(rpc(), 1n, 100n, "json")).logs).toEqual([{ ...entry, blockNumber: 2n, topics: [word("d")] }]);
+    expect(JSON.parse(fetcher.mock.calls[1]![1].body)).toMatchObject({ from_block: 1, to_block: 101, max_num_logs: 1000 });
+    expect(mocks.receipt).toHaveBeenCalled();
+    expect(mocks.construct).not.toHaveBeenCalled();
+  });
+  it("rejects a JSON archive on another chain before querying", async () => {
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ chain_id: 143 }) });
+    vi.stubGlobal("fetch", fetcher);
+    const { readCoreEvents } = await import("../../src/chain/envio.client.js");
+    await expect(readCoreEvents(rpc(), 1n, 100n, "json")).rejects.toThrow("envio-chain-mismatch");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it("rejects malformed JSON batches", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({ chain_id: 10143 }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ next_block: 10, data: [{ logs: [null] }] }) }));
+    const { readCoreEvents } = await import("../../src/chain/envio.client.js");
+    await expect(readCoreEvents(rpc(), 1n, 100n, "json")).rejects.toThrow("envio-page-invalid");
+  });
+  it("redacts JSON transport errors without using RPC fallback", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("test-token")));
+    const { readCoreEvents } = await import("../../src/chain/envio.client.js");
+    await expect(readCoreEvents(rpc(), 1n, 100n, "json")).rejects.toThrow("envio-query-unavailable");
+    expect(mocks.rpcLogs).not.toHaveBeenCalled();
   });
   it.each(["https://user:password@10143.hypersync.xyz", "http://10143.hypersync.xyz", "https://10143.hypersync.xyz/?token=secret"])("rejects unsafe endpoint configuration", async (url) => {
     vi.stubEnv("ENVIO_HYPERSYNC_URL", url);

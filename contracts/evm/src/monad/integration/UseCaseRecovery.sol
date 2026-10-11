@@ -13,11 +13,11 @@ import {FullMath} from "../../shared/FullMath.sol";
 
 contract UseCaseRecovery is IAppRecoveryAdapter, IAppRecoveryFunding, IAppExitPlanner, IExitVerifier {
     using SafeTransferLib for address;
-    enum Phase { Pending, Request, Position, Holding }
+    enum Phase { Pending, Request, Position, Holding, Custody }
     enum Source { Literal, Account, Credit, Field, Minimum }
     struct Word { Source source; bytes32 value; }
     struct Template { Phase phase; bytes32 market; address target; bytes4 selector; Word[] words;
-        address input; address output; uint8 spendField; uint8 minimumField; bool asynchronous; }
+        address input; address output; uint8 spendField; uint8 minimumField; bool asynchronous; uint8 pendingStatus; }
     struct Snapshot { bytes32 templateId; uint256 index; bytes32 objectId; uint256 beforeOutput; uint256 minimum; int256 beforeValue; uint256 lossBudget; bytes32 stateHash; }
     struct Plan { Snapshot snapshot; address target; bytes data; address input; address output; uint256 spend; uint256 minimum; }
     TermbookCore public immutable core;
@@ -39,9 +39,10 @@ contract UseCaseRecovery is IAppRecoveryAdapter, IAppRecoveryFunding, IAppExitPl
         for (uint256 i; i < rules.length; ++i) {
             Template calldata rule = rules[i];
             if (rule.target.code.length == 0 || rule.selector == bytes4(0) || rule.words.length > 24
-                || rule.spendField != 255 && rule.spendField > 15 || rule.minimumField != 255 && rule.minimumField > 15) revert Invalid();
+                || rule.spendField != 255 && rule.spendField > 15 || rule.minimumField != 255 && rule.minimumField > 15 || rule.pendingStatus > uint8(ExecutionTypes.Status.Expired)
+                || rule.phase != Phase.Pending && rule.pendingStatus != 0) revert Invalid();
             for (uint256 j; j < rule.words.length; ++j) if (rule.words[j].source == Source.Field && uint256(rule.words[j].value) > 15) revert Invalid();
-            for (uint256 j; j < i; ++j) if (rules[j].phase == rule.phase && rules[j].market == rule.market) revert Invalid();
+            for (uint256 j; j < i; ++j) if (rules[j].phase == rule.phase && rules[j].market == rule.market && rules[j].pendingStatus == rule.pendingStatus) revert Invalid();
             if (!reader.registry().dependencyValid(bundle, rule.target)
                 || rule.input != address(0) && !reader.registry().dependencyValid(bundle, rule.input)
                 || rule.output != address(0) && !reader.registry().dependencyValid(bundle, rule.output)) revert Invalid();
@@ -71,7 +72,11 @@ contract UseCaseRecovery is IAppRecoveryAdapter, IAppRecoveryFunding, IAppExitPl
             (, market,,,) = core.executionManager().records(id, orderId);
             fields[0] = uint256(objectId); fields[1] = uint256(state.positionId); fields[2] = state.committed;
             fields[3] = state.remaining; fields[4] = state.liability; fields[5] = state.deadline; fields[6] = uint256(state.status);
-            if (state.status == ExecutionTypes.Status.CancelRequested) retryAt = block.timestamp + 30;
+            if (reader.config(_bundle(id, account)).orderTracker != address(0)) {
+                (,, fields[7]) = reader.pendingDetails(id, account, orderId);
+            }
+            if (state.status == ExecutionTypes.Status.CancelRequested
+                && !_hasStatus(_bundle(id, account), market, uint8(state.status))) retryAt = block.timestamp + 30;
         } else if (phase == Phase.Request) {
             UseCaseReader.Request memory state = reader.request(id, account, index);
             objectId = state.id; market = state.market;
@@ -90,6 +95,15 @@ contract UseCaseRecovery is IAppRecoveryAdapter, IAppRecoveryFunding, IAppExitPl
             int256 net = reader.positionValue(id, account, index);
             value = net > 0 ? uint256(net) : 0;
             fields[10] = value;
+        } else if (phase == Phase.Custody) {
+            UseCaseReader.Config memory config = reader.config(_bundle(id, account));
+            if (index >= config.custody.length) revert Invalid();
+            UseCaseReader.Custody memory item = config.custody[index];
+            uint256 amount = reader.custodyBalance(id, account, index);
+            if (amount <= item.dust) revert Invalid();
+            objectId = keccak256(abi.encode(item.target, item.token)); market = bytes32(uint256(uint160(item.token)));
+            fields[0] = uint256(uint160(item.token)); fields[1] = amount;
+            fields[2] = uint256(uint160(item.target));
         } else {
             UseCaseReader.Config memory config = reader.config(_bundle(id, account));
             if (index >= config.assets.length) revert Invalid();
@@ -115,10 +129,17 @@ contract UseCaseRecovery is IAppRecoveryAdapter, IAppRecoveryFunding, IAppExitPl
         if (!ok || data.length != 32) revert Invalid();
         result = abi.decode(data, (uint256)); if (result > 36) revert Invalid();
     }
-    function _template(bytes32 bundle, Phase phase, bytes32 market) private view returns (bytes32 result) {
+    function _hasStatus(bytes32 bundle, bytes32 market, uint8 status) private view returns (bool) {
+        for (uint256 i; i < templateIds[bundle].length; ++i) {
+            Template storage rule = templates[bundle][templateIds[bundle][i]];
+            if (rule.phase == Phase.Pending && (rule.market == market || rule.market == bytes32(0)) && rule.pendingStatus == status) return true;
+        }
+        return false;
+    }
+    function _template(bytes32 bundle, Phase phase, bytes32 market, uint8 status) private view returns (bytes32 result) {
         for (uint256 i; i < templateIds[bundle].length; ++i) {
             bytes32 id = templateIds[bundle][i]; Template storage rule = templates[bundle][id];
-            if (rule.phase != phase) continue;
+            if (rule.phase != phase || rule.pendingStatus != 0 && rule.pendingStatus != status) continue;
             if (rule.market == market) return id;
             if (rule.market == bytes32(0)) result = id;
         }
@@ -129,7 +150,7 @@ contract UseCaseRecovery is IAppRecoveryAdapter, IAppRecoveryFunding, IAppExitPl
         (uint256[16] memory fields, bytes32 objectId, bytes32 market, uint256 value, uint256 wait) = _fields(id, account, phase, index);
         if (wait != 0) return (plan, wait);
         UseCaseReader.Config memory config = reader.config(bundle);
-        bytes32 templateId = _template(bundle, phase, market);
+        bytes32 templateId = _template(bundle, phase, market, phase == Phase.Pending ? uint8(fields[6]) : 0);
         Template storage rule = templates[bundle][templateId];
         plan.target = rule.target; plan.input = rule.input; plan.output = rule.output;
         if (rule.spendField != 255) plan.spend = fields[rule.spendField];
@@ -153,13 +174,16 @@ contract UseCaseRecovery is IAppRecoveryAdapter, IAppRecoveryFunding, IAppExitPl
     function nextExitStep(bytes32 id, address account) external view returns (bytes32, bytes memory, uint256) {
         UseCaseReader.Meta memory meta = reader.meta(id, account);
         uint256 wait;
-        for (uint256 kind; kind < 4; ++kind) {
-            uint256 count = kind == 0 ? meta.pending : kind == 1 ? meta.requests : kind == 2 ? meta.positions : reader.config(_bundle(id, account)).assets.length;
+        for (uint256 kind; kind < 5; ++kind) {
+            uint256 phase = kind == 3 ? 4 : kind == 4 ? 3 : kind;
+            uint256 count = phase == 0 ? meta.pending : phase == 1 ? meta.requests : phase == 2 ? meta.positions : phase == 4
+                ? reader.config(_bundle(id, account)).custody.length : reader.config(_bundle(id, account)).assets.length;
             for (uint256 i; i < count; ++i) {
-                if (kind == 3) { UseCaseReader.Asset memory asset = reader.config(_bundle(id, account)).assets[i]; if (reader.balance(asset.token, account) <= asset.dust) continue; }
-                (Plan memory plan, uint256 retryAt) = _plan(id, account, Phase(kind), i);
+                if (phase == 4 && reader.custodyBalance(id, account, i) <= reader.config(_bundle(id, account)).custody[i].dust) continue;
+                if (phase == 3) { UseCaseReader.Asset memory asset = reader.config(_bundle(id, account)).assets[i]; if (reader.balance(asset.token, account) <= asset.dust) continue; }
+                (Plan memory plan, uint256 retryAt) = _plan(id, account, Phase(phase), i);
                 if (retryAt != 0) { if (wait == 0 || retryAt < wait) wait = retryAt; continue; }
-                bytes memory instruction = abi.encode(uint8(kind), i, plan.snapshot);
+                bytes memory instruction = abi.encode(uint8(phase), i, plan.snapshot);
                 return (keccak256(instruction), instruction, 0);
             }
         }
@@ -167,14 +191,14 @@ contract UseCaseRecovery is IAppRecoveryAdapter, IAppRecoveryFunding, IAppExitPl
     }
     function recoveryCall(bytes32 id, address account, bytes calldata instruction) external view returns (address, bytes memory, uint256, bytes32) {
         (uint8 kind, uint256 index, Snapshot memory snapshot) = abi.decode(instruction, (uint8, uint256, Snapshot));
-        if (kind > 3) revert Invalid();
+        if (kind > 4) revert Invalid();
         (Plan memory plan, uint256 retryAt) = _plan(id, account, Phase(kind), index);
         if (retryAt != 0 || keccak256(abi.encode(snapshot)) != keccak256(abi.encode(plan.snapshot))) revert Invalid();
         return (plan.target, plan.data, plan.input == address(0) ? plan.spend : 0, keccak256(instruction));
     }
     function recoverySpend(bytes32 id, address account, bytes calldata instruction) external view returns (address, uint256) {
         (uint8 kind, uint256 index,) = abi.decode(instruction, (uint8, uint256, Snapshot));
-        if (kind > 3) revert Invalid();
+        if (kind > 4) revert Invalid();
         (Plan memory plan, uint256 retryAt) = _plan(id, account, Phase(kind), index);
         if (retryAt != 0) revert Invalid();
         return (plan.input, plan.input == address(0) ? 0 : plan.spend);
@@ -190,6 +214,7 @@ contract UseCaseRecovery is IAppRecoveryAdapter, IAppRecoveryFunding, IAppExitPl
         UseCaseReader.Meta memory meta = reader.meta(id, account);
         uint256[16] memory fields;
         bool present = kind == 0 ? index < meta.pending : kind == 1 ? index < meta.requests : kind == 2 ? index < meta.positions
+            : kind == 4 ? index < reader.config(bundle).custody.length && reader.custodyBalance(id, account, index) > reader.config(bundle).custody[index].dust
             : index < reader.config(bundle).assets.length && reader.balance(reader.config(bundle).assets[index].token, account) > reader.config(bundle).assets[index].dust;
         if (present) (fields,,,,) = _fields(id, account, Phase(kind), index);
         bytes32 afterHash = keccak256(abi.encode(meta, fields));

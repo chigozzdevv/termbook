@@ -16,7 +16,8 @@ function equal(actual, expected, label) {
 
 async function main() {
   const deployment = JSON.parse(fs.readFileSync(path.join(root, "deployments/testnet.json"), "utf8"));
-  const report = readConfiguration("integrations", deployment);
+  const orderUpdate = deployment.sharedIntegrations?.configuration === "order-integrations";
+  const report = readConfiguration(orderUpdate ? "order-integrations" : "integrations", deployment);
   const client = viem.createPublicClient({ transport: viem.http("https://testnet-rpc.monad.xyz") });
   equal(await client.getChainId(), 10143, "network");
   const block = await client.getBlock({ blockTag: "finalized" });
@@ -42,7 +43,7 @@ async function main() {
     equal(await read("UpgradeController", m.UpgradeController, "contractIds", [proxy]), pin.contractId, `${name} identity`);
     equal(viem.keccak256(await client.getCode({ address: pin.implementation, blockNumber: block.number })), pin.implementationCodeHash, `${name} code`);
   }
-  const compiledUpgrades = report.priceUpdate ? ["PriceProtection"] : ["FlowExecutor", "AccountFactory", "PriceProtection", "TermbookCore"];
+  const compiledUpgrades = orderUpdate ? ["FlowExecutor"] : report.priceUpdate ? ["PriceProtection"] : ["FlowExecutor", "AccountFactory", "PriceProtection", "TermbookCore"];
   for (const name of compiledUpgrades) {
     equal(deployment.proxies[10143][name].implementationCodeHash, viem.keccak256(artifact(name).deployedBytecode.object), `${name} compiled code`);
   }
@@ -63,14 +64,17 @@ async function main() {
     const bindings = name === "ReadProgram" ? { governance: m.ProtocolGovernance }
       : name === "AppHealthReaderFactory" ? { core: m.TermbookCore, collateralReader: m.CollateralHealthReader }
         : { governance: m.ProtocolGovernance, core: m.TermbookCore,
-          ...(["UseCaseReader", "AtomicSpotRouter", "AtomicSpotModule"].includes(name) ? { registry: m.IntegrationRegistry } : {}),
-          ...(name === "UseCaseReader" ? { programs: a.ReadProgram } : {}),
+          ...(["UseCaseReader", "SpotOrderTracker", "AtomicSpotRouter", "AtomicSpotModule"].includes(name) ? { registry: m.IntegrationRegistry } : {}),
+          ...(["UseCaseReader", "SpotOrderTracker"].includes(name) ? { programs: a.ReadProgram ?? m.ReadProgram } : {}),
           ...(["UseCasePolicy", "UseCaseRecovery"].includes(name) ? { reader: a.UseCaseReader } : {}),
           ...(name === "AtomicSpotModule" ? { router: a.AtomicSpotRouter } : {}) };
     for (const [method, expected] of Object.entries(bindings)) equal(await read(name, address, method), expected, `${name}.${method}`);
   }
   if (publish) {
-    const extra = [
+    const extra = orderUpdate ? [
+      ...Object.entries(a).map(([name, address]) => ({ name, artifact: name, address })),
+      { name: "FlowExecutorImplementation", artifact: "FlowExecutor", address: deployment.proxies[10143].FlowExecutor.implementation },
+    ] : [
       { name: "PriceProtectionImplementation", artifact: "PriceProtection", address: deployment.proxies[10143].PriceProtection.implementation },
       { name: "OracleRegistryImplementation", artifact: "OracleRegistry", address: deployment.proxies[10143].OracleRegistry.implementation },
       { name: "OracleRegistryProxy", artifact: "TestnetProxy", address: m.OracleRegistry },

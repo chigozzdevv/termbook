@@ -35,7 +35,7 @@ interface IKuruForkFactory {
     function TRUSTED_FORWARDER() external view returns (address);
 }
 
-contract KuruForkTest is CoreFixture {
+abstract contract KuruForkFixture is CoreFixture {
     address constant MARKET = 0x1F57a841540fe23C2989387c18F2CB1335CBAe92;
     address constant FACTORY = 0x7EFbE105Ca7415dE98F96622173458ac1c054630;
     address constant USDC = 0x534b2f3A21130d7a60830c2Df862319e593943A3;
@@ -109,7 +109,7 @@ contract KuruForkTest is CoreFixture {
         _prepare();
     }
 
-    function _configure() private {
+    function _guardDependencies() internal {
         registry.approve(BUNDLE, keccak256("fork-definition"));
         address[6] memory proxies = [MARKET, FACTORY, IKuruForkMarket(MARKET).kuruAmmVault(), IKuruForkFactory(FACTORY).marginAccountAddress(), IKuruForkFactory(FACTORY).TRUSTED_FORWARDER(), USDC];
         for (uint256 i; i < proxies.length; ++i) {
@@ -121,6 +121,10 @@ contract KuruForkTest is CoreFixture {
         }
         _renew();
         for (uint256 i; i < proxies.length; ++i) registry.setDependencyGuard(BUNDLE, proxies[i], address(guards[i]));
+    }
+
+    function _configure() internal virtual {
+        _guardDependencies();
         address[5] memory pins = [address(router), address(module), address(quoter), USDC, address(oracle)];
         for (uint256 i; i < pins.length; ++i) registry.pinDependency(BUNDLE, pins[i]);
         bytes32[] memory words = new bytes32[](4); words[3] = bytes32(uint256(1));
@@ -148,11 +152,11 @@ contract KuruForkTest is CoreFixture {
     function _rule(uint8 decimals) private view returns (PriceProtection.Rule memory) {
         return PriceProtection.Rule(address(oracle), FEED, address(router), router.trade.selector, 0, decimals, 2, 0, 100, 500, 60, 0, 1);
     }
-    function _renew() private {
+    function _renew() internal {
         vm.roll(block.number + 1);
         for (uint256 i; i < guards.length; ++i) guards[i].renew(uint64(block.number - 1), blockhash(block.number - 1), uint64(block.timestamp));
     }
-    function _prepare() private {
+    function _prepare() internal {
         uint256 deadline = block.timestamp + 1 days; uint256 maturity = block.timestamp + 30 days;
         bytes32 digest = core.quoteDigest(keccak256("intent"), borrower, vm.addr(HOUSE_KEY), address(vault), DRAW, maturity, false, BUNDLE, deadline, 0, 0, 1, deadline, keccak256("terms"));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(HOUSE_KEY, digest);
@@ -171,7 +175,7 @@ contract KuruForkTest is CoreFixture {
         action.calls[0] = ExecutionTypes.Call(address(router), buying ? USDC : address(0), buying ? amount : 0,
             abi.encodeCall(router.trade, (buying ? BUY_ROUTE : SELL_ROUTE, amount, bound)), buying ? 0 : amount);
     }
-    function _execute(bool buying, uint256 amount, uint256 nonce) private {
+    function _execute(bool buying, uint256 amount, uint256 nonce) internal {
         (uint256 price, uint256 at, uint80 round) = oracle.read(FEED);
         uint256 bound = core.priceProtection().deriveAmountBound(price, amount, 0, buying ? 6 : 18, buying ? 18 : 6, buying, false);
         ExecutionTypes.Action memory action = _action(buying, amount, bound);
@@ -180,7 +184,7 @@ contract KuruForkTest is CoreFixture {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(BORROWER_KEY, core.executionDigest(CREDIT, action, auth));
         auth.signature = abi.encodePacked(r, s, v); core.executePlan(CREDIT, action, auth);
     }
-    function _buy() private {
+    function _buy() internal {
         _execute(true, DRAW, 1);
         assertEq(core.creditDebt(CREDIT), DRAW); assertGt(account.balance, 0); assertEq(MockERC20(USDC).balanceOf(account), 0);
         assertEq(module.positionCount(CREDIT, account), 1); assertEq(MockERC20(USDC).allowance(account, address(router)), 0);
@@ -191,6 +195,9 @@ contract KuruForkTest is CoreFixture {
     }
     function attemptBuy() external { _buy(); }
 
+}
+
+contract KuruForkTest is KuruForkFixture {
     function testForkBorrowBuySellRepayAndClose() public {
         _buy(); feed.update(int256(bid - 1e20 / account.balance - 1)); _execute(false, account.balance, 2);
         assertLe(account.balance, 1e10); assertTrue(module.canExit(CREDIT, account));

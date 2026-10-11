@@ -129,6 +129,16 @@ export const useCasePolicyAbi = [
                     "internalType": "uint256"
                   }
                 ]
+              },
+              {
+                "name": "maximumNative",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "nativeWord",
+                "type": "uint8",
+                "internalType": "uint8"
               }
             ]
           }
@@ -180,6 +190,16 @@ export const useCasePolicyAbi = [
                 "internalType": "uint256"
               }
             ]
+          },
+          {
+            "name": "maximumNative",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "nativeWord",
+            "type": "uint8",
+            "internalType": "uint8"
           }
         ]
       }
@@ -207,6 +227,35 @@ export const useCasePolicyAbi = [
     "outputs": [
       {
         "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "pendingInputAsset",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "pendingId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "input",
         "type": "address",
         "internalType": "address"
       }
@@ -300,6 +349,25 @@ export const useCasePolicyAbi = [
             "internalType": "enum ExecutionTypes.Status"
           }
         ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "pendingTracker",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"

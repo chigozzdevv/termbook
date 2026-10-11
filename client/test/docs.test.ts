@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { pages } from "../src/features/docs/content";
 import { actionExamples } from "../src/features/docs/content/use-cases";
-import { kuruImplementation, kuruReadProgram } from "../src/features/docs/content/kuru-source";
+import { kuruImplementation, kuruReadProgram, kuruOrders } from "../src/features/docs/content/kuru-source";
 import { docHref, searchDocs, searchEntries } from "../src/features/docs/model";
 import { actionParameters, standardActionSchema } from "../../packages/schema/src/actions";
 
@@ -29,6 +29,7 @@ describe("documentation integrity", () => {
   it("keeps the complete Kuru example aligned with its implementation", () => {
     expect(kuruImplementation).toBe(readFileSync(new URL("../../server/src/kuru/integration.ts", import.meta.url), "utf8").trimEnd());
     expect(kuruReadProgram).toBe(readFileSync(new URL("../../server/src/kuru/read.ts", import.meta.url), "utf8").trimEnd());
+    expect(kuruOrders).toBe(readFileSync(new URL("../../server/src/kuru/orders.ts", import.meta.url), "utf8").trimEnd());
   });
 
   it("searches section content and ranks heading matches", () => {

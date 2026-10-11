@@ -102,12 +102,6 @@
 .docs-diagram-dialog > p { margin: 0; padding: 14px 20px 20px; font-size: 13px; }
 .docs-article .docs-diagram-description { margin: 0; padding: 10px 18px 16px; font-size: 12px; line-height: 1.65; }
 .docs-article .docs-diagram-status { min-height: 180px; display: grid; place-items: center; padding: 24px; font-size: 12px; }
-.docs-diagram-source { border-top: 1px solid var(--docs-line); }
-.docs-diagram-source summary { display: flex; justify-content: space-between; align-items: center; padding: 9px 18px; list-style: none; cursor: pointer; color: var(--docs-quiet); font-size: 11px; }
-.docs-diagram-source summary::-webkit-details-marker { display: none; }
-.docs-diagram-source summary:hover { color: var(--docs-accent); }
-.docs-diagram-source[open] summary svg { transform: rotate(180deg); }
-.docs-diagram-source .docs-code { margin: 0; border: 0; border-top: 1px solid var(--docs-line); border-radius: 0; }
 .docs-table-scroll { margin: 22px 0; width: 100%; max-width: 100%; overflow-x: auto; scrollbar-width: thin; }
 .docs-table-scroll table { border-collapse: collapse; width: 100%; text-align: left; font-size: 13px; line-height: 1.65; }
 .docs-table-scroll th { padding: 10px 14px; border-bottom: 1px solid var(--docs-line); color: var(--docs-text); font-weight: 500; background: var(--docs-panel); }

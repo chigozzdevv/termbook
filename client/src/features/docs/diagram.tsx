@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { ArrowUpRight, ChevronDown, X } from "lucide-react";
-import { Code } from "./code";
+import { ArrowUpRight, X } from "lucide-react";
 import { useDocsTheme } from "./theme";
 
 let renderQueue = Promise.resolve();
@@ -75,12 +74,8 @@ export function Diagram({ title, description, source }: { title: string; descrip
       onClick={() => { setExpanded(true); dialog.current?.showModal(); }}>Expand<ArrowUpRight size={14} aria-hidden="true" /></button></figcaption>
     {current?.svg && !expanded ? <div className={`docs-diagram-scroll${source.startsWith("flowchart TD") ? " docs-diagram-vertical" : ""}`} role="region" aria-label={`${title} diagram`} tabIndex={0}
       dangerouslySetInnerHTML={{ __html: current.svg }} />
-      : <p className="docs-diagram-status" role="status">{expanded ? "Diagram expanded." : current?.error ? "Diagram unavailable. View its Mermaid source below." : "Loading diagram…"}</p>}
+      : <p className="docs-diagram-status" role="status">{expanded ? "Diagram expanded." : current?.error ? "Diagram unavailable." : "Loading diagram…"}</p>}
     <p className="docs-diagram-description">{description}</p>
-    <details className="docs-diagram-source">
-      <summary>Mermaid source<ChevronDown size={14} aria-hidden="true" /></summary>
-      <Code language="mermaid" title={`${title} · Mermaid`} value={source} />
-    </details>
     <dialog ref={dialog} className="docs-diagram-dialog" aria-labelledby={`${id}-expanded-title`} onClose={() => setExpanded(false)}>
       <header><strong id={`${id}-expanded-title`}>{title}</strong>
         <button type="button" aria-label="Close expanded diagram" onClick={() => dialog.current?.close()}><X size={18} /></button>

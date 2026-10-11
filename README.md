@@ -337,7 +337,8 @@ The SDK admission runner selects the evidence for the configured version.
 
 The shared order modules, FlowExecutor and the guarded-oracle PriceProtection
 upgrade have exact Sourcify matches. The complete order configuration passed
-simulation. Live configuration, lifecycle tests and admission remain pending.
+simulation and all 146 configuration transactions confirmed on Monad testnet.
+The seven-action version still requires live lifecycle tests and SDK admission.
 
 Configuration binds the SDK definition and simulated governance plan before
 broadcast. Reader registration targets `HealthSource`; the SDK checks its

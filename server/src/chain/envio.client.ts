@@ -125,7 +125,7 @@ export async function readCoreEvents(chain: PublicClient, from: bigint, finalize
     const logs = (await Promise.all(ranges.map((range) => chain.getLogs({ address: env.core as Address, ...range })))).flat();
     return { logs: logs as CoreLog[], nextBlock: to + 1n, source: "rpc" };
   }
-  const window = transport === "json" ? 10_000n : 100_000n;
+  const window = transport === "json" ? 1_000_000n : 100_000n;
   const end = from + window < finalized + 1n ? from + window : finalized + 1n;
   let response;
   if (transport === "json") response = await jsonPage(from, end);

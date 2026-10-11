@@ -120,12 +120,12 @@ describe("Envio event ingestion", () => {
   it("retries a JSON rate limit without widening the requested page", async () => {
     const fetcher = vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({ chain_id: 10143 }) })
       .mockResolvedValueOnce({ ok: false, status: 429 })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ next_block: 10_001, data: [{ logs: [] }] }) });
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ next_block: 1_000_001, data: [{ logs: [] }] }) });
     vi.stubGlobal("fetch", fetcher);
     const { readCoreEvents } = await import("../../src/chain/envio.client.js");
-    expect((await readCoreEvents(rpc(), 1n, 100_000n, "json")).nextBlock).toBe(10_001n);
+    expect((await readCoreEvents(rpc(), 1n, 2_000_000n, "json")).nextBlock).toBe(1_000_001n);
     expect(fetcher.mock.calls[1]![1].body).toBe(fetcher.mock.calls[2]![1].body);
-    expect(JSON.parse(fetcher.mock.calls[2]![1].body).to_block).toBe(10_001);
+    expect(JSON.parse(fetcher.mock.calls[2]![1].body).to_block).toBe(1_000_001);
   });
   it("rejects malformed JSON batches", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({ chain_id: 10143 }) })

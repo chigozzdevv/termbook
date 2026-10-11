@@ -335,6 +335,10 @@ tests all seven advertised actions, checks controlled venue balances, and
 defaults a resting order for independent keeper cancellation and repayment.
 The SDK admission runner selects the evidence for the configured version.
 
+The shared order modules, FlowExecutor and the guarded-oracle PriceProtection
+upgrade have exact Sourcify matches. The complete order configuration passed
+simulation. Live configuration, lifecycle tests and admission remain pending.
+
 Configuration binds the SDK definition and simulated governance plan before
 broadcast. Reader registration targets `HealthSource`; the SDK checks its
 binding through Core's authenticated `AccountHealthSource` wrapper. The live runner creates repayment, default-recovery and active
@@ -687,9 +691,9 @@ selectors and encoded types still match the application's deployed function.
 Unsupported slots and optional fields cannot be silently ignored.
 
 Existing manifests with arbitrary parameter names must be replaced and pass
-admission before resolving through the SDK. These source changes do not alter
-an existing deployment; the updated PriceProtection must be included in the
-next deployment for stricter signed limit prices.
+admission before resolving through the SDK. Monad testnet's PriceProtection
+supports stricter signed limit prices and guarded proxy oracles at its existing
+proxy address.
 Application position valuation, forced unwind, and exit verification must be
 reviewed for each integration before it is admitted. The repository's
 `CollateralHealthReader` values collateral and Credit Account cash only.

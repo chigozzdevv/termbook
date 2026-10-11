@@ -14,7 +14,7 @@ export const deployments: DeploymentMap = {
     "FlowExecutor": "0xfd4f7878df5f4e51a1b78d7ec2428acb1ddb3558",
     "ReservationManagerImplementation": "0xa82b21d04ec8b9fbd8ffdef737648e8342c242f1",
     "ReservationManager": "0xf70614f0c1991819cfd80298f1f45b8756f30b24",
-    "PriceProtectionImplementation": "0xcce9c12c7380e32cca30330de1768ee59529447b",
+    "PriceProtectionImplementation": "0x6226d54fd8112fff17d0d30cfe21e06644b8e0d5",
     "PriceProtection": "0x7b486460855ce5e6a4bf0215f916cd441540b664",
     "TermbookCoreImplementation": "0xa88abd9d9a428cc9057055d2a6e2838c1ca99dab",
     "TermbookCore": "0x198995faab55a9d5d4dceab56abaaa273c26fad7",

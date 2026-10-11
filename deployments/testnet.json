@@ -21425,14 +21425,14 @@
         ]
       },
       "HealthSource": {
-        "implementation": "0xb7c69a35a945d0a83739d1bdc7f14a362f0b435a",
+        "implementation": "0xfAc81b95d37df756eA42b449048FB371562473b0",
         "admin": "0x3a1da249c5576C57165aE39D2D6079DBa0B52a70",
         "contractId": "0xca7122935bab0e4a5505cf3b9855b50cf6f2b60405176709523a5a8ddd9a54cf",
-        "implementationCodeHash": "0xa772b53e6015540e71a2df24b504c44579f7c6bfe564e5972800fcb894c28193",
+        "implementationCodeHash": "0x9a4f8fcc664f7c0df7d19ee9c8ee16bde09bf73cfa9fcede94791508f20cfcda",
         "storageLayout": {
           "storage": [
             {
-              "astId": 108792,
+              "astId": 43798,
               "contract": "src/monad/risk/HealthSource.sol:HealthSource",
               "label": "governance",
               "offset": 0,
@@ -21440,7 +21440,7 @@
               "type": "t_address"
             },
             {
-              "astId": 108794,
+              "astId": 43800,
               "contract": "src/monad/risk/HealthSource.sol:HealthSource",
               "label": "oracleRegistry",
               "offset": 0,
@@ -21448,12 +21448,12 @@
               "type": "t_address"
             },
             {
-              "astId": 108799,
+              "astId": 43805,
               "contract": "src/monad/risk/HealthSource.sol:HealthSource",
               "label": "readers",
               "offset": 0,
               "slot": "2",
-              "type": "t_mapping(t_bytes32,t_struct(Reader)108790_storage)"
+              "type": "t_mapping(t_bytes32,t_struct(Reader)43796_storage)"
             }
           ],
           "types": {
@@ -21472,20 +21472,20 @@
               "label": "bytes32",
               "numberOfBytes": "32"
             },
-            "t_mapping(t_bytes32,t_struct(Reader)108790_storage)": {
+            "t_mapping(t_bytes32,t_struct(Reader)43796_storage)": {
               "encoding": "mapping",
               "key": "t_bytes32",
               "label": "mapping(bytes32 => struct HealthSource.Reader)",
               "numberOfBytes": "32",
-              "value": "t_struct(Reader)108790_storage"
+              "value": "t_struct(Reader)43796_storage"
             },
-            "t_struct(Reader)108790_storage": {
+            "t_struct(Reader)43796_storage": {
               "encoding": "inplace",
               "label": "struct HealthSource.Reader",
               "numberOfBytes": "160",
               "members": [
                 {
-                  "astId": 108781,
+                  "astId": 43787,
                   "contract": "src/monad/risk/HealthSource.sol:HealthSource",
                   "label": "impl",
                   "offset": 0,
@@ -21493,7 +21493,7 @@
                   "type": "t_address"
                 },
                 {
-                  "astId": 108783,
+                  "astId": 43789,
                   "contract": "src/monad/risk/HealthSource.sol:HealthSource",
                   "label": "version",
                   "offset": 0,
@@ -21501,7 +21501,7 @@
                   "type": "t_uint256"
                 },
                 {
-                  "astId": 108785,
+                  "astId": 43791,
                   "contract": "src/monad/risk/HealthSource.sol:HealthSource",
                   "label": "active",
                   "offset": 0,
@@ -21509,7 +21509,7 @@
                   "type": "t_bool"
                 },
                 {
-                  "astId": 108787,
+                  "astId": 43793,
                   "contract": "src/monad/risk/HealthSource.sol:HealthSource",
                   "label": "maxAge",
                   "offset": 0,
@@ -21517,7 +21517,7 @@
                   "type": "t_uint256"
                 },
                 {
-                  "astId": 108789,
+                  "astId": 43795,
                   "contract": "src/monad/risk/HealthSource.sol:HealthSource",
                   "label": "codeHash",
                   "offset": 0,
@@ -21696,6 +21696,24 @@
           },
           {
             "type": "function",
+            "name": "setMaxAge",
+            "inputs": [
+              {
+                "name": "bundleId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "maxAge",
+                "type": "uint256",
+                "internalType": "uint256"
+              }
+            ],
+            "outputs": [],
+            "stateMutability": "nonpayable"
+          },
+          {
+            "type": "function",
             "name": "setReader",
             "inputs": [
               {
@@ -21838,6 +21856,25 @@
                 "type": "bytes32",
                 "indexed": true,
                 "internalType": "bytes32"
+              }
+            ],
+            "anonymous": false
+          },
+          {
+            "type": "event",
+            "name": "ReaderMaxAgeSet",
+            "inputs": [
+              {
+                "name": "bundleId",
+                "type": "bytes32",
+                "indexed": true,
+                "internalType": "bytes32"
+              },
+              {
+                "name": "maxAge",
+                "type": "uint256",
+                "indexed": false,
+                "internalType": "uint256"
               }
             ],
             "anonymous": false
@@ -36221,8 +36258,8 @@
       "settlementAsset": "0x534b2f3A21130d7a60830c2Df862319e593943A3",
       "monitor": "0x4Bb71Cc4ea4dA4FBa0ce4720843c28Cc6aD0Fc70",
       "trustModel": "testnet RPC monitor; 180-second expiring approval",
-      "bid": "2510300",
-      "ask": "2535600",
+      "bid": "2698900",
+      "ask": "2726100",
       "makerBaseMON": "1",
       "makerQuoteUSDC": "1",
       "guards": {
@@ -36314,7 +36351,7 @@
           "codeHash": "0x645111866eec7decc0ba5894cef472a6497f11a791aec446155d8a71078cc0c2"
         }
       },
-      "liquidityUpdatedAt": "2026-10-10T21:26:05.611Z"
+      "liquidityUpdatedAt": "2026-10-11T18:17:50.096Z"
     },
     "kuru-application": {
       "applicationId": "60a78bce-f7bc-438d-afb5-8fedfa22866f",
@@ -43935,6 +43972,16 @@
             "runtimeMatch": "exact_match",
             "creationMatch": "exact_match",
             "url": "https://sourcify.dev/server/v2/contract/10143/0x6226d54fd8112fff17d0d30cfe21e06644b8e0d5"
+          },
+          {
+            "name": "HealthSourceImplementation",
+            "address": "0xfAc81b95d37df756eA42b449048FB371562473b0",
+            "verificationId": "2bdc291a-e47f-411b-9040-bc24827bd88f",
+            "matchId": "55939306",
+            "verifiedAt": "2026-10-11T18:33:31Z",
+            "runtimeMatch": "exact_match",
+            "creationMatch": "exact_match",
+            "url": "https://sourcify.dev/server/v2/contract/10143/0xfAc81b95d37df756eA42b449048FB371562473b0"
           }
         ]
       }

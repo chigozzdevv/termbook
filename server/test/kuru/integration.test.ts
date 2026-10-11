@@ -1,6 +1,6 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { decodeFunctionData, parseAbi, keccak256, zeroAddress, type PublicClient, type Address, type Hex } from "viem";
-import { create_kuru, KuruSourceUnavailableError } from "../integration.js";
+import { create_kuru, KuruSourceUnavailableError } from "../../src/kuru/integration.js";
 const addr = (n: string) => `0x${n.repeat(40)}` as Address;
 const word = (n: string) => `0x${n.repeat(64)}` as Hex;
 const params = [10000, 100000000n, addr("5"), 18n, addr("6"), 6n, 1, 1n, 2n ** 96n - 1n, 30n, 0n] as const;
@@ -24,7 +24,7 @@ beforeEach(() => {
     : { target: new URL(url).searchParams.get("target"), code_hash: keccak256("0x1234"), source_hash: word("c") }), { status: 200 })));
 });
 afterEach(() => vi.unstubAllGlobals());
-describe("Kuru spot package", () => {
+describe("Kuru spot integration", () => {
   it("builds buy and sell calls with raw units and the bound Credit Account recipient", async () => {
     const plugin = await create_kuru(options());
     const context = { client: client(), credit_id: word("d"), account: addr("2"), borrower: addr("1"),

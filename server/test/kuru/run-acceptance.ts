@@ -27,7 +27,9 @@ async function main() {
   }
   const block = await fixture.chain.getBlock({ blockTag: "finalized" });
   const identity = deployed ? atomic_configuration(deployment.configuration["kuru-integration"].definition) : undefined;
-  const live = deployed ? JSON.parse(await readFile(".data/operations/testnet-kuru-e2e.json", "utf8")) : undefined;
+  const live = deployed ? await readFile(".data/operations/testnet-kuru-e2e.json", "utf8")
+    .then((value) => JSON.parse(value))
+    .catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; return undefined; }) : undefined;
   const names = ["TermbookCore", "FlowExecutor", "ReservationManager", "PriceProtection", "RiskEngine", "HouseRegistry", "IntegrationRegistry", "OracleRegistry", "CollateralHealthReader", "AppHealthReader", "HealthSource", "AccountHealthSource", "AtomicSpotRouter", "AtomicSpotModule", "ReadProgram", "AccountFactory", "HouseVault", "InboxFactory", "CollateralVault", "SpotAcceptanceProbe", "MockERC20", "PriceFeedFixture", "USDPriceFeedFixture", "SpotCallbackFixture", "CallbackRouter", "Circle", "Kuru"];
   const targets = [...new Set([...(deployed ? names.map((name) => fixture.addresses[name]!).filter(Boolean) : Object.values(fixture.addresses)), ...fixture.guards,
     ...[...fixture.facilities.values()].map((v) => v.account), ...(identity?.definition.pins.map((p) => p.target as Address) ?? []),
@@ -71,8 +73,8 @@ async function main() {
     const base = new URL("../../../", import.meta.url).pathname;
     const options = deployment.configuration["kuru-integration"].definition.atomic_spot;
     const suite = { ...report.suite, cases: undefined, exclusions: undefined };
-    await writeFile(join(output, "../admission.json"), JSON.stringify({ rpcUrl: "https://testnet-rpc.monad.xyz", forkRpcUrl: rpc, suite, module: `${base}features/kuru/test/acceptance.ts`, gasLimit: "16000000", checkpoint: "checkpoint.json", output: "report.json", timeoutMs: 3_600_000,
-      admission: { applicationId: deployment.configuration["kuru-application"].applicationId, apiBase: "http://127.0.0.1:3002", module: `${base}features/kuru/dist/integration.js`, factory: "create_kuru", parameters: {
+    await writeFile(join(output, "../admission.json"), JSON.stringify({ rpcUrl: "https://testnet-rpc.monad.xyz", forkRpcUrl: rpc, suite, module: `${base}server/test/kuru/acceptance.ts`, gasLimit: "16000000", checkpoint: "checkpoint.json", output: "report.json", timeoutMs: 3_600_000,
+      admission: { applicationId: deployment.configuration["kuru-application"].applicationId, apiBase: "http://127.0.0.1:3002", module: `${base}server/dist/kuru/integration.js`, factory: "create_kuru", parameters: {
         market_address: deployment.configuration["kuru-market"].market, settlement_asset: identity!.definition.settlement_asset, api_base: "http://127.0.0.1:3002", maximum_input: options.maximum_input, retained_bps: options.retained_bps, recovery_costs: options.recovery_costs, max_holding: options.max_holding, dust_limit: options.dust_limit, oracle: options.oracle, feed_id: options.feed_id }, amount: "10000", lifecycle: `${base}.data/operations/testnet-kuru-e2e.json`, tokenEnv: "TERMBOOK_KURU_APP_TOKEN" } }, null, 2));
   }
   process.stdout.write(`${report.suite.cases.length} acceptance cases passed and replayed; ${report.suite.exclusions.length} inapplicable cases excluded\n`);

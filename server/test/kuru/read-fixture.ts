@@ -1,7 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { encodeAbiParameters, zeroHash } from "viem";
 import { compile_read_program, readProgramAbi } from "@termbook/sdk";
-import { kuru_quote_program } from "../read.js";
+import { kuru_quote_program } from "../../src/kuru/read.js";
 
 for (const [name, size, price] of [
   ["kuru-read", 1_000_000n, 10_000n],

@@ -135,7 +135,7 @@ async function main() {
     return;
   }
   if (configure) {
-    const { create_kuru } = await import("../features/kuru/dist/integration.js");
+    const { create_kuru } = await import("../server/dist/kuru/integration.js");
     const { prepare_atomic_spot, package_integration, atomic_configuration } = await import("../packages/sdk/dist/index.js");
     const market = deployment.configuration["kuru-market"];
     if (!market || market.core.toLowerCase() !== m.TermbookCore.toLowerCase()

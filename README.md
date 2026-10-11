@@ -15,7 +15,8 @@ See `termbook.md` for the required behavior specification.
 - `packages/bindings/` generated contract ABIs and deployments
 - `packages/schema/` shared request and response schemas
 - `packages/sdk/` borrower and LP client
-- `features/kuru/` Kuru spot integration using the SDK's standard interface
+- `server/src/kuru/` Kuru spot integration using the SDK's standard interface
+- `server/test/kuru/` Kuru regression and lifecycle acceptance tests
 - `server/` off-chain indexer and coordinator, no custody authority
 - `scripts/` repo automation
 
@@ -157,7 +158,7 @@ After the application owner verifies its origin, the author flow is:
 
 ```ts
 import { create_sdk, create_termbook, type spot } from "@termbook/sdk";
-import { create_kuru } from "@termbook/kuru";
+import { create_kuru } from "./server/src/kuru/integration.js";
 
 const sdk = create_sdk({
   application_id,
@@ -355,7 +356,7 @@ anvil --fork-url https://testnet-rpc.monad.xyz --chain-id 10143 \
 ```
 
 ```sh
-pnpm --filter @termbook/kuru test:acceptance
+pnpm --filter termbook-server test:kuru
 ```
 
 The runner accepts only a local Anvil fork. It uses public fixture keys, local
@@ -366,7 +367,7 @@ deployed bytecode. For admission, restart the fork after live configuration and
 lifecycle testing, then run:
 
 ```sh
-node --env-file=.env --import tsx features/kuru/test/run-acceptance.ts \
+node --env-file=.env --import tsx server/test/kuru/run-acceptance.ts \
   http://127.0.0.1:18548 --deployment
 ```
 
@@ -396,7 +397,7 @@ App developers implement TypeScript interfaces for `spot`, `perps`, `vault`,
 `staking`, or `liquidity`. Their native ABI calls and reads are compiled into an
 immutable definition. Integrating developers do not deploy a venue-specific
 Termbook contract. Kuru-specific selectors, precision and depth decoding live in
-`features/kuru`; Solidity enforces the shared rules.
+`server/src/kuru`; Solidity enforces the shared rules.
 
 `prepare_use_case(definition, operator_config)` prepares governance calls for the
 shared reader, policy and recovery components. The server checks their addresses,
@@ -937,7 +938,7 @@ After governance ownership moves to a multisig, approve the prepared queue
 transaction through that multisig, then resume `--broadcast`.
 
 Credit inventories are read from finalized Core events. `TERMBOOK_CREDIT_RPC_URL`
-optionally supplies a Monad testnet RPC with a larger log range for migration and
+optionally supplies a Monad testnet RPC with a larger log range for
 shared integration checks. Its chain and finalized block must match the primary
 RPC. The public endpoint's small log range can make a full scan slow.
 
@@ -957,21 +958,10 @@ solana program deploy contracts/solana/target/testnet/deploy/sol_collateral.so \
   --url devnet --program-id <new-program-keypair> --upgrade-authority <authority-keypair>
 ```
 
-The current immutable devnet program needs a new program ID for this initial
-replacement. Subsequent native loader upgrades retain that replacement ID.
-
-To replace the original testnet deployment, run `--simulate --redeploy` on the
-local forks. Deployment and initial activation complete in that single run.
-Once that succeeds, `--broadcast --redeploy` checks the same build and the gas
-budget before sending its first transaction, then activates configuration
-immediately. Every accepted Credit in the original deployment must be discovered
-from finalized Core events,
-settled, and have its collateral returned. House liquidity must be withdrawn
-before replacement. It reuses the admitted Solana program when no replacement is configured, and
-keeps the prior configuration only while the replacement operation is unfinished.
-Replacement journals use the
-`-redeploy` suffix. ETH custody bindings and SOL program identity are configured
-with the initial replacement setup.
+The active devnet program retains its recorded upgrade authority. Native loader
+upgrades preserve its program ID. Existing EVM deployments use
+`upgrade-testnet.mjs`; the deployment runner rejects overwriting an existing
+deployment. The original replacement migration tooling has been removed.
 
 The active testnet addresses, configuration and code hashes are recorded in
 [`deployments/testnet.json`](deployments/testnet.json).

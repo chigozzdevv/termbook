@@ -1,5 +1,4 @@
 import { operationFile, configuration, clearOperation } from "./testnet-state.mjs";
-import { loadCredits } from "./testnet-credits.mjs";
 import fs from "node:fs";
 import process from "node:process";
 import { Buffer } from "node:buffer";
@@ -11,7 +10,6 @@ import { createRequire } from "node:module";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { upgradeArtifactLoader } from "./upgrade-validation.mjs";
-import { verifySettledCredits } from "./testnet-replacement.mjs";
 import { writeJsonAtomic } from "./testnet-runtime.mjs";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -23,21 +21,16 @@ const { Connection, Keypair, PublicKey } = require("@solana/web3.js");
 const broadcast = process.argv.includes("--broadcast");
 const simulate = process.argv.includes("--simulate");
 const activate = process.argv.includes("--activate");
-const redeploy = process.argv.includes("--redeploy");
-if (process.argv.slice(2).some((argument) => !["--broadcast", "--simulate", "--activate", "--redeploy"].includes(argument))) throw new Error("Unknown deployment argument");
+if (process.argv.slice(2).some((argument) => !["--broadcast", "--simulate", "--activate"].includes(argument))) throw new Error("Unknown deployment argument");
 if (broadcast === simulate) throw new Error("Use --simulate or --broadcast");
 const directory = path.join(root, ".testnet");
 const existingManifest = path.join(root, "deployments/testnet.json");
-if (broadcast && !redeploy && !activate && fs.existsSync(existingManifest)) throw new Error("Testnet is already deployed; use upgrade-testnet.mjs to update contracts");
+if (broadcast && !activate && fs.existsSync(existingManifest)) throw new Error("Testnet is already deployed; use upgrade-testnet.mjs to update contracts");
 fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
-const previousFile = operationFile("previous-deployment");
-if (redeploy && !fs.existsSync(previousFile)) fs.copyFileSync(existingManifest, previousFile, fs.constants.COPYFILE_EXCL);
-const previous = redeploy ? JSON.parse(fs.readFileSync(previousFile, "utf8")) : null;
-if (previous && previous.network !== "testnet") throw new Error("Replacement requires an existing testnet deployment");
-const reportFile = operationFile(`${simulate ? "simulation" : "deployment"}-upgradeable${redeploy ? "-redeploy" : ""}`);
+const reportFile = operationFile(`${simulate ? "simulation" : "deployment"}-upgradeable`);
 const report = fs.existsSync(reportFile) ? JSON.parse(fs.readFileSync(reportFile, "utf8"))
   : { network: "testnet", upgradeMode: "testnet-administrator", proxies: {}, transactions: [], addresses: {}, pendingGovernance: [] };
-if (report.upgradeMode !== "testnet-administrator") throw new Error("Legacy deployment journal; use a fresh replacement journal");
+if (report.upgradeMode !== "testnet-administrator") throw new Error("Deployment journal is incompatible with the current upgradeable contracts");
 if (activate && !report.transactions.length) throw new Error("Deploy before activating governance actions");
 const persist = () => writeJsonAtomic(reportFile, report);
 function publishManifest() {
@@ -55,13 +48,11 @@ function publishManifest() {
   };
   writeJsonAtomic(path.join(output, "testnet.json"), configuration(manifest));
   fs.rmSync(reportFile, { force: true });
-  clearOperation(`simulation-upgradeable${redeploy ? "-redeploy" : ""}`);
-  if (redeploy) clearOperation("previous-deployment");
+  clearOperation("simulation-upgradeable");
 }
 const account = privateKeyToAccount(simulate ? `0x${"1".padStart(64, "0")}`
   : JSON.parse(fs.readFileSync(path.join(directory, "evm.json"), "utf8")).privateKey);
 if (report.deployer && report.deployer.toLowerCase() !== account.address.toLowerCase()) throw new Error("Deployment wallet mismatch");
-if (previous && broadcast && previous.deployer.toLowerCase() !== account.address.toLowerCase()) throw new Error("Replacement wallet mismatch");
 const riskFile = path.join(directory, "recovery-risk.json");
 if (!activate && !fs.existsSync(riskFile)) fs.writeFileSync(riskFile, JSON.stringify({ privateKey: generatePrivateKey() }), { mode: 0o600 });
 const riskSigner = activate ? report.recoveryRiskSigner : privateKeyToAccount(JSON.parse(fs.readFileSync(riskFile, "utf8")).privateKey).address;
@@ -241,56 +232,16 @@ if (broadcast) {
     || programData.data[12] > 1 || (programData.data[12] === 1 && (!upgradeAuthority
       || new PublicKey(programData.data.subarray(13, 45)).toBase58() !== upgradeAuthority))
     || keccak256(solanaHex(programData.data.subarray(45))) !== programHash) throw new Error("Solana admitted binary or upgrade authority mismatch");
-  report.solana = { ...previous?.solana, network: "devnet", genesis: "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
+  const priorProgram = report.solana?.programId;
+  report.solana = { ...report.solana, network: "devnet", genesis: "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
     programId: program.toBase58(), programDataAddress: new PublicKey(deployed.data.subarray(4, 36)).toBase58(),
     programDataHash: programHash, emitter: PublicKey.findProgramAddressSync([Buffer.from("emitter")], program)[0].toBase58(),
     immutable: programData.data[12] === 0, upgradeAuthority: programData.data[12] === 1 ? upgradeAuthority : undefined };
-  if (previous?.solana.programId !== program.toBase58()) delete report.solana.deploymentSignature;
+  if (priorProgram !== program.toBase58()) delete report.solana.deploymentSignature;
 }
 
 const monad = await context(10143, simulate ? "http://127.0.0.1:18545" : "https://testnet-rpc.monad.xyz");
 const ethereum = await context(11155111, simulate ? "http://127.0.0.1:18546" : "https://ethereum-sepolia-rpc.publicnode.com");
-if (previous) {
-  report.previousCredits = await verifySettledCredits(previous,
-    await loadCredits(previous, monad),
-    (chainId, name, address, method, args = []) => (chainId === 10143 ? monad : ethereum).read(name, address, method, args));
-  const balance = await monad.publicClient.readContract({
-    address: previous.tokens[10143].USDC,
-    abi: [{ type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] }],
-    functionName: "balanceOf", args: [previous.addresses[10143].HouseVault],
-  });
-  if (balance !== 0n) throw new Error("Replacement requires migration of existing House liquidity");
-  if (broadcast && !activate && report.transactions.length === 0) {
-    const planFile = operationFile("simulation-upgradeable-redeploy");
-    if (!fs.existsSync(planFile)) throw new Error("Simulate the replacement before broadcasting");
-    const plan = JSON.parse(fs.readFileSync(planFile, "utf8"));
-    if (!plan.completedAt || plan.governanceDelaySeconds !== 0 || plan.pendingGovernance.length !== 13
-      || plan.pendingGovernance.some((action) => action.status !== "executed") || !plan.artifactHashes) {
-      throw new Error("Complete the replacement deployment and activation simulation first");
-    }
-    for (const [name, expected] of Object.entries(plan.artifactHashes)) {
-      if (keccak256(artifact(name).bytecode.object) !== expected) throw new Error(`Simulation build changed: ${name}`);
-    }
-    const solanaBinary = fs.readFileSync(path.join(root, "contracts/solana/target/testnet/deploy/sol_collateral.so"));
-    if (!upgradeAuthority && keccak256(`0x${solanaBinary.toString("hex")}`) !== previous.solana.programDataHash) throw new Error("Solana replacement binary mismatch");
-    const funding = [];
-    for (const [context, chainId] of [[monad, 10143], [ethereum, 11155111]]) {
-      let gasPrice = await context.publicClient.getGasPrice();
-      if (chainId === 10143 && gasPrice < 100_000_000_000n) gasPrice = 100_000_000_000n;
-      if (chainId === 11155111) gasPrice += gasPrice / 4n;
-      const gas = plan.transactions.filter((transaction) => transaction.chainId === chainId)
-        .reduce((sum, transaction) => sum + BigInt(transaction.gasLimit), 0n);
-      const required = gas * gasPrice + 10_000_000_000_000_000n;
-      const available = await context.publicClient.getBalance({ address: account.address });
-      funding.push({ chainId, required: formatEther(required), available: formatEther(available),
-        missing: formatEther(required > available ? required - available : 0n) });
-    }
-    if (funding.some((entry) => entry.missing !== "0")) {
-      log(JSON.stringify({ status: "funding-required", wallet: account.address, funding }));
-      process.exit(2);
-    }
-  }
-}
 async function activateGovernance() {
   for (const action of report.pendingGovernance) {
     const context = action.chainId === 10143 ? monad : action.chainId === 11155111 ? ethereum : null;

@@ -6,7 +6,8 @@ import { ArrowUpRight, LayoutGrid } from "lucide-react";
 import { Logo } from "@/components/brand/logo";
 
 export function Navbar() {
-  const apps = usePathname().startsWith("/apps");
+  const path = usePathname();
+  const apps = path.startsWith("/apps") || path.startsWith("/app/");
   return (
     <header className="gutter m-0 flex min-h-[72px] items-center gap-9 border-b border-[#25282a] bg-background max-[740px]:min-h-[66px] max-[740px]:gap-6 max-[520px]:gap-[18px] max-[430px]:min-h-16 max-[430px]:gap-3 max-[350px]:gap-[10px]">
       <Logo />

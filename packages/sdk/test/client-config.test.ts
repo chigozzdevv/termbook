@@ -63,6 +63,15 @@ describe("public SDK configuration", () => {
     expect(chain.readContract).toHaveBeenCalledWith(expect.objectContaining({ functionName: "isActive", blockTag: "finalized" }));
   });
 
+  it("resolves through a configured API while checking the returned origin", async () => {
+    const { fetcher } = setup(true, { apiBase: "http://127.0.0.1:3002" });
+    const client = create_termbook({ app_token: token, wallet, apiBase: "http://127.0.0.1:3002" });
+    await client.ready();
+    expect(fetcher).toHaveBeenCalledWith(expect.stringContaining("http://127.0.0.1:3002/integrations/config"), expect.anything());
+    setup();
+    await expect(create_termbook({ app_token: token, wallet, apiBase: "http://127.0.0.1:3002" }).ready()).rejects.toThrow("sdk-config-invalid");
+  });
+
   it("waits for full deployment verification when it exceeds ten seconds", async () => {
     vi.useFakeTimers();
     vi.spyOn(AbortSignal, "timeout").mockImplementation((delay) => {

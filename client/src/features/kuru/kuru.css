@@ -1,0 +1,128 @@
+.kuru-page { max-width: 1800px; margin: 0 auto; padding: 24px 40px 48px; }
+.kuru-topbar, .kuru-identity, .kuru-wallet, .kuru-back, .kuru-network { display: flex; align-items: center; gap: 12px; }
+.kuru-topbar { margin-bottom: 24px; gap: 24px; }
+.kuru-back { color: var(--color-muted); font-size: 12px; gap: 6px; }
+.kuru-identity { font-size: 17px; }
+.kuru-maintainer { color: var(--color-muted); font-size: 11px; padding-left: 10px; border-left: 1px solid var(--color-line); }
+.kuru-wallet { margin-left: auto; gap: 8px; }
+.kuru-network { color: var(--color-muted); font-size: 11px; margin-right: 10px; gap: 6px; }
+.kuru-network i, .kuru-feed-status i { height: 5px; width: 5px; display: inline-block; border-radius: 50%; background: var(--color-success); }
+.kuru-disconnect { padding: 8px; color: var(--color-muted); }
+.kuru-market-header { border: 1px solid var(--color-line); border-bottom: 0; padding: 20px 24px; display: flex; align-items: center; gap: 50px; }
+.kuru-market-header h1 { font-size: 23px; font-weight: 500; line-height: 1.3; margin: 0 0 5px; letter-spacing: -.6px; }
+.kuru-market-header h1 span { color: #53595d; margin: 0 8px; }
+.kuru-market-header a { color: var(--color-muted); font-size: 11px; display: inline-flex; align-items: center; gap: 4px; }
+.kuru-market-header dl { display: flex; align-items: center; gap: 40px; }
+.kuru-market-header dt { color: var(--color-muted); font-size: 11px; margin-bottom: 5px; }
+.kuru-market-header dd { font-variant-numeric: tabular-nums; font-size: 14px; }
+.kuru-feed-status { margin-left: auto; color: var(--color-muted); font-size: 11px; display: flex; gap: 7px; align-items: center; }
+.kuru-feed-status.stale i { background: #bfa16c; }
+.kuru-trading-grid { display: grid; grid-template-columns: minmax(0, 1fr) 310px; border: 1px solid var(--color-line); }
+.kuru-market { display: grid; grid-template-columns: minmax(0, 1fr) 250px; min-width: 0; }
+.kuru-view-toggle { display: none; }
+.kuru-chart { min-width: 0; }
+.kuru-chart-toolbar { display: flex; padding: 12px 16px; align-items: center; justify-content: space-between; color: var(--color-muted); font-size: 11px; border-bottom: 1px solid var(--color-line); height: 49px; }
+.kuru-chart-toolbar [role=group] { display: flex; gap: 4px; }
+.kuru-chart-toolbar button { padding: 5px 9px; border-radius: 4px; }
+.kuru-chart-toolbar button[aria-pressed=true] { color: #b9b9ff; background: #5555ff1c; }
+.kuru-chart-area { position: relative; }
+.kuru-chart-canvas { width: 100%; height: 390px; }
+.kuru-chart-empty { position: absolute; top: 43%; left: 15%; right: 15%; text-align: center; color: var(--color-muted); font-size: 12px; pointer-events: none; }
+.kuru-chart-note { color: #686f75; font-size: 10px; padding: 10px 16px; }
+.kuru-chart-note a:hover { color: var(--color-foreground); }
+.kuru-book { border-left: 1px solid var(--color-line); display: flex; flex-direction: column; }
+.kuru-book h2 { font-weight: 500; font-size: 13px; padding: 16px; height: 49px; border-bottom: 1px solid var(--color-line); }
+.kuru-book-head { display: grid; grid-template-columns: 1fr 1fr 1fr; padding: 12px 12px 6px; gap: 6px; font-size: 10px; color: var(--color-muted); text-align: right; }
+.kuru-book-head span:first-child { text-align: left; }
+.kuru-book-levels { min-height: 142px; padding: 4px 0; }
+.kuru-book-levels.asks { display: flex; flex-direction: column; justify-content: flex-end; }
+.kuru-book-row { position: relative; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; padding: 4px 12px; font-size: 11px; font-variant-numeric: tabular-nums; text-align: right; }
+.kuru-book-row > span:not(.kuru-depth) { position: relative; }
+.kuru-book-row > span:nth-child(2) { text-align: left; }
+.asks .kuru-book-row > span:nth-child(2), .sell { color: var(--color-danger); }
+.bids .kuru-book-row > span:nth-child(2), .buy { color: var(--color-success); }
+.kuru-depth { position: absolute; right: 0; height: 100%; top: 0; }
+.asks .kuru-depth { background: #ff758112; }
+.bids .kuru-depth { background: #00d57812; }
+.kuru-spread { display: flex; justify-content: space-between; align-items: center; padding: 12px; border-block: 1px solid var(--color-line); }
+.kuru-spread strong { font-size: 15px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.kuru-spread > span { color: var(--color-muted); font-size: 10px; }
+.kuru-book-note { margin-top: auto; padding: 10px 12px; font-size: 10px; color: #686f75; }
+.kuru-order { border-left: 1px solid var(--color-line); padding: 18px; }
+.kuru-order-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+.kuru-order h2 { font-size: 14px; font-weight: 500; }
+.kuru-order-title > span { color: var(--color-muted); font-size: 11px; }
+.kuru-directions { display: flex; border-bottom: 1px solid var(--color-line); margin-bottom: 22px; }
+.kuru-directions button { flex: 1; color: var(--color-muted); font-size: 13px; padding-bottom: 10px; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.kuru-directions button.buy[aria-pressed=true] { color: var(--color-success); border-color: var(--color-success); }
+.kuru-directions button.sell[aria-pressed=true] { color: var(--color-danger); border-color: var(--color-danger); }
+.kuru-field-label { display: block; color: #b8bdc0; font-size: 12px; margin-bottom: 8px; }
+.kuru-amount { display: flex; align-items: center; border: 1px solid #41444b; border-radius: 7px; padding: 12px; gap: 8px; background: #111416; }
+.kuru-amount:focus-within { border-color: #7070ff; }
+.kuru-amount input { min-width: 0; width: 100%; outline: 0; font-size: 20px; font-variant-numeric: tabular-nums; }
+.kuru-amount > span { font-size: 12px; color: var(--color-muted); }
+.kuru-available { display: flex; justify-content: space-between; gap: 8px; font-size: 10px; color: var(--color-muted); margin: 9px 0 22px; }
+.kuru-available button { color: #a6a6ff; margin-left: 6px; }
+.kuru-slippage { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--color-muted); }
+.kuru-slippage select { background: var(--color-background); color: var(--color-foreground); padding: 4px 7px; border: 1px solid var(--color-line); border-radius: 4px; }
+.kuru-quote { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 20px 0; font-size: 11px; font-variant-numeric: tabular-nums; }
+.kuru-quote dt { color: var(--color-muted); }
+.kuru-quote dd { text-align: right; }
+.kuru-order-credit { display: flex; align-items: flex-start; gap: 7px; font-size: 11px; line-height: 1.6; color: var(--color-muted); padding: 16px 0; }
+.kuru-order-credit svg { flex-shrink: 0; margin-top: 2px; }
+.kuru-limit { text-align: center; font-size: 10px; color: #686f75; margin-top: 10px; }
+.kuru-error { font-size: 11px; color: var(--color-danger); line-height: 1.5; margin: 8px 0; }
+.kuru-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 18px; background: #bfa16c12; border: 1px solid #bfa16c30; font-size: 12px; color: #cfbd9c; }
+.kuru-notice button { color: var(--color-foreground); }
+.kuru-account { grid-column: 1 / -1; border-top: 1px solid var(--color-line); min-width: 0; }
+.kuru-account > header { display: flex; justify-content: space-between; border-bottom: 1px solid var(--color-line); padding: 0 20px; }
+.kuru-account [role=tablist] { display: flex; gap: 24px; }
+.kuru-account [role=tab] { padding: 15px 0; font-size: 12px; color: var(--color-muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.kuru-account [aria-selected=true] { color: var(--color-foreground); border-color: var(--color-accent); }
+.kuru-refresh { color: var(--color-muted); padding: 10px; }
+.kuru-account-empty { display: flex; align-items: center; justify-content: center; min-height: 145px; flex-direction: column; gap: 14px; padding: 30px; text-align: center; color: var(--color-muted); font-size: 12px; }
+.kuru-account-empty button, .kuru-account-meta :is(a, button), .kuru-table a { display: inline-flex; align-items: center; gap: 5px; }
+.kuru-account-empty button { color: #b9b9ff; }
+.kuru-account-meta { display: flex; align-items: center; gap: 12px; padding: 16px 20px; font-size: 11px; color: var(--color-muted); flex-wrap: wrap; }
+.kuru-account-meta select { background: var(--color-background); color: var(--color-foreground); }
+.kuru-account-meta button { margin-left: auto; color: #b9b9ff; }
+.kuru-account-summary { display: flex; gap: 48px; padding: 0 20px 20px; flex-wrap: wrap; }
+.kuru-account-summary dt { font-size: 11px; color: var(--color-muted); margin-bottom: 6px; }
+.kuru-account-summary dd { font-size: 13px; font-variant-numeric: tabular-nums; }
+.kuru-table { width: 100%; border-collapse: collapse; font-size: 11px; text-align: left; font-variant-numeric: tabular-nums; }
+.kuru-table th { padding: 10px 20px; font-weight: 400; color: var(--color-muted); border-block: 1px solid var(--color-line); }
+.kuru-table td { padding: 12px 20px; border-bottom: 1px solid #222527; }
+.kuru-table a { color: var(--color-muted); }
+.kuru-trades-panel { max-height: 280px; overflow: auto; }
+.kuru-empty { color: var(--color-muted); font-size: 11px; padding: 16px 12px; text-align: center; }
+@media (max-width: 1150px) {
+  .kuru-page { padding-inline: 24px; }
+  .kuru-market { grid-template-columns: minmax(0, 1fr); }
+  .kuru-book { border-left: 0; border-top: 1px solid var(--color-line); display: none; }
+  .kuru-view-toggle { display: flex; gap: 20px; padding: 12px 16px; border-bottom: 1px solid var(--color-line); font-size: 12px; color: var(--color-muted); }
+  .kuru-view-toggle button[aria-pressed=true] { color: #b9b9ff; }
+  .kuru-market[data-view=book] .kuru-chart { display: none; }
+  .kuru-market[data-view=book] .kuru-book { display: flex; min-height: 475px; }
+  .kuru-maintainer { display: none; }
+}
+@media (max-width: 740px) {
+  .kuru-page { padding: 16px 16px 32px; }
+  .kuru-topbar { flex-wrap: wrap; gap: 14px; margin-bottom: 16px; }
+  .kuru-back { display: none; }
+  .kuru-network { display: none; }
+  .kuru-market-header { padding: 16px; gap: 20px; flex-wrap: wrap; }
+  .kuru-market-header h1 { font-size: 20px; }
+  .kuru-market-header dl { gap: 18px; order: 3; width: 100%; }
+  .kuru-market-header dd { font-size: 12px; }
+  .kuru-trading-grid { grid-template-columns: minmax(0, 1fr); }
+  .kuru-order { border-left: 0; border-top: 1px solid var(--color-line); }
+  .kuru-market { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .kuru-chart-canvas { height: 390px; }
+  .kuru-chart-toolbar { padding-inline: 12px; }
+  .kuru-amount input { font-size: 20px; }
+  .kuru-account-summary { gap: 24px; }
+  .kuru-account-meta { padding-inline: 16px; gap: 8px; }
+  .kuru-account-meta button { margin-left: 0; }
+  .kuru-table :is(th, td) { padding: 10px 12px; }
+  .kuru-trades-panel .kuru-table { min-width: 550px; }
+}

@@ -16,6 +16,7 @@ import { canonicalJson } from "@termbook/schema";
 import { hashMessage } from "viem";
 import { requestLimiter } from "./http/http-limit.js";
 import { readiness } from "./http/readiness.js";
+import { kuruRoute } from "./kuru/kuru.route.js";
 
 export function buildApp() {
   const app = Fastify({ logger: false });
@@ -67,5 +68,6 @@ export function buildApp() {
   integrationRoute(app);
   recoveryRoute(app);
   catalogRoute(app);
+  kuruRoute(app);
   return app;
 }

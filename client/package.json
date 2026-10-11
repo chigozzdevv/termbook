@@ -12,11 +12,14 @@
     "test": "vitest run test"
   },
   "dependencies": {
+    "@termbook/sdk": "workspace:^",
+    "lightweight-charts": "^5.2.1",
     "lucide-react": "^1.54.0",
     "mermaid": "^11.12.3",
     "next": "^16.4.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "viem": "^2.56.3",
     "zod": "^4.6.5"
   },
   "devDependencies": {

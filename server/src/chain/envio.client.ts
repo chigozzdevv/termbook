@@ -23,7 +23,7 @@ export function assertEnvioConfig(): void {
   }
 }
 
-async function hypersync(): Promise<HypersyncClient> {
+export async function hypersync(): Promise<HypersyncClient> {
   assertEnvioConfig();
   const url = env.envioUrl || `https://${env.monadChainId}.hypersync.xyz`;
   const key = `${env.monadChainId}:${url}:${env.envioApiToken}`;

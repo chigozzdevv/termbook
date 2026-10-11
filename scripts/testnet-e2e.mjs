@@ -1,4 +1,4 @@
-import { operationFile, operationLock, readConfiguration } from "./testnet-state.mjs";
+import { operationFile, operationLock, readConfiguration, clearOperation } from "./testnet-state.mjs";
 import fs from "node:fs";
 import process from "node:process";
 import { log, error } from "node:console";
@@ -12,8 +12,8 @@ const clean = process.argv[4] === "--clean";
 const orders = process.argv[3] === "--kuru-orders";
 const kuru = process.argv[3] === "--kuru" || orders;
 const native = process.argv[3] === "--native" || kuru;
-if (!["--begin", "--start", "--retry-default", "--advance", "--run", "--observe"].includes(mode) || clean && !fast
-  || process.argv.length !== (clean ? 5 : fast || native ? 4 : 3)) throw new Error("Use --begin, --start, --retry-default, --advance, --run, or --observe with optional --kuru-orders, --kuru, --native, or --fast and --clean");
+if (!["--begin", "--start", "--retry-default", "--advance", "--run", "--observe", "--close-unused"].includes(mode) || clean && !fast
+  || process.argv.length !== (clean ? 5 : fast || native ? 4 : 3)) throw new Error("Use --begin, --start, --retry-default, --advance, --run, --observe or --close-unused with optional --kuru-orders, --kuru, --native, or --fast and --clean");
 const journalName = orders ? "kuru-orders-e2e" : kuru ? "kuru-e2e" : native ? "native-e2e" : fast ? clean ? "fast-clean-e2e" : "fast-e2e" : "live-e2e";
 const publicName = orders ? "testnet-kuru-orders-e2e" : kuru ? "testnet-kuru-e2e" : native ? "testnet-native-e2e" : fast ? clean ? "testnet-fast-clean-e2e" : "testnet-fast-e2e" : "testnet-e2e";
 const api = "http://127.0.0.1:3002";
@@ -61,6 +61,30 @@ async function main() {
   }
   const readPosition = (test) => kuru ? monad.read(appSetup.definition.assessment ? "UseCaseReader" : "AtomicSpotModule", app, "positionCount", [test.creditId, test.account])
     : monad.read("ReferenceAssetApp", app, "positions", [test.account]);
+  if (mode === "--close-unused") {
+    if (!native || !report.cases || Object.values(report.cases).some((test) => test.drawVerified)) throw new Error("Cleanup requires unused native test facilities");
+    if (kuru) await currentGuards();
+    for (const test of Object.values(report.cases)) {
+      let credit = await coreRead("creditDetails", [test.creditId]);
+      const pending = kuru ? await monad.read(appSetup.definition.assessment ? "UseCaseReader" : "AtomicSpotModule", app, "pendingCount", [test.creditId, test.account]) : 0n;
+      if (credit.debt !== 0n || await readPosition(test) !== 0n || pending !== 0n
+        || await monad.client.getBalance({ address: test.account }) !== 0n
+        || await monad.client.readContract({ address: usdc, abi: erc20, functionName: "balanceOf", args: [test.account] }) !== 0n) throw new Error("Unused test has funds or obligations");
+      if ([4, 5].includes(credit.facility) && !credit.collateralReturned) {
+        if (credit.facility === 4) await monad.call("TermbookCore", m.TermbookCore, "startClosing", [test.creditId], `${test.kind}:close-unused`);
+        credit = await coreRead("creditDetails", [test.creditId]);
+        await monad.call("TermbookCore", m.TermbookCore, "authorizeReturn", [test.creditId, test.lockId, credit.collateralAmount], `${test.kind}:return-unused`);
+      }
+      credit = await coreRead("creditDetails", [test.creditId]);
+      if (credit.collateralReturned && credit.facility === 5) await monad.call("TermbookCore", m.TermbookCore, "finishClose", [test.creditId], `${test.kind}:close-returned-unused`);
+      credit = await coreRead("creditDetails", [test.creditId]);
+      if (credit.debt !== 0n || credit.facility !== 6 || !credit.collateralReturned
+        || !await monad.read("CreditAccount", test.account, "released")) throw new Error("Unused test closure incomplete");
+    }
+    clearOperation(journalName, false);
+    log(JSON.stringify({ closedUnused: true, cases: Object.keys(report.cases).length }));
+    return;
+  }
   async function kuruAction(test, direction, amount, credit) {
     const definition = appSetup.definition;
     const market = definition.markets[0];

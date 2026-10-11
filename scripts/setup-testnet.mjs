@@ -1,4 +1,4 @@
-import { alreadyConfigured, writeConfiguration, clearOperation } from "./testnet-state.mjs";
+import { alreadyConfigured, writeConfiguration, clearOperation, operationFile } from "./testnet-state.mjs";
 import process from "node:process";
 import fs from "node:fs";
 import path from "node:path";
@@ -9,10 +9,12 @@ import { reuseGuard } from "./testnet-guards.mjs";
 
 const simulate = process.argv.includes("--simulate");
 const native = process.argv.includes("--native");
+const fresh = process.argv.includes("--fresh-prices");
 if (simulate === process.argv.includes("--broadcast")
+  || native && fresh
   || new Set(process.argv.slice(2)).size !== process.argv.length - 2
-  || process.argv.slice(2).some((arg) => !["--simulate", "--broadcast", "--native"].includes(arg))) {
-  throw new Error("Use --simulate or --broadcast with optional --native");
+  || process.argv.slice(2).some((arg) => !["--simulate", "--broadcast", "--native", "--fresh-prices"].includes(arg))) {
+  throw new Error("Use --simulate or --broadcast with optional --native or --fresh-prices");
 }
 
 const feeds = {
@@ -25,6 +27,7 @@ const deposit = 10_000_000n;
 const erc20 = viem.parseAbi(["function approve(address,uint256) returns(bool)", "function balanceOf(address) view returns(uint256)"]);
 
 async function main() {
+  if (fresh) { await setupFreshPrices(); return; }
   if (native) { await setupNative(); return; }
   if (!simulate && alreadyConfigured("setup")) { clearOperation("setup"); log(JSON.stringify({ configured: true, step: "setup" })); return; }
   const runtime = await testnetRuntime("setup", simulate);
@@ -81,6 +84,98 @@ async function main() {
   log(JSON.stringify({ simulated: simulate, transactions: report.transactions.length,
     costMON: viem.formatEther(cost), ...report.verification }));
   if (!simulate) clearOperation("setup", false);
+}
+
+async function setupFreshPrices() {
+  if (!simulate && alreadyConfigured("fresh-prices")) { clearOperation("fresh-prices"); log(JSON.stringify({ configured: true, step: "fresh-prices" })); return; }
+  const { preparePythUpdates, pythAbi, pythEndpoint } = await import("../server/dist/chain/pyth.client.js");
+  const runtime = await testnetRuntime("fresh-prices", simulate);
+  const { deployment, report, persist } = runtime;
+  const network = await runtime.context(10143), m = deployment.addresses[10143];
+  const { artifact } = await import("./testnet-runtime.mjs");
+  if (viem.keccak256(await network.client.getCode({ address: await network.read("TestnetProxy", m.OracleRegistry, "proxyImplementation") }))
+    !== viem.keccak256(artifact("OracleRegistry").deployedBytecode.object)) throw new Error("Upgrade OracleRegistry before migrating feeds");
+  const pyth = deployment.configuration.native?.pyth;
+  if (!pyth || !process.env["PYTH_API_KEY"]) throw new Error("Configure PYTH_API_KEY and native MON pricing first");
+  const houses = new Set([m.HouseVault, deployment.configuration["kuru-integration"]?.vault].filter(Boolean));
+  for (const house of houses) for (const field of ["drawnPrincipal", "accruedReceivables", "committedCash", "unresolvedCreditImpairment"]) {
+    if (await network.read("HouseVault", house, field) !== 0n) throw new Error("Close existing test facilities before migrating prices");
+  }
+  const items = [
+    { name: "MON", id: deployment.configuration.native.pythId, confidence: 200 },
+    { name: "USDC", id: "0xeaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a", confidence: 50 },
+    { name: "ETH", id: "0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace", confidence: 200 },
+    ...(deployment.configuration.solana ? [{ name: "SOL", id: deployment.configuration.solana.pythId, confidence: 200 }] : []),
+  ];
+  const source = { address: pyth, codeHash: viem.keccak256(await network.client.getCode({ address: pyth })),
+    maximumUpdateFee: 1_000_000_000_000n, feeds: items.map((item) => ({ id: item.id, maxAgeSeconds: 300, refreshAgeSeconds: 60, maxConfidenceBps: item.confidence })) };
+  const planHash = viem.keccak256(viem.toHex(JSON.stringify({ core: m.TermbookCore, source,
+    registryCodeHash: viem.keccak256(artifact("OracleRegistry").deployedBytecode.object) }, (_, value) => typeof value === "bigint" ? String(value) : value)));
+  if (report.planHash && report.planHash !== planHash) throw new Error("Fresh pricing plan changed");
+  report.planHash = planHash; persist();
+  if (!simulate) {
+    const plan = JSON.parse(fs.readFileSync(operationFile("fresh-prices-simulation"), "utf8"));
+    if (!plan.completedAt || plan.planHash !== planHash) throw new Error("Matching fresh pricing simulation required");
+    const remaining = plan.transactions.filter((tx) => !report.transactions.some((sent) => sent.name === tx.name && sent.status === "success"));
+    const gasPrice = await network.client.getGasPrice();
+    const budget = remaining.reduce((sum, tx) => sum + BigInt(tx.gasLimit), 0n) * (gasPrice < 100_000_000_000n ? 100_000_000_000n : gasPrice) * 11n / 10n;
+    if (await network.client.getBalance({ address: deployment.deployer }) < budget + viem.parseEther("0.01")) throw new Error(`Fresh pricing requires ${viem.formatEther(budget)} test MON`);
+  }
+  const config = { sources: [source], account: { address: deployment.deployer }, apiKey: process.env["PYTH_API_KEY"],
+    endpoint: pythEndpoint() };
+  const update = await preparePythUpdates(network.client, config, source);
+  await network.send(`publish-prices:${update.prices.map((price) => price.price.publishTime).join(":")}`,
+    viem.encodeFunctionData({ abi: pythAbi, functionName: "updatePriceFeeds", args: [update.updates] }), pyth, update.fee);
+  report.expectedFeeds ??= {};
+  for (const name of ["USDC", "ETH"]) {
+    const id = deployment.configuration.setup.feeds[name].id;
+    report.expectedFeeds[name] ??= await network.read("OracleRegistry", m.OracleRegistry, "feeds", [id]); persist();
+    const item = items.find((item) => item.name === name);
+    const address = await network.deploy("PythPriceFeed", [pyth, item.id, 300n, BigInt(item.confidence)], `${name}PriceFeed`);
+    await network.govern("OracleRegistry", m.OracleRegistry, "replaceFeed", [id, report.expectedFeeds[name], address, 300n, 18, viem.zeroAddress]);
+  }
+  const setup = deployment.configuration.setup;
+  report.expectedFeeds.ratio ??= await network.read("OracleRegistry", m.OracleRegistry, "feeds", [setup.priceId]); persist();
+  const ratio = await network.deploy("LiveRatioPriceFeed", [m.OracleRegistry, setup.feeds.ETH.id, setup.feeds.USDC.id], "ETHLiveRatioPriceFeed");
+  const ratioGuard = await network.deploy("CodeHashGuard", [ratio], "ETHRatioGuard");
+  await network.govern("OracleRegistry", m.OracleRegistry, "replaceFeed", [setup.priceId, report.expectedFeeds.ratio, ratio, 300n, 18, ratioGuard]);
+  for (const item of [deployment.configuration.native, deployment.configuration.solana].filter(Boolean)) {
+    if (await network.read("OracleRegistry", m.OracleRegistry, "maxAge", [item.priceId]) > 300n) {
+      await network.govern("OracleRegistry", m.OracleRegistry, "tightenFeedAge", [item.priceId, 300n]);
+    }
+  }
+  await network.govern("TermbookCore", m.TermbookCore, "setHealthMaxAge", [300n]);
+  const implementation = await network.read("TestnetProxy", m.OracleRegistry, "proxyImplementation");
+  const oracleGuard = await network.deploy("ImplementationGuard", [m.OracleRegistry, implementation, viem.toFunctionSelector("proxyImplementation()")], "FreshOracleGuard");
+  const prices = {};
+  for (const item of items) {
+    const id = viem.keccak256(viem.stringToHex(`testnet:${item.name}/USD`));
+    const price = await network.read("OracleRegistry", m.OracleRegistry, "read", [id]);
+    prices[item.name] = price.map(String);
+    if (await network.read("OracleRegistry", m.OracleRegistry, "maxAge", [id]) !== 300n) throw new Error("Fresh feed age mismatch");
+  }
+  report.completedAt = new Date().toISOString(); persist();
+  if (!simulate) {
+    for (const name of ["USDC", "ETH"]) setup.feeds[name] = { id: setup.feeds[name].id, address: report.addresses[`${name}PriceFeed`],
+      kind: "pyth", pythId: items.find((item) => item.name === name).id, maxAgeSeconds: 300 };
+    setup.addresses.RatioPriceFeed = ratio;
+    setup.maxAgeSeconds = 300;
+    deployment.configuration["kuru-market"].oracleGuard = { address: oracleGuard, proxy: m.OracleRegistry, implementation,
+      codeHash: viem.keccak256(await network.client.getCode({ address: oracleGuard })) };
+    deployment.configuration["fresh-prices"] = { core: m.TermbookCore, completedAt: report.completedAt, addresses: report.addresses,
+      maxAgeSeconds: 300, refreshAgeSeconds: 60, provider: pyth, providerCodeHash: source.codeHash, priceIds: items,
+      previousFeeds: report.expectedFeeds, prices };
+    const { writeJsonAtomic } = await import("./testnet-state.mjs");
+    writeJsonAtomic(path.join(root, "deployments/testnet.json"), deployment);
+    const file = path.join(root, ".env");
+    let env = fs.readFileSync(file, "utf8");
+    env = env.replace(/^PYTH_PRICE_FEEDS=.*\n?/m, "").replace(/^RATIO_PRICE_FEEDS=.*\n?/m, "");
+    env += `PYTH_PRICE_FEEDS=${JSON.stringify([{ ...source, maximumUpdateFee: String(source.maximumUpdateFee) }])}\nRATIO_PRICE_FEEDS=[]\n`;
+    fs.writeFileSync(file, env, { mode: 0o600 });
+    clearOperation("fresh-prices");
+  }
+  log(JSON.stringify({ simulated: simulate, step: "fresh-prices", maxAgeSeconds: 300, transactions: report.transactions.length,
+    costMON: viem.formatEther(report.transactions.reduce((sum, tx) => sum + BigInt(tx.gasUsed) * BigInt(tx.effectiveGasPrice), 0n)) }));
 }
 
 async function setupNative() {

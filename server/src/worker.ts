@@ -27,6 +27,8 @@ import { ratioFeedConfig, runOracleWorker } from "./chain/oracle.worker.js";
 import { assertEnvioConfig } from "./chain/envio.client.js";
 import { runUpgradeMonitorWorker, upgradeMonitorConfig } from "./integration/upgrade-monitor.worker.js";
 import { priceReferenceConfig, runPriceReferenceWorker } from "./chain/price-reference.worker.js";
+import { pythOracleConfig } from "./chain/pyth.client.js";
+import { runPythOracleWorker } from "./chain/pyth.worker.js";
 
 async function main(): Promise<void> {
   assertRuntimeConfig();
@@ -38,6 +40,7 @@ async function main(): Promise<void> {
   riskScanConfig();
   ratioFeedConfig();
   priceReferenceConfig();
+  pythOracleConfig();
   upgradeMonitorConfig();
   recoveryRelayConfig();
   solanaProofConfig();
@@ -45,6 +48,7 @@ async function main(): Promise<void> {
   await connectDb();
   await startWorkers();
   const tick = async (): Promise<void> => {
+    await runPythOracleWorker();
     const results = await Promise.allSettled([
       runIndexerWorker(),
       runCreditWorker(),

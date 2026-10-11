@@ -32,6 +32,8 @@ contract OracleRegistry is ProxyInitializable {
     event FeedSet(bytes32 indexed id, address feed, uint256 maxAge, uint8 decimals);
     event FeedDisabled(bytes32 indexed id);
     event FeedGuardSet(bytes32 indexed id, address guard);
+    event FeedReplaced(bytes32 indexed id, address indexed previous, address indexed feed, uint256 maxAge, uint8 decimals, address guard);
+    event FeedAgeTightened(bytes32 indexed id, uint256 maxAge);
 
     error Unauthorized();
     error InvalidFeed();
@@ -72,6 +74,36 @@ contract OracleRegistry is ProxyInitializable {
         if (msg.sender != governance) revert Unauthorized();
         active[id] = false;
         emit FeedDisabled(id);
+    }
+
+    function tightenFeedAge(bytes32 id, uint256 maxAge_) external {
+        if (msg.sender != governance) revert Unauthorized();
+        if (!active[id] || maxAge_ == 0 || maxAge_ >= maxAge[id]) revert InvalidFeed();
+        maxAge[id] = maxAge_;
+        this.read(id);
+        emit FeedAgeTightened(id, maxAge_);
+    }
+
+    function replaceFeed(bytes32 id, address expectedFeed, address feed, uint256 maxAge_, uint8 decimals_, address guard) external {
+        if (msg.sender != governance) revert Unauthorized();
+        if (!active[id] || expectedFeed == address(0) || feeds[id] != expectedFeed || feed == expectedFeed
+            || feed.code.length == 0 || maxAge_ == 0 || maxAge_ > maxAge[id] || decimals_ > 36) revert InvalidFeed();
+        if (IAggregatorV3(feed).decimals() != decimals_) revert InvalidFeed();
+        if (guard == address(0)) {
+            if (CodeInspection.delegates(feed)) revert InvalidFeed();
+        } else if (guard.code.length == 0 || CodeInspection.delegates(guard)
+            || !IAppDeploymentGuard(guard).valid(feed)) revert InvalidFeed();
+        (uint80 round, int256 answer,, uint256 updated, uint80 answered) = IAggregatorV3(feed).latestRoundData();
+        if (round == 0 || answer <= 0 || updated == 0 || updated > block.timestamp
+            || block.timestamp - updated > maxAge_ || answered < round) revert StaleFeed();
+        feeds[id] = feed;
+        feedCodeHash[id] = feed.codehash;
+        maxAge[id] = maxAge_;
+        feedDecimals[id] = decimals_;
+        feedGuards[id] = guard;
+        guardCodeHashes[id] = guard == address(0) ? bytes32(0) : guard.codehash;
+        _normalize(id, round, answer, updated, answered);
+        emit FeedReplaced(id, expectedFeed, feed, maxAge_, decimals_, guard);
     }
 
     function setFeedGuard(bytes32 id, address guard) external {

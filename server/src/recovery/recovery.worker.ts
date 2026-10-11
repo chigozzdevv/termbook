@@ -12,6 +12,7 @@ import { recoveryConfig, type RecoveryConfig } from "./recovery.config.js";
 import { recoveryFactoryOperation, recoveryFundingPlan, recoveryFundingTypedData, verifiedRiskSignature, verifyRoute, type Funding, type Operation } from "./recovery.plan.js";
 import { fetchRecoveryOperationProof } from "./recovery.proof.js";
 import { RecoveryModel } from "./recovery.model.js";
+import { ensurePythPrices } from "../chain/pyth.worker.js";
 
 const factoryAbi = parseAbi([
   "function inboxOf(bytes32) view returns (address)",
@@ -75,6 +76,7 @@ const errorCode = (error: unknown): string => {
 };
 
 export async function verifyRegisteredRecoveryOperation(operation: Operation, digest: `0x${string}`): Promise<void> {
+  await ensurePythPrices();
   const chain = monadClient();
   if (await chain.getChainId() !== env.monadChainId) throw new Error("recovery-monad-chain-mismatch");
   const blockNumber = (await chain.getBlock({ blockTag: "finalized" })).number;

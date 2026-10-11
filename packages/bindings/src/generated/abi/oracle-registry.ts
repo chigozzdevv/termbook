@@ -247,6 +247,44 @@ export const oracleRegistryAbi = [
   },
   {
     "type": "function",
+    "name": "replaceFeed",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "expectedFeed",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "feed",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "maxAge_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "decimals_",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "guard",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setFeed",
     "inputs": [
       {
@@ -293,6 +331,24 @@ export const oracleRegistryAbi = [
   },
   {
     "type": "function",
+    "name": "tightenFeedAge",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "maxAge_",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "upgradeContractId",
     "inputs": [],
     "outputs": [
@@ -303,6 +359,25 @@ export const oracleRegistryAbi = [
       }
     ],
     "stateMutability": "pure"
+  },
+  {
+    "type": "event",
+    "name": "FeedAgeTightened",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "maxAge",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
   },
   {
     "type": "event",
@@ -326,6 +401,49 @@ export const oracleRegistryAbi = [
         "type": "bytes32",
         "indexed": true,
         "internalType": "bytes32"
+      },
+      {
+        "name": "guard",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "FeedReplaced",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "previous",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "feed",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "maxAge",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "decimals",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
       },
       {
         "name": "guard",

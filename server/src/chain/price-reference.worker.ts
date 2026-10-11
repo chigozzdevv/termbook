@@ -6,6 +6,7 @@ import { integrationRepo } from "../integration/integration.repo.js";
 import { logger } from "../logging/logger.js";
 import { keeperTransaction } from "./keeper.js";
 import { monadClient } from "./monad.client.js";
+import { runPythOracleWorker } from "./pyth.worker.js";
 
 const coreAbi = parseAbi(["function priceProtection() view returns(address)"]);
 const protectionAbi = parseAbi([
@@ -53,6 +54,7 @@ export async function runPriceReferenceWorker(): Promise<number> {
   }
   if (!rules.size) return 0;
   if (rules.size > 256) throw new Error("price-reference-capacity-exceeded");
+  await runPythOracleWorker();
   const client = monadClient(1);
   if (await client.getChainId() !== env.monadChainId) throw new Error("price-reference-chain-mismatch");
   const block = await client.getBlock({ blockTag: "latest" });

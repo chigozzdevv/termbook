@@ -4,6 +4,7 @@ import { assertActionRoutes, assertStandardDefinition, capabilityCalls, capabili
 import { verify_definition } from "@termbook/sdk";
 import { stringToHex } from "viem";
 import { monadClient } from "../chain/monad.client.js";
+import { ensurePythPrices } from "../chain/pyth.worker.js";
 import { env } from "../config/env.js";
 import { integrationRepo } from "./integration.repo.js";
 import { admittedPrices } from "./integration.price.js";
@@ -206,7 +207,7 @@ export const integrationService = {
     }
     return { versionId: prepared.versionId, appToken: prepared.appToken };
   },
-  async resolve(appToken: string) {
+  async resolve(appToken: string, refreshPrices = false) {
     if (!tokenPattern.test(appToken)) throw new Error("integration-not-found");
     const row = await integrationRepo.byTokenHash(tokenHash(appToken));
     const useCase = useCaseSchema.safeParse(row?.["category"]);
@@ -227,6 +228,7 @@ export const integrationService = {
       || /^0x0{40}$/i.test(env.accountFactory)) {
       throw new Error("integration-config-unavailable");
     }
+    if (refreshPrices) await ensurePythPrices();
     const chain = monadClient();
     const block = await chain.getBlock({ blockTag: "finalized" });
     const checks = await Promise.all([

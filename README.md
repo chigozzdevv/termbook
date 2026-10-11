@@ -76,7 +76,7 @@ and a 10 USDC LP deposit against a Monad testnet fork on port 18545. Use
 `--broadcast` for the deployed testnet. The runner journals signed transactions
 in `.data/operations` before submission. Completed setup is stored in
 `deployments/testnet.json`, and its temporary journal is removed.
-The ETH/USDC ratio uses admitted Chainlink ETH/USD and USDC/USD feeds, pins their
+The initial ETH/USDC ratio uses admitted Chainlink ETH/USD and USDC/USD feeds, pins their
 aggregators, and preserves the older observation timestamp. Its permissionless
 `update()` must run when either underlying round changes. The testnet feeds have
 a 24-hour heartbeat; this setup uses a 25-hour age limit for testnet exercises.
@@ -86,6 +86,21 @@ The same keeper records authenticated execution-price checkpoints for admitted
 app rules. `PRICE_REFERENCE_RULES` can prime configured rules before admission
 using `{ bundle, capability, market }` hashes. Quotes use these checkpoints;
 execution still verifies the current guarded price, deviation and slippage.
+
+The pull-price migration replaces the ETH/USD and USDC/USD sources with Pyth
+adapters and the cached ETH ratio with a live ratio. Configure `PYTH_API_KEY`
+from [Pyth Terminal](https://pythdata.app), upgrade `OracleRegistry`, then run
+`node --env-file=.env scripts/setup-testnet.mjs --simulate --fresh-prices` and
+the matching `--broadcast --fresh-prices` after reviewing the simulation.
+Existing test facilities must be closed first. The migration sets a 300-second
+price and health limit; the worker refreshes prices after 60 seconds.
+`PYTH_PRICE_FEEDS` binds the provider address, code hash, price IDs, confidence
+limits and update-fee cap. `PYTH_HERMES_URL` selects the authenticated HTTPS
+endpoint. Signed payloads are checked by Pyth's onchain verifier before
+submission; API price numbers are not accepted as evidence. The provider retains
+its own oracle governance. Price-dependent actions reject stale or invalid
+data; cash repayment remains available. Reconfigure and validate the Kuru
+integration after the Registry upgrade because its implementation pin changes.
 Refresh the existing price proxy with
 `node scripts/setup-testnet-integrations.mjs --simulate --refresh-prices`, then
 the corresponding `--broadcast` command after the simulation passes.
@@ -354,9 +369,10 @@ returned. Client work, service hosting and Aurora sandbox routes remain deferred
 For local use, run the worker command above with funded monitor and oracle
 keepers; execution checkpoints and monitor approvals expire when it stops.
 Configuration also installs a generic code-hash guard for the immutable MON
-ratio feed. Execution state and authorization freshness remain 90 seconds;
-health accounting uses the existing testnet oracle policy of 90,000 seconds,
-which includes the USDC feed's daily heartbeat.
+ratio feed. The proposed 90,000-second Kuru health window was not activated.
+The pending pull-price migration uses a 300-second health limit while execution
+state and authorization limits remain 90 seconds. The new version still needs
+signed-price preflight, live lifecycle validation and admission.
 Optional `LOCAL_COLLATERAL_BIDS` entries bind `chain_id`, `collateral_asset`,
 `settlement_asset` and `maximum_settlement` in raw token units. The recovery
 keeper bids with its own funded settlement tokens, within the configured cap,

@@ -140,6 +140,9 @@ async function main() {
     return;
   }
   if (configure) {
+    if (deployment.configuration["fresh-prices"]?.maxAgeSeconds !== 300 || deployment.configuration.setup.maxAgeSeconds !== 300) {
+      throw new Error("Complete the signed pull-price migration before configuring Kuru");
+    }
     const { create_kuru } = await import("../server/dist/kuru/integration.js");
     const { prepare_atomic_spot, prepare_use_case, use_case_configuration, package_integration, atomic_configuration } = await import("../packages/sdk/dist/index.js");
     const market = deployment.configuration["kuru-market"];

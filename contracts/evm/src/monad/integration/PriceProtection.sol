@@ -12,6 +12,7 @@ import {SafeTransferLib} from "../../shared/SafeTransferLib.sol";
 import {IntegrationRegistry} from "./IntegrationRegistry.sol";
 
 interface IPriceToken { function decimals() external view returns (uint8); }
+interface IPriceCore { function integrationRegistry() external view returns (address); }
 
 contract PriceProtection is ProxyInitializable {
     struct Rule {
@@ -87,7 +88,8 @@ contract PriceProtection is ProxyInitializable {
         return rules[key(bundle, capability, market)];
     }
     function configure(bytes32 bundle, bytes32 capability, bytes32 market, Rule calldata value) external onlyCore {
-        _configure(bundle, capability, market, value, false, address(0));
+        address dependencies = CodeInspection.delegates(value.oracle) ? IPriceCore(core).integrationRegistry() : address(0);
+        _configure(bundle, capability, market, value, false, dependencies);
     }
     function configureAmountRule(bytes32 bundle, bytes32 capability, bytes32 market, Rule calldata value, AmountRule calldata amount, address integrationRegistry)
         external onlyCore {

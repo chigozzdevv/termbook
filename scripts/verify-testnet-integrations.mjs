@@ -6,8 +6,9 @@ import { root, viem, artifact } from "./testnet-runtime.mjs";
 import { readConfiguration, writeJsonAtomic, operationFile, clearOperation } from "./testnet-state.mjs";
 import { setTimeout as delay } from "node:timers/promises";
 
-const publish = process.argv[2] === "--publish-sources";
-if (process.argv.length !== (publish ? 3 : 2)) throw new Error("Use no arguments or --publish-sources");
+const priceSource = process.argv[2] === "--publish-price-source";
+const publish = process.argv[2] === "--publish-sources" || priceSource;
+if (process.argv.length !== (publish ? 3 : 2)) throw new Error("Use no arguments, --publish-sources or --publish-price-source");
 
 const canonical = (value) => JSON.stringify(value, (_, entry) => typeof entry === "bigint" ? entry.toString() : entry);
 function equal(actual, expected, label) {
@@ -43,7 +44,7 @@ async function main() {
     equal(await read("UpgradeController", m.UpgradeController, "contractIds", [proxy]), pin.contractId, `${name} identity`);
     equal(viem.keccak256(await client.getCode({ address: pin.implementation, blockNumber: block.number })), pin.implementationCodeHash, `${name} code`);
   }
-  const compiledUpgrades = orderUpdate ? ["FlowExecutor"] : report.priceUpdate ? ["PriceProtection"] : ["FlowExecutor", "AccountFactory", "PriceProtection", "TermbookCore"];
+  const compiledUpgrades = priceSource ? ["PriceProtection"] : orderUpdate ? ["FlowExecutor"] : report.priceUpdate ? ["PriceProtection"] : ["FlowExecutor", "AccountFactory", "PriceProtection", "TermbookCore"];
   for (const name of compiledUpgrades) {
     equal(deployment.proxies[10143][name].implementationCodeHash, viem.keccak256(artifact(name).deployedBytecode.object), `${name} compiled code`);
   }
@@ -71,7 +72,9 @@ async function main() {
     for (const [method, expected] of Object.entries(bindings)) equal(await read(name, address, method), expected, `${name}.${method}`);
   }
   if (publish) {
-    const extra = orderUpdate ? [
+    const extra = priceSource ? [
+      { name: "PriceProtectionImplementation", artifact: "PriceProtection", address: deployment.proxies[10143].PriceProtection.implementation },
+    ] : orderUpdate ? [
       ...Object.entries(a).map(([name, address]) => ({ name, artifact: name, address })),
       { name: "FlowExecutorImplementation", artifact: "FlowExecutor", address: deployment.proxies[10143].FlowExecutor.implementation },
     ] : [

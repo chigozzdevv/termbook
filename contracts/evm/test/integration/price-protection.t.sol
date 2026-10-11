@@ -48,6 +48,7 @@ contract PriceFeedGuardFixture is IAppDeploymentGuard {
 contract SpotTokenFixture is MockERC20 { constructor() { decimals = 6; } }
 
 contract PriceProtectionTest is Test {
+    IntegrationRegistry public integrationRegistry;
     PriceProtection protection;
     OracleRegistry oracle;
     PriceFeedFixture feed;
@@ -151,6 +152,32 @@ contract PriceProtectionTest is Test {
         vm.store(address(proxy), bytes32(uint256(0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc)),
             bytes32(uint256(uint160(address(new OracleRegistry(address(0)))))));
         vm.expectRevert(PriceProtection.Invalid.selector); protection.validate(proxyCredit, id, action, quote);
+    }
+    function testLimitPriceUsesCoreOracleGuardAndRejectsAnUpgrade() public {
+        OracleRegistry implementation = new OracleRegistry(address(0));
+        OracleProxyFixture proxy = new OracleProxyFixture(address(implementation), abi.encodeCall(OracleRegistry.initialize, (address(this))));
+        OracleRegistry(address(proxy)).setFeed(feedId, address(feed), 300, 8);
+        OracleRegistry(address(proxy)).setFeedGuard(feedId, address(new PriceFeedGuardFixture(feed)));
+        integrationRegistry = new IntegrationRegistry(address(this));
+        bytes32 id = keccak256("limit proxy bundle"); bytes32 proxyCredit = keccak256("limit proxy credit");
+        integrationRegistry.approve(id, keccak256("definition")); integrationRegistry.pinDependency(id, address(proxy));
+        integrationRegistry.setDependencyGuard(id, address(proxy), address(new ImplementationGuard(address(proxy), address(implementation), proxy.proxyImplementation.selector)));
+        PriceProtection.Rule memory config = protection.rule(bundle, capability, market); config.oracle = address(proxy);
+        protection.configure(id, capability, market, config);
+        assertEq(protection.oracleDependencyRegistries(protection.key(id, capability, market)), address(integrationRegistry));
+        protection.bindCredit(proxyCredit, id, 75);
+        PriceProtection.Quote memory quote = _quote(false);
+        protection.validate(proxyCredit, id, _action(false, quote.bound), quote);
+        vm.store(address(proxy), bytes32(uint256(0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc)),
+            bytes32(uint256(uint160(address(new OracleRegistry(address(0)))))));
+        vm.expectRevert(PriceProtection.Invalid.selector); protection.validate(proxyCredit, id, _action(false, quote.bound), quote);
+    }
+    function testLimitPriceRejectsAnUnpinnedOracleProxy() public {
+        OracleProxyFixture proxy = new OracleProxyFixture(address(new OracleRegistry(address(0))), abi.encodeCall(OracleRegistry.initialize, (address(this))));
+        integrationRegistry = new IntegrationRegistry(address(this));
+        PriceProtection.Rule memory config = protection.rule(bundle, capability, market); config.oracle = address(proxy);
+        vm.expectRevert(PriceProtection.Invalid.selector);
+        protection.configure(keccak256("unapproved limit proxy"), capability, market, config);
     }
     function testSpotMinimumOutputUsesAmountAndDecimalsAndActualReceipt() public {
         (ExecutionTypes.Action memory action, PriceProtection.Quote memory quote, SpotTokenFixture token) = _spot(false);

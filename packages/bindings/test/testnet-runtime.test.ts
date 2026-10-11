@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { warmForkStorage } from "../../../scripts/testnet-runtime.mjs";
+import { warmForkStorage, warmIntegrationConfiguration, artifact, viem } from "../../../scripts/testnet-runtime.mjs";
 
 vi.mock("node:timers/promises", () => ({ setTimeout: vi.fn(async () => undefined) }));
 
@@ -53,6 +53,22 @@ describe("fork storage prefetch", () => {
     const chain = client();
     await expect(warmForkStorage(chain, keys)).rejects.toThrow("after three attempts");
     expect(fetch).toHaveBeenCalledTimes(3);
+    expect(chain.request).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("shared configuration prefetch", () => {
+  const bundle = `0x${"11".repeat(32)}`;
+  const data = viem.encodeFunctionData({ abi: artifact("SpotOrderTracker").abi, functionName: "configure", args: [bundle, []] });
+  it("leaves populated local configuration untouched", async () => {
+    const chain = { ...client(), readContract: vi.fn(async () => bundle) };
+    await warmIntegrationConfiguration(chain, "SpotOrderTracker", target, data);
+    expect(chain.request).not.toHaveBeenCalled();
+  });
+  it("rejects a populated source rather than overwriting local state", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: bundle }))));
+    const chain = { ...client(), readContract: vi.fn(async () => `0x${"00".repeat(32)}`) };
+    await expect(warmIntegrationConfiguration(chain, "SpotOrderTracker", target, data)).rejects.toThrow("Configuration source already populated");
     expect(chain.request).toHaveBeenCalledTimes(1);
   });
 });

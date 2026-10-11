@@ -50,6 +50,52 @@ export async function warmReadProgram(client, target, data) {
   await warmForkStorage(client, [...slots].map((slot) => ({ target, slot })));
 }
 
+export async function warmIntegrationConfiguration(client, name, target, data) {
+  const build = artifact(name), decoded = viem.decodeFunctionData({ abi: build.abi, data });
+  if (decoded.functionName !== "configure") return;
+  const [bundle, values, callRules] = decoded.args;
+  const request = { address: target, abi: build.abi, functionName: "configurationHashes", args: [bundle] };
+  if (await client.readContract(request) !== `0x${"0".repeat(64)}`) return;
+  const { forkConfig } = await client.request({ method: "anvil_nodeInfo", params: [] });
+  const source = createPublicClient({ transport: http(forkConfig.forkUrl, { timeout: 30_000 }) });
+  if (await source.readContract({ ...request, blockNumber: BigInt(forkConfig.forkBlockNumber) }) !== `0x${"0".repeat(64)}`) throw new Error("Configuration source already populated");
+  const layout = build.storageLayout, slots = new Set();
+  const walk = (slot, typeId, value) => {
+    const type = layout.types[typeId];
+    slots.add(viem.toHex(slot, { size: 32 }));
+    if (type.members) {
+      for (const member of type.members) walk(slot + BigInt(member.slot), member.type, value[member.label]);
+    } else if (type.encoding === "dynamic_array") {
+      const start = BigInt(keccak256(viem.toHex(slot, { size: 32 })));
+      const bytes = Number(layout.types[type.base].numberOfBytes), stride = Math.ceil(bytes / 32);
+      for (const [index, item] of value.entries()) walk(start + BigInt(bytes < 32 ? Math.floor(index / Math.floor(32 / bytes)) : index * stride), type.base, item);
+    }
+  };
+  const seed = (label, keys, value) => {
+    const field = layout.storage.find((entry) => entry.label === label);
+    let slot = BigInt(field.slot), typeId = field.type;
+    for (const key of keys) {
+      const type = layout.types[typeId];
+      slot = BigInt(keccak256(viem.encodeAbiParameters([{ type: layout.types[type.key].label }, { type: "uint256" }], [key, slot])));
+      typeId = type.value;
+    }
+    walk(slot, typeId, value);
+  };
+  seed("configurationHashes", [bundle], 0);
+  if (name === "UseCaseReader") seed("configs", [bundle], values);
+  else if (name === "UseCasePolicy") {
+    for (const rule of values) seed("actions", [bundle, rule.id], rule);
+    for (const rule of callRules) seed("calls", [bundle, rule.target, rule.selector], rule);
+  } else if (name === "SpotOrderTracker") {
+    for (const rule of values) seed("rules", [bundle, rule.id], rule);
+  } else if (name === "UseCaseRecovery") {
+    const type = build.abi.find((entry) => entry.type === "function" && entry.name === "configure").inputs[1].components;
+    for (const rule of values) seed("templates", [bundle, keccak256(viem.encodeAbiParameters([{ type: "tuple", components: type }], [rule]))], rule);
+    seed("templateIds", [bundle], values.map(() => 0));
+  } else throw new Error("Unknown shared integration configuration");
+  await warmForkStorage(client, [...slots].map((slot) => ({ target, slot })));
+}
+
 export async function warmForkStorage(client, keys, onProgress) {
   const { forkConfig: fork } = await client.request({ method: "anvil_nodeInfo", params: [] });
   if (!fork?.forkUrl || !Number.isSafeInteger(fork.forkBlockNumber)) throw new Error("Simulation fork source unavailable");
@@ -224,6 +270,9 @@ export async function testnetRuntime(name, simulate) {
     async function governData(target, data, description = {}) {
       if (!viem.isAddress(target) || !/^0x(?:[a-fA-F0-9]{2}){4,}$/.test(data)) throw new Error("Invalid governance call");
       if (simulate && target.toLowerCase() === deployment.addresses[chainId].ReadProgram?.toLowerCase()) await warmReadProgram(client, target, data);
+      if (simulate) for (const name of ["SpotOrderTracker", "UseCaseReader", "UseCasePolicy", "UseCaseRecovery"]) {
+        if (target.toLowerCase() === deployment.addresses[chainId][name]?.toLowerCase()) await warmIntegrationConfiguration(client, name, target, data);
+      }
       const governance = deployment.addresses[chainId].ProtocolGovernance;
       if (await read("ProtocolGovernance", governance, "timelock") !== 0n) throw new Error("Testnet delay changed");
       const salt = keccak256(data);

@@ -76,13 +76,21 @@ async function verifyReceipts(chain: PublicClient, logs: CoreLog[]): Promise<voi
 async function jsonPage(from: bigint, end: bigint): Promise<{ nextBlock: number; data: { logs: EnvioLog[] } }> {
   const url = env.envioUrl || `https://${env.monadChainId}.hypersync.xyz`;
   const request = async (path: string, body?: unknown) => {
-    const response = await fetch(`${url}${path}`, { method: body ? "POST" : "GET",
-      headers: { Authorization: `Bearer ${env.envioApiToken}`, "content-type": "application/json" },
-      ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(15_000) });
-    if (!response.ok) throw new Error("envio-query-unavailable");
-    const value: unknown = await response.json();
-    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("envio-page-invalid");
-    return value as Record<string, unknown>;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const response = await fetch(`${url}${path}`, { method: body ? "POST" : "GET",
+        headers: { Authorization: `Bearer ${env.envioApiToken}`, "content-type": "application/json" },
+        ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(15_000) });
+      if (!response.ok) {
+        if (![429, 503].includes(response.status) || attempt === 2) throw new Error("envio-query-unavailable");
+        await response.body?.cancel();
+        await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+        continue;
+      }
+      const value: unknown = await response.json();
+      if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("envio-page-invalid");
+      return value as Record<string, unknown>;
+    }
+    throw new Error("envio-query-unavailable");
   };
   let chainId: unknown, page;
   try {
@@ -117,7 +125,8 @@ export async function readCoreEvents(chain: PublicClient, from: bigint, finalize
     const logs = (await Promise.all(ranges.map((range) => chain.getLogs({ address: env.core as Address, ...range })))).flat();
     return { logs: logs as CoreLog[], nextBlock: to + 1n, source: "rpc" };
   }
-  const end = from + 100_000n < finalized + 1n ? from + 100_000n : finalized + 1n;
+  const window = transport === "json" ? 10_000n : 100_000n;
+  const end = from + window < finalized + 1n ? from + window : finalized + 1n;
   let response;
   if (transport === "json") response = await jsonPage(from, end);
   else {

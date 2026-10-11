@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 const steps = [
   ["Choose your credit", "Accept a House offer with the amount, rate, and term that work for you."],
   ["Lock collateral", "Lock SOL, ETH, or MON on its supported chain to activate your credit."],
@@ -40,14 +42,12 @@ export function HowItWorks() {
           </li>
         ))}
       </ol>
-      <a
-        href="https://github.com/chigozzdevv/termbook#readme"
-        target="_blank"
-        rel="noopener noreferrer"
+      <Link
+        href="/docs/concepts/credit"
         className="touch-target mt-7 inline-flex min-h-10 items-center justify-center rounded-[7px] border border-[#393d40] bg-transparent px-4 py-[9px] text-[13px] leading-[1.4] font-medium whitespace-nowrap no-underline hover:border-[#687074] hover:bg-[#181b1d]"
       >
         Learn more
-      </a>
+      </Link>
     </section>
   );
 }

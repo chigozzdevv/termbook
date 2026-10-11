@@ -40,4 +40,19 @@ describe("documentation integrity", () => {
     expect(searchDocs(entries, "").every((entry) => !entry.heading)).toBe(true);
     expect(searchDocs(entries, "minimum_receive").length).toBeGreaterThan(0);
   });
+
+  it("links deployment addresses to the matching testnet explorer", () => {
+    const deployment = readFileSync(new URL("../../deployments/testnet.json", import.meta.url), "utf8").toLowerCase();
+    const addresses = pages.find((page) => page.slug === "getting-started/networks")!.sections.find((section) => section.id === "addresses")!;
+    const block = addresses.blocks.find((block) => block.kind === "table")!;
+    if (block.kind !== "table") throw new Error("Deployment table missing");
+    expect(block.rows).toHaveLength(4);
+    for (const row of block.rows) {
+      const cell = row[1];
+      if (!cell || typeof cell === "string") throw new Error("Explorer link missing");
+      expect(deployment).toContain(cell.text.toLowerCase());
+      expect(cell.href).toBe(`https://testnet.monadexplorer.com/address/${cell.text}`);
+      expect(cell.label).toContain("Monad testnet explorer");
+    }
+  });
 });

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, ArrowUpRight, ChevronDown, Hash, List } from "lucide-react";
 import { Code } from "./code";
+import { Diagram } from "./diagram";
 import { docHref, type Block, type DocPage } from "./model";
 
 function Content({ block }: { block: Block }) {
@@ -9,7 +10,11 @@ function Content({ block }: { block: Block }) {
     case "code": return <Code {...block} />;
     case "table": return <div className="docs-table-scroll" role="region" aria-label={block.columns.join(", ")} tabIndex={0}>
       <table><thead><tr>{block.columns.map((column) => <th key={column} scope="col">{column}</th>)}</tr></thead>
-        <tbody>{block.rows.map((row, index) => <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody>
+        <tbody>{block.rows.map((row, index) => <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex}>
+          {typeof cell === "string" ? cell : <a className="docs-explorer-link" href={cell.href} target="_blank" rel="noopener noreferrer" aria-label={cell.label}>
+            <span>{cell.text}</span><ArrowUpRight size={15} aria-hidden="true" />
+          </a>}
+        </td>)}</tr>)}</tbody>
       </table>
     </div>;
     case "list": {
@@ -21,10 +26,7 @@ function Content({ block }: { block: Block }) {
       <span className="docs-link-title">{link.title}<ArrowUpRight size={16} /></span>
       <span>{link.description}</span>
     </Link>)}</div>;
-    case "flow": return <ol className="docs-flow">{block.steps.map((step, index) => <li key={step.title}>
-      <span className="docs-flow-number">{index + 1}</span><strong>{step.title}</strong><span>{step.text}</span>
-      {index < block.steps.length - 1 && <ArrowRight className="docs-flow-arrow" size={16} />}
-    </li>)}</ol>;
+    case "diagram": return <Diagram {...block} />;
   }
 }
 

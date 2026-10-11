@@ -1,4 +1,5 @@
-import { page, section, p, code, table, list, note } from "../model";
+import { page, section, p, code, table, list, note, links } from "../model";
+import { openExample } from "./start";
 
 export const sdkPages = [
   page("sdk/quickstart", "Borrower SDK", "Embed the modal", "Configure the SDK once, then open it with a standard action.", [
@@ -27,60 +28,38 @@ const config: NextConfig = {
 export default config;`),
       p("Use the hosted API origin outside local development. Private keys, database credentials and provider API keys never belong in frontend environment variables.")),
     section("wallet", "Connect an EVM wallet",
-      p("Adapt your connected viem wallet to the SDK’s Wallet interface. Signing and writes stay with the user’s wallet. The adapter below uses an existing WalletClient and a PublicClient on the lending chain."),
-      code("wallet.ts", `import type { Wallet } from "@termbook/sdk";
-import type { Abi, PublicClient, WalletClient } from "viem";
+      p("Termbook supplies evm_wallet, an adapter for a connected viem WalletClient. Your app’s wallet provider connects the borrower’s Monad wallet. The adapter forwards signing and transactions to that wallet; it does not create a key or hold funds."),
+      code("Use your connected app wallet", `import { evm_wallet } from "@termbook/sdk";
 
-export async function termbook_wallet(
-  client: WalletClient,
-  public_client: PublicClient,
-): Promise<Wallet> {
-  const [address] = await client.getAddresses();
-  if (!address) throw new Error("wallet-not-connected");
+const wallet = await evm_wallet(wallet_client);`),
+      p("wallet_client is the connected WalletClient from your app’s wallet provider. If your app does not have one, this browser example connects an injected wallet on Monad testnet. Call it from a user click handler, then pass its result to open_credit in the next section."),
+      code("Browser wallet connection · optional", `import { createWalletClient, custom, type EIP1193Provider } from "viem";
+import { monadTestnet } from "viem/chains";
 
-  return {
-    address,
-    getChainId: () => client.getChainId(),
-    signMessage: (message) => client.signMessage({ account: address, message }),
-    signTypedData: (payload) => client.signTypedData({
-      ...(payload as Parameters<typeof client.signTypedData>[0]),
-      account: address,
-    }),
-    writeContract: (request) => client.writeContract({
-      ...request,
-      abi: request.abi as Abi,
-      chain: client.chain,
-      account: address,
-    }),
-    waitForTransactionReceipt: (hash) =>
-      public_client.waitForTransactionReceipt({ hash }),
-  };
-}`)),
+export async function connect_wallet() {
+  const provider = (window as Window & {
+    ethereum?: EIP1193Provider;
+  }).ethereum;
+  if (!provider) throw new Error("Install an EVM wallet to continue.");
+
+  const client = createWalletClient({
+    chain: monadTestnet,
+    transport: custom(provider),
+  });
+  await client.requestAddresses();
+  await client.switchChain({ id: monadTestnet.id });
+  return client;
+}`),
+      table(["Wallet", "Connection & purpose"], [
+        ["Monad borrower wallet", "Connected by your app; signs House terms and account actions through evm_wallet."],
+        ["Collateral wallet", "Connected by the modal; locks and receives collateral on its source chain. SOL requires a Solana wallet."],
+        ["Credit Account", "Created by the protocol; holds borrowed funds and app assets. It is not a browser wallet."],
+      ])),
     section("open", "Open Termbook",
-      code("Browser click handler", `import { create_termbook } from "@termbook/sdk";
-import { termbook_wallet } from "./wallet";
-
-const wallet = await termbook_wallet(wallet_client, public_client);
-const termbook = create_termbook({
-  app_token: process.env.NEXT_PUBLIC_TERMBOOK_APP_TOKEN!,
-  wallet,
-});
-
-const modal = termbook.open({
-  action: {
-    use_case: "spot",
-    capability: "place_order",
-    params: {
-      market_id: "0x1f57a841540fe23c2989387c18f2cb1335cbae92",
-      direction: "buy",
-      order_type: "market",
-      amount: { spend: 100_000n },
-      slippage_bps: 50,
-    },
-  },
-});
-await modal.ready;`),
-      p("Call open in a browser event handler after wallet connection. It returns a TermbookModal with a ready promise. The modal owns offer review, source-wallet connection, collateral setup, execution and account management. The action must belong to the active integration version.")),
+      code("app.ts · browser click handler", openExample),
+      p("Call open_credit with the connected client. With the optional connection example, call open_credit(await connect_wallet()). Reuse the configured Termbook client for subsequent opens while the connected account is unchanged; recreate it when the borrower account changes."),
+      p("open returns a TermbookModal with a ready promise. The modal owns offer review, source-wallet connection, collateral setup, execution and account management. The action must belong to the active integration version."),
+      links([{ href: "/docs/sdk/modal", title: "Modal behavior & source wallets", description: "See setup, resumed facilities, wallet roles and progress states." }])),
   ]),
   page("sdk/modal", "Borrower SDK", "Modal & source wallets", "Use the same entry point for a prepared action or an existing account.", [
     section("options", "Open options",

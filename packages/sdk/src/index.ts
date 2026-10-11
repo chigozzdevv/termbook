@@ -1,4 +1,5 @@
 export { TermbookClient, createTermbook, create_termbook } from "./client/client.js";
+export { evm_wallet } from "./wallet/evm.js";
 export { TermbookModal } from "./modal/modal.js";
 export type { OpenOptions } from "./modal/modal.js";
 export { Intent } from "./intent/intent.js";

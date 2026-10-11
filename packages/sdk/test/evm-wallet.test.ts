@@ -1,0 +1,53 @@
+import { describe, expect, it, vi } from "vitest";
+import type { WalletClient } from "viem";
+import { evm_wallet } from "../src/wallet/evm.js";
+
+const address = "0x1111111111111111111111111111111111111111";
+const other = "0x2222222222222222222222222222222222222222";
+const hash = `0x${"a".repeat(64)}`;
+
+function connected() {
+  return {
+    getAddresses: vi.fn().mockResolvedValue([address]),
+    getChainId: vi.fn().mockResolvedValue(10143),
+    signMessage: vi.fn().mockResolvedValue(hash),
+    signTypedData: vi.fn().mockResolvedValue(hash),
+    writeContract: vi.fn().mockResolvedValue(hash),
+    chain: { id: 10143 },
+  };
+}
+
+describe("viem wallet adapter", () => {
+  it("uses the connected account for messages, typed data and bounded contract writes", async () => {
+    const client = connected();
+    const wallet = await evm_wallet(client as unknown as WalletClient);
+    expect(wallet.address).toBe(address);
+    expect(await wallet.getChainId!()).toBe(10143);
+    await wallet.signMessage!("Sign in");
+    expect(client.signMessage).toHaveBeenCalledWith({ account: address, message: "Sign in" });
+    const payload = { account: other, domain: { chainId: 10143 }, message: { amount: 100n } };
+    await wallet.signTypedData(payload);
+    expect(client.signTypedData).toHaveBeenCalledWith({ ...payload, account: address });
+    const request = { address: other, account: address, abi: [], functionName: "deposit", args: [100n], value: 1n, gas: 300_000n } as const;
+    expect(await wallet.writeContract!(request)).toBe(hash);
+    expect(client.writeContract).toHaveBeenCalledWith({ ...request, chain: client.chain });
+  });
+
+  it("refuses a disconnected client and writes claiming another sender", async () => {
+    const client = connected();
+    client.getAddresses.mockResolvedValueOnce([]);
+    await expect(evm_wallet(client as unknown as WalletClient)).rejects.toThrow("wallet-not-connected");
+    const wallet = await evm_wallet(client as unknown as WalletClient);
+    expect(() => wallet.writeContract!({ address: other, account: other, abi: [], functionName: "deposit" })).toThrow("wallet-account-mismatch");
+    expect(client.writeContract).not.toHaveBeenCalled();
+  });
+
+  it("reports provider chain changes and propagates wallet rejection", async () => {
+    const client = connected();
+    const wallet = await evm_wallet(client as unknown as WalletClient);
+    client.getChainId.mockResolvedValue(11155111);
+    expect(await wallet.getChainId!()).toBe(11155111);
+    client.signMessage.mockRejectedValue(new Error("User rejected"));
+    await expect(wallet.signMessage!("Sign in")).rejects.toThrow("User rejected");
+  });
+});

@@ -1,13 +1,29 @@
-import { page, section, p, code, table, list, note, flow } from "../model";
+import { page, section, p, code, table, list, note, diagram, links } from "../model";
 
 export const conceptPages = [
   page("concepts/credit", "Concepts", "The credit lifecycle", "A facility reserves capacity. A draw creates debt and executes an approved action.", [
     section("setup", "Set up a facility",
-      flow([{ title: "Request", text: "Collateral, limit and duration" }, { title: "Accept", text: "Signed House terms" }, { title: "Prove", text: "Verify the collateral lock" }, { title: "Ready", text: "Bind the Credit Account" }]),
+      diagram("Facility setup", "The borrower accepts terms before locking. A verified lock makes the facility ready; accepting an offer alone does not create debt.", `sequenceDiagram
+  participant B as Borrower
+  participant H as House / Core
+  participant S as Source vault
+  B->>H: Request limit and duration
+  H-->>B: Signed lending offer
+  B->>H: Accept terms and reserve capacity
+  B->>S: Sign collateral lock
+  S-->>H: Verified lock proof via relay
+  H-->>B: Ready Credit Account`),
       list(["The app submits a credit request and receives House offers.", "The borrower accepts an offer, including rates, deadlines, a reservation bond and recovery rules.", "The source wallet locks collateral into the admitted vault or program.", "A proof binds that lock to the facility on Monad. The Credit Account becomes ready."], true),
       p("Acceptance reserves House liquidity; it is not a transfer of the full credit limit. Unused setup can expire or be aborted under the accepted bond and collateral-return rules.")),
     section("draw", "Draw & execute",
       p("A draw transfers the amount needed for the approved action from the House to the Credit Account. Core executes the bounded calls, verifies the result and checks post-action health. For atomic actions, a failing check reverts the transaction."),
+      diagram("An atomic draw", "Checks run in the execution transaction. If authorization, result verification or post-action health fails, the draw and app calls revert together.", `flowchart TD
+  A[Borrower approves action] --> B[Verify version and limits]
+  B --> C[Fund Credit Account if needed]
+  C --> D[Execute bounded app calls]
+  D --> E{Result and health valid?}
+  E -->|Yes| F[Record completed action]
+  E -->|No| G[Revert entire transaction]`),
       p("A ready facility can support further draws without repeating the original collateral lock. Capacity still depends on debt, House liquidity, accepted terms, maturity and current health. Revolving and non-revolving offers differ in whether repayment restores draw capacity.")),
     section("manage", "Manage & terminate",
       table(["Operation", "Effect"], [
@@ -17,10 +33,25 @@ export const conceptPages = [
         ["Close", "Coordinates exit, repayment, surplus payout, account release and collateral return."],
         ["Recover", "Allows an authorized keeper to unwind obligations and collect value after default or liquidation."],
       ]),
-      note("Proceeds are not automatic repayment", "Selling a token does not repay the House unless a repayment instruction or closure flow applies those proceeds. A completed app exit also does not mean the facility is closed.")),
+      note("Proceeds are not automatic repayment", "Selling a token does not repay the House unless a repayment instruction or closure flow applies those proceeds. A completed app exit also does not mean the facility is closed."),
+      links([
+        { href: "/docs/concepts/accounts", title: "Custody & permissions", description: "See where funds stay and who can authorize each operation." },
+        { href: "/docs/concepts/health", title: "Health & borrowing", description: "Understand how collateral and recoverable app assets support debt." },
+      ])),
   ]),
   page("concepts/accounts", "Concepts", "Custody & permissions", "The Credit Account controls app funds while the source vault controls collateral.", [
     section("custody", "Who holds the assets?",
+      diagram("Collateral and app funds", "Source collateral stays in its own chain’s vault. The House lends USDC on Monad; the Credit Account controls the resulting app assets and repayment proceeds.", `flowchart LR
+  subgraph S[Collateral chain]
+    W[Source wallet] -->|Lock asset| V[Collateral vault]
+  end
+  subgraph M[Monad]
+    H[HouseVault] -->|Draw USDC| C[Credit Account]
+    C -->|Approved action| A[App assets / positions]
+    A -->|Exit proceeds| C
+    C -->|Repay USDC| H
+  end
+  V -.->|Lock proof; asset stays in vault| C`),
       table(["Asset", "Custody"], [
         ["Locked collateral", "The admitted source-chain vault or Solana program; release requires protocol authorization."],
         ["Borrowed USDC", "The Credit Account on Monad; it can fund only approved calls."],
@@ -80,6 +111,17 @@ recovery_health = recovery_value / (debt + recovery_costs)`, "text"),
     section("maturity", "At maturity",
       p("Undrawn commitments end and new risk stops. Outstanding debt becomes due under the accepted grace and default terms. Maturity is a lending deadline, not the blockchain confirmation time for a transaction.")),
     section("recovery", "Recovery sequence",
+      diagram("Recovery without the borrower", "An authorized keeper runs the registered unwind. App proceeds repay debt first; remaining debt can require source collateral recovery. Closure requires verified accounting and resolved obligations.", `flowchart TD
+  A[Default or liquidation trigger] --> B[Freeze new risk]
+  B --> C[Keeper cancels and exits app activity]
+  C --> D[Collect settlement proceeds]
+  D --> E[Apply proceeds to debt]
+  E --> F{Debt remains?}
+  F -->|Yes| G[Authorized source collateral recovery]
+  G --> H[Apply recovery and resolve shortfall]
+  F -->|No| I[Verify obligations and release rules]
+  H --> I
+  I --> J[Complete closure and allowed returns]`),
       list(["Freeze risk increases and reconcile pending fills or cancellations.", "Cancel remaining orders and settle venue obligations.", "Withdraw or redeem recoverable positions into the Credit Account.", "Convert approved holdings to the House’s settlement asset with bounded price protection.", "Apply actual proceeds to debt, then determine whether source collateral recovery is needed.", "Verify remaining obligations and safe release before returning surplus or collateral."], true),
       p("Some apps have withdrawal queues or cancellation delays. Their exit callback returns wait with an identifier and retry time. Recovery remains resumable; it cannot report done while obligations are unresolved.")),
     section("losses", "Shortfalls & losses",

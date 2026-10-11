@@ -1,9 +1,9 @@
-import { page, section, p, code, table, list, note, links, flow } from "../model";
+import { page, section, p, code, table, list, note, links, diagram } from "../model";
 import { kuruImplementation, kuruReadProgram } from "./kuru-source";
 
 export const integrationPages = [
   page("integrations/overview", "App integrations", "Integration overview", "An app implements a standard TypeScript interface. Termbook verifies its execution, accounting and recovery rules.", [
-    section("contract", "The integration contract",
+    section("contract", "What your app implements",
       p("Your integration is a TypeScript object with metadata, a reviewable definition and three runtime interfaces: account.read, actions[capability].build and exit.next. Pick spot, perps, vault, staking or liquidity. Each use case has a uniform state shape and standard actions."),
       table(["You provide", "Termbook uses it to"], [
         ["definition", "Pin dependencies and configure shared execution, valuation and recovery rules."],
@@ -13,11 +13,25 @@ export const integrationPages = [
       ]),
       p("A platform-specific Solidity integration is not required when the shared modules can represent the app’s reads, calls and recovery policies. The definition still needs independently verifiable onchain data. Arbitrary TypeScript assertions cannot authorize borrowed funds.")),
     section("flow", "From integration to modal",
-      flow([{ title: "Implement", text: "Read, build and exit" }, { title: "Validate", text: "Run lifecycle scenarios" }, { title: "Register", text: "Submit the validation ID" }, { title: "Activate", text: "Receive an app token" }]),
+      diagram("App admission and borrower use", "App authors implement and submit a version. Termbook validates the lifecycle and activates approved rules. The active app token selects that version in the borrower modal.", `sequenceDiagram
+  participant A as App team
+  participant T as Termbook
+  participant B as Borrower
+  A->>T: Register app and verify origin
+  A->>T: Validate definition, read, build and exit
+  T-->>A: Validation ID and scenario results
+  A->>T: Register validation ID
+  Note over T: Authorized activation of reviewed rules
+  T-->>A: Active app_token
+  A->>B: Embed create_termbook and open
+  B->>T: Review, sign and execute approved action`),
       list(["Register the app and prove ownership of its web origin.", "Build the integration using the SDK’s use-case type and shared assessment rules.", "Validate the exact definition against a prepared operator environment.", "Register its validation ID; authorized governance activates the configuration.", "Use the active app_token with create_termbook and open the modal."], true)),
     section("requirements", "Before you start",
       list(["A deployed app and market on the supported lending chain.", "Readable account ownership, holdings and all outstanding obligations.", "Exact ABI calls with spend caps, recipient control and price protection.", "An exit path that an approved recovery keeper can run without the borrower.", "Pinned code and implementation identities for every relevant dependency.", "An operator validation environment with funded actors and meaningful assertions."]),
-      links([{ href: "/docs/integrations/kuru", title: "Follow the Kuru example", description: "See the implementation, its returned plans and the complete admission flow." }])),
+      links([
+        { href: "/docs/integrations/definition", title: "Define the integration", description: "Start with the standard TypeScript shape and admission rules." },
+        { href: "/docs/integrations/kuru", title: "Follow the Kuru example", description: "See the implementation, its returned plans and the complete admission flow." },
+      ])),
   ]),
   page("integrations/definition", "App integrations", "Define the integration", "Separate immutable admission rules from runtime account reads and action plans.", [
     section("interface", "The TypeScript shape",

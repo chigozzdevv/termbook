@@ -1,29 +1,21 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, ArrowUpRight, ChevronDown, CodeXml, List, Menu, Moon, Search, Sun, X } from "lucide-react";
 import { Logo } from "@/components/brand/logo";
 import { docHref, searchDocs, type SearchEntry } from "./model";
+import { useDocsTheme } from "./theme";
 
 type NavPage = { slug: string; title: string; group: string; sections: { id: string; title: string }[] };
 type Props = { children: ReactNode; pages: NavPage[]; search: SearchEntry[] };
-
-function themeSnapshot() {
-  try { return localStorage.getItem("termbook.docs.theme") === "light" ? "light" : "dark"; } catch { return "dark"; }
-}
-function subscribeTheme(callback: () => void) {
-  window.addEventListener("storage", callback);
-  window.addEventListener("termbook-docs-theme", callback);
-  return () => { window.removeEventListener("storage", callback); window.removeEventListener("termbook-docs-theme", callback); };
-}
 
 export function Shell({ children, pages, search }: Props) {
   const pathname = usePathname();
   const router = useRouter();
   const current = pages.find((page) => docHref(page.slug) === pathname);
-  const theme = useSyncExternalStore(subscribeTheme, themeSnapshot, () => "dark");
+  const theme = useDocsTheme();
   const [searchOpen, setSearchOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [query, setQuery] = useState("");

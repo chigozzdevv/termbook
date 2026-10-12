@@ -82,7 +82,7 @@ export async function create_kuru(options: KuruOptions): Promise<spot> {
     base_asset: base, quote_asset: quote, base_decimals: Number(baseDecimals), quote_decimals: Number(quoteDecimals) };
   const targets = [...new Set([platform.router, platform.module, platform.read_program, options.market_address,
     vault, factory, margin, forwarder, base, quote, options.oracle,
-    ...platform.health ? [platform.health.factory, platform.health.collateral] : [],
+    ...platform.health ? [platform.health.collateral] : [],
     ...platform.order_tracker ? [platform.order_tracker, ...Object.values(platform.contracts ?? {})] : []].filter((address) => address !== zeroAddress).map((address) => address.toLowerCase()))] as Address[];
   const pins = await Promise.all(targets.map((target) => pin_contract(client, target, block.number)));
   const sourceResults = await Promise.allSettled(pins.map(async (pin) => {

@@ -59,9 +59,10 @@ describe("Kuru spot integration", () => {
         health: { factory: addr("e"), collateral: addr("f") } }
       : { target: new URL(url).searchParams.get("target"), code_hash: keccak256("0x1234"), source_hash: word("c") }))));
     const next = await create_kuru(options());
-    expect(next.definition.pins.map((pin) => pin.target)).toEqual(expect.arrayContaining([addr("e"), addr("f")]));
+    expect(next.definition.pins.map((pin) => pin.target)).toContain(addr("f"));
+    expect(next.definition.pins.map((pin) => pin.target)).not.toContain(addr("e"));
     expect(next.definition).not.toEqual(previous.definition);
-    expect(next.definition.verified_sources.map((source) => source.target)).toEqual(expect.arrayContaining([addr("e"), addr("f")]));
+    expect(next.definition.verified_sources.map((source) => source.target)).toContain(addr("f"));
   });
   it("publishes a complete health binding and rejects incomplete configuration", () => {
     for (const name of ["ATOMIC_SPOT_ROUTER", "ATOMIC_SPOT_MODULE", "SHARED_READ_PROGRAM"]) vi.stubEnv(name, addr("3"));

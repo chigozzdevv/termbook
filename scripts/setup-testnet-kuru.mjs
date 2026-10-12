@@ -146,6 +146,10 @@ async function main() {
       throw new Error("Align health snapshot freshness before configuring Kuru");
     }
     await network.read("OracleRegistry", m.OracleRegistry, "read", [setup.priceId]);
+    if ((await network.read("AppHealthReaderFactory", m.AppHealthReaderFactory, "core")).toLowerCase() !== m.TermbookCore.toLowerCase()
+      || (await network.read("AppHealthReaderFactory", m.AppHealthReaderFactory, "collateralReader")).toLowerCase() !== m.CollateralHealthReader.toLowerCase()) {
+      throw new Error("Kuru health factory binding changed");
+    }
     const { create_kuru } = await import("../server/dist/kuru/integration.js");
     const { prepare_atomic_spot, prepare_use_case, use_case_configuration, package_integration, atomic_configuration } = await import("../packages/sdk/dist/index.js");
     const market = deployment.configuration["kuru-market"];

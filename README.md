@@ -99,8 +99,9 @@ then the matching `--broadcast --align-health` after reviewing the simulation.
 This copies the admitted collateral markets into a new immutable collateral
 reader and installs its reader factory. Core keeps its existing address and
 uses a 300-second snapshot limit. `SHARED_HEALTH_FACTORY` and
-`SHARED_COLLATERAL_READER` bind the platform metadata; Kuru pins these components
-in its next integration version. Existing versions keep their original readers.
+`SHARED_COLLATERAL_READER` bind the platform metadata; Kuru pins the collateral
+reader in its next integration version. Setup verifies the factory's Core and
+collateral-reader bindings. Existing versions keep their original readers.
 Configure and validate the new Kuru version before issuing its app token.
 
 Authenticated Pyth pull updates remain optional. `PYTH_API_KEY`,

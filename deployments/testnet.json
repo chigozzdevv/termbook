@@ -36258,8 +36258,8 @@
       "settlementAsset": "0x534b2f3A21130d7a60830c2Df862319e593943A3",
       "monitor": "0x4Bb71Cc4ea4dA4FBa0ce4720843c28Cc6aD0Fc70",
       "trustModel": "testnet RPC monitor; 180-second expiring approval",
-      "bid": "2698900",
-      "ask": "2726100",
+      "bid": "2589000",
+      "ask": "2615100",
       "makerBaseMON": "1",
       "makerQuoteUSDC": "1",
       "guards": {
@@ -36351,7 +36351,7 @@
           "codeHash": "0x645111866eec7decc0ba5894cef472a6497f11a791aec446155d8a71078cc0c2"
         }
       },
-      "liquidityUpdatedAt": "2026-10-11T18:17:50.096Z"
+      "liquidityUpdatedAt": "2026-10-12T09:03:20.705Z"
     },
     "kuru-application": {
       "applicationId": "60a78bce-f7bc-438d-afb5-8fedfa22866f",
@@ -36398,8 +36398,8 @@
     },
     "kuru-integration": {
       "core": "0x198995faab55a9d5d4dceab56abaaa273c26fad7",
-      "bundleId": "0x16fc9e624de7815677350a8af35653c6bfa481b5f42bf765bebebe10478c3ae6",
-      "codeHash": "0xf503bf4fd164772951ff901f092cde88e2849a886cd087b42df7fb6184f90af7",
+      "bundleId": "0xcad4976f2b1afde67455ba510c07afc0c197ee025e378e5c2cc454ea2dc51123",
+      "codeHash": "0x2f925a83aa2ae0dd2d7e5cf899d6ecc5eaa60095d3de3cb7e249790113a3a287",
       "definition": {
         "format": 1,
         "name": "Kuru Spot",
@@ -36423,7 +36423,7 @@
             "arguments": [
               {
                 "source": "constant",
-                "value": "0x26fad38ad6d5855416b17d2f341c3bb3ff83097cc69568ef1a2bb6c1eb6df75c"
+                "value": "0x71d073208fae02573e0322448f1bce50d89548b4bcdb2a74e0f36ff0a6751fd6"
               },
               {
                 "source": "input",
@@ -36463,7 +36463,7 @@
             "arguments": [
               {
                 "source": "constant",
-                "value": "0xdec6b7f3605ff7b63576717a3d358f90adeb9e9929ec9228f57ef05625ef10d1"
+                "value": "0x8c61b284ed06d79dd3b7ecd4229cf7c8bff63637992a6c09c0bc57dcf33dc401"
               },
               {
                 "source": "input",
@@ -37023,6 +37023,10 @@
             "implementation_slot": "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc"
           },
           {
+            "target": "0xb9d2ceef10d25bfe8d3f73dd618e84de75f7f6fb",
+            "code_hash": "0x845a2fe98c6a4aa7e47984e64e946d9435b3ec2fcd00327e9de23ff0aafdafd0"
+          },
+          {
             "target": "0x84a150710ade003a1dace839898250879f42da6e",
             "code_hash": "0x702efdc009a11a3f55151474eee8f82e84ee4d9f15446527ba409f6b42181fb3"
           },
@@ -37100,6 +37104,10 @@
             "implementation_source_hash": "0x1b3e1eb8f416c7fecba65857a9eae27eb713d75e37c489dd3820381922edee91"
           },
           {
+            "target": "0xb9d2ceef10d25bfe8d3f73dd618e84de75f7f6fb",
+            "source_hash": "0xadd45fef9b4a8899e561c72023b8761161c2c787be6ec055b95ed016036b6597"
+          },
+          {
             "target": "0x84a150710ade003a1dace839898250879f42da6e",
             "source_hash": "0x3942e165f07166076e70940615ad0865f7eb290069bb564eb4eebd4143447dce"
           },
@@ -37121,7 +37129,7 @@
             "router": "0xf3e33781e2b5c6265da2f2775b339cc5a94a50d1",
             "values": [
               {
-                "id": "0x26fad38ad6d5855416b17d2f341c3bb3ff83097cc69568ef1a2bb6c1eb6df75c",
+                "id": "0x71d073208fae02573e0322448f1bce50d89548b4bcdb2a74e0f36ff0a6751fd6",
                 "target": "0x1F57a841540fe23C2989387c18F2CB1335CBAe92",
                 "input": "0x534b2f3A21130d7a60830c2Df862319e593943A3",
                 "output": "0x0000000000000000000000000000000000000000",
@@ -37140,7 +37148,7 @@
                 ]
               },
               {
-                "id": "0xdec6b7f3605ff7b63576717a3d358f90adeb9e9929ec9228f57ef05625ef10d1",
+                "id": "0x8c61b284ed06d79dd3b7ecd4229cf7c8bff63637992a6c09c0bc57dcf33dc401",
                 "target": "0x1F57a841540fe23C2989387c18F2CB1335CBAe92",
                 "input": "0x0000000000000000000000000000000000000000",
                 "output": "0x534b2f3A21130d7a60830c2Df862319e593943A3",
@@ -43692,7 +43700,7 @@
               "words": [
                 {
                   "source": "literal",
-                  "value": "0xdec6b7f3605ff7b63576717a3d358f90adeb9e9929ec9228f57ef05625ef10d1"
+                  "value": "0x8c61b284ed06d79dd3b7ecd4229cf7c8bff63637992a6c09c0bc57dcf33dc401"
                 },
                 {
                   "source": "field",
@@ -43722,8 +43730,8 @@
               "price_decimals": 18,
               "price_word": 2,
               "direction_word": 0,
-              "maximum_direction": "17631060023935199501671045752580995147354371552332255363740961382142925731676",
-              "minimum_direction": "100764557685309219897772244339491541885290590921166296645589480470944498520273",
+              "maximum_direction": "51479650658062421008746609805734357716871135296023955648643938370876851167190",
+              "minimum_direction": "63496415061465314301133423233706434634409214111084332704664353349054913954817",
               "max_slippage_bps": 100,
               "max_deviation_bps": 500,
               "max_authorization_age": 90,
@@ -43748,8 +43756,8 @@
               "price_decimals": 6,
               "price_word": 2,
               "direction_word": 0,
-              "maximum_direction": "17631060023935199501671045752580995147354371552332255363740961382142925731676",
-              "minimum_direction": "100764557685309219897772244339491541885290590921166296645589480470944498520273",
+              "maximum_direction": "51479650658062421008746609805734357716871135296023955648643938370876851167190",
+              "minimum_direction": "63496415061465314301133423233706434634409214111084332704664353349054913954817",
               "max_slippage_bps": 100,
               "max_deviation_bps": 500,
               "max_authorization_age": 90,
@@ -43834,9 +43842,9 @@
           ]
         }
       },
-      "healthReader": "0xDaa4398d0320954A693B0793959fE956280a3A38",
-      "planHash": "0x000ab2962cb4f3dcc12875ccd5d82e80bcc93e0ae88de2bd0a873e91ef143f1c",
-      "completedAt": "2026-10-11T18:02:01.916Z"
+      "healthReader": "0xaD6b0675E6f8D0C9Ab5F18c772eDf5eaD3f435D5",
+      "planHash": "0x164b532405cc027ff1bdb087c6153dc3d3de56a3528c319c793a2fb523b00bdc",
+      "completedAt": "2026-10-12T09:02:20.126Z"
     },
     "kuru-admission": {
       "applicationId": "60a78bce-f7bc-438d-afb5-8fedfa22866f",

@@ -66,11 +66,11 @@ export async function runRiskWorker(): Promise<number> {
           if (leaseLost || !await riskRepo.renew(lease.id, lease.lease)) throw new Error("risk-scan-lease-lost");
         }); }
         catch (error) {
-          const failure = error instanceof Error && /^risk-[a-z-]+$/.test(error.message)
-            ? error.message : "risk-state-unavailable";
+          const failure = error instanceof Error ? error.message.match(/^(?:risk|keeper)-[a-z-]+(?=:|$)/)?.[0]
+            ?? "risk-state-unavailable" : "risk-state-unavailable";
           await riskRepo.record(`${key}:${id.toLowerCase()}`, { state: "unavailable", failure,
             block: finalized.number.toString(), blockHash: finalized.hash });
-          logger.warn("risk-check-failed", { creditId: id, failure });
+          logger.warn("risk-check-failed", { creditId: id, failure, errorName: error instanceof Error ? error.name : "unknown" });
         }
       }));
     }

@@ -103,7 +103,11 @@ export async function runExecutionWorker(): Promise<number> {
         try { await reconcileActions(chain, id as Hex, block.number, keeper, async () => {
           if (lost || !await riskRepo.renew(lease.id, lease.lease)) throw new Error("execution-scan-lease-lost");
         }); }
-        catch { logger.warn("execution-reconciliation-unavailable", { creditId: id, block: block.number.toString() }); }
+        catch (error) {
+          logger.warn("execution-reconciliation-unavailable", { creditId: id, block: block.number.toString(),
+            reason: error instanceof Error ? error.message.match(/^(?:execution|keeper)-[a-z-]+(?=:|$)/)?.[0] ?? "execution-state-unavailable" : "execution-state-unavailable",
+            errorName: error instanceof Error ? error.name : "unknown" });
+        }
       }));
     }
     if (lost) throw new Error("execution-scan-lease-lost");

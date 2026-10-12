@@ -361,8 +361,8 @@ defaults a resting order for independent keeper cancellation and repayment.
 The SDK admission runner selects the evidence for the configured version.
 
 The shared order modules, FlowExecutor and the guarded-oracle PriceProtection
-upgrade have exact Sourcify matches. The complete order configuration passed
-simulation and all 146 configuration transactions confirmed on Monad testnet.
+upgrade have exact Sourcify matches. The current reader-bound order configuration passed
+simulation and all 142 configuration transactions confirmed on Monad testnet.
 The seven-action version still requires live lifecycle tests and SDK admission.
 
 Configuration binds the SDK definition and simulated governance plan before
@@ -374,8 +374,9 @@ selling, repayment, closure and independent keeper recovery completed on
 10 October 2026. The deployment-bound SDK acceptance review passed and the
 operator approved registration. `TERMBOOK_KURU_APP_TOKEN` is saved privately in
 the root `.env`; `deployments/testnet.json` records its public admission identity.
-All validation loans are closed, with no outstanding debt and their collateral
-returned. Client work, service hosting and Aurora sandbox routes remain deferred.
+The validation loans from that admission are closed, with no outstanding debt
+and their collateral returned. Client work, service hosting and Aurora sandbox
+routes remain deferred.
 For local use, run the worker command above with funded monitor and oracle
 keepers; execution checkpoints and monitor approvals expire when it stops.
 Configuration also installs a generic code-hash guard for the immutable MON

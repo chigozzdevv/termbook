@@ -12,6 +12,7 @@ export const word = (value: string) => keccak256(stringToHex(value));
 export const MARKET = "0x1F57a841540fe23C2989387c18F2CB1335CBAe92" as Address;
 export const USDC = "0x534b2f3A21130d7a60830c2Df862319e593943A3" as Address;
 export const FACTORY = "0x7EFbE105Ca7415dE98F96622173458ac1c054630" as Address;
+export const GAS_LIMIT = 30_000_000n;
 const zero = "0x0000000000000000000000000000000000000000" as Address;
 type StorageMember = { label: string; slot: string; offset: number; type: string };
 type Artifact = { abi: Abi; bytecode: { object: Hex }; storageLayout: { storage: StorageMember[];
@@ -101,17 +102,17 @@ export class Fixture {
     const fn = parseAbi([request.signature])[0] as AbiFunction;
     let hash: Hex;
     if (wallet) hash = await wallet.writeContract!({ address: request.to, abi: [fn], functionName: fn.name,
-      args: request.args ?? [], value: request.value, gas: 16_000_000n, account: request.from });
+      args: request.args ?? [], value: request.value, gas: GAS_LIMIT, account: request.from });
     else {
       await this.rpcCall("anvil_impersonateAccount", [request.from]);
       hash = await this.rpcCall("eth_sendTransaction", [{ from: request.from, to: request.to,
-        data: encodeFunctionData({ abi: [fn], functionName: fn.name, args: request.args ?? [] } as never), gas: toHex(16_000_000), gasPrice: toHex(1_000_000_000_000n), value: toHex(request.value ?? 0n) }]) as Hex;
+        data: encodeFunctionData({ abi: [fn], functionName: fn.name, args: request.args ?? [] } as never), gas: toHex(GAS_LIMIT), gasPrice: toHex(1_000_000_000_000n), value: toHex(request.value ?? 0n) }]) as Hex;
     }
     const receipt = await this.receipt(hash);
     if (!wallet) await this.finalize();
     if (receipt.status !== "success") {
       await this.chain.simulateContract({ address: request.to, abi: [fn, ...(await artifact("TermbookCore")).abi.filter((item) => item.type === "error")],
-        functionName: fn.name, args: request.args ?? [], account: request.from, value: request.value, gas: 16_000_000n });
+        functionName: fn.name, args: request.args ?? [], account: request.from, value: request.value, gas: GAS_LIMIT });
       throw new Error(`validation-setup-reverted:${fn.name}:${hash}`);
     }
     return receipt;
@@ -261,10 +262,11 @@ export class Fixture {
     await this.callbackSetup(words4);
   }
   protected async callbackSetup(words4: Hex[]) {
+    const executionRouter = this.addresses.AtomicSpotRouter!;
     const callback = await this.deploy("SpotCallbackFixture");
     const router = await this.deploy("AtomicSpotRouter", [this.actors.borrower, callback, this.addresses.IntegrationRegistry]);
     this.addresses.CallbackRouter = router;
-    this.addresses.AtomicSpotRouter = await this.read("AtomicSpotModule", "router");
+    this.addresses.AtomicSpotRouter = executionRouter;
     const bundle = word("callback bundle"), route = word("callback route");
     await this.call("IntegrationRegistry", "approve", [bundle, word("callback manifest")]);
     for (const target of [MARKET, USDC]) {

@@ -14,7 +14,7 @@ export const exclusions: IntegrationSuite["exclusions"] = [
 export const kuru_acceptance_cases = (Object.keys(acceptanceCases) as AcceptanceCaseId[]).filter((id) => !exclusions.some((e) => e.id === id));
 type Runner = IntegrationValidationRunner;
 
-export async function createScenarios(input: unknown, actors: IntegrationSuite["actors"]) {
+export async function createScenarios(input: unknown, actors: IntegrationSuite["actors"], selected = kuru_acceptance_cases) {
   if (!(input instanceof Fixture) || Object.entries(actors).some(([role, address]) => address.toLowerCase() !== input.actors[role as keyof typeof actors].toLowerCase())) throw new Error("validation-kuru-fixture-invalid");
   const f = input;
   const call = async (name: string, method: string, args: readonly unknown[] = [], from = actors.borrower, to = f.addresses[name]!): Promise<ValidationCall> =>
@@ -25,10 +25,10 @@ export async function createScenarios(input: unknown, actors: IntegrationSuite["
   const assert = (r: Runner, label: string, observation: string, operator: "eq" | "ne" | "gt" | "le" | "lt" | "ge", value: string | bigint | boolean, index = 0) =>
     r.assert({ label, left: { observation, index }, operator, right: { value: String(value) } });
   const same = (r: Runner, name: string) => r.assert({ label: `${name} unchanged`, left: { observation: `after_${name}`, index: 0 }, operator: "eq", right: { observation: `before_${name}`, index: 0 } });
-  const snapshot = async (r: Runner, v: Facility, phase: "before" | "after") => {
+  const snapshot = async (r: Runner, v: Facility, phase: "before" | "after", positions = true) => {
     await read(r, `${phase}_debt`, "TermbookCore", "creditDebt", [v.id], phase);
     await read(r, `${phase}_native`, "SpotAcceptanceProbe", "nativeBalance", [v.account], phase);
-    await read(r, `${phase}_positions`, "AtomicSpotModule", "positionCount", [v.id, v.account], phase);
+    if (positions) await read(r, `${phase}_positions`, "AtomicSpotModule", "positionCount", [v.id, v.account], phase);
     await r.observe({ id: `${phase}_cash`, target: USDC, from: actors.borrower as Address,
       signature: "function balanceOf(address) view returns(uint256)", args: [v.account], phase });
   };
@@ -38,7 +38,7 @@ export async function createScenarios(input: unknown, actors: IntegrationSuite["
     const rejected = await r.simulate("rejected", invalid, "control");
     if (!rejected.reverted) throw new Error("validation-unsafe-action-accepted");
   };
-  const unchanged = async (r: Runner) => { for (const key of ["debt", "native", "positions", "cash"]) await same(r, key); };
+  const unchanged = async (r: Runner, positions = true) => { for (const key of ["debt", "native", ...positions ? ["positions"] : [], "cash"]) await same(r, key); };
   const buy = async (v: Facility) => { await f.refresh(); await f.transact(await f.execution(v)); };
   const sellPrice = (v: Facility) => f.chain.getBalance({ address: v.account }).then((balance) => f.bid - (balance > 0n ? 10n ** 20n / balance + 2n : 1n));
   const sell = async (v: Facility) => { await f.refresh(await sellPrice(v)); return f.execution(v, false, await f.chain.getBalance({ address: v.account })); };
@@ -53,7 +53,7 @@ export async function createScenarios(input: unknown, actors: IntegrationSuite["
     await f.call("TermbookCore", "recordHealth", [v.id]);
   };
   const cases: Partial<Record<AcceptanceCaseId, (r: Runner) => Promise<void>>> = {};
-  for (const id of kuru_acceptance_cases) {
+  for (const id of kuru_acceptance_cases.filter((id) => selected.includes(id))) {
     const v = f.facilities.get(id);
     if (!v) throw new Error(`validation-facility-missing:${id}`);
     cases[id] = async (r) => {
@@ -119,8 +119,13 @@ export async function createScenarios(input: unknown, actors: IntegrationSuite["
           break;
         }
         case "pause_failure": case "stale_oracle": case "permission_loss": case "upgrade_failure": {
-          const request = await f.execution(v, true, 10_000n, (_, auth) => { auth.deadline += 300n; }); await snapshot(r, v, "before");
+          const positions = id !== "upgrade_failure";
+          const request = await f.execution(v, true, 10_000n, (_, auth) => { auth.deadline += 300n; }); await snapshot(r, v, "before", positions);
           const control = await r.simulate("control", request); if (control.reverted) throw new Error("validation-control-reverted");
+          if (!positions) {
+            await read(r, "dependencies_before", "IntegrationRegistry", "dependenciesValid", [f.bundle], "before");
+            await assert(r, "Reviewed dependencies are valid", "dependencies_before", "eq", true);
+          }
           if (id === "pause_failure") await f.call("TermbookCore", "setPaused", [true]);
           else if (id === "permission_loss") await f.call("PriceFeedFixture", "setPermission", [false]);
           else if (id === "stale_oracle") {
@@ -129,7 +134,11 @@ export async function createScenarios(input: unknown, actors: IntegrationSuite["
           }
           else await f.call("TestnetUpgradeGuard", "revoke", [], f.actors.borrower, f.guards[0]);
           const tx = await r.transact(request); if (tx.succeeded) throw new Error(`validation-failure-accepted:${id}`);
-          await snapshot(r, v, "after"); await unchanged(r);
+          await snapshot(r, v, "after", positions); await unchanged(r, positions);
+          if (!positions) {
+            await read(r, "dependencies_after", "IntegrationRegistry", "dependenciesValid", [f.bundle], "after");
+            await assert(r, "Revoked dependencies block execution", "dependencies_after", "eq", false);
+          }
           if (id === "pause_failure") await f.call("TermbookCore", "setPaused", [false]);
           if (id === "permission_loss") await f.call("PriceFeedFixture", "setPermission", [true]);
           if (id === "upgrade_failure") await f.restoreGuard();

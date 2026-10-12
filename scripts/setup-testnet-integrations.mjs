@@ -201,10 +201,12 @@ async function main() {
     equal(await monad.read("TestnetProxy", m[name], "proxyAdmin"), baseline.admin, `${name} administrator`);
   }
 
+  let inventory;
   async function state() {
     const blockNumber = await monad.client.getBlockNumber();
     const read = (name, address, functionName, args = []) => monad.client.readContract({ address, abi: artifact(name).abi, functionName, args, blockNumber });
-    const ids = (await loadCredits(deployment, monad)).observations.map((entry) => entry.creditId).sort();
+    inventory ??= (await loadCredits(deployment, monad)).observations.map((entry) => entry.creditId).sort();
+    const ids = inventory;
     equal(await read("TermbookCore", m.TermbookCore, "acceptedCredits"), BigInt(ids.length), "complete credit inventory");
     const result = { storage: {}, credits: {}, house: {} };
     for (const name of upgrades) {

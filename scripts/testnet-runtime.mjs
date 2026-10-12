@@ -167,7 +167,7 @@ export async function testnetRuntime(name, simulate) {
     }
     const url = simulate ? localOverride ?? `http://127.0.0.1:${chainId === 10143 ? 18545 : 18546}`
       : chainId === 10143 ? "https://testnet-rpc.monad.xyz" : "https://ethereum-sepolia-rpc.publicnode.com";
-    const transport = pacedHttp(url, 5, 0, { timeout: 30_000 });
+    const transport = simulate ? http(url, { timeout: 30_000 }) : pacedHttp(url, 5, 0, { timeout: 30_000 });
     const client = createPublicClient({ transport });
     if (await client.getChainId() !== chainId) throw new Error("Network mismatch");
     const wallet = createWalletClient({ account, transport });

@@ -63,10 +63,21 @@ async function main() {
     const b = await client.getBlock({ blockNumber: r.blockNumber });
     if (r.status !== 'success' || b.hash !== r.blockHash || b.transactions[r.transactionIndex] !== hash) throw new Error('E2E receipt is reverted or noncanonical');
     const tx = await client.getTransaction({ hash });
+    let l1Fee = 0n, operatorFee = 0n;
+    if (chainId === 84532) {
+      const raw = await client.request({ method: 'eth_getTransactionReceipt', params: [hash] });
+      if (raw.blockHash !== r.blockHash || raw.transactionHash !== hash
+        || !/^0x[0-9a-fA-F]+$/.test(raw.l1Fee ?? '')) throw new Error('Base fee receipt mismatch');
+      l1Fee = BigInt(raw.l1Fee);
+      operatorFee = await client.readContract({ address: '0x420000000000000000000000000000000000000F',
+        abi: viem.parseAbi(['function getOperatorFee(uint256) view returns(uint256)']),
+        functionName: 'getOperatorFee', args: [r.gasUsed], blockNumber: r.blockNumber });
+    }
     const result = { chainId, hash, from: tx.from, to: tx.to, block: String(r.blockNumber), blockHash: r.blockHash,
       timestamp: Number(b.timestamp), minedAt: new Date(Number(b.timestamp) * 1000).toISOString(),
       finalized: r.blockNumber <= finalized[chainId].number, gasUsed: String(r.gasUsed), effectiveGasPrice: String(r.effectiveGasPrice),
-      feeWei: String(r.gasUsed * r.effectiveGasPrice) };
+      ...(chainId === 84532 ? { l1FeeWei: String(l1Fee), operatorFeeWei: String(operatorFee) } : {}),
+      feeWei: String(r.gasUsed * r.effectiveGasPrice + l1Fee + operatorFee) };
     checked.set(key, result);
     return result;
   }

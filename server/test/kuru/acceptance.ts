@@ -257,9 +257,19 @@ export async function createScenarios(input: unknown, actors: IntegrationSuite["
           await rejection(r, await core("cure", [control.id]), await core("cure", [v.id])); await snapshot(r, v, "after"); await unchanged(r); break;
         }
         case "portfolio_limit": {
-          await f.rpcCall("anvil_setBalance", [v.account, `0x${(10n ** 18n).toString(16)}`]); await f.mine();
+          const shared = f instanceof DeploymentFixture ? f.deployment.configuration["kuru-integration"].definition.assessment : undefined;
+          const maximum = shared ? BigInt(shared.assets[0]!.maximum) : 10n ** 18n;
+          const balance = shared ? maximum * 2n : maximum;
+          await f.rpcCall("anvil_setBalance", [v.account, `0x${balance.toString(16)}`]); await f.mine();
           await snapshot(r, v, "before"); const control = f.facilities.get("control")!;
-          await rejection(r, await f.execution(control), await f.execution(v)); await snapshot(r, v, "after"); await unchanged(r); break;
+          await rejection(r, await f.execution(control), await f.execution(v, !shared, shared ? balance : 10_000n));
+          await snapshot(r, v, "after"); await unchanged(r);
+          if (shared) {
+            await read(r, "capped_value", "AtomicSpotModule", "readAppValue", [v.id, v.account, USDC], "after");
+            const [price] = await f.read("OracleRegistry", "read", [f.feedId]);
+            await assert(r, "Excess holdings cannot exceed admitted backing", "capped_value", "le", maximum * price / 10n ** 30n);
+          }
+          break;
         }
         case "unsolicited_asset": {
           await snapshot(r, v, "before");

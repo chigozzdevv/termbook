@@ -4,8 +4,17 @@ import { quoteSchema } from "../src/quote.js";
 import { operationSchema } from "../src/settlement.js";
 import { collateralSetupBindingSchema, NATIVE_SOL_ASSET_BYTES } from "../src/collateral-setup.js";
 import { solanaIntentCollateralSchema } from "../src/intent.js";
+import { collateralMarketSchema } from "../src/catalog.js";
 
 describe("schema", () => {
+  it("declares native ETH wrapping for Base WETH while rejecting wrapped native-vault markets", () => {
+    const market = { id: "base-sepolia", label: "ETH (Base Sepolia)", kind: "evm", chainId: 84532,
+      rpcUrl: "https://sepolia.base.org", decimals: 18, asset: "0x4200000000000000000000000000000000000006",
+      vault: "0x1111111111111111111111111111111111111111", controller: "0x2222222222222222222222222222222222222222", wrapNative: true };
+    expect(collateralMarketSchema.parse(market).wrapNative).toBe(true);
+    expect(() => collateralMarketSchema.parse({ ...market, nativeVault: true })).toThrow("collateral-wrap-invalid");
+  });
+
   it("rejects bad address", () => {
     expect(() => collateralSelectSchema.parse({ chainId: 1, asset: "bad", amount: 1n })).toThrow();
   });

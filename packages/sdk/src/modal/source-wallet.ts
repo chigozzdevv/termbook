@@ -60,7 +60,8 @@ export async function connectSourceWallet(client: TermbookClient, market: Collat
   };
   const source = new EvmSourceLockWallet({ chainId: market.chainId, rpcUrl: market.rpcUrl, wallet,
     vault: market.vault as `0x${string}`, asset: market.asset as `0x${string}`,
-    controller: market.controller as `0x${string}`, nativeVault: market.nativeVault, testnetConfirmations: market.testnetConfirmations });
+    controller: market.controller as `0x${string}`, nativeVault: market.nativeVault, testnetConfirmations: market.testnetConfirmations,
+    ...(market.wrapNative ? { wrapNative: true } : {}) });
   const onSource = async <T>(work: () => Promise<T>): Promise<T> => {
     await switchChain(provider, market.chainId);
     try { return await work(); } finally { await switchChain(provider, client.config.chainId); }

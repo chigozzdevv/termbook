@@ -126,7 +126,8 @@ async function main() {
     deployment.addresses[10143][`Evm${chainId}Verifier`] = verifier;
     Object.assign(deployment.proxies[10143], report.proxies[10143]);
     writeJsonAtomic(manifestFile, deployment);
-    writeConfiguration(stage, report);
+    const configuration = { ...report }; delete configuration.proxies;
+    writeConfiguration(stage, configuration);
     const envFile = path.join(root, ".env");
     let text = fs.readFileSync(envFile, "utf8");
     const rpcUrls = JSON.parse(text.match(/^EVM_SOURCE_RPC_URLS=(.*)$/m)?.[1] ?? "{}");

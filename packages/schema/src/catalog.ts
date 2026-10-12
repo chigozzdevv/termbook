@@ -15,7 +15,8 @@ const marketBase = { id: z.string().regex(/^[a-z0-9_-]{1,64}$/), label: z.string
 
 export const collateralMarketSchema = z.discriminatedUnion("kind", [
   z.strictObject({ ...marketBase, kind: z.literal("evm"), asset: addressSchema, vault: addressSchema,
-    controller: addressSchema, nativeVault: z.boolean().default(false), testnetConfirmations: z.number().int().min(5).max(64).optional() }).superRefine((market, ctx) => {
+    controller: addressSchema, nativeVault: z.boolean().default(false), wrapNative: z.boolean().optional(), testnetConfirmations: z.number().int().min(5).max(64).optional() }).superRefine((market, ctx) => {
+      if (market.nativeVault && market.wrapNative) ctx.addIssue({ code: "custom", message: "collateral-wrap-invalid" });
       if (market.testnetConfirmations !== undefined && market.chainId !== 11155111) ctx.addIssue({ code: "custom", message: "testnet-confirmations-invalid" });
     }),
   z.strictObject({ ...marketBase, kind: z.literal("solana"), genesis: bytes32Schema,

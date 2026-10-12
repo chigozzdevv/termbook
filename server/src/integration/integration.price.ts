@@ -13,7 +13,7 @@ const abi = parseAbi([
 ]);
 function numeric(value: unknown): bigint | undefined {
   if (typeof value === "boolean") return value ? 1n : 0n;
-  if (typeof value !== "string" || !/^\d+$/.test(value)) return;
+  if (typeof value !== "string" || !/^(?:\d+|0x[a-fA-F0-9]+)$/.test(value)) return;
   return BigInt(value);
 }
 
@@ -69,18 +69,13 @@ export async function admittedPrices(bundle: `0x${string}`, actions: CapabilityD
     const calls = capabilityCalls(action);
     const bounds = calls.flatMap((call, callIndex) => call.arguments.flatMap((arg, index) =>
       arg.source === "price_bound" ? [{ call, callIndex, index }] : []));
-    if (bounds.length !== 1) return false;
-    const bound = bounds[0]!;
-    const item = parseAbiItem(bound.call.signature);
-    if (item.type !== "function" || !item.inputs.every((arg) => /^(?:u?int(?:\d{0,3})|address|bool|bytes\d{1,2})$/.test(arg.type))
-      || !/^uint(?:\d{0,3})$/.test(item.inputs[bound.index]!.type)) return false;
-    const directionIndex = bound.call.arguments.findIndex((arg) => arg.source === "input" && arg.path === action.price!.directionPath
-      || arg.source === "state" && `_state.${arg.path}` === action.price!.directionPath);
+    if (!bounds.length) return false;
+    for (const bound of bounds) {
+      const item = parseAbiItem(bound.call.signature);
+      if (item.type !== "function" || !item.inputs.every((arg) => /^(?:u?int(?:\d{0,3})|address|bool|bytes\d{1,2})$/.test(arg.type))
+        || !/^uint(?:\d{0,3})$/.test(item.inputs[bound.index]!.type)) return false;
+    }
     const amountMode = (action.price.kind ?? "price") !== "price";
-    if (!amountMode && directionIndex < 0) return false;
-    const amountIndex = bound.call.arguments.findIndex((arg) => arg.source === "input" && arg.path === action.price!.amountPath);
-    if (amountMode && (amountIndex < 0 || !/^uint(?:\d{0,3})$/.test(item.inputs[amountIndex]!.type))) return false;
-    const direction = bound.call.arguments[directionIndex]!;
     const capability = keccak256(stringToHex(executionKey(action)));
     for (const market of action.price.markets) {
       const [rule, hash] = await Promise.all([
@@ -88,8 +83,19 @@ export async function admittedPrices(bundle: `0x${string}`, actions: CapabilityD
         chain.readContract({ address: protection, abi, functionName: "ruleHashes", args: [keccak256(encodeAbiParameters(
           [{ type: "bytes32" }, { type: "bytes32" }, { type: "bytes32" }], [bundle, capability, market as `0x${string}`]))], blockNumber }),
       ]);
-      if (/^0x0{64}$/i.test(hash) || /^0x0{40}$/i.test(rule.oracle) || rule.callIndex !== bound.callIndex
-        || rule.priceWord !== bound.index || !amountMode && rule.directionWord !== directionIndex
+      const bound = bounds.find((entry) => entry.callIndex === rule.callIndex && entry.index === rule.priceWord);
+      if (!bound) return false;
+      const item = parseAbiItem(bound.call.signature);
+      if (item.type !== "function") return false;
+      const direction = bound.call.arguments[rule.directionWord];
+      const directional = !amountMode || !!action.price.maximumDirections?.length || !!action.price.minimumDirections?.length;
+      if (directional && (!direction || !(direction.source === "input" && direction.path === action.price.directionPath
+        || direction.source === "state" && `_state.${direction.path}` === action.price.directionPath
+        || direction.source === "constant" && action.when?.direction
+          && [...action.price.maximumDirections ?? [], ...action.price.minimumDirections ?? []].includes(action.when.direction)))) return false;
+      const amountIndex = bound.call.arguments.findIndex((arg) => arg.source === "input" && arg.path === action.price!.amountPath);
+      if (amountMode && (amountIndex < 0 || !/^uint(?:\d{0,3})$/.test(item.inputs[amountIndex]!.type))) return false;
+      if (/^0x0{64}$/i.test(hash) || /^0x0{40}$/i.test(rule.oracle)
         || rule.target.toLowerCase() !== bound.call.target.toLowerCase() || rule.selector !== toFunctionSelector(item)
         || rule.maxAuthorizationAge === 0 || rule.maxSlippageBps > 5000 || rule.maxDeviationBps === 0) return false;
       const price = await chain.readContract({ address: rule.oracle, abi: oracleAbi, functionName: "read",
@@ -103,10 +109,12 @@ export async function admittedPrices(bundle: `0x${string}`, actions: CapabilityD
           : (bound.call.spendToken ?? settlementAsset ?? "").toLowerCase() !== amount[6].toLowerCase()) return false;
       }
       for (const value of action.price.maximumDirections ?? []) {
-        if (numeric(direction.choices ? direction.choices[value] : value) !== rule.maximumDirection) return false;
+        if (direction?.source === "constant" && value !== action.when?.direction) continue;
+        if (numeric(direction?.source === "constant" ? direction.value : direction?.choices ? direction.choices[value] : value) !== rule.maximumDirection) return false;
       }
       for (const value of action.price.minimumDirections ?? []) {
-        if (numeric(direction.choices ? direction.choices[value] : value) !== rule.minimumDirection) return false;
+        if (direction?.source === "constant" && value !== action.when?.direction) continue;
+        if (numeric(direction?.source === "constant" ? direction.value : direction?.choices ? direction.choices[value] : value) !== rule.minimumDirection) return false;
       }
     }
   }

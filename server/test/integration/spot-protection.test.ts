@@ -18,13 +18,14 @@ const mapping = { applicationId: "1f3474c2-f4c2-461d-919d-143749012e27", categor
   settlementAsset: address("4"), actions: [action], verifiedSources: [{ target: address("2"), sourceHash: market }] };
 let amountWord = 0;
 let maxInput = false;
+let binding: Record<string, unknown> = {};
 beforeEach(() => {
-  amountWord = 0; maxInput = false;
+  amountWord = 0; maxInput = false; binding = {};
   mocks.read.mockImplementation(async ({ functionName }: { functionName: string }) => {
     if (functionName === "priceProtection") return address("5");
     if (functionName === "ruleHashes") return bundle;
     if (functionName === "rule") return { oracle: address("6"), feedId: market, target: address("2"), selector: toFunctionSelector(action.signature),
-      callIndex: 0, priceWord: 1, directionWord: 65535, maxAuthorizationAge: 60, maxSlippageBps: 100, maxDeviationBps: 500 };
+      callIndex: 0, priceWord: 1, directionWord: 65535, maxAuthorizationAge: 60, maxSlippageBps: 100, maxDeviationBps: 500, ...binding };
     if (functionName === "read") return [10n ** 18n, 1000n, 1n];
     if (functionName === "amountRules") return maxInput ? [amountWord, 6, 18, true, true, true, address("4"), address("3")] : [amountWord, 18, 6, false, false, true, address("3"), address("4")];
     if (functionName === "deriveAmountBound") return 100_500_000n;
@@ -32,6 +33,31 @@ beforeEach(() => {
   });
 });
 describe("shared spot admission", () => {
+  it("checks the configured bound and fixed direction in a multi-call limit route", async () => {
+    const signature = "function track(bytes32 route,uint256 price)";
+    const limit = { ...action, when: { direction: "buy" as const, order_type: "limit" as const, sizing: "spend" as const },
+      settlement: "asynchronous" as const, steps: [{ target: address("2"), signature,
+        arguments: [{ source: "constant" as const, value: bundle }, { source: "price_bound" as const }] }],
+      price: { kind: "price" as const, directionPath: "direction", markets: [market], maximumDirections: ["buy"], minimumDirections: ["sell"] } };
+    binding = { selector: toFunctionSelector(signature), callIndex: 0, directionWord: 0,
+      maximumDirection: BigInt(bundle), minimumDirection: BigInt(market) };
+    expect(await admittedPrices(bundle, [limit], 100n, "spot", address("4"))).toBe(true);
+    binding.maximumDirection = BigInt(market);
+    expect(await admittedPrices(bundle, [limit], 100n, "spot", address("4"))).toBe(false);
+    binding.maximumDirection = BigInt(bundle); binding.priceWord = 0;
+    expect(await admittedPrices(bundle, [limit], 100n, "spot", address("4"))).toBe(false);
+  });
+  it("allows one authenticated bound to protect multiple calls and rejects missing bounds", () => {
+    const multi = { ...action, steps: [{ target: address("2"), signature: "function checkMinimum(uint256 minimum)",
+      arguments: [{ source: "price_bound" }] }] };
+    expect(integrationMappingSchema.safeParse({ ...mapping, actions: [multi] }).success).toBe(true);
+    const removeBound = (arg: typeof action.arguments[number]) => arg.source === "price_bound"
+      ? { source: "constant", value: "0" } : arg;
+    const unprotected = { ...multi, arguments: multi.arguments.map(removeBound),
+      steps: [{ ...multi.steps[0], arguments: [{ source: "constant", value: "0" }] }] };
+    expect(integrationMappingSchema.safeParse({ ...mapping, actions: [unprotected] }).success).toBe(false);
+    expect(integrationMappingSchema.safeParse({ ...mapping, actions: [{ ...multi, price: undefined }] }).success).toBe(false);
+  });
   it("estimates exact-output intent funding through the approved onchain conversion", async () => {
     maxInput = true;
     const exact = { ...action, spendPath: undefined, spendToken: address("4"), fundingFromBound: true,

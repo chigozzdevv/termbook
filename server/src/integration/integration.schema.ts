@@ -99,7 +99,7 @@ export const integrationMappingSchema = z.strictObject({
       ctx.addIssue({ code: "custom", path: ["actions", index], message: "spot-amount-protection-required" });
     }
     const bounds = capabilityCalls(action).flatMap((call) => call.arguments.filter((arg) => arg.source === "price_bound"));
-    if (action.price ? !action.marketPath || bounds.length !== 1 : bounds.length !== 0) {
+    if (action.price ? !action.marketPath || bounds.length === 0 : bounds.length !== 0) {
       ctx.addIssue({ code: "custom", path: ["actions", index], message: "capability-price-definition-invalid" });
     }
   }

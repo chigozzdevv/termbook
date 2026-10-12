@@ -360,18 +360,19 @@ tests all seven advertised actions, checks controlled venue balances, and
 defaults a resting order for independent keeper cancellation and repayment.
 The SDK admission runner selects the evidence for the configured version.
 
-The shared order modules, FlowExecutor and the guarded-oracle PriceProtection
-upgrade have exact Sourcify matches. The current reader-bound order configuration passed
-simulation and all 142 configuration transactions confirmed on Monad testnet.
-The seven-action version still requires live lifecycle tests and SDK admission.
+The optimized shared order modules, FlowExecutor and guarded-oracle
+PriceProtection have exact Sourcify matches. All 142 configuration transactions
+confirmed on Monad testnet. The seven-action version completed live market
+buys/sells, limit buys/sells with both sizing modes, cancellation, repayment,
+closure, independent keeper recovery and partial recovery cure. All 41 SDK
+acceptance cases passed and replayed. SDK registration is active.
 
 Configuration binds the SDK definition and simulated governance plan before
 broadcast. Reader registration targets `HealthSource`; the SDK checks its
 binding through Core's authenticated `AccountHealthSource` wrapper. The live runner creates repayment, default-recovery and active
 valuation facilities. It records actual buy/sell calls and independent keeper
-recovery and repayment receipts for SDK validation. Live borrowing, buying,
-selling, repayment, closure and independent keeper recovery completed on
-10 October 2026. The deployment-bound SDK acceptance review passed and the
+recovery and repayment receipts for SDK validation. The tracked-order lifecycle
+and deployment-bound SDK acceptance review completed on 12 October 2026. The
 operator approved registration. `TERMBOOK_KURU_APP_TOKEN` is saved privately in
 the root `.env`; `deployments/testnet.json` records its public admission identity.
 The validation loans from that admission are closed, with no outstanding debt
@@ -381,10 +382,12 @@ For local use, run the worker command above with funded monitor and oracle
 keepers; execution checkpoints and monitor approvals expire when it stops.
 Configuration also installs a generic code-hash guard for the immutable MON
 ratio feed. The proposed 90,000-second Kuru health window was not activated.
+The public test market targets five MON per maker side. External trades can
+consume that depth; the risk system values executable exits and can start
+recovery when liquidity falls. Refresh the maker book during demonstrations.
 The health freshness setup uses a 300-second state snapshot limit while
 execution state and authorization limits remain 90 seconds. Feed-specific price
-age limits are enforced independently. The new version still needs live lifecycle
-validation and admission.
+age limits are enforced independently.
 Optional `LOCAL_COLLATERAL_BIDS` entries bind `chain_id`, `collateral_asset`,
 `settlement_asset` and `maximum_settlement` in raw token units. The recovery
 keeper bids with its own funded settlement tokens, within the configured cap,
@@ -392,14 +395,14 @@ available funds, remaining debt and the onchain sale policy. Core checks the
 independent price, receives the payment and transfers the purchased collateral.
 Without a funded matching bidder, collateral recovery awaits a market bid.
 
-The SDK fork acceptance runner implements all 36 applicable cases across the
+The SDK fork acceptance runner implements all 41 applicable cases across the
 16 admission requirements. It checks controlled custody, independent valuation,
 unsafe-action rejection, repayment, final closure, isolated keeper recovery,
-interruption and retry, and cure restrictions. Seven explicit exclusions cover
-unsupported asynchronous orders, derivative reduction and retained positions.
+interruption and retry, and cure restrictions. Two explicit exclusions cover
+derivative reduction and retained positions.
 Each rejection has a successful control; recorded observations, transactions
 and simulations are replayed against their original blocks.
-All 36 cases passed and replayed using the deployed Termbook contracts on a
+All 41 cases passed and replayed using the deployed Termbook contracts on a
 local fork. The SDK checked the live trading, custody, valuation, repayment and
 independent recovery receipts before registration and approval. Admission uses
 the testnet runtime review and expiring upgrade monitors described above.

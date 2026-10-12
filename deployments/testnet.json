@@ -43848,25 +43848,20 @@
     },
     "kuru-admission": {
       "applicationId": "60a78bce-f7bc-438d-afb5-8fedfa22866f",
-      "integrationId": "2fa595db-15cf-489f-afc0-8d5f544e577b",
-      "versionId": "0x101e2fe1d10f60c193b7ba0560b8fd6ab04ce9e29781607b5704ec8c20a082c0",
-      "packageHash": "0xb945bc85a0c41894d68d99e78fb2efc059170be6376080e881c4a5904a0f860e",
+      "integrationId": "00f52e91-a45d-4129-b35f-df3fbf49dc6e",
+      "versionId": "0xd865c0d7e43260e091263ea24d808a10f8ba2dab94b128bf77132d74e09d013c",
+      "packageHash": "0xeff79bb1fc358a5d10dfd5c9238c31636a7de77bf0d4b902d16f3568812ed4e7",
       "status": "active",
-      "approvedAt": "2026-10-10T22:20:11.510Z",
+      "approvedAt": "2026-10-12T16:19:42.545Z",
       "acceptance": {
         "mode": "fork",
-        "evidenceHash": "0x967dddddb4366c0ccadde7897d2d135e82471997324a7285ff1a47bf7432342a",
+        "evidenceHash": "0xf736762ea34c84db05c8eeab768f9e89cabeb0f05268e6388fa6619285ae6c94",
         "sourceBlock": {
-          "number": "69920839",
-          "hash": "0x9a8f1377e8d156ff3a931866c05f1d0e4784069da2599501e8cd9a16d07dbd6e"
+          "number": "70429331",
+          "hash": "0x6c1af1509f9e4736d91b5e8f9c108952ed4528f8b7f5e669f30c1d3e898433d2"
         },
-        "cases": 36,
+        "cases": 41,
         "exclusions": [
-          "forced_cancel",
-          "asynchronous_failure",
-          "pending_limit",
-          "partial_fill_slots",
-          "duplicate_claim",
           "forced_reduce",
           "retention_authorization"
         ]
@@ -43875,12 +43870,15 @@
         "borrowing": true,
         "buy": true,
         "sell": true,
+        "limitOrders": true,
+        "cancellation": true,
         "repayment": true,
         "closure": true,
         "independentRecovery": true,
         "collateralSale": true,
+        "partialRecoveryCure": true,
         "allValidationLoansClosed": true,
-        "finalClosureTx": "0x68a4e44d13f4f998561c04ae20306567101cf447203a7181b666c4de203b76de"
+        "finalClosureTx": "0x3d4ac3943eb124585dae39cb4abe2cc24e2545f622e7d5fc44915ec9888296a5"
       },
       "trustModel": "testnet exact-runtime review and trusted RPC upgrade monitors; no mainnet admission"
     },

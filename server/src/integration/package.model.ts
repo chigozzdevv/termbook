@@ -8,6 +8,6 @@ const schema = new mongoose.Schema({
   proposal: { type: mongoose.Schema.Types.Mixed, required: true },
   status: { type: String, enum: ["validated", "awaiting_approval", "active"], required: true },
   expiresAt: { type: Date, required: true }, appToken: String, reviewer: String,
-}, { timestamps: true });
+}, { timestamps: true, minimize: false });
 schema.index({ applicationId: 1, owner: 1, packageHash: 1 });
 export const PackageModel = mongoose.models["IntegrationPackage"] ?? mongoose.model("IntegrationPackage", schema);

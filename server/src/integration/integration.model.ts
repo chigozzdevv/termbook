@@ -19,7 +19,7 @@ const integrationSchema = new mongoose.Schema(
     active: { type: Boolean, default: true },
     frozen: { type: Boolean, default: false },
   },
-  { timestamps: true },
+  { timestamps: true, minimize: false },
 );
 
 export const IntegrationModel =

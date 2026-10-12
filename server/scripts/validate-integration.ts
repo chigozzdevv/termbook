@@ -76,8 +76,10 @@ if (admit) {
   let registration = await sdk.integrations.register({ validation_id: report.admission.id });
   if (registration.version_id !== identity.version_id) throw new Error('integration-registration-binding-invalid');
   if (approve && registration.status === 'awaiting_approval') {
+    const reviewed = { ...report.suite, cases: (Object.keys(acceptanceCases) as AcceptanceCaseId[])
+      .flatMap((id) => report.suite.cases.filter((item) => item.id === id)) };
     registration = await sdk.integrations.approve({ validation_id: report.admission.id,
-      fork_review_signature: report.suite.mode === 'fork' ? await wallet.signTypedData(integrationForkReview(report.suite)) : undefined });
+      fork_review_signature: report.suite.mode === 'fork' ? await wallet.signTypedData(integrationForkReview(reviewed)) : undefined });
   }
   if (registration.status === 'active') {
     const envPath = resolve(dirname(fileURLToPath(import.meta.url)), '../../.env');

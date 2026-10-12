@@ -50,7 +50,6 @@ async function main(): Promise<void> {
   const tick = async (): Promise<void> => {
     await runPythOracleWorker();
     const results = await Promise.allSettled([
-      runIndexerWorker(),
       runCreditWorker(),
       runCollateralWorker(),
       runRemoteActionWorker(),
@@ -72,6 +71,8 @@ async function main(): Promise<void> {
   let stopping = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let active: Promise<void> | undefined;
+  let indexerTimer: ReturnType<typeof setTimeout> | undefined;
+  let indexerActive: Promise<void> | undefined;
   let riskTimer: ReturnType<typeof setTimeout> | undefined;
   let riskActive: Promise<void> | undefined;
   let actionTimer: ReturnType<typeof setTimeout> | undefined;
@@ -98,6 +99,14 @@ async function main(): Promise<void> {
       if (!stopping) riskTimer = setTimeout(scheduleRisk, 5_000);
     });
   };
+  const scheduleIndexer = (): void => {
+    if (stopping) return;
+    indexerActive = runIndexerWorker().then(() => undefined).catch((error: unknown) => {
+      logger.error("indexer-failed", { reason: error instanceof Error ? error.message : "unknown" });
+    }).finally(() => {
+      if (!stopping) indexerTimer = setTimeout(scheduleIndexer, 5_000);
+    });
+  };
   const scheduleKeepers = (): void => {
     if (stopping) return;
     keeperActive = runKeeperWorker().then(() => undefined).catch((error: unknown) => {
@@ -118,13 +127,14 @@ async function main(): Promise<void> {
     if (stopping) return;
     stopping = true;
     clearTimeout(timer);
+    clearTimeout(indexerTimer);
     clearTimeout(riskTimer);
     clearTimeout(keeperTimer);
     clearTimeout(actionTimer);
     clearTimeout(solanaTimer);
     clearTimeout(upgradeTimer);
     clearTimeout(priceTimer);
-    await Promise.all([active, riskActive, keeperActive, actionActive, solanaActive, upgradeActive, priceActive]);
+    await Promise.all([active, indexerActive, riskActive, keeperActive, actionActive, solanaActive, upgradeActive, priceActive]);
     await stopWorkers();
     await closeRedis();
     await mongoose.disconnect();
@@ -133,6 +143,7 @@ async function main(): Promise<void> {
   process.on("SIGINT", () => void shutdown());
   process.on("SIGTERM", () => void shutdown());
   schedule();
+  scheduleIndexer();
   scheduleRisk();
   scheduleKeepers();
   scheduleActions();

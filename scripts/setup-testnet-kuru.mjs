@@ -29,7 +29,7 @@ const marketAbi = viem.parseAbi([
   "function batchCancelOrders(uint40[])",
 ]);
 const tokenAbi = viem.parseAbi(["function approve(address,uint256) returns(bool)"]);
-const marginAbi = viem.parseAbi(["function deposit(address,address,uint256) payable"]);
+const marginAbi = viem.parseAbi(["function deposit(address,address,uint256) payable", "function getBalance(address,address) view returns(uint256)"]);
 const require = createRequire(path.join(root, "packages/sdk/package.json"));
 const { generatePrivateKey, privateKeyToAccount } = require("viem/accounts");
 
@@ -45,6 +45,8 @@ async function main() {
     const installed = deployment.configuration["kuru-market"];
     if (!installed || installed.core.toLowerCase() !== m.TermbookCore.toLowerCase()) throw new Error("Current Kuru market required");
     const market = installed.market;
+    const baseAmount = viem.parseEther(installed.makerBaseMON ?? "1");
+    if (baseAmount <= 0n || baseAmount > viem.parseEther("10")) throw new Error("Invalid test maker depth");
     const params = await network.client.readContract({ address: market, abi: marketAbi, functionName: "getMarketParams" });
     if (params[2] !== viem.zeroAddress || params[4].toLowerCase() !== usdc.toLowerCase() || params[3] !== 18n || params[5] !== 6n) throw new Error("Maker market assets changed");
     const price = await network.read("OracleRegistry", m.OracleRegistry, "read", [setup.priceId]);
@@ -70,16 +72,20 @@ async function main() {
       report.reference = String(price[0]);
       report.bid = String(price[0] * precision * 9950n / 10n ** 18n / 10_000n / tick * tick);
       report.ask = String((price[0] * precision * 10050n / 10n ** 18n / 10_000n + tick - 1n) / tick * tick);
-      report.size = String(params[1]); persist();
+      report.size = String(baseAmount * params[1] / 10n ** 18n); persist();
     }
     const difference = price[0] > BigInt(report.reference) ? price[0] - BigInt(report.reference) : BigInt(report.reference) - price[0];
     if (difference * 10_000n > BigInt(report.reference) * 25n) throw new Error("Maker reference moved; reconcile the liquidity plan before repricing");
     if (!simulate) {
       const plan = JSON.parse(fs.readFileSync(operationFile(`${operation}-simulation`), "utf8"));
-      if (!plan.completedAt || plan.bid !== report.bid || plan.ask !== report.ask || JSON.stringify(plan.orderIds) !== JSON.stringify(report.orderIds)) throw new Error("Matching liquidity simulation required");
+      if (!plan.completedAt || plan.bid !== report.bid || plan.ask !== report.ask || plan.size !== report.size
+        || JSON.stringify(plan.orderIds) !== JSON.stringify(report.orderIds)) throw new Error("Matching liquidity simulation required");
     }
     const ids = report.orderIds.map(BigInt);
     if (ids.length) await network.send("cancel-owned-maker-orders", viem.encodeFunctionData({ abi: marketAbi, functionName: "batchCancelOrders", args: [ids] }), market);
+    const balance = await network.client.readContract({ address: installed.margin, abi: marginAbi, functionName: "getBalance", args: [deployment.deployer, viem.zeroAddress] });
+    if (balance < baseAmount) await network.send("fund-maker-base", viem.encodeFunctionData({ abi: marginAbi,
+      functionName: "deposit", args: [deployment.deployer, viem.zeroAddress, baseAmount - balance] }), installed.margin, baseAmount - balance);
     await network.send("refresh-maker-bid", viem.encodeFunctionData({ abi: marketAbi, functionName: "addBuyOrder", args: [Number(report.bid), BigInt(report.size), true] }), market);
     await network.send("refresh-maker-ask", viem.encodeFunctionData({ abi: marketAbi, functionName: "addSellOrder", args: [Number(report.ask), BigInt(report.size), true] }), market);
     report.completedAt ??= new Date().toISOString(); persist();

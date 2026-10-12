@@ -511,7 +511,8 @@ async function main() {
     }
     if (!repaymentHash) throw new Error("Kuru independent repayment receipt is missing");
     report.probes = orders ? [active.probe, repayment.sell.probe,
-      ...["buy", "sell"].flatMap((direction) => ["spend", "receive"].map((sizing) => active.orderTests[`limit-${direction}-${sizing}`].probe)),
+      ...["buy", "sell"].flatMap((direction) => ["spend", "receive"].map((sizing) => direction === "buy" && sizing === "spend"
+        ? recovered.probe : active.orderTests[`limit-${direction}-${sizing}`].probe)),
       active.orderTests["cancel-buy-spend"].probe] : [recovered.probe, repayment.sell.probe];
     const advertised = appSetup.definition.actions.map(executionKey);
     const actual = report.probes.map((probe) => executionKey(selectCapability(appSetup.definition.actions, probe.action)));

@@ -36398,8 +36398,8 @@
     },
     "kuru-integration": {
       "core": "0x198995faab55a9d5d4dceab56abaaa273c26fad7",
-      "bundleId": "0xcad4976f2b1afde67455ba510c07afc0c197ee025e378e5c2cc454ea2dc51123",
-      "codeHash": "0x2f925a83aa2ae0dd2d7e5cf899d6ecc5eaa60095d3de3cb7e249790113a3a287",
+      "bundleId": "0xd865c0d7e43260e091263ea24d808a10f8ba2dab94b128bf77132d74e09d013c",
+      "codeHash": "0xeff79bb1fc358a5d10dfd5c9238c31636a7de77bf0d4b902d16f3568812ed4e7",
       "definition": {
         "format": 1,
         "name": "Kuru Spot",
@@ -36423,7 +36423,7 @@
             "arguments": [
               {
                 "source": "constant",
-                "value": "0x71d073208fae02573e0322448f1bce50d89548b4bcdb2a74e0f36ff0a6751fd6"
+                "value": "0x453bfd6a22aa9a60840202e91a10a3ba9de47a982040896dd3386fc92729c7d3"
               },
               {
                 "source": "input",
@@ -36463,7 +36463,7 @@
             "arguments": [
               {
                 "source": "constant",
-                "value": "0x8c61b284ed06d79dd3b7ecd4229cf7c8bff63637992a6c09c0bc57dcf33dc401"
+                "value": "0xd714698240f2eb71423a3052ac261d09bf239337fe26a6463b115bbe8703a86e"
               },
               {
                 "source": "input",
@@ -36496,7 +36496,7 @@
             }
           },
           {
-            "target": "0x84a150710ade003a1dace839898250879f42da6e",
+            "target": "0x2c767ca1a112f66a2a94a39b11c912a73672400d",
             "signature": "function finishOrder(bytes32)",
             "arguments": [
               {
@@ -36528,7 +36528,7 @@
                 "spendToken": "0x534b2f3A21130d7a60830c2Df862319e593943A3"
               },
               {
-                "target": "0x84a150710ade003a1dace839898250879f42da6e",
+                "target": "0x2c767ca1a112f66a2a94a39b11c912a73672400d",
                 "signature": "function beginOrder(bytes32,bytes32,uint256,uint256)",
                 "arguments": [
                   {
@@ -36603,7 +36603,7 @@
             }
           },
           {
-            "target": "0x84a150710ade003a1dace839898250879f42da6e",
+            "target": "0x2c767ca1a112f66a2a94a39b11c912a73672400d",
             "signature": "function finishOrder(bytes32)",
             "arguments": [
               {
@@ -36635,7 +36635,7 @@
                 "spendToken": "0x534b2f3A21130d7a60830c2Df862319e593943A3"
               },
               {
-                "target": "0x84a150710ade003a1dace839898250879f42da6e",
+                "target": "0x2c767ca1a112f66a2a94a39b11c912a73672400d",
                 "signature": "function beginOrder(bytes32,bytes32,uint256,uint256)",
                 "arguments": [
                   {
@@ -36710,7 +36710,7 @@
             }
           },
           {
-            "target": "0x84a150710ade003a1dace839898250879f42da6e",
+            "target": "0x2c767ca1a112f66a2a94a39b11c912a73672400d",
             "signature": "function finishOrder(bytes32)",
             "arguments": [
               {
@@ -36740,7 +36740,7 @@
                 "valuePath": "_derived.order_spend"
               },
               {
-                "target": "0x84a150710ade003a1dace839898250879f42da6e",
+                "target": "0x2c767ca1a112f66a2a94a39b11c912a73672400d",
                 "signature": "function beginOrder(bytes32,bytes32,uint256,uint256)",
                 "arguments": [
                   {
@@ -36815,7 +36815,7 @@
             }
           },
           {
-            "target": "0x84a150710ade003a1dace839898250879f42da6e",
+            "target": "0x2c767ca1a112f66a2a94a39b11c912a73672400d",
             "signature": "function finishOrder(bytes32)",
             "arguments": [
               {
@@ -36845,7 +36845,7 @@
                 "valuePath": "_derived.order_spend"
               },
               {
-                "target": "0x84a150710ade003a1dace839898250879f42da6e",
+                "target": "0x2c767ca1a112f66a2a94a39b11c912a73672400d",
                 "signature": "function beginOrder(bytes32,bytes32,uint256,uint256)",
                 "arguments": [
                   {
@@ -36934,7 +36934,7 @@
             "settlement": "atomic",
             "steps": [
               {
-                "target": "0x84a150710ade003a1dace839898250879f42da6e",
+                "target": "0x2c767ca1a112f66a2a94a39b11c912a73672400d",
                 "signature": "function beginCancel(bytes32,address,uint256)",
                 "arguments": [
                   {
@@ -36955,10 +36955,10 @@
           }
         ],
         "contracts": {
-          "execution": "0x30c14f8b8fdd6c13719843ccf8bd8be457b7181c",
-          "reader": "0xcd8e05ba31c93b975b41fad1679c99bd290fa9d6",
-          "recovery": "0x3cef8dce8b85edb5807dd49eb8c5f12c1e737c87",
-          "exit": "0x3cef8dce8b85edb5807dd49eb8c5f12c1e737c87"
+          "execution": "0xacc595a5969d97709bd24e3244dfe033d9e53edc",
+          "reader": "0x87eddaaec55f06856615ebff6ca2d5e29807c4ea",
+          "recovery": "0x5d6850bfb5880fa778f04fbd505d3dacd013da4f",
+          "exit": "0x5d6850bfb5880fa778f04fbd505d3dacd013da4f"
         },
         "pins": [
           {
@@ -37027,20 +37027,20 @@
             "code_hash": "0x845a2fe98c6a4aa7e47984e64e946d9435b3ec2fcd00327e9de23ff0aafdafd0"
           },
           {
-            "target": "0x84a150710ade003a1dace839898250879f42da6e",
-            "code_hash": "0x702efdc009a11a3f55151474eee8f82e84ee4d9f15446527ba409f6b42181fb3"
+            "target": "0x2c767ca1a112f66a2a94a39b11c912a73672400d",
+            "code_hash": "0xd4970e4cf3c5cb3b7a34d07e597fb3dff9440cafd5100893fe4fb41cdab40c29"
           },
           {
-            "target": "0x30c14f8b8fdd6c13719843ccf8bd8be457b7181c",
-            "code_hash": "0x553f938ec0cc957ee315d0cd6da85d258d809bf6de1b336b7e895956b4b9b957"
+            "target": "0xacc595a5969d97709bd24e3244dfe033d9e53edc",
+            "code_hash": "0x75d344698a54cec3d56375ae81b5baa58e33575e39fdaa3d64b8319945ae7e74"
           },
           {
-            "target": "0xcd8e05ba31c93b975b41fad1679c99bd290fa9d6",
-            "code_hash": "0x8cbc19c6839265509894d25c347420d6c62e712dd1a424422c1923baedcb173a"
+            "target": "0x87eddaaec55f06856615ebff6ca2d5e29807c4ea",
+            "code_hash": "0xa30941ee4b97f5693f9ffc7a2fb0afa784ddad2abeabf88645cdf7d8328ecce3"
           },
           {
-            "target": "0x3cef8dce8b85edb5807dd49eb8c5f12c1e737c87",
-            "code_hash": "0x73d9931417a21fa2b65fe2afff2b0d502c1d2e9e609517129e31df9ecfdca3c8"
+            "target": "0x5d6850bfb5880fa778f04fbd505d3dacd013da4f",
+            "code_hash": "0x67740aa0dc1736806de1682ebf0f3e36f511a6ae0f0e063ed7348a354f80d26a"
           }
         ],
         "verified_sources": [
@@ -37108,20 +37108,20 @@
             "source_hash": "0xadd45fef9b4a8899e561c72023b8761161c2c787be6ec055b95ed016036b6597"
           },
           {
-            "target": "0x84a150710ade003a1dace839898250879f42da6e",
-            "source_hash": "0x3942e165f07166076e70940615ad0865f7eb290069bb564eb4eebd4143447dce"
+            "target": "0x2c767ca1a112f66a2a94a39b11c912a73672400d",
+            "source_hash": "0x0f70269a7b7849f342818056ebbb4c4da3440f090d497dbc121ecc122a1f1249"
           },
           {
-            "target": "0x30c14f8b8fdd6c13719843ccf8bd8be457b7181c",
-            "source_hash": "0xc76d7971b6bfa3a928efe4ffd2693d66ef603cf393262ede259922e23747b5c2"
+            "target": "0xacc595a5969d97709bd24e3244dfe033d9e53edc",
+            "source_hash": "0xed407c444b30891589faa105a6fd08cb2c8d705755cba5dd26647759f1da57c9"
           },
           {
-            "target": "0xcd8e05ba31c93b975b41fad1679c99bd290fa9d6",
-            "source_hash": "0x135155ac24b9b39afcf1ed091c850df51eccd8c0beeab4f90eaafd3dfb8eda7b"
+            "target": "0x87eddaaec55f06856615ebff6ca2d5e29807c4ea",
+            "source_hash": "0x98ee952ae2169b92e24ccdb02a99cab57e505390aee9154b8e198dcde8f42836"
           },
           {
-            "target": "0x3cef8dce8b85edb5807dd49eb8c5f12c1e737c87",
-            "source_hash": "0xa7e576e5b5ca23361ba69a37cd17ad21c91151265c2679d79d75a34bfd555b20"
+            "target": "0x5d6850bfb5880fa778f04fbd505d3dacd013da4f",
+            "source_hash": "0xa4eb39523a7228392781bb2bd580d34c56226cbd2750cdd716d6978ea3f646d3"
           }
         ],
         "assessment": {
@@ -37129,7 +37129,7 @@
             "router": "0xf3e33781e2b5c6265da2f2775b339cc5a94a50d1",
             "values": [
               {
-                "id": "0x71d073208fae02573e0322448f1bce50d89548b4bcdb2a74e0f36ff0a6751fd6",
+                "id": "0x453bfd6a22aa9a60840202e91a10a3ba9de47a982040896dd3386fc92729c7d3",
                 "target": "0x1F57a841540fe23C2989387c18F2CB1335CBAe92",
                 "input": "0x534b2f3A21130d7a60830c2Df862319e593943A3",
                 "output": "0x0000000000000000000000000000000000000000",
@@ -37148,7 +37148,7 @@
                 ]
               },
               {
-                "id": "0x8c61b284ed06d79dd3b7ecd4229cf7c8bff63637992a6c09c0bc57dcf33dc401",
+                "id": "0xd714698240f2eb71423a3052ac261d09bf239337fe26a6463b115bbe8703a86e",
                 "target": "0x1F57a841540fe23C2989387c18F2CB1335CBAe92",
                 "input": "0x0000000000000000000000000000000000000000",
                 "output": "0x534b2f3A21130d7a60830c2Df862319e593943A3",
@@ -37172,7 +37172,7 @@
           "state_target": "0x0000000000000000000000000000000000000000",
           "reads": {},
           "orders": {
-            "tracker": "0x84a150710ade003a1dace839898250879f42da6e",
+            "tracker": "0x2c767ca1a112f66a2a94a39b11c912a73672400d",
             "rules": [
               {
                 "id": "0x2253c7b7455c6e671a21f7ac9e09b3c2e33bf43946a0de8d99a4ca8e2dc27210",
@@ -43433,7 +43433,7 @@
               ]
             },
             {
-              "target": "0x84a150710ade003a1dace839898250879f42da6e",
+              "target": "0x2c767ca1a112f66a2a94a39b11c912a73672400d",
               "selector": "0x3c494ea6",
               "recovery": false,
               "native_maximum": "0",
@@ -43465,7 +43465,7 @@
               ]
             },
             {
-              "target": "0x84a150710ade003a1dace839898250879f42da6e",
+              "target": "0x2c767ca1a112f66a2a94a39b11c912a73672400d",
               "selector": "0x61f65b7d",
               "recovery": false,
               "native_maximum": "0",
@@ -43531,7 +43531,7 @@
               ]
             },
             {
-              "target": "0x84a150710ade003a1dace839898250879f42da6e",
+              "target": "0x2c767ca1a112f66a2a94a39b11c912a73672400d",
               "selector": "0xc4b1ac60",
               "recovery": true,
               "native_maximum": "0",
@@ -43607,7 +43607,7 @@
             {
               "phase": "pending",
               "market_id": "0x1f57a841540fe23c2989387c18f2cb1335cbae92",
-              "target": "0x84a150710ade003a1dace839898250879f42da6e",
+              "target": "0x2c767ca1a112f66a2a94a39b11c912a73672400d",
               "selector": "0xc4b1ac60",
               "words": [
                 {
@@ -43700,7 +43700,7 @@
               "words": [
                 {
                   "source": "literal",
-                  "value": "0x8c61b284ed06d79dd3b7ecd4229cf7c8bff63637992a6c09c0bc57dcf33dc401"
+                  "value": "0xd714698240f2eb71423a3052ac261d09bf239337fe26a6463b115bbe8703a86e"
                 },
                 {
                   "source": "field",
@@ -43730,8 +43730,8 @@
               "price_decimals": 18,
               "price_word": 2,
               "direction_word": 0,
-              "maximum_direction": "51479650658062421008746609805734357716871135296023955648643938370876851167190",
-              "minimum_direction": "63496415061465314301133423233706434634409214111084332704664353349054913954817",
+              "maximum_direction": "31315579532298190138525322152966976240684702246523569270137648112718706231251",
+              "minimum_direction": "97283327581697238959519592889857469598800497467825061357121908985234335180910",
               "max_slippage_bps": 100,
               "max_deviation_bps": 500,
               "max_authorization_age": 90,
@@ -43756,8 +43756,8 @@
               "price_decimals": 6,
               "price_word": 2,
               "direction_word": 0,
-              "maximum_direction": "51479650658062421008746609805734357716871135296023955648643938370876851167190",
-              "minimum_direction": "63496415061465314301133423233706434634409214111084332704664353349054913954817",
+              "maximum_direction": "31315579532298190138525322152966976240684702246523569270137648112718706231251",
+              "minimum_direction": "97283327581697238959519592889857469598800497467825061357121908985234335180910",
               "max_slippage_bps": 100,
               "max_deviation_bps": 500,
               "max_authorization_age": 90,
@@ -43776,7 +43776,7 @@
               "market_id": "0x1f57a841540fe23c2989387c18f2cb1335cbae92",
               "oracle": "0x1b3a870b3b6411fe42bca77a036af8e3a8f1f0ed",
               "feed_id": "0x9203f65b177651b13676de49447e68afdac95111488c99417042688821852203",
-              "target": "0x84a150710ade003a1dace839898250879f42da6e",
+              "target": "0x2c767ca1a112f66a2a94a39b11c912a73672400d",
               "selector": "0x3c494ea6",
               "call_index": 1,
               "price_decimals": 8,
@@ -43793,7 +43793,7 @@
               "market_id": "0x1f57a841540fe23c2989387c18f2cb1335cbae92",
               "oracle": "0x1b3a870b3b6411fe42bca77a036af8e3a8f1f0ed",
               "feed_id": "0x9203f65b177651b13676de49447e68afdac95111488c99417042688821852203",
-              "target": "0x84a150710ade003a1dace839898250879f42da6e",
+              "target": "0x2c767ca1a112f66a2a94a39b11c912a73672400d",
               "selector": "0x3c494ea6",
               "call_index": 1,
               "price_decimals": 8,
@@ -43810,7 +43810,7 @@
               "market_id": "0x1f57a841540fe23c2989387c18f2cb1335cbae92",
               "oracle": "0x1b3a870b3b6411fe42bca77a036af8e3a8f1f0ed",
               "feed_id": "0x9203f65b177651b13676de49447e68afdac95111488c99417042688821852203",
-              "target": "0x84a150710ade003a1dace839898250879f42da6e",
+              "target": "0x2c767ca1a112f66a2a94a39b11c912a73672400d",
               "selector": "0x3c494ea6",
               "call_index": 1,
               "price_decimals": 8,
@@ -43827,7 +43827,7 @@
               "market_id": "0x1f57a841540fe23c2989387c18f2cb1335cbae92",
               "oracle": "0x1b3a870b3b6411fe42bca77a036af8e3a8f1f0ed",
               "feed_id": "0x9203f65b177651b13676de49447e68afdac95111488c99417042688821852203",
-              "target": "0x84a150710ade003a1dace839898250879f42da6e",
+              "target": "0x2c767ca1a112f66a2a94a39b11c912a73672400d",
               "selector": "0x3c494ea6",
               "call_index": 1,
               "price_decimals": 8,
@@ -43842,9 +43842,9 @@
           ]
         }
       },
-      "healthReader": "0xaD6b0675E6f8D0C9Ab5F18c772eDf5eaD3f435D5",
-      "planHash": "0x164b532405cc027ff1bdb087c6153dc3d3de56a3528c319c793a2fb523b00bdc",
-      "completedAt": "2026-10-12T09:02:20.126Z"
+      "healthReader": "0x71d9424C7ef8f21a366d365e3C2c9ad0940E83f3",
+      "planHash": "0xfff265a1630873c6f993dc6b5939f6e755cef33fa57d453415687f7db8c06bdf",
+      "completedAt": "2026-10-12T14:42:19.577Z"
     },
     "kuru-admission": {
       "applicationId": "60a78bce-f7bc-438d-afb5-8fedfa22866f",

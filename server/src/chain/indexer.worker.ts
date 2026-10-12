@@ -47,7 +47,7 @@ export async function runIndexerWorker(start: bigint = indexerStart()): Promise<
       }
       return 0;
     }
-    const { logs, nextBlock } = await readCoreEvents(chain, from, finalized.number);
+    const { logs, nextBlock } = await readCoreEvents(chain, from, finalized.number, "json");
     if (nextBlock === from) return 0;
     const to = nextBlock - 1n;
     const boundary = await chain.getBlock({ blockNumber: to });

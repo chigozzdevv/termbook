@@ -3,6 +3,7 @@ import { buildExecution, use_case_configuration } from "@termbook/sdk";
 import { selectCapability } from "@termbook/schema";
 import { decodeFunctionData, parseAbi, keccak256, zeroAddress, type PublicClient, type Address, type Hex } from "viem";
 import { create_kuru, KuruSourceUnavailableError } from "../../src/kuru/integration.js";
+import { platformService } from "../../src/integration/platform.service.js";
 const addr = (n: string) => `0x${n.repeat(40)}` as Address;
 const word = (n: string) => `0x${n.repeat(64)}` as Hex;
 const params = [10000, 100000000n, addr("5"), 18n, addr("6"), 6n, 1, 1n, 2n ** 96n - 1n, 30n, 0n] as const;
@@ -25,7 +26,7 @@ beforeEach(() => {
     ? { chain_id: 143, router: addr("3"), module: addr("4"), read_program: addr("8") }
     : { target: new URL(url).searchParams.get("target"), code_hash: keccak256("0x1234"), source_hash: word("c") }), { status: 200 })));
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 describe("Kuru spot integration", () => {
   it("builds buy and sell calls with raw units and the bound Credit Account recipient", async () => {
     const plugin = await create_kuru(options());
@@ -50,6 +51,26 @@ describe("Kuru spot integration", () => {
     const result = await plugin.exit.next({ ...context, state, slippage_bps: 50, minimum_receive: async () => 1n });
     expect(result.status).toBe("execute");
     expect(read).toHaveBeenCalledWith(expect.objectContaining({ functionName: "balanceOf", blockNumber: 1n, args: [context.account] }));
+  });
+  it("versions the integration against the installed health components", async () => {
+    const previous = await create_kuru(options());
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(url.includes("platform")
+      ? { chain_id: 143, router: addr("3"), module: addr("4"), read_program: addr("8"),
+        health: { factory: addr("e"), collateral: addr("f") } }
+      : { target: new URL(url).searchParams.get("target"), code_hash: keccak256("0x1234"), source_hash: word("c") }))));
+    const next = await create_kuru(options());
+    expect(next.definition.pins.map((pin) => pin.target)).toEqual(expect.arrayContaining([addr("e"), addr("f")]));
+    expect(next.definition).not.toEqual(previous.definition);
+    expect(next.definition.verified_sources.map((source) => source.target)).toEqual(expect.arrayContaining([addr("e"), addr("f")]));
+  });
+  it("publishes a complete health binding and rejects incomplete configuration", () => {
+    for (const name of ["ATOMIC_SPOT_ROUTER", "ATOMIC_SPOT_MODULE", "SHARED_READ_PROGRAM"]) vi.stubEnv(name, addr("3"));
+    vi.stubEnv("SHARED_SPOT_ORDER_TRACKER", "");
+    vi.stubEnv("SHARED_HEALTH_FACTORY", addr("e"));
+    vi.stubEnv("SHARED_COLLATERAL_READER", addr("f"));
+    expect(platformService.spot()).toMatchObject({ health: { factory: addr("e"), collateral: addr("f") } });
+    vi.stubEnv("SHARED_COLLATERAL_READER", "");
+    expect(() => platformService.spot()).toThrow("integration-platform-unavailable");
   });
   it("rejects unsupported quote assets and unsafe forwarding", async () => {
     await expect(create_kuru({ ...options(), settlement_asset: addr("a") })).rejects.toThrow("integration-kuru-market-unsupported");

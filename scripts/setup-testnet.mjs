@@ -1,4 +1,4 @@
-import { alreadyConfigured, writeConfiguration, clearOperation, operationFile } from "./testnet-state.mjs";
+import { alreadyConfigured, writeConfiguration, writeJsonAtomic, clearOperation, operationFile } from "./testnet-state.mjs";
 import process from "node:process";
 import fs from "node:fs";
 import path from "node:path";
@@ -10,11 +10,12 @@ import { reuseGuard } from "./testnet-guards.mjs";
 const simulate = process.argv.includes("--simulate");
 const native = process.argv.includes("--native");
 const fresh = process.argv.includes("--fresh-prices");
+const alignHealth = process.argv.includes("--align-health");
 if (simulate === process.argv.includes("--broadcast")
-  || native && fresh
+  || [native, fresh, alignHealth].filter(Boolean).length > 1
   || new Set(process.argv.slice(2)).size !== process.argv.length - 2
-  || process.argv.slice(2).some((arg) => !["--simulate", "--broadcast", "--native", "--fresh-prices"].includes(arg))) {
-  throw new Error("Use --simulate or --broadcast with optional --native or --fresh-prices");
+  || process.argv.slice(2).some((arg) => !["--simulate", "--broadcast", "--native", "--fresh-prices", "--align-health"].includes(arg))) {
+  throw new Error("Use --simulate or --broadcast with optional --native, --fresh-prices or --align-health");
 }
 
 const feeds = {
@@ -27,6 +28,7 @@ const deposit = 10_000_000n;
 const erc20 = viem.parseAbi(["function approve(address,uint256) returns(bool)", "function balanceOf(address) view returns(uint256)"]);
 
 async function main() {
+  if (alignHealth) { await setupHealthFreshness(); return; }
   if (fresh) { await setupFreshPrices(); return; }
   if (native) { await setupNative(); return; }
   if (!simulate && alreadyConfigured("setup")) { clearOperation("setup"); log(JSON.stringify({ configured: true, step: "setup" })); return; }
@@ -84,6 +86,102 @@ async function main() {
   log(JSON.stringify({ simulated: simulate, transactions: report.transactions.length,
     costMON: viem.formatEther(cost), ...report.verification }));
   if (!simulate) clearOperation("setup", false);
+}
+
+async function setupHealthFreshness() {
+  const operation = "health-freshness";
+  const runtime = await testnetRuntime(operation, simulate);
+  const { deployment, report, persist } = runtime;
+  const network = await runtime.context(10143), m = deployment.addresses[10143];
+  const { artifact } = await import("./testnet-runtime.mjs");
+  const readerHash = viem.keccak256(artifact("CollateralHealthReader").deployedBytecode.object);
+  const age = 300n;
+  const previous = deployment.configuration[operation];
+  if (previous?.completedAt && previous.readerCodeHash === readerHash
+    && previous.addresses.CollateralHealthReader.toLowerCase() === m.CollateralHealthReader.toLowerCase()
+    && viem.keccak256(await network.client.getCode({ address: m.CollateralHealthReader })) === readerHash) {
+    if (await network.read("TermbookCore", m.TermbookCore, "healthMaxAge") > age) throw new Error("Health state freshness changed");
+    log(JSON.stringify({ configured: true, step: operation }));
+    return;
+  }
+  const previousReader = m.CollateralHealthReader;
+  const markets = [
+    { chain: 11155111n, asset: deployment.tokens[11155111].WETH },
+    ...deployment.configuration.native ? [{ chain: 10143n, asset: deployment.configuration.native.asset }] : [],
+    ...deployment.configuration.solana ? [{ chain: BigInt(deployment.configuration.solana.sourceChain), asset: deployment.configuration.solana.asset }] : [],
+  ];
+  const houses = new Set([m.HouseVault, deployment.configuration["kuru-integration"]?.vault].filter(Boolean));
+  for (const house of houses) for (const field of ["drawnPrincipal", "accruedReceivables", "committedCash", "unresolvedCreditImpairment"]) {
+    if (await network.read("HouseVault", house, field) !== 0n) throw new Error("Close test facilities before replacing health readers");
+  }
+  const settlement = deployment.tokens[10143].USDC;
+  const copies = [];
+  for (const market of markets) {
+    const id = await network.read("CollateralHealthReader", previousReader, "marketId", [market.chain, market.asset, settlement]);
+    const [priceId,,, retained, decimals,, costs, active] = await network.read("CollateralHealthReader", previousReader, "markets", [id]);
+    if (!active) throw new Error("Expected collateral market is not admitted");
+    copies.push([market.chain, market.asset, settlement, priceId, decimals, retained, costs]);
+  }
+  const planHash = viem.keccak256(viem.toHex(JSON.stringify({ core: m.TermbookCore, previousReader,
+    previousCodeHash: viem.keccak256(await network.client.getCode({ address: previousReader })),
+    source: m.HealthSource, factory: m.AppHealthReaderFactory, readerHash, age, copies }, (_, value) => typeof value === "bigint" ? String(value) : value)));
+  if (report.planHash && report.planHash !== planHash) throw new Error("Health freshness plan changed");
+  report.planHash = planHash; persist();
+  if (!simulate) {
+    const plan = JSON.parse(fs.readFileSync(operationFile(`${operation}-simulation`), "utf8"));
+    if (!plan.completedAt || plan.planHash !== planHash || Date.now() - Date.parse(plan.completedAt) > 3_600_000) {
+      throw new Error("Matching recent health freshness simulation required");
+    }
+    const remaining = plan.transactions.filter((tx) => !report.transactions.some((sent) => sent.name === tx.name && sent.status === "success"));
+    const gasPrice = await network.client.getGasPrice();
+    const budget = remaining.reduce((sum, tx) => sum + BigInt(tx.gasLimit), 0n) * (gasPrice < 100_000_000_000n ? 100_000_000_000n : gasPrice) * 11n / 10n;
+    if (await network.client.getBalance({ address: deployment.deployer }) < budget + viem.parseEther("0.01")) throw new Error(`Health setup requires ${viem.formatEther(budget)} test MON`);
+  }
+  const ratio = deployment.configuration.setup.addresses.RatioPriceFeed;
+  const base = await network.read("OracleRegistry", m.OracleRegistry, "read", [deployment.configuration.setup.feeds.ETH.id]);
+  const quote = await network.read("OracleRegistry", m.OracleRegistry, "read", [deployment.configuration.setup.feeds.USDC.id]);
+  if (await network.read("RatioPriceFeed", ratio, "baseRound") !== base[2]
+    || await network.read("RatioPriceFeed", ratio, "quoteRound") !== quote[2]) {
+    await network.call("RatioPriceFeed", ratio, "update", [], `health-ratio:${base[2]}:${quote[2]}`);
+  }
+  for (const args of copies) await network.read("OracleRegistry", m.OracleRegistry, "read", [args[3]]);
+  const reader = await network.deploy("CollateralHealthReader", [m.TermbookCore, m.ProtocolGovernance, m.OracleRegistry]);
+  for (const args of copies) {
+    await network.govern("CollateralHealthReader", reader, "setMarket", args);
+    const id = await network.read("CollateralHealthReader", reader, "marketId", args.slice(0, 3));
+    const oldId = await network.read("CollateralHealthReader", previousReader, "marketId", args.slice(0, 3));
+    if (JSON.stringify(await network.read("CollateralHealthReader", reader, "markets", [id]), (_, value) => typeof value === "bigint" ? String(value) : value)
+      !== JSON.stringify(await network.read("CollateralHealthReader", previousReader, "markets", [oldId]), (_, value) => typeof value === "bigint" ? String(value) : value)) throw new Error("Collateral market copy mismatch");
+  }
+  const factory = await network.deploy("AppHealthReaderFactory", [m.TermbookCore, reader]);
+  if ((await network.read("AppHealthReaderFactory", factory, "collateralReader")).toLowerCase() !== reader.toLowerCase()
+    || (await network.read("AppHealthReaderFactory", factory, "core")).toLowerCase() !== m.TermbookCore.toLowerCase()) throw new Error("Health factory binding mismatch");
+  if (await network.read("TermbookCore", m.TermbookCore, "healthMaxAge") > age) {
+    await network.govern("TermbookCore", m.TermbookCore, "setHealthMaxAge", [age]);
+  }
+  const next = globalThis.structuredClone(deployment);
+  next.addresses[10143].CollateralHealthReader = reader;
+  next.addresses[10143].AppHealthReaderFactory = factory;
+  report.completedAt = new Date().toISOString();
+  report.stateMaxAgeSeconds = Number(age); report.readerCodeHash = readerHash;
+  persist();
+  if (simulate) {
+    next.configuration[operation] = { core: m.TermbookCore, completedAt: report.completedAt, addresses: report.addresses,
+      stateMaxAgeSeconds: Number(age), readerCodeHash: readerHash };
+    writeJsonAtomic(operationFile(`${operation}-manifest`), next);
+  } else {
+    writeJsonAtomic(path.join(root, "deployments/testnet.json"), next);
+    writeConfiguration(operation, { completedAt: report.completedAt, planHash, stateMaxAgeSeconds: Number(age),
+      readerCodeHash: readerHash, previousReader, previousFactory: m.AppHealthReaderFactory,
+      addresses: report.addresses, transactions: report.transactions });
+    const file = path.join(root, ".env"), env = fs.readFileSync(file, "utf8");
+    fs.writeFileSync(file, env.replace(/^SHARED_HEALTH_FACTORY=.*\n?/m, "").replace(/^SHARED_COLLATERAL_READER=.*\n?/m, "")
+      + `\nSHARED_HEALTH_FACTORY=${factory}\nSHARED_COLLATERAL_READER=${reader}\n`, { mode: 0o600 });
+    clearOperation(operation);
+  }
+  const cost = report.transactions.reduce((sum, tx) => sum + BigInt(tx.gasUsed) * BigInt(tx.effectiveGasPrice), 0n);
+  log(JSON.stringify({ simulated: simulate, step: operation, stateMaxAgeSeconds: Number(age),
+    transactions: report.transactions.length, costMON: viem.formatEther(cost) }));
 }
 
 async function setupFreshPrices() {

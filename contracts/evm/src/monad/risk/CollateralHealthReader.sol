@@ -166,7 +166,7 @@ contract CollateralHealthReader is IHealthReader, ICashReader, ProxyInitializabl
                 if (!active || saleOracle != oracleRegistry || salePriceId != market.priceId) revert InvalidMarket();
             }
         }
-        (uint256 price, uint256 updatedAt,) = ICollateralPriceOracle(oracleRegistry).read(market.priceId);
+        (uint256 price,,) = ICollateralPriceOracle(oracleRegistry).read(market.priceId);
         if (price == 0 || price > type(uint128).max) revert InvalidMarket();
         uint256 sourceValue18 = credit.collateralAmount * price / (10 ** market.collateralDecimals);
         uint256 sourceValue = sourceValue18 * (10 ** market.settlementDecimals) / 1e18;
@@ -178,7 +178,8 @@ contract CollateralHealthReader is IHealthReader, ICashReader, ProxyInitializabl
             retainedSource: market.retainedSourceBps,
             retainedApp: 0,
             recoveryCosts: market.recoveryCosts,
-            observedAt: updatedAt
+            // OracleRegistry checks price age; this timestamp describes the live account state.
+            observedAt: block.timestamp
         });
     }
 

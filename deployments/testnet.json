@@ -42,7 +42,7 @@
       "RouteRegistry": "0x571896cc2611cc9fbad0284999acabdc010b0188",
       "NativeCollateralVaultImplementation": "0xf5ebe938edd65642b458d869e7f83597b94b3884",
       "NativeCollateralVault": "0x60137739e130157b18c69df63289d8b823c82854",
-      "CollateralHealthReader": "0xd79972db1fb54f3ee179ebdf43172f2014ac2785",
+      "CollateralHealthReader": "0xb9d2ceef10d25bfe8d3f73dd618e84de75f7f6fb",
       "WormholeEvmMessageClientImplementation": "0xdbfffeb1ef8fdba0ba4d21deca63ca3807f702b4",
       "WormholeEvmMessageClient": "0x182074939ae54a1eb272659628699da326a826ca",
       "WormholeEthereumVerifierImplementation": "0x6487f7446076ebb465619730d00df6b9636f1e05",
@@ -59,7 +59,7 @@
       "UseCaseRecovery": "0x3cef8dce8b85edb5807dd49eb8c5f12c1e737c87",
       "AtomicSpotRouter": "0xf3e33781e2b5c6265da2f2775b339cc5a94a50d1",
       "AtomicSpotModule": "0x0b626a1a6ef46c4470bc1acde3c6d719ceb050ed",
-      "AppHealthReaderFactory": "0x8caa65ee0cadaa7dba9185c01e5790a53fd61c2c",
+      "AppHealthReaderFactory": "0x99cc490c6b8c58e7f1cf37ece3e083398cc7d2d8",
       "SpotOrderTracker": "0x84a150710ade003a1dace839898250879f42da6e"
     },
     "11155111": {
@@ -43989,6 +43989,29 @@
     "kuru-order-keepers": {
       "core": "0x198995faab55a9d5d4dceab56abaaa273c26fad7",
       "completedAt": "2026-10-11T17:47:31.091Z"
+    },
+    "health-freshness": {
+      "core": "0x198995faab55a9d5d4dceab56abaaa273c26fad7",
+      "completedAt": "2026-10-12T08:08:23.364Z",
+      "planHash": "0xfa1c427f4cc46889071c9d2be6c415ed10e8999a89cd32930e70ab8bc270af62",
+      "stateMaxAgeSeconds": 300,
+      "readerCodeHash": "0x845a2fe98c6a4aa7e47984e64e946d9435b3ec2fcd00327e9de23ff0aafdafd0",
+      "previousReader": "0xd79972db1fb54f3ee179ebdf43172f2014ac2785",
+      "previousFactory": "0x8caa65ee0cadaa7dba9185c01e5790a53fd61c2c",
+      "addresses": {
+        "CollateralHealthReader": "0xb9d2ceef10d25bfe8d3f73dd618e84de75f7f6fb",
+        "AppHealthReaderFactory": "0x99cc490c6b8c58e7f1cf37ece3e083398cc7d2d8"
+      },
+      "contractPins": {
+        "CollateralHealthReader": {
+          "address": "0xb9d2ceef10d25bfe8d3f73dd618e84de75f7f6fb",
+          "codeHash": "0x845a2fe98c6a4aa7e47984e64e946d9435b3ec2fcd00327e9de23ff0aafdafd0"
+        },
+        "AppHealthReaderFactory": {
+          "address": "0x99cc490c6b8c58e7f1cf37ece3e083398cc7d2d8",
+          "codeHash": "0x0c75594b889ed4985e1e9dbe3ec30c45ca44cd6812772bcbf981f6fad8c19a00"
+        }
+      }
     }
   },
   "deploymentBlocks": {

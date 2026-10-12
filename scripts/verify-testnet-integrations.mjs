@@ -8,9 +8,10 @@ import { setTimeout as delay } from "node:timers/promises";
 
 const priceSource = process.argv[2] === "--publish-price-source";
 const healthSource = process.argv[2] === "--publish-health-source";
+const healthReaders = process.argv[2] === "--publish-health-readers";
 const oracleSources = process.argv[2] === "--publish-oracle-sources";
-const publish = process.argv[2] === "--publish-sources" || priceSource || healthSource || oracleSources;
-if (process.argv.length !== (publish ? 3 : 2)) throw new Error("Use no arguments, --publish-sources, --publish-price-source, --publish-health-source or --publish-oracle-sources");
+const publish = process.argv[2] === "--publish-sources" || priceSource || healthSource || healthReaders || oracleSources;
+if (process.argv.length !== (publish ? 3 : 2)) throw new Error("Use no arguments, --publish-sources, --publish-price-source, --publish-health-source, --publish-health-readers or --publish-oracle-sources");
 
 const canonical = (value) => JSON.stringify(value, (_, entry) => typeof entry === "bigint" ? entry.toString() : entry);
 function equal(actual, expected, label) {
@@ -46,7 +47,7 @@ async function main() {
     equal(await read("UpgradeController", m.UpgradeController, "contractIds", [proxy]), pin.contractId, `${name} identity`);
     equal(viem.keccak256(await client.getCode({ address: pin.implementation, blockNumber: block.number })), pin.implementationCodeHash, `${name} code`);
   }
-  const compiledUpgrades = oracleSources ? ["OracleRegistry"] : healthSource ? ["HealthSource"] : priceSource ? ["PriceProtection"] : orderUpdate ? ["FlowExecutor"] : report.priceUpdate ? ["PriceProtection"] : ["FlowExecutor", "AccountFactory", "PriceProtection", "TermbookCore"];
+  const compiledUpgrades = healthReaders ? [] : oracleSources ? ["OracleRegistry"] : healthSource ? ["HealthSource"] : priceSource ? ["PriceProtection"] : orderUpdate ? ["FlowExecutor"] : report.priceUpdate ? ["PriceProtection"] : ["FlowExecutor", "AccountFactory", "PriceProtection", "TermbookCore"];
   for (const name of compiledUpgrades) {
     equal(deployment.proxies[10143][name].implementationCodeHash, viem.keccak256(artifact(name).deployedBytecode.object), `${name} compiled code`);
   }
@@ -76,7 +77,10 @@ async function main() {
   if (publish) {
     const freshAddresses = deployment.configuration["fresh-prices"]?.addresses;
     if (oracleSources && !freshAddresses) throw new Error("Fresh pricing migration required before publishing");
-    const extra = oracleSources ? [
+    const extra = healthReaders ? [
+      { name: "CollateralHealthReader", artifact: "CollateralHealthReader", address: m.CollateralHealthReader },
+      { name: "AppHealthReaderFactory", artifact: "AppHealthReaderFactory", address: m.AppHealthReaderFactory },
+    ] : oracleSources ? [
       { name: "OracleRegistryImplementation", artifact: "OracleRegistry", address: deployment.proxies[10143].OracleRegistry.implementation },
       ...Object.entries(freshAddresses).map(([name, address]) => ({ name, address, artifact: name.endsWith("PriceFeed") && !name.includes("Ratio") ? "PythPriceFeed"
         : name === "ETHLiveRatioPriceFeed" ? "LiveRatioPriceFeed" : name === "ETHRatioGuard" ? "CodeHashGuard" : "ImplementationGuard" })),

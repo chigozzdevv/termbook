@@ -54,7 +54,8 @@ export async function create_kuru(options: KuruOptions): Promise<spot> {
   if (api.protocol !== "https:" && !(api.protocol === "http:" && ["localhost", "127.0.0.1"].includes(api.hostname))
     || api.username || api.password || api.search || api.hash || api.pathname !== "/") throw new Error("integration-api-invalid");
   const client = options.client;
-  const platform = await json<{ chain_id: number; router: Address; module: Address; read_program: Address; contracts?: PluginDefinition["contracts"]; order_tracker?: Address }>(api.origin, "/integrations/platform/spot");
+  const platform = await json<{ chain_id: number; router: Address; module: Address; read_program: Address;
+    contracts?: PluginDefinition["contracts"]; order_tracker?: Address; health?: { factory: Address; collateral: Address } }>(api.origin, "/integrations/platform/spot");
   const chain_id = await client.getChainId();
   if (chain_id !== platform.chain_id) throw new Error("integration-chain-mismatch");
   const block = await client.getBlock({ blockTag: "finalized" });
@@ -80,7 +81,9 @@ export async function create_kuru(options: KuruOptions): Promise<spot> {
   const market = { market_id: options.market_address.toLowerCase(), address: options.market_address,
     base_asset: base, quote_asset: quote, base_decimals: Number(baseDecimals), quote_decimals: Number(quoteDecimals) };
   const targets = [...new Set([platform.router, platform.module, platform.read_program, options.market_address,
-    vault, factory, margin, forwarder, base, quote, options.oracle, ...platform.order_tracker ? [platform.order_tracker, ...Object.values(platform.contracts ?? {})] : []].filter((address) => address !== zeroAddress).map((address) => address.toLowerCase()))] as Address[];
+    vault, factory, margin, forwarder, base, quote, options.oracle,
+    ...platform.health ? [platform.health.factory, platform.health.collateral] : [],
+    ...platform.order_tracker ? [platform.order_tracker, ...Object.values(platform.contracts ?? {})] : []].filter((address) => address !== zeroAddress).map((address) => address.toLowerCase()))] as Address[];
   const pins = await Promise.all(targets.map((target) => pin_contract(client, target, block.number)));
   const sourceResults = await Promise.allSettled(pins.map(async (pin) => {
     const source = await json<PluginDefinition["verified_sources"][number] & { code_hash: Hex; implementation_code_hash?: Hex }>(api.origin,

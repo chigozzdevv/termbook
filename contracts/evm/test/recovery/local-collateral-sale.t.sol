@@ -12,6 +12,7 @@ import {NativeCollateralVault} from "../../src/monad/collateral/NativeCollateral
 import {AccountFactory} from "../../src/monad/credit/AccountFactory.sol";
 import {OracleRegistry, IAggregatorV3} from "../../src/monad/risk/OracleRegistry.sol";
 import {CollateralHealthReader} from "../../src/monad/risk/CollateralHealthReader.sol";
+import {HealthSource} from "../../src/monad/risk/HealthSource.sol";
 import {HealthReading} from "../../src/monad/risk/IHealthSource.sol";
 import {IExitVerifier} from "../../src/monad/integration/IExitVerifier.sol";
 import {Types} from "../../src/shared/Types.sol";
@@ -340,6 +341,42 @@ contract LocalCollateralSaleTest is CoreFixture {
         vm.warp(block.timestamp + 2 days);
 
         uint256 revision = core.creditRevision(creditId);
+        vm.expectRevert(OracleRegistry.StaleFeed.selector);
+        reader.readHealth(creditId, revision, 0, address(oracle));
+    }
+
+    function testLiveHealthUsesIndependentOracleAndStateFreshness() public {
+        bytes32 creditId = keccak256("health-heartbeat");
+        _prepare(creditId);
+        CollateralHealthReader reader = new CollateralHealthReader(address(core), address(this), address(oracle));
+        reader.setMarket(block.chainid, address(mon), address(usdc), priceId, 18, 9_000, 5e6);
+        HealthSource source = new HealthSource(address(this), address(oracle));
+        source.setReader(keccak256("bundle"), address(reader), 1, 300);
+        uint256 priceTimestamp = feed.updatedAt();
+        vm.warp(block.timestamp + 6 hours);
+        uint256 revision = core.creditRevision(creditId);
+        HealthReading memory reading = reader.readHealth(creditId, revision, 0, address(oracle));
+        assertEq(reading.observedAt, block.timestamp);
+        (, uint256 actualPriceTimestamp,) = oracle.read(priceId);
+        assertEq(actualPriceTimestamp, priceTimestamp);
+        assertEq(source.snapshot(creditId, keccak256("bundle"), revision, 0).cash, 500e6);
+        usdc.burn(core.creditDetails(creditId).account, 100e6);
+        assertEq(source.snapshot(creditId, keccak256("bundle"), revision, 0).cash, 400e6);
+        vm.warp(priceTimestamp + 1 days + 1);
+        vm.expectRevert(OracleRegistry.StaleFeed.selector);
+        source.snapshot(creditId, keccak256("bundle"), revision, 0);
+    }
+
+    function testCurrentStateCannotHideInvalidPrice() public {
+        bytes32 creditId = keccak256("health-invalid-price");
+        _prepare(creditId);
+        CollateralHealthReader reader = new CollateralHealthReader(address(core), address(this), address(oracle));
+        reader.setMarket(block.chainid, address(mon), address(usdc), priceId, 18, 9_000, 5e6);
+        uint256 revision = core.creditRevision(creditId);
+        feed.setPrice(0, block.timestamp);
+        vm.expectRevert(OracleRegistry.StaleFeed.selector);
+        reader.readHealth(creditId, revision, 0, address(oracle));
+        feed.setPrice(5e8, block.timestamp + 1);
         vm.expectRevert(OracleRegistry.StaleFeed.selector);
         reader.readHealth(creditId, revision, 0, address(oracle));
     }

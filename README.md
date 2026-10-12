@@ -87,20 +87,29 @@ app rules. `PRICE_REFERENCE_RULES` can prime configured rules before admission
 using `{ bundle, capability, market }` hashes. Quotes use these checkpoints;
 execution still verifies the current guarded price, deviation and slippage.
 
-The pull-price migration replaces the ETH/USD and USDC/USD sources with Pyth
-adapters and the cached ETH ratio with a live ratio. Configure `PYTH_API_KEY`
-from [Pyth Terminal](https://pythdata.app), upgrade `OracleRegistry`, then run
-`node --env-file=.env scripts/setup-testnet.mjs --simulate --fresh-prices` and
-the matching `--broadcast --fresh-prices` after reviewing the simulation.
-Existing test facilities must be closed first. The migration sets a 300-second
-price and health limit; the worker refreshes prices after 60 seconds.
-`PYTH_PRICE_FEEDS` binds the provider address, code hash, price IDs, confidence
-limits and update-fee cap. `PYTH_HERMES_URL` selects the authenticated HTTPS
-endpoint. Signed payloads are checked by Pyth's onchain verifier before
-submission; API price numbers are not accepted as evidence. The provider retains
-its own oracle governance. Price-dependent actions reject stale or invalid
-data; cash repayment remains available. Reconfigure and validate the Kuru
-integration after the Registry upgrade because its implementation pin changes.
+Health snapshots describe account state read at the current block. `OracleRegistry`
+checks price freshness independently against each admitted feed's age limit;
+price timestamps are preserved. Chainlink ETH/USD and USDC/USD retain their
+25-hour testnet limits, while the existing MON/USD and SOL/USD Pyth adapters
+reject prices older than 300 seconds. This configuration reads public onchain
+feeds and does not require a new API subscription.
+
+Run `node --env-file=.env scripts/setup-testnet.mjs --simulate --align-health`,
+then the matching `--broadcast --align-health` after reviewing the simulation.
+This copies the admitted collateral markets into a new immutable collateral
+reader and installs its reader factory. Core keeps its existing address and
+uses a 300-second snapshot limit. `SHARED_HEALTH_FACTORY` and
+`SHARED_COLLATERAL_READER` bind the platform metadata; Kuru pins these components
+in its next integration version. Existing versions keep their original readers.
+Configure and validate the new Kuru version before issuing its app token.
+
+Authenticated Pyth pull updates remain optional. `PYTH_API_KEY`,
+`PYTH_PRICE_FEEDS` and `PYTH_HERMES_URL` configure signed updates with source
+code, price ID, confidence and fee checks. The `--fresh-prices` migration can
+replace ETH and USDC with pull feeds when that provider access is available.
+Neither a keeper checkpoint nor a ratio refresh makes an old price fresh.
+Price-dependent actions reject expired or invalid data; cash repayment remains
+available. Production price-age policies require their own admission.
 Refresh the existing price proxy with
 `node scripts/setup-testnet-integrations.mjs --simulate --refresh-prices`, then
 the corresponding `--broadcast` command after the simulation passes.
@@ -370,9 +379,10 @@ For local use, run the worker command above with funded monitor and oracle
 keepers; execution checkpoints and monitor approvals expire when it stops.
 Configuration also installs a generic code-hash guard for the immutable MON
 ratio feed. The proposed 90,000-second Kuru health window was not activated.
-The pending pull-price migration uses a 300-second health limit while execution
-state and authorization limits remain 90 seconds. The new version still needs
-signed-price preflight, live lifecycle validation and admission.
+The health freshness setup uses a 300-second state snapshot limit while
+execution state and authorization limits remain 90 seconds. Feed-specific price
+age limits are enforced independently. The new version still needs live lifecycle
+validation and admission.
 Optional `LOCAL_COLLATERAL_BIDS` entries bind `chain_id`, `collateral_asset`,
 `settlement_asset` and `maximum_settlement` in raw token units. The recovery
 keeper bids with its own funded settlement tokens, within the configured cap,

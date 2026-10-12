@@ -93,6 +93,15 @@ contract HealthSourceTest is Test {
         source.snapshot(creditId, bundleId, 4, 500);
     }
 
+    function testApprovedOracleCannotHideStaleAccountState() public {
+        vm.warp(1 days);
+        source.setMaxAge(bundleId, 300);
+        feed.setAnswer(123_00000000, block.timestamp - 1 hours);
+        reader.setReading(HealthReading(500, 200, 1_000, 400, 10_000, 5_000, 50, block.timestamp - 301));
+        vm.expectRevert(HealthSource.Stale.selector);
+        source.snapshot(creditId, bundleId, 4, 500);
+    }
+
     function testReaderCannotChangeForExistingBundle() public {
         assertTrue(source.isReaderActive(bundleId));
         MockHealthReader replacement = new MockHealthReader(priceId);

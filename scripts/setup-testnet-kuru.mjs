@@ -140,9 +140,12 @@ async function main() {
     return;
   }
   if (configure) {
-    if (deployment.configuration["fresh-prices"]?.maxAgeSeconds !== 300 || deployment.configuration.setup.maxAgeSeconds !== 300) {
-      throw new Error("Complete the signed pull-price migration before configuring Kuru");
+    const stateAge = deployment.configuration["health-freshness"]?.stateMaxAgeSeconds
+      ?? deployment.configuration["fresh-prices"]?.maxAgeSeconds;
+    if (stateAge !== 300 || await network.read("TermbookCore", m.TermbookCore, "healthMaxAge") > 300n) {
+      throw new Error("Align health snapshot freshness before configuring Kuru");
     }
+    await network.read("OracleRegistry", m.OracleRegistry, "read", [setup.priceId]);
     const { create_kuru } = await import("../server/dist/kuru/integration.js");
     const { prepare_atomic_spot, prepare_use_case, use_case_configuration, package_integration, atomic_configuration } = await import("../packages/sdk/dist/index.js");
     const market = deployment.configuration["kuru-market"];
@@ -191,7 +194,7 @@ async function main() {
       guards: { ...Object.fromEntries(Object.entries(market.guards).map(([target, pin]) => [target, pin.address])),
         [m.OracleRegistry.toLowerCase()]: market.oracleGuard?.address },
       max_slippage_bps: 100, max_deviation_bps: 500, max_authorization_age: 90, max_state_age: 90,
-      max_health_age: Number(deployment.configuration.setup.maxAgeSeconds) });
+      max_health_age: stateAge });
     if (sourceBlock && (await definitionClient.getBlock()).hash !== sourceBlock.hash) throw new Error("Configuration source block changed");
     const planHash = viem.keccak256(viem.toHex(JSON.stringify(plan.calls, (_, value) => typeof value === "bigint" ? String(value) : value)));
     if (report.planHash && report.planHash !== planHash) throw new Error("Kuru governance plan changed");

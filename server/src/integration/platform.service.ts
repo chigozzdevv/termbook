@@ -4,13 +4,22 @@ import { env } from "../config/env.js";
 import { importVerifiedSource } from "./integration.source.js";
 import { readProxyImplementation } from "../chain/proxy.js";
 
+function healthComponents() {
+  const factory = process.env["SHARED_HEALTH_FACTORY"], collateral = process.env["SHARED_COLLATERAL_READER"];
+  if ((factory || collateral) && [factory, collateral].some((value) => !/^0x[a-fA-F0-9]{40}$/.test(value ?? "") || /^0x0{40}$/i.test(value ?? ""))) {
+    throw new Error("integration-platform-unavailable");
+  }
+  return factory && collateral ? { health: { factory, collateral } } : {};
+}
+
 export const platformService = {
   spot() {
     const router = process.env["ATOMIC_SPOT_ROUTER"], module = process.env["ATOMIC_SPOT_MODULE"], reader = process.env["SHARED_READ_PROGRAM"];
     if ([router, module, reader].some((value) => !/^0x[a-fA-F0-9]{40}$/.test(value ?? "") || /^0x0{40}$/i.test(value ?? ""))) {
       throw new Error("integration-platform-unavailable");
     }
-    return { chain_id: env.monadChainId, router, module, read_program: reader, ...process.env["SHARED_SPOT_ORDER_TRACKER"] ? this.useCase() : {} };
+    if (process.env["SHARED_SPOT_ORDER_TRACKER"]) return { ...this.useCase(), router, module };
+    return { chain_id: env.monadChainId, router, module, read_program: reader, ...healthComponents() };
   },
   useCase() {
     const execution = process.env["SHARED_USE_CASE_POLICY"], reader = process.env["SHARED_USE_CASE_READER"],
@@ -20,7 +29,8 @@ export const platformService = {
     }
     const order_tracker = process.env["SHARED_SPOT_ORDER_TRACKER"] || undefined;
     if (order_tracker !== undefined && (!/^0x[a-fA-F0-9]{40}$/.test(order_tracker) || /^0x0{40}$/i.test(order_tracker))) throw new Error("integration-platform-unavailable");
-    return { chain_id: env.monadChainId, contracts: { execution, reader, recovery, exit: recovery }, read_program, order_tracker };
+    return { chain_id: env.monadChainId, contracts: { execution, reader, recovery, exit: recovery }, read_program, order_tracker,
+      ...healthComponents() };
   },
   async source(target: Address) {
     const chain = monadClient();

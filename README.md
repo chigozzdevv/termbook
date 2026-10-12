@@ -411,7 +411,8 @@ second terminal:
 forge build --root contracts/evm
 anvil --fork-url https://testnet-rpc.monad.xyz --chain-id 10143 \
   --host 127.0.0.1 --port 18548 --slots-in-an-epoch 1 \
-  --disable-code-size-limit --gas-limit 30000000 --timeout 30000 --retries 3
+  --disable-code-size-limit --gas-limit 30000000 --timeout 30000 --retries 3 \
+  --max-persisted-states 20000
 ```
 
 ```sh

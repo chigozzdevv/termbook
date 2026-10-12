@@ -51,7 +51,14 @@ export function orderScenarios(f: DeploymentFixture) {
       if (!(await r.transact(await f.cancelOrder(v, await pendingId(v)))).succeeded) throw new Error("validation-full-account-cancel-reverted");
       await r.observe({ id: "cancelled_pending", target: f.addresses.FlowExecutor!, from: f.actors.borrower,
         signature: "function pendingCount(bytes32) view returns(uint256)", args: [v.id], phase: "after" });
-      await assert(r, "Borrower can cancel at the admitted bound", "cancelled_pending", BigInt(count - 1)); return;
+      await assert(r, "Borrower can cancel at the admitted bound", "cancelled_pending", BigInt(count - 1));
+      for (let n = 1; n < count; n++) {
+        await f.refresh();
+        if (!(await r.transact(await f.cancelOrder(v, await pendingId(v)))).succeeded) throw new Error("validation-order-limit-cleanup-reverted");
+      }
+      await r.observe({ id: "cleared_pending", target: f.addresses.FlowExecutor!, from: f.actors.borrower,
+        signature: "function pendingCount(bytes32) view returns(uint256)", args: [v.id], phase: "after" });
+      await assert(r, "Limit test leaves no resting orders", "cleared_pending", 0n); return;
     }
     const count = id === "forced_cancel" ? f.deployment.configuration["kuru-integration"].definition.assessment!.max_pending : 1;
     let venueId = 0n;

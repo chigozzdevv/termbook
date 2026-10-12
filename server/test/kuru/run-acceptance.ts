@@ -87,6 +87,17 @@ async function main() {
     process.stdout.write(`${focused}: replayed\nDiagnostic report: ${output}\n`);
     return;
   }
+  if (!recorded || recorded.cases.length !== caseIds.length) throw new Error("validation-case-evidence-missing");
+  const fixtureAccounts = new Set([...fixture.facilities.values()].map((value) => value.account.toLowerCase()));
+  const usedTargets = new Set(recorded.cases.flatMap((item) => [
+    ...item.observations.map((value) => value.target), ...item.transactions.map((value) => value.to),
+    ...item.simulations.map((value) => value.to),
+  ]).map((value) => value.toLowerCase()));
+  for (let index = contracts.length - 1; index >= 0; index--) {
+    const pin = contracts[index]!;
+    if (pin.fixture && fixtureAccounts.has(pin.target.toLowerCase()) && !usedTargets.has(pin.target.toLowerCase())
+      && !identity?.definition.pins.some((value) => value.target.toLowerCase() === pin.target.toLowerCase())) contracts.splice(index, 1);
+  }
   const report = runner.finish(scenarios.exclusions);
   const diagnostic = !deployed || candidate;
   await writeFile(output, JSON.stringify({ diagnostic, ...(diagnostic ? { reason: candidate ? "candidate_reads" : "isolated_protocol_fixture" } : {}), ...report }, null, 2));

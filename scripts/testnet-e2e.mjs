@@ -96,6 +96,8 @@ async function main() {
       direction, order_type: "market", amount: { spend: amount }, slippage_bps: slippage } };
     return kuruPlan(test, action, credit, direction === "buy" ? amounts.draw : 0n);
   }
+  const sellMaximum = kuru ? BigInt(appSetup.definition.assessment?.calls.find((call) => call.target.toLowerCase()
+    === appSetup.definition.assessment.routes.router.toLowerCase() && call.selector === "0x69b64678")?.native_maximum ?? viem.parseEther("1")) : 0n;
   async function kuruPlan(test, action, credit, draw = 0n) {
     await currentGuards();
     const definition = appSetup.definition, market = definition.markets[0];
@@ -264,7 +266,15 @@ async function main() {
     if (mode === "--retry-default") {
       const previous = report.cases.default;
       const previousCredit = previous && await coreRead("creditDetails", [previous.creditId]);
-      if (!previous || previous.drawVerified || ![6, 7].includes(previousCredit.facility)) throw new Error("Close the unused default facility before retrying");
+      if (!previous || previous.drawVerified || previousCredit.debt !== 0n || previousCredit.nonce !== 0n
+        || ![5, 6, 7].includes(previousCredit.facility)
+        || previousCredit.facility === 5 && (!previous.returnTx || previous.failure !== "matured_before_borrowing")
+        || await readPosition(previous) !== 0n
+        || kuru && await monad.read("UseCaseReader", app, "pendingCount", [previous.creditId, previous.account]) !== 0n
+        || await monad.client.getBalance({ address: previous.account }) !== 0n
+        || await monad.client.readContract({ address: usdc, abi: erc20, functionName: "balanceOf", args: [previous.account] }) !== 0n) {
+        throw new Error("Return the unused default facility before retrying");
+      }
     }
     for (const kind of mode === "--retry-default" ? ["default-retry"] : fast ? ["repayment"] : base ? ["repayment", "default"] : kuru ? ["repayment", "default", "active"] : ["repayment", "default"]) {
       let test = report.cases[kind];
@@ -275,7 +285,7 @@ async function main() {
           [intentId, account.address, account.address, nonce]));
         const lockId = viem.keccak256(viem.encodeAbiParameters(viem.parseAbiParameters("bytes32,string"), [creditId, "source-lock"]));
         const quotedAt = (await monad.client.getBlock()).timestamp;
-        const setupDeadline = quotedAt + (native ? 300n : base ? 3600n : kind === "default-retry" ? 2700n : 1800n);
+        const setupDeadline = quotedAt + (native ? 300n : kind === "default-retry" ? 2700n : base ? 3600n : 1800n);
         const quote = { borrower: account.address, owner: account.address, intentId, house: account.address,
           vault: m.HouseVault, sourceChain: BigInt(sourceChainId), collateralVault,
           collateralAsset: weth, collateralAmount: amounts.collateral, returnRecipient: account.address,
@@ -397,11 +407,24 @@ async function main() {
       if (orders && test.kind === "active" && test.drawVerified && credit.facility === 4) await orderProbes(test);
       if (test.kind === "repayment" && test.drawVerified && credit.facility === 4) {
         if (kuru) {
-          if (test.sell && !report.transactions.some((tx) => tx.name === "repayment:sell")
-            && BigInt(test.sell.authorization.deadline) <= (await monad.client.getBlock()).timestamp) { delete test.sell; persist(); }
-          if (!test.sell) { test.sell = await kuruAction(test, "sell", await monad.client.getBalance({ address: test.account }), credit); persist(); }
-          const sold = await monad.call("TermbookCore", m.TermbookCore, "executePlan", [test.creditId, test.sell.plan, test.sell.authorization], "repayment:sell");
-          test.sell.probe.tx_hash = sold.hash; persist();
+          test.sells ??= {};
+          for (let step = 0; step < 16 && await monad.client.getBalance({ address: test.account }) > 0n; step++) {
+            const label = step === 0 ? "repayment:sell" : `repayment:sell:${step}`;
+            if (report.transactions.some((tx) => tx.name === label && tx.status === "success")) continue;
+            let sale = step === 0 ? test.sell : test.sells[step];
+            if (sale && !report.transactions.some((tx) => tx.name === label)
+              && (BigInt(sale.authorization.deadline) <= (await monad.client.getBlock()).timestamp
+                || sale.plan.calls.some((call) => BigInt(call.nativeValue) > sellMaximum))) sale = undefined;
+            if (!sale) {
+              const balance = await monad.client.getBalance({ address: test.account });
+              sale = await kuruAction(test, "sell", balance < sellMaximum ? balance : sellMaximum, await coreRead("creditDetails", [test.creditId]));
+              if (step === 0) test.sell = sale; else test.sells[step] = sale;
+              persist();
+            }
+            const sold = await monad.call("TermbookCore", m.TermbookCore, "executePlan", [test.creditId, sale.plan, sale.authorization], label);
+            sale.probe.tx_hash = sold.hash; persist();
+          }
+          if (await monad.client.getBalance({ address: test.account }) > 0n) throw new Error("Kuru sell step limit reached");
           await monad.call("TermbookCore", m.TermbookCore, "repayAvailableCash", [test.creditId], "repayment:repay-cash");
           const remainder = await coreRead("creditDebt", [test.creditId]);
           if (remainder > 0n) {

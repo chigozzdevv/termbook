@@ -28,6 +28,20 @@ beforeEach(() => {
 });
 
 describe("Envio event ingestion", () => {
+  it("filters inventory events while checking matching receipt logs", async () => {
+    mocks.receipt.mockResolvedValue({ status: "success", blockNumber: 2n, blockHash: word("b"),
+      logs: [{ ...log(), topics: [word("d")] }, { ...log(), logIndex: 1, topics: [word("e")] }] });
+    const { readCoreEvents } = await import("../../src/chain/envio.client.js");
+    const result = await readCoreEvents(rpc(), 1n, 100n, "native", word("d"));
+    expect(result.logs).toHaveLength(1);
+    expect(mocks.get).toHaveBeenCalledWith(expect.objectContaining({ logs: [{ address: [address], topics: [[word("d")]] }] }));
+    expect(mocks.receipt).toHaveBeenCalled();
+  });
+  it("rejects archive events outside the requested inventory topic", async () => {
+    mocks.get.mockResolvedValue({ nextBlock: 10, data: { logs: [{ ...log(), topics: [word("e")] }] } });
+    const { readCoreEvents } = await import("../../src/chain/envio.client.js");
+    await expect(readCoreEvents(rpc(), 1n, 100n, "native", word("d"))).rejects.toThrow("envio-log-invalid");
+  });
   it("queries Monad testnet with an exclusive finalized bound and resumes a partial page", async () => {
     const { readCoreEvents } = await import("../../src/chain/envio.client.js");
     const result = await readCoreEvents(rpc(), 1n, 50_000n);

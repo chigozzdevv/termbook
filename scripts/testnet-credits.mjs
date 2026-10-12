@@ -32,8 +32,9 @@ export async function loadCredits(deployment, network) {
     ]);
     if (env.monadChainId !== 10143 || env.core.toLowerCase() !== core.toLowerCase()) throw new Error("Credit archive configuration mismatch");
     let cursor = BigInt(start);
+    const topic = viem.toEventSelector(event);
     while (cursor <= block.number && BigInt(created.length) < expected) {
-      const page = await readCoreEvents(client, cursor, block.number, "json");
+      const page = await readCoreEvents(client, cursor, block.number, "json", topic);
       if (page.source !== "envio" || page.nextBlock <= cursor) throw new Error("Credit archive has not caught up");
       for (const entry of page.logs) {
         let decoded;

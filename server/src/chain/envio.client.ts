@@ -57,13 +57,14 @@ function normalize(log: EnvioLog, from: bigint, next: bigint): CoreLog {
     data: log.data as Hex, topics: topics as [Hex, ...Hex[]] };
 }
 
-async function verifyReceipts(chain: PublicClient, logs: CoreLog[]): Promise<void> {
+async function verifyReceipts(chain: PublicClient, logs: CoreLog[], topic?: Hex): Promise<void> {
   const groups = new Map<Hex, CoreLog[]>();
   for (const log of logs) groups.set(log.transactionHash, [...(groups.get(log.transactionHash) ?? []), log]);
   const transactions = [...groups];
   for (let offset = 0; offset < transactions.length; offset += 4) await Promise.all(transactions.slice(offset, offset + 4).map(async ([hash, entries]) => {
     const receipt = await chain.getTransactionReceipt({ hash });
-    const expected = receipt.logs.filter((log) => log.address.toLowerCase() === env.core.toLowerCase());
+    const expected = receipt.logs.filter((log) => log.address.toLowerCase() === env.core.toLowerCase()
+      && (!topic || log.topics[0]?.toLowerCase() === topic.toLowerCase()));
     if (receipt.status !== "success" || expected.length !== entries.length || entries.some((entry) => {
       const actual = expected.find((log) => log.logIndex === entry.logIndex);
       return receipt.blockNumber !== entry.blockNumber || receipt.blockHash.toLowerCase() !== entry.blockHash.toLowerCase()
@@ -73,7 +74,7 @@ async function verifyReceipts(chain: PublicClient, logs: CoreLog[]): Promise<voi
   }));
 }
 
-async function jsonPage(from: bigint, end: bigint): Promise<{ nextBlock: number; data: { logs: EnvioLog[] } }> {
+async function jsonPage(from: bigint, end: bigint, topic?: Hex): Promise<{ nextBlock: number; data: { logs: EnvioLog[] } }> {
   const url = env.envioUrl || `https://${env.monadChainId}.hypersync.xyz`;
   const request = async (path: string, body?: unknown) => {
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -97,7 +98,7 @@ async function jsonPage(from: bigint, end: bigint): Promise<{ nextBlock: number;
     chainId = (await request("/chain_id")).chain_id;
     if (chainId !== env.monadChainId) throw new Error("envio-chain-mismatch");
     page = await request("/query", { from_block: Number(from), to_block: Number(end),
-      logs: [{ address: [env.core] }], max_num_logs: 1000,
+      logs: [{ address: [env.core], ...(topic ? { topics: [[topic]] } : {}) }], max_num_logs: 1000,
       field_selection: { log: ["address", "block_number", "block_hash", "transaction_hash", "log_index", "data", "removed", "topic0", "topic1", "topic2", "topic3"] } });
   } catch {
     if (chainId !== undefined && chainId !== env.monadChainId) throw new Error("envio-chain-mismatch");
@@ -113,8 +114,9 @@ async function jsonPage(from: bigint, end: bigint): Promise<{ nextBlock: number;
   })) as EnvioLog[] } };
 }
 
-export async function readCoreEvents(chain: PublicClient, from: bigint, finalized: bigint, transport: "native" | "json" = "native"): Promise<EventBatch> {
+export async function readCoreEvents(chain: PublicClient, from: bigint, finalized: bigint, transport: "native" | "json" = "native", topic?: Hex): Promise<EventBatch> {
   if (from < 0n || finalized < from || finalized >= BigInt(Number.MAX_SAFE_INTEGER)) throw new Error("indexer-range-invalid");
+  if (topic !== undefined && !/^0x[a-fA-F0-9]{64}$/.test(topic)) throw new Error("indexer-topic-invalid");
   assertEnvioConfig();
   if (!env.envioApiToken) {
     const to = from + 499n < finalized ? from + 499n : finalized;
@@ -123,17 +125,17 @@ export async function readCoreEvents(chain: PublicClient, from: bigint, finalize
       return { fromBlock, toBlock: fromBlock + 99n < to ? fromBlock + 99n : to };
     });
     const logs = (await Promise.all(ranges.map((range) => chain.getLogs({ address: env.core as Address, ...range })))).flat();
-    return { logs: logs as CoreLog[], nextBlock: to + 1n, source: "rpc" };
+    return { logs: logs.filter((log) => !topic || log.topics[0]?.toLowerCase() === topic.toLowerCase()) as CoreLog[], nextBlock: to + 1n, source: "rpc" };
   }
   const window = transport === "json" ? 1_000_000n : 100_000n;
   const end = from + window < finalized + 1n ? from + window : finalized + 1n;
   let response;
-  if (transport === "json") response = await jsonPage(from, end);
+  if (transport === "json") response = await jsonPage(from, end, topic);
   else {
     const client = await hypersync();
     if (await client.getChainId() !== env.monadChainId) throw new Error("envio-chain-mismatch");
     try {
-      response = await client.get({ fromBlock: Number(from), toBlock: Number(end), logs: [{ address: [env.core] }],
+      response = await client.get({ fromBlock: Number(from), toBlock: Number(end), logs: [{ address: [env.core], ...(topic ? { topics: [[topic]] } : {}) }],
         fieldSelection: { log: ["Address", "BlockNumber", "BlockHash", "TransactionHash", "LogIndex", "Data", "Removed", "Topic0", "Topic1", "Topic2", "Topic3"] },
         maxNumLogs: 1000 });
     } catch { throw new Error("envio-query-unavailable"); }
@@ -144,6 +146,7 @@ export async function readCoreEvents(chain: PublicClient, from: bigint, finalize
   const logs = response.data.logs.map((log) => normalize(log, from, nextBlock))
     .sort((a, b) => a.blockNumber < b.blockNumber ? -1 : a.blockNumber > b.blockNumber ? 1 : a.logIndex - b.logIndex);
   if (new Set(logs.map((log) => `${log.blockNumber}:${log.logIndex}`)).size !== logs.length) throw new Error("envio-log-duplicate");
-  await verifyReceipts(chain, logs);
+  if (topic && logs.some((log) => log.topics[0].toLowerCase() !== topic.toLowerCase())) throw new Error("envio-log-invalid");
+  await verifyReceipts(chain, logs, topic);
   return { logs, nextBlock, source: "envio" };
 }

@@ -97,6 +97,48 @@ export class DeploymentFixture extends Fixture {
   override async deploy(name: string, args: readonly unknown[] = []) {
     const address = await super.deploy(name, args); this.helpers.add(address.toLowerCase()); return address;
   }
+  async candidateReads() {
+    const original = { ...this.addresses };
+    for (const name of ["SpotOrderTracker", "UseCaseReader"]) {
+      const deployed = await this.deploy(name, [this.governance, original.TermbookCore,
+        original.IntegrationRegistry, original.ReadProgram]);
+      await this.rpcCall("anvil_setCode", [original[name], await this.chain.getBytecode({ address: deployed })]);
+      this.addresses[name] = original[name]!; this.helpers.add(original[name]!.toLowerCase());
+    }
+    const replacement = await this.deploy("AppHealthReader", [original.TermbookCore, this.bundle,
+      original.CollateralHealthReader, original.UseCaseReader, original.UseCaseRecovery]);
+    await this.rpcCall("anvil_setCode", [original.AppHealthReader, await this.chain.getBytecode({ address: replacement })]);
+    this.addresses.AppHealthReader = original.AppHealthReader!; this.helpers.add(original.AppHealthReader!.toLowerCase());
+    const hash = async (target: Address) => keccak256((await this.chain.getBytecode({ address: target }))!);
+    const pin = async (name: string, field: string, keys: readonly (Hex | Address)[], member: string | undefined, value: Hex) => {
+      const layout = (await artifact(name)).storageLayout;
+      const mapping = layout.storage.find((item) => item.label === field)!;
+      let slot = BigInt(mapping.slot), type = mapping.type;
+      for (const key of keys) {
+        const current = layout.types[type]! as unknown as { key: string; value: string };
+        const label = (layout.types[current.key] as unknown as { label: string }).label;
+        slot = BigInt(keccak256(encodeAbiParameters([{ type: label }, { type: "uint256" }], [key, slot])));
+        type = current.value;
+      }
+      const part = member ? layout.types[type]!.members.find((item) => item.label === member)! : { slot: "0", offset: 0 };
+      if (part.offset !== 0) throw new Error("validation-candidate-storage-invalid");
+      await this.rpcCall("anvil_setStorageAt", [original[name], toHex(slot + BigInt(part.slot), { size: 32 }), value]);
+    };
+    for (const name of ["SpotOrderTracker", "UseCaseReader"]) {
+      await pin("IntegrationRegistry", "dependencies", [this.bundle, original[name]!], "codeHash", await hash(original[name]!));
+    }
+    for (const call of this.deployment.configuration["kuru-integration"].definition.assessment?.calls ?? []) {
+      if (call.target.toLowerCase() !== original.SpotOrderTracker!.toLowerCase()) continue;
+      const keys = [this.bundle, original.SpotOrderTracker!, call.selector as Hex];
+      const codeHash = await hash(original.SpotOrderTracker!);
+      await pin("IntegrationRegistry", "callCodeHashes", keys, undefined, codeHash);
+      await pin("IntegrationRegistry", "callPolicies", keys, "codeHash", codeHash);
+      if (call.recovery) await pin("IntegrationRegistry", "recoveryCallPolicies", keys, "codeHash", codeHash);
+    }
+    await pin("FlowExecutor", "bundles", [this.bundle], "readerCodeHash", await hash(original.UseCaseReader!));
+    await pin("HealthSource", "readers", [this.bundle], "codeHash", await hash(original.AppHealthReader!));
+    await this.mine();
+  }
   async warmCredits(ids: string[]) {
     const slots: { target: Address; slot: Hex }[] = [];
     for (const name of ["TermbookCore", "RiskEngine", "ReservationManager", "AccountFactory"]) {

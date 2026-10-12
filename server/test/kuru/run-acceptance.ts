@@ -10,11 +10,13 @@ import { createScenarios, kuru_acceptance_cases } from "./acceptance.js";
 import { orderCases } from "./orders-acceptance.js";
 
 async function main() {
-  const rpc = process.argv[2] ?? "http://127.0.0.1:18548";
-  const deployed = process.argv[3] === "--deployment";
-  const focused = process.argv[4] === "--case" ? process.argv[5] : undefined;
-  if (process.argv.length !== (focused ? 6 : deployed ? 4 : process.argv[2] ? 3 : 2) || focused && !deployed) {
-    throw new Error("Use [local-fork-rpc], optionally with --deployment and --case case-id");
+  const args = process.argv.slice(2), candidate = args.at(-1) === "--candidate";
+  if (candidate) args.pop();
+  const rpc = args[0] ?? "http://127.0.0.1:18548";
+  const deployed = args[1] === "--deployment";
+  const focused = args[2] === "--case" ? args[3] : undefined;
+  if (args.length !== (focused ? 4 : deployed ? 2 : args[0] ? 1 : 0) || (focused || candidate) && !deployed) {
+    throw new Error("Use [local-fork-rpc], optionally with --deployment, --case case-id and --candidate");
   }
   const deployment = deployed ? JSON.parse(await readFile("deployments/testnet.json", "utf8")) : undefined;
   const keeper = process.env["RISK_KEEPER_KEY"];
@@ -25,6 +27,7 @@ async function main() {
   if (focused && !available.some((id) => id === focused)) throw new Error("validation-case-unsupported");
   const caseIds = available.filter((id) => !focused || id === focused);
   await fixture.setup();
+  if (candidate && fixture instanceof DeploymentFixture) await fixture.candidateReads();
   process.stdout.write("Kuru fork fixture configured\n");
   const ids = [...caseIds, "control", "duplicate_control", "cure_control", "isolation_control", "order_control"];
   if (fixture instanceof DeploymentFixture) await fixture.warmCredits(ids);
@@ -80,13 +83,13 @@ async function main() {
     if (!item) throw new Error("validation-focused-evidence-missing");
     const replay = new IntegrationValidationRunner(fixture.chain, context, [], { gasLimit: GAS_LIMIT, timeoutMs: 60 * 60_000, sourceClient });
     await replay.run(item.id, (r) => r.replay(item));
-    await writeFile(output, JSON.stringify({ diagnostic: true, reason: "focused_case", context, case: item }, null, 2));
+    await writeFile(output, JSON.stringify({ diagnostic: true, reason: candidate ? "candidate_reads" : "focused_case", context, case: item }, null, 2));
     process.stdout.write(`${focused}: replayed\nDiagnostic report: ${output}\n`);
     return;
   }
   const report = runner.finish(scenarios.exclusions);
-  const diagnostic = !deployed;
-  await writeFile(output, JSON.stringify({ diagnostic, ...(diagnostic ? { reason: "isolated_protocol_fixture" } : {}), ...report }, null, 2));
+  const diagnostic = !deployed || candidate;
+  await writeFile(output, JSON.stringify({ diagnostic, ...(diagnostic ? { reason: candidate ? "candidate_reads" : "isolated_protocol_fixture" } : {}), ...report }, null, 2));
   process.stdout.write(`Acceptance report: ${output}\n`);
   const budget = report.suite.cases.reduce((n, c) => n + c.observations.length + c.transactions.length + c.simulations.length, contracts.length);
   if (budget > 512) throw new Error("integration-evidence-budget-exceeded");
@@ -95,9 +98,9 @@ async function main() {
     await replay.run(item.id, (r) => r.replay(item)); process.stdout.write(`${item.id}: replayed\n`);
   }
   replay.finish(scenarios.exclusions);
-  await writeFile(output, JSON.stringify({ diagnostic, ...(diagnostic ? { reason: "isolated_protocol_fixture" } : {}), ...report }, null, 2));
+  await writeFile(output, JSON.stringify({ diagnostic, ...(diagnostic ? { reason: candidate ? "candidate_reads" : "isolated_protocol_fixture" } : {}), ...report }, null, 2));
   const completedLive = deployed ? await loadLive() : undefined;
-  if (deployed && !focused && completedLive?.lifecycle) {
+  if (deployed && !candidate && !focused && completedLive?.lifecycle) {
     if (![completedLive.lifecycle.active_credit_id, completedLive.lifecycle.recovered_credit_id].every((id) => liveCredits.includes(id))) {
       throw new Error("validation-live-credit-binding-changed");
     }

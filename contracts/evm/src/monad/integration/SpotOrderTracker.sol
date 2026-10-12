@@ -86,7 +86,7 @@ contract SpotOrderTracker {
             || price == 0 || block.timestamp >= credit.maturity) revert Invalid();
         uint256 i;
         while (i < ids[id].length) {
-            ExecutionTypes.Status status = state(id, ids[id][i]).status;
+            ExecutionTypes.Status status = _state(id, ids[id][i], credit).status;
             if (status == ExecutionTypes.Status.Pending || status == ExecutionTypes.Status.CancelRequested) { ++i; continue; }
             ids[id][i] = ids[id][ids[id].length - 1]; ids[id].pop();
         }
@@ -121,7 +121,7 @@ contract SpotOrderTracker {
         bytes32 pendingId = keccak256(abi.encode(target, venueId));
         TermbookCore.Credit memory credit = _credit(id, true);
         Order storage order = orders[id][pendingId];
-        ExecutionTypes.PendingState memory current = state(id, pendingId);
+        ExecutionTypes.PendingState memory current = _state(id, pendingId, credit);
         if (current.status != ExecutionTypes.Status.Pending) revert Invalid();
         Rule storage rule = rules[credit.bundleId][order.rule];
         order.cancelRemaining = current.remaining;
@@ -131,6 +131,12 @@ contract SpotOrderTracker {
 
     function state(bytes32 id, bytes32 pendingId) public view returns (ExecutionTypes.PendingState memory result) {
         TermbookCore.Credit memory credit = _credit(id, false);
+        return _state(id, pendingId, credit);
+    }
+
+    function _state(bytes32 id, bytes32 pendingId, TermbookCore.Credit memory credit)
+        private view returns (ExecutionTypes.PendingState memory result)
+    {
         Order storage order = orders[id][pendingId];
         if (order.rule == bytes32(0)) revert Invalid();
         Rule storage rule = rules[credit.bundleId][order.rule];
@@ -168,8 +174,9 @@ contract SpotOrderTracker {
     }
 
     function count(bytes32 id) external view returns (uint256 result) {
+        TermbookCore.Credit memory credit = _credit(id, false);
         for (uint256 i; i < ids[id].length; ++i) {
-            ExecutionTypes.Status status = state(id, ids[id][i]).status;
+            ExecutionTypes.Status status = _state(id, ids[id][i], credit).status;
             if (status == ExecutionTypes.Status.Pending || status == ExecutionTypes.Status.CancelRequested) ++result;
         }
     }
@@ -177,13 +184,14 @@ contract SpotOrderTracker {
         TermbookCore.Credit memory credit = _credit(id, false);
         for (uint256 i; i < ids[id].length; ++i) {
             if (rules[credit.bundleId][orders[id][ids[id][i]].rule].input != input) continue;
-            result += state(id, ids[id][i]).remaining;
+            result += _state(id, ids[id][i], credit).remaining;
         }
     }
     function at(bytes32 id, uint256 index) external view returns (bytes32 pendingId, ExecutionTypes.PendingState memory result) {
+        TermbookCore.Credit memory credit = _credit(id, false);
         uint256 cursor;
         for (uint256 i; i < ids[id].length; ++i) {
-            result = state(id, ids[id][i]);
+            result = _state(id, ids[id][i], credit);
             if (result.status != ExecutionTypes.Status.Pending && result.status != ExecutionTypes.Status.CancelRequested) continue;
             if (cursor++ == index) return (ids[id][i], result);
         }

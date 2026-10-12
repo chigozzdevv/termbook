@@ -47,9 +47,16 @@ export function orderScenarios(f: DeploymentFixture) {
       const rejected = await r.simulate("rejected", await f.limitOrder(v, 1000n, 0n), "control");
       if (!rejected.reverted) throw new Error("validation-order-limit-accepted");
       await observe(r, v, "after"); await assert(r, "Existing orders reach the admitted bound", "before_pending", BigInt(count));
-      await assert(r, "Rejected order adds no pending item", "after_pending", BigInt(count)); return;
+      await assert(r, "Rejected order adds no pending item", "after_pending", BigInt(count));
+      if (!(await r.transact(await f.cancelOrder(v, await pendingId(v)))).succeeded) throw new Error("validation-full-account-cancel-reverted");
+      await r.observe({ id: "cancelled_pending", target: f.addresses.FlowExecutor!, from: f.actors.borrower,
+        signature: "function pendingCount(bytes32) view returns(uint256)", args: [v.id], phase: "after" });
+      await assert(r, "Borrower can cancel at the admitted bound", "cancelled_pending", BigInt(count - 1)); return;
     }
-    const venueId = await place(v); await observe(r, v, "before");
+    const count = id === "forced_cancel" ? f.deployment.configuration["kuru-integration"].definition.assessment!.max_pending : 1;
+    let venueId = 0n;
+    for (let n = 0; n < count; n++) venueId = await place(v, count > 1 ? 1000n : 10_000n);
+    await observe(r, v, "before");
     if (id === "partial_fill_slots") {
       await fill(venueId, true); await f.refresh(f.bid - 1n);
       await r.observe({ id: "remaining", target: reader as Hex, from: f.actors.borrower,
@@ -83,7 +90,7 @@ export function orderScenarios(f: DeploymentFixture) {
       if (!(await r.transact(await recovery(v))).succeeded || !(await r.transact(await recovery(v))).succeeded) throw new Error("validation-cancel-retry-reverted");
     } else {
       if (!(await r.transact(await recovery(v))).succeeded || !(await r.transact(await recovery(v))).succeeded) throw new Error("validation-forced-cancel-reverted");
-      for (let step = 0; step < 6; step++) {
+      for (let step = 0; step < count * 2 + 6; step++) {
         const [next] = await f.read("AtomicSpotModule", "nextExitStep", [v.id, v.account]);
         if (/^0x0{64}$/.test(next)) break;
         if (!(await r.transact(await recovery(v))).succeeded) throw new Error("validation-custody-recovery-reverted");
@@ -92,7 +99,7 @@ export function orderScenarios(f: DeploymentFixture) {
         signature: "function getBalance(address,address) view returns(uint256)", args: [v.account, USDC], phase: "after" });
       await assert(r, "Keeper withdraws the refunded venue cash", "venue_cash", 0n);
     }
-    await observe(r, v, "after"); await assert(r, "One order before recovery", "before_pending", 1n);
+    await observe(r, v, "after"); await assert(r, "Admitted orders before recovery", "before_pending", BigInt(count));
     await assert(r, "Keeper cancels without the borrower", "after_pending", 0n);
   };
   return cases;

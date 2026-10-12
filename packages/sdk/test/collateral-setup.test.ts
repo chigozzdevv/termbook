@@ -402,3 +402,22 @@ describe("collateral setup", () => {
     }
   });
 });
+
+it("binds Base Sepolia WETH locks to Monad testnet with distinct source identities", () => {
+  const previous = binding();
+  const onChain = (reference: string, monadChainId: number): CollateralSetupBinding => {
+    const chain = { namespace: "eip155" as const, reference };
+    return { ...previous, monadChainId,
+      sourceVault: { ...chain, accountBytes: previous.sourceVault.accountBytes },
+      asset: { ...chain, kind: "erc20", assetBytes: address("8") },
+      owner: { ...chain, accountBytes: previous.owner.accountBytes },
+      returnRecipient: { ...chain, accountBytes: previous.returnRecipient.accountBytes } };
+  };
+  const base = onChain("84532", 10143);
+  const id = collateralSetupHash(base);
+  expect(id).not.toBe(collateralSetupHash(previous));
+  expect(evmSourceLockCall(base, id, 1n).functionName).toBe("lockRemoteWithDeadline");
+  const commitment = evmRemoteLockCommitment(base, id, address("e"));
+  const mainnet = onChain("8453", 143);
+  expect(commitment).not.toBe(evmRemoteLockCommitment(mainnet, collateralSetupHash(mainnet), address("e")));
+});

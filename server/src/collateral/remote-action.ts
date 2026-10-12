@@ -1,4 +1,4 @@
-import { ethereumSourceChain } from "../chain/networks.js";
+import { isEvmSource } from "../chain/networks.js";
 import { termbookCoreAbi } from "@termbook/bindings";
 import { encodeAbiParameters, keccak256, parseAbi, stringToHex, type Address, type Hex } from "viem";
 import { monadClient } from "../chain/monad.client.js";
@@ -100,7 +100,7 @@ export async function readAuthorizedAction(creditId: Hex, kind: 0 | 1 | 2, reque
     topUp ? Promise.resolve(topUp[3]) : chain.readContract({ address: core, abi: coreAbi, functionName: kind === 0 ? "remoteReturnDeadline" : "remoteSeizureDeadline", args: [creditId], blockNumber: at }),
     chain.readContract({ address: core, abi: coreAbi, functionName: "remoteRecoveryVaultOf", args: [creditId], blockNumber: at }),
   ]);
-  if (!remote || solana || sourceChain !== BigInt(ethereumSourceChain()) || nonce === 0n || amount === 0n
+  if (!remote || solana || !isEvmSource(sourceChain) || nonce === 0n || amount === 0n
     || actionHash.toLowerCase() === zero || credit.lockId.toLowerCase() === zero
     || credit.collateralVault.toLowerCase() === zeroAddress || credit.collateralAsset.toLowerCase() === zeroAddress
     || recoveryVault.toLowerCase() === zeroAddress || (kind !== 2 && deducted !== true && amount > credit.collateralAmount)) {

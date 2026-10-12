@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { warmForkStorage, warmIntegrationConfiguration, artifact, viem } from "../../../scripts/testnet-runtime.mjs";
+import { warmForkStorage, warmIntegrationConfiguration, canonicalReceipt, artifact, viem } from "../../../scripts/testnet-runtime.mjs";
 
 vi.mock("node:timers/promises", () => ({ setTimeout: vi.fn(async () => undefined) }));
 
@@ -11,6 +11,25 @@ function client() {
   return { request: vi.fn(async ({ method }: { method: string }) => method === "anvil_nodeInfo" ? { forkConfig: fork } : undefined) };
 }
 afterEach(() => vi.unstubAllGlobals());
+
+describe("deployment receipts", () => {
+  const hash = `0x${"1".repeat(64)}`;
+  const blockHash = `0x${"2".repeat(64)}`;
+  it("waits for a sealed block instead of persisting a Flashblocks placeholder", async () => {
+    const chain = { getTransactionReceipt: vi.fn(async () => ({ blockHash: viem.zeroHash })), getBlock: vi.fn() };
+    expect(await canonicalReceipt(chain, hash)).toBeNull();
+    expect(chain.getBlock).not.toHaveBeenCalled();
+  });
+  it("accepts only the receipt's canonical block and transaction position", async () => {
+    const receipt = { blockHash, blockNumber: 12n, transactionIndex: 0 };
+    const chain = { getTransactionReceipt: vi.fn(async () => receipt),
+      getBlock: vi.fn(async () => ({ hash: blockHash, transactions: [hash] })) };
+    expect(await canonicalReceipt(chain, hash)).toBe(receipt);
+    expect(chain.getBlock).toHaveBeenCalledWith({ blockNumber: 12n });
+    chain.getBlock.mockResolvedValue({ hash: blockHash, transactions: [] });
+    await expect(canonicalReceipt(chain, hash)).rejects.toThrow("not canonical");
+  });
+});
 
 describe("fork storage prefetch", () => {
   it("retries a transient timeout at the same source block and matches response IDs", async () => {

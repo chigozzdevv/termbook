@@ -1036,7 +1036,7 @@ contract TermbookCore is ITermbookCore, ProxyInitializable {
     function republishEthereumAuthorization(bytes32 creditId, uint8 kind) external payable nonReentrant {
         if (
             !remoteCollateral[creditId] || solanaCollateral[creditId]
-                || collateralSourceChainOf[creditId] != WormholeNetworks.ethereumChain(block.chainid) || ethereumWormholeCore == address(0)
+                || !WormholeNetworks.isEvmSource(collateralSourceChainOf[creditId], block.chainid) || ethereumWormholeCore == address(0)
                 || kind > RemoteAction.TOPUP
         ) revert InvalidAuthority();
         bytes32 actionHash;
@@ -1061,7 +1061,7 @@ contract TermbookCore is ITermbookCore, ProxyInitializable {
         uint256 deadline = sourceRecoveryReturnDeadlineOf[actionHash];
         if (
             !remoteCollateral[creditId] || solanaCollateral[creditId]
-                || collateralSourceChainOf[creditId] != WormholeNetworks.ethereumChain(block.chainid) || ethereumWormholeCore == address(0)
+                || !WormholeNetworks.isEvmSource(collateralSourceChainOf[creditId], block.chainid) || ethereumWormholeCore == address(0)
                 || sourceRecoveryReturnCreditOf[actionHash] != creditId
                 || deadline == 0 || block.timestamp > deadline
         ) revert InvalidAuthority();
@@ -2430,7 +2430,7 @@ contract TermbookCore is ITermbookCore, ProxyInitializable {
 
     function authorizeReturn(bytes32 creditId, bytes32 lockId, uint256 amount) external payable nonReentrant {
         Credit storage c = _credits[creditId];
-        if (!solanaCollateral[creditId] && collateralSourceChainOf[creditId] != WormholeNetworks.ethereumChain(block.chainid) && msg.value != 0) {
+        if (!solanaCollateral[creditId] && !WormholeNetworks.isEvmSource(collateralSourceChainOf[creditId], block.chainid) && msg.value != 0) {
             revert InvalidAuthority();
         }
         bool repaidRecovery = _repaidRecoveryCanReturn(c, creditId);
@@ -2477,7 +2477,7 @@ contract TermbookCore is ITermbookCore, ProxyInitializable {
         if (deduct) c.collateralAmount -= amount;
         c.revision = revision;
         if (solanaCollateral[creditId]) _publishSolanaAuthorization(actionHash);
-        else if (collateralSourceChainOf[creditId] == WormholeNetworks.ethereumChain(block.chainid)) _publishEthereumAuthorization(creditId, actionHash, RemoteAction.RELEASE);
+        else if (WormholeNetworks.isEvmSource(collateralSourceChainOf[creditId], block.chainid)) _publishEthereumAuthorization(creditId, actionHash, RemoteAction.RELEASE);
         emit Events.RemoteReturnRequested(creditId, c.lockId, amount, c.returnRecipient);
         emit RemoteActionAuthorized(creditId, actionHash, RemoteAction.RELEASE);
     }
@@ -2502,7 +2502,7 @@ contract TermbookCore is ITermbookCore, ProxyInitializable {
             return;
         }
         if (deadline <= block.timestamp || deadline > block.timestamp + 7 days) revert Expired();
-        if (!solanaCollateral[creditId] && collateralSourceChainOf[creditId] != WormholeNetworks.ethereumChain(block.chainid) && msg.value != 0) revert InvalidAuthority();
+        if (!solanaCollateral[creditId] && !WormholeNetworks.isEvmSource(collateralSourceChainOf[creditId], block.chainid) && msg.value != 0) revert InvalidAuthority();
         if (solanaCollateral[creditId] && c.collateralAmount + amount > type(uint64).max) revert InvalidCollateral();
         uint256 nonce = ++remoteActionNonce[creditId];
         uint256 revision = RevisionLib.next(c.revision);
@@ -2512,7 +2512,7 @@ contract TermbookCore is ITermbookCore, ProxyInitializable {
         pendingCollateralTopUp[creditId] = CollateralTopUp(amount, actionHash, revision, deadline);
         c.revision = revision;
         if (solanaCollateral[creditId]) _publishSolanaAuthorization(actionHash);
-        else if (collateralSourceChainOf[creditId] == WormholeNetworks.ethereumChain(block.chainid)) _publishEthereumAuthorization(creditId, actionHash, RemoteAction.TOPUP);
+        else if (WormholeNetworks.isEvmSource(collateralSourceChainOf[creditId], block.chainid)) _publishEthereumAuthorization(creditId, actionHash, RemoteAction.TOPUP);
         emit RemoteActionAuthorized(creditId, actionHash, RemoteAction.TOPUP);
     }
 
@@ -2610,7 +2610,7 @@ contract TermbookCore is ITermbookCore, ProxyInitializable {
 
     function authorizeRemoteSeizure(bytes32 creditId, uint256 amount, uint256 deadline) external payable nonReentrant {
         Credit storage c = _credits[creditId];
-        if (!solanaCollateral[creditId] && collateralSourceChainOf[creditId] != WormholeNetworks.ethereumChain(block.chainid) && msg.value != 0) {
+        if (!solanaCollateral[creditId] && !WormholeNetworks.isEvmSource(collateralSourceChainOf[creditId], block.chainid) && msg.value != 0) {
             revert InvalidAuthority();
         }
         if (!recoveryKeepers[msg.sender]) revert Unauthorized();
@@ -2640,7 +2640,7 @@ contract TermbookCore is ITermbookCore, ProxyInitializable {
         remoteSeizureDeadline[creditId] = deadline;
         c.revision = revision;
         if (solanaCollateral[creditId]) _publishSolanaAuthorization(actionHash);
-        else if (collateralSourceChainOf[creditId] == WormholeNetworks.ethereumChain(block.chainid)) {
+        else if (WormholeNetworks.isEvmSource(collateralSourceChainOf[creditId], block.chainid)) {
             _publishEthereumAuthorization(creditId, actionHash, RemoteAction.SEIZE);
         }
         emit RemoteActionAuthorized(creditId, actionHash, RemoteAction.SEIZE);
@@ -2772,7 +2772,7 @@ contract TermbookCore is ITermbookCore, ProxyInitializable {
             }
             return;
         }
-        if (collateralSourceChainOf[creditId] != WormholeNetworks.ethereumChain(block.chainid) || verifierRegistry == address(0)) revert InvalidCollateral();
+        if (!WormholeNetworks.isEvmSource(collateralSourceChainOf[creditId], block.chainid) || verifierRegistry == address(0)) revert InvalidCollateral();
         (address impl, uint256 version, bool active,, bytes32 codeHash) =
             IVerifierRegistryCore(verifierRegistry).verifiers(collateralSourceChainOf[creditId]);
         if (
@@ -2818,7 +2818,7 @@ contract TermbookCore is ITermbookCore, ProxyInitializable {
         Credit storage c = _credits[creditId];
         address owner = collateralOwnerOf[creditId];
         if (msg.sender != c.borrower && msg.sender != owner) revert Unauthorized();
-        if (collateralSourceChainOf[creditId] != WormholeNetworks.ethereumChain(block.chainid) && msg.value != 0) revert InvalidAuthority();
+        if (!WormholeNetworks.isEvmSource(collateralSourceChainOf[creditId], block.chainid) && msg.value != 0) revert InvalidAuthority();
         if (
             !remoteCollateral[creditId] || solanaCollateral[creditId]
                 || !remoteSeizureConfirmed[creditId]
@@ -2833,7 +2833,7 @@ contract TermbookCore is ITermbookCore, ProxyInitializable {
         sourceRecoveryReturnDeadlineOf[actionHash] = deadline;
         sourceRecoveryReturnCreditOf[actionHash] = creditId;
         c.revision = RevisionLib.next(c.revision);
-        if (collateralSourceChainOf[creditId] == WormholeNetworks.ethereumChain(block.chainid)) {
+        if (WormholeNetworks.isEvmSource(collateralSourceChainOf[creditId], block.chainid)) {
             _publishEthereumAuthorization(creditId, actionHash, RemoteAction.RELEASE);
         }
         emit SourceRecoveryReturnAuthorized(creditId, actionHash, owner, amount, nonce, deadline);
@@ -3299,7 +3299,7 @@ contract TermbookCore is ITermbookCore, ProxyInitializable {
         ) revert Unauthorized();
         if (amount == 0 || amount >= c.collateralAmount) revert InvalidCollateral();
         _requireNoCustodyAction(creditId);
-        if ((!remoteCollateral[creditId] || (!solanaCollateral[creditId] && collateralSourceChainOf[creditId] != WormholeNetworks.ethereumChain(block.chainid))) && msg.value != 0) revert InvalidAuthority();
+        if ((!remoteCollateral[creditId] || (!solanaCollateral[creditId] && !WormholeNetworks.isEvmSource(collateralSourceChainOf[creditId], block.chainid))) && msg.value != 0) revert InvalidAuthority();
         _accrue(c, creditId);
         if (riskEngine != address(0)) {
             Types.HealthSnapshot memory snapshot = _requireFreshHealth(c, creditId);

@@ -45,6 +45,7 @@ function chain(accepted = true) {
 }
 
 beforeEach(() => {
+  env.monadChainId = 143;
   env.sourceRpcUrl = "https://ethereum.example";
   env.sourceBeaconApiUrl = "https://beacon.example";
   env.core = core;

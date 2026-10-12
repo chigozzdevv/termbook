@@ -74,7 +74,7 @@ async function admittedMarkets(): Promise<CollateralMarket[]> {
       const registry = await chain.readContract({ address: env.core as `0x${string}`, abi: coreAbi, functionName: "verifierRegistry", blockNumber: block.number });
       const [verifier, version, active] = await chain.readContract({ address: registry, abi: verifierRegistryAbi,
         functionName: "verifiers", args: [BigInt(market.chainId)], blockNumber: block.number });
-      if (!active || version !== 2n || (await ethereumConfirmationPolicy(verifier)).depth !== market.testnetConfirmations) return false;
+      if (!active || version !== 2n || (await ethereumConfirmationPolicy(verifier, market.chainId)).depth !== market.testnetConfirmations) return false;
     }
     return vault.toLowerCase() === market.vault.toLowerCase() && !/^0x0{40}$/i.test(recovery);
   }));

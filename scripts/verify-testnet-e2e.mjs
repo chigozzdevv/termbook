@@ -7,35 +7,46 @@ import { root, viem, artifact } from './testnet-runtime.mjs';
 import { pacedHttp } from '../server/dist/chain/rpc.transport.js';
 const fast = process.argv[2] === '--fast';
 const native = process.argv[2] === '--native';
+const base = process.argv[2] === '--base-kuru';
+const sourceChainId = native ? 10143 : base ? 84532 : 11155111;
 const clean = process.argv[3] === '--clean';
-if (clean && !fast || process.argv.length !== (clean ? 4 : fast || native ? 3 : 2)) throw new Error('Use optional --native or --fast and --clean');
-const publicName = native ? 'testnet-native-e2e' : fast ? clean ? 'testnet-fast-clean-e2e' : 'testnet-fast-e2e' : 'testnet-e2e';
+if (clean && !fast || process.argv.length !== (clean ? 4 : fast || native || base ? 3 : 2)) throw new Error('Use optional --base-kuru, --native or --fast and --clean');
+const publicName = base ? 'testnet-base-kuru-e2e' : native ? 'testnet-native-e2e' : fast ? clean ? 'testnet-fast-clean-e2e' : 'testnet-fast-e2e' : 'testnet-e2e';
 
 async function main() {
   const deployment = JSON.parse(fs.readFileSync(path.join(root, 'deployments/testnet.json'), 'utf8'));
   const recorded = JSON.parse(fs.readFileSync(operationFile(publicName), 'utf8'));
-  const appSetup = readConfiguration('app');
+  const appSetup = readConfiguration(base ? 'kuru-integration' : 'app');
   const core = deployment.addresses[10143].TermbookCore;
-  if (Boolean(recorded.native) !== native || recorded.network !== 'testnet' || recorded.core !== core || recorded.app !== appSetup.addresses.ReferenceAssetApp) throw new Error('E2E deployment mismatch');
+  const app = base ? appSetup.definition.contracts.reader : appSetup.addresses.ReferenceAssetApp;
+  if (Boolean(recorded.native) !== native || recorded.network !== 'testnet' || recorded.core !== core || recorded.app !== app
+    || base && recorded.bundleId !== appSetup.bundleId) throw new Error('E2E deployment mismatch');
   const monad = viem.createPublicClient({ transport: pacedHttp('https://testnet-rpc.monad.xyz', 4) });
-  const source = native ? monad : viem.createPublicClient({ transport: viem.http('https://ethereum-sepolia-rpc.publicnode.com') });
-  if (await monad.getChainId() !== 10143 || await source.getChainId() !== (native ? 10143 : 11155111)) throw new Error('E2E network mismatch');
+  const source = native ? monad : viem.createPublicClient({ transport: viem.http(base ? 'https://sepolia.base.org' : 'https://ethereum-sepolia-rpc.publicnode.com') });
+  if (await monad.getChainId() !== 10143 || await source.getChainId() !== sourceChainId) throw new Error('E2E network mismatch');
   const finalized = { 10143: await monad.getBlock({ blockTag: 'finalized' }),
-    ...(!native ? { 11155111: await source.getBlock({ blockTag: 'finalized' }) } : {}) };
+    ...(!native ? { [sourceChainId]: await source.getBlock({ blockTag: 'finalized' }) } : {}) };
   const read = (client, name, address, functionName, args, chainId) => client.readContract({ address, abi: artifact(name).abi, functionName, args, blockNumber: finalized[chainId].number });
   const checked = new Map();
-  async function verifyFastProof(hash, creditId, applied = false, actionHash) {
+  async function verifySourceProof(hash, creditId, applied = false, actionHash) {
     const tx = await monad.getTransaction({ hash });
     const decoded = viem.decodeFunctionData({ abi: artifact('TermbookCore').abi, data: tx.input });
     if (tx.to?.toLowerCase() !== core.toLowerCase() || decoded.functionName !== (applied ? 'confirmRemoteReturn' : 'proveCollateral')
-      || decoded.args[0] !== creditId || !applied && decoded.args[1] !== 11155111n) throw new Error('Fast proof call mismatch');
+      || decoded.args[0] !== creditId || !applied && decoded.args[1] !== BigInt(sourceChainId)) throw new Error('Source proof call mismatch');
     const raw = viem.hexToBytes(decoded.args[applied ? 1 : 2]);
     const start = 6 + raw[5] * 66;
-    if (raw[0] !== 1 || !raw[5] || raw.length !== start + 51 + 160) throw new Error('Fast VAA framing mismatch');
+    if (raw[0] !== 1 || !raw[5] || raw.length !== start + 51 + (base ? 128 : 160)) throw new Error('Source VAA framing mismatch');
     const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
-    const publisher = deployment.addresses[11155111].WormholeEthereumPublisher;
-    if (view.getUint16(start + 8, false) !== 10002 || raw[start + 50] !== 203
-      || viem.bytesToHex(raw.slice(start + 10, start + 42)).toLowerCase() !== viem.padHex(publisher, { size: 32 }).toLowerCase()) throw new Error('Fast VAA emitter or consistency mismatch');
+    const publisher = deployment.addresses[sourceChainId].WormholeEthereumPublisher;
+    if (view.getUint16(start + 8, false) !== (base ? 10004 : 10002) || raw[start + 50] !== (base ? 0 : 203)
+      || viem.bytesToHex(raw.slice(start + 10, start + 42)).toLowerCase() !== viem.padHex(publisher, { size: 32 }).toLowerCase()) throw new Error('Source VAA emitter or consistency mismatch');
+    if (base) {
+      const [domain, kind, digest, deadline] = viem.decodeAbiParameters(viem.parseAbiParameters('bytes32,uint8,bytes32,uint256'), viem.bytesToHex(raw.slice(start + 51)));
+      if (domain !== viem.keccak256(viem.stringToHex('Termbook Wormhole Ethereum snapshot v1'))
+        || kind !== (applied ? 2 : 1) || deadline !== 0n || applied && digest !== actionHash) throw new Error('Base VAA snapshot mismatch');
+      return { consistency: 0, sourceChain: sourceChainId, sequence: String(view.getBigUint64(start + 42, false)),
+        publishedAt: new Date(view.getUint32(start, false) * 1000).toISOString() };
+    }
     const [domain, kind, digest, deadline, policyHash] = viem.decodeAbiParameters(viem.parseAbiParameters('bytes32,uint8,bytes32,uint256,bytes32'), viem.bytesToHex(raw.slice(start + 51)));
     const policy = readConfiguration('confirmations');
     if (domain !== viem.keccak256(viem.stringToHex('Termbook Wormhole Ethereum snapshot v1'))
@@ -62,14 +73,17 @@ async function main() {
   const observations = [];
   for (const t of recorded.observations) {
     const c = await read(monad, 'TermbookCore', core, 'creditDetails', [t.creditId], 10143);
+    if (await read(monad, 'TermbookCore', core, 'collateralSourceChainOf', [t.creditId], 10143) !== BigInt(sourceChainId)) throw new Error('Collateral source chain mismatch');
     const lock = await read(source, native ? 'NativeCollateralVault' : 'CollateralVault', native ? deployment.addresses[10143].NativeCollateralVault
-      : deployment.addresses[11155111].CollateralVault, 'locks', [t.lockId], native ? 10143 : 11155111);
-    const position = await read(monad, 'ReferenceAssetApp', recorded.app, 'positions', [t.account], 10143);
+      : deployment.addresses[sourceChainId].CollateralVault, 'locks', [t.lockId], sourceChainId);
+    const position = base ? await read(monad, 'UseCaseReader', app, 'positionCount', [t.creditId, t.account], 10143)
+      : await read(monad, 'ReferenceAssetApp', recorded.app, 'positions', [t.account], 10143);
+    const pending = base ? await read(monad, 'UseCaseReader', app, 'pendingCount', [t.creditId, t.account], 10143) : 0n;
     const accountReleased = await read(monad, 'CreditAccount', t.account, 'released', [], 10143);
     const outcome = { kind: t.kind, creditId: t.creditId, facility: c.facility, payment: c.payment, debt: String(c.debt),
       collateralReturned: c.collateralReturned, sourceLockedAmount: String(lock[2]), appPosition: String(position), accountReleased,
-      repaymentComplete: t.kind === 'repayment' && c.facility === 6 && c.payment === 4 && c.debt === 0n && c.collateralReturned && lock[2] === 0n && position === 0n && accountReleased,
-      recoveryComplete: t.kind.startsWith('default') && c.facility === 10 && c.debt === 0n && c.collateralReturned && lock[2] === 0n && position === 0n && accountReleased,
+      repaymentComplete: t.kind === 'repayment' && c.facility === 6 && c.payment === 4 && c.debt === 0n && c.collateralReturned && lock[2] === 0n && position === 0n && pending === 0n && accountReleased,
+      recoveryComplete: t.kind.startsWith('default') && c.facility === 10 && c.debt === 0n && c.collateralReturned && lock[2] === 0n && position === 0n && pending === 0n && accountReleased,
       setupAborted: c.facility === 7, proofAndReturnReceipts: [],
       observedCompletedAt: t.completedAt };
     const draw = recorded.transactions.find((tx) => tx.name === `${t.kind}:borrow-and-deposit`);
@@ -80,8 +94,8 @@ async function main() {
         catch { return []; }
       });
       const drawn = events.filter((entry) => entry.eventName === 'Drawn' && entry.args.creditId === t.creditId);
-      if (drawn.length !== 1 || drawn[0].args.amount !== BigInt(recorded.drawAmount ?? '1000000')
-        || drawn[0].args.debt !== BigInt(recorded.drawAmount ?? '1000000')) throw new Error('Live draw event mismatch');
+      const expectedDraw = BigInt(t.drawVerified?.debt ?? recorded.drawAmount ?? '1000000');
+      if (drawn.length !== 1 || drawn[0].args.amount !== expectedDraw || drawn[0].args.debt !== expectedDraw) throw new Error('Live draw event mismatch');
       outcome.drawReceipt = await receipt(10143, draw.hash);
     }
     if ((outcome.repaymentComplete || outcome.recoveryComplete) && !draw) throw new Error('Completed test has no live draw');
@@ -93,17 +107,17 @@ async function main() {
       for (const record of records) {
         if (record.creditId !== t.creditId) throw new Error('E2E indexed credit mismatch');
         if (record.txHash) {
-          const tx = await receipt(endpoint === 'collateral' ? 10143 : 11155111, record.txHash);
+          const tx = await receipt(endpoint === 'collateral' ? 10143 : sourceChainId, record.txHash);
           outcome.proofAndReturnReceipts.push(tx);
           if (endpoint === 'collateral') {
             outcome.collateralProofReceipt = tx;
-            if (fast) outcome.collateralProofPolicy = await verifyFastProof(record.txHash, t.creditId);
+            if (fast || base) outcome.collateralProofPolicy = await verifySourceProof(record.txHash, t.creditId);
           }
           else outcome.sourceReturnReceipt = tx;
         }
         if (record.confirmTxHash) {
           outcome.returnConfirmationReceipt = await receipt(10143, record.confirmTxHash);
-          if (fast) outcome.returnProofPolicy = await verifyFastProof(record.confirmTxHash, t.creditId, true, record.actionHash);
+          if (fast || base) outcome.returnProofPolicy = await verifySourceProof(record.confirmTxHash, t.creditId, true, record.actionHash);
           outcome.proofAndReturnReceipts.push(outcome.returnConfirmationReceipt);
         }
       }
@@ -131,14 +145,15 @@ async function main() {
             functionName: 'recoveryKeepers', args: [tx.from], blockNumber: viem.hexToBigInt(step.blockNumber) });
           if (!approved || tx.from.toLowerCase() === c.borrower.toLowerCase()) throw new Error('Forced recovery authority mismatch');
           if (decoded.eventName === 'AppRecoveryStep') {
-            if (decoded.args.target.toLowerCase() !== recorded.app.toLowerCase()) throw new Error('Forced exit target mismatch');
+            const targets = base ? appSetup.definition.assessment.recovery.map((step) => step.target.toLowerCase()) : [recorded.app.toLowerCase()];
+            if (!targets.includes(decoded.args.target.toLowerCase())) throw new Error('Forced exit target mismatch');
             exited = true;
           }
           if (decoded.eventName === 'RecoveryPayment' || decoded.eventName === 'Repaid') recovered += decoded.args.amount;
           steps.push(tx);
         }
       }
-      if (!exited || recovered !== BigInt(recorded.drawAmount ?? '1000000')) throw new Error('Independent keeper did not exit and recover the full loan');
+      if (!exited || recovered !== BigInt(t.drawVerified?.debt ?? recorded.drawAmount ?? '1000000')) throw new Error('Independent keeper did not exit and recover the full loan');
       outcome.forcedRecoveryReceipts = steps;
       outcome.forcedRecoveryAmount = String(recovered);
     }
@@ -148,7 +163,7 @@ async function main() {
     };
     const accept = await ownReceipt('accept');
     const locked = await ownReceipt(native ? 'lock-MON' : 'lock-WETH');
-    const repaid = await ownReceipt('repay');
+    const repaid = await ownReceipt(base ? 'repay-cash' : 'repay');
     const authorized = await ownReceipt('authorize-return');
     const closed = await ownReceipt(t.kind === 'repayment' ? 'finish-close' : 'release-account');
     const lockProof = native ? await ownReceipt('bind-lock') : outcome.collateralProofReceipt;
@@ -209,7 +224,7 @@ async function main() {
     finalizedBlocks: Object.fromEntries(Object.entries(finalized).map(([id, b]) => [id, { number: String(b.number), hash: b.hash }])),
     house, observations, measuredFeesWei: fees, transactions: [...checked.values()],
     lifecycleComplete, allReceiptsFinalized, completed: lifecycleComplete && allReceiptsFinalized };
-  if (report.completed) { clearOperation(publicName); clearOperation(native ? "native-e2e" : fast ? clean ? "fast-clean-e2e" : "fast-e2e" : "live-e2e"); }
+  if (report.completed) { clearOperation(publicName); clearOperation(base ? "base-kuru-e2e" : native ? "native-e2e" : fast ? clean ? "fast-clean-e2e" : "fast-e2e" : "live-e2e"); }
   log(JSON.stringify({ verifiedAt: report.verifiedAt, completed: report.completed, observations }));
   if (!report.completed) process.exitCode = 1;
 }

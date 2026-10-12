@@ -7,7 +7,7 @@ import {ProxyAdmin} from "@openzeppelin/contracts/proxy/transparent/ProxyAdmin.s
 
 library CodeInspection {
     function registeredTestnetProxy(address target) internal view returns (bool) {
-        if (block.chainid != 10143 && block.chainid != 11155111) return false;
+        if (block.chainid != 10143 && block.chainid != 11155111 && block.chainid != 84532) return false;
         try TestnetProxy(payable(target)).proxyAdmin() returns (address admin) {
             try ProxyAdmin(admin).owner() returns (address controller) {
                 try UpgradeController(controller).contractIds(target) returns (bytes32 id) { return id != bytes32(0); }

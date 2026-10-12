@@ -1,4 +1,4 @@
-import { ethereumSourceChain } from "../chain/networks.js";
+import { evmSourceRpcUrl, configuredEvmSources } from "../chain/networks.js";
 import { createPublicClient, encodeAbiParameters, encodeFunctionData, http, keccak256, parseAbi, type Address, type Hex } from "viem";
 import { termbookCoreAbi, verifierRegistryAbi } from "@termbook/bindings";
 import { z } from "zod";
@@ -31,7 +31,7 @@ const coreAbi = parseAbi(["function confirmCollateralTopUp(bytes32,bytes,bytes)"
 const equal = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 const zero = "0x0000000000000000000000000000000000000000";
 
-async function verifierBinding(creditId: Hex) {
+async function verifierBinding(creditId: Hex, sourceChain: bigint) {
   const chain = monadClient();
   const at = (await chain.getBlock({ blockTag: "finalized" })).number;
   const credit = await chain.readContract({ address: env.core as Address, abi: termbookCoreAbi,
@@ -40,7 +40,7 @@ async function verifierBinding(creditId: Hex) {
     functionName: "verifierRegistry", blockNumber: at });
   if (registry === zero) throw new Error("source-verifier-unavailable");
   const [verifier, version, active, , hash] = await chain.readContract({ address: registry, abi: verifierRegistryAbi,
-    functionName: "verifiers", args: [BigInt(ethereumSourceChain())], blockNumber: at });
+    functionName: "verifiers", args: [sourceChain], blockNumber: at });
   const code = await chain.getCode({ address: verifier, blockNumber: at });
   if (!active || version !== credit.verifierVersion || !equal(hash, credit.verifierCodeHash)
     || !code || !equal(keccak256(code), hash)) throw new Error("source-verifier-mismatch");
@@ -54,12 +54,12 @@ async function verifierBinding(creditId: Hex) {
 
 export const topUpService = {
   async plan(input: z.infer<typeof topUpPlanSchema>, requester: Address) {
-    if (!env.sourceRpcUrl || !env.wormholeScanUrl) throw new Error("source-proof-unavailable");
+    if (!configuredEvmSources().length || !env.wormholeScanUrl) throw new Error("source-proof-unavailable");
     const { action, actionHash } = await readAuthorizedAction(input.creditId, 2, requester, true);
     await verifyAuthorizationReceipt(input.creditId, actionHash, 2, input.authorizationTxHash);
-    const { chain, controller, verifier: pinnedVerifier } = await verifierBinding(input.creditId);
-    const source = createPublicClient({ transport: http(env.sourceRpcUrl) });
-    if (await source.getChainId() !== ethereumSourceChain()) throw new Error("source-action-chain-mismatch");
+    const { chain, controller, verifier: pinnedVerifier } = await verifierBinding(input.creditId, action.sourceChain);
+    const source = createPublicClient({ transport: http(evmSourceRpcUrl(action.sourceChain)) });
+    if (BigInt(await source.getChainId()) !== action.sourceChain) throw new Error("source-action-chain-mismatch");
     const pinnedHash = await chain.readContract({ address: pinnedVerifier, abi: sourceAbi, functionName: "sourceControllerCodeHash" });
     const code = await source.getCode({ address: controller, blockTag: "finalized" });
     if (!code || !equal(keccak256(code), pinnedHash)) throw new Error("source-controller-code-mismatch");
@@ -75,7 +75,7 @@ export const topUpService = {
       source.readContract({ address: controller, abi: sourceAbi, functionName: "verifier", blockNumber: at }),
     ]);
     if (!equal(core, controller) || !equal(vault, action.sourceVault) || !equal(asset, action.asset)
-      || sourceChain !== BigInt(ethereumSourceChain()) || !equal(monadCore, action.monadCore) || monadChain !== action.monadChain
+      || sourceChain !== action.sourceChain || !equal(monadCore, action.monadCore) || monadChain !== action.monadChain
       || !await source.readContract({ address: verifier, abi: sourceAbi, functionName: "wormholeMode", blockNumber: at })) {
       throw new Error("source-controller-mismatch");
     }
@@ -90,12 +90,12 @@ export const topUpService = {
         args: [action, authorization.header, authorization.proof] }) } };
   },
   async confirmation(input: z.infer<typeof topUpConfirmationSchema>, requester: Address) {
-    if (!env.sourceRpcUrl || !env.wormholeScanUrl || !env.sourceWormholePublisherKey) throw new Error("source-proof-unavailable");
+    if (!configuredEvmSources().length || !env.wormholeScanUrl || !env.sourceWormholePublisherKey) throw new Error("source-proof-unavailable");
     const { action, actionHash } = await readAuthorizedAction(input.creditId, 2, requester, true);
-    const { chain, verifier, controller } = await verifierBinding(input.creditId);
+    const { chain, verifier, controller } = await verifierBinding(input.creditId, action.sourceChain);
     if (input.mode === "apply") {
-      const source = createPublicClient({ transport: http(env.sourceRpcUrl) });
-      if (await source.getChainId() !== ethereumSourceChain()) throw new Error("source-action-chain-mismatch");
+      const source = createPublicClient({ transport: http(evmSourceRpcUrl(action.sourceChain)) });
+      if (BigInt(await source.getChainId()) !== action.sourceChain) throw new Error("source-action-chain-mismatch");
       if (!await source.readContract({ address: controller, abi: sourceAbi, functionName: "consumed", args: [actionHash], blockTag: "finalized" })) throw new Error("source-action-not-applied");
       if (input.sourceTx) {
       const receipt = await source.getTransactionReceipt({ hash: input.sourceTx });
@@ -107,8 +107,9 @@ export const topUpService = {
         recipient: action.recipient, amount: action.amount, kind: 2 });
       }
     }
-    const proof = await fetchEthereumSnapshot({ verifier, vault: action.sourceVault, controller,
-      kind: input.mode === "apply" ? 2 : 3, digest: actionHash, deadline: action.deadline });
+    const proof = await fetchEthereumSnapshot({ sourceChain: action.sourceChain, verifier, vault: action.sourceVault, controller,
+      kind: input.mode === "apply" ? 2 : 3, digest: actionHash,
+      ...(input.mode === "expire" ? { deadline: action.deadline } : {}) });
     const verified = input.mode === "apply"
       ? await chain.readContract({ address: verifier, abi: sourceAbi, functionName: "verifyAppliedAction", args: [proof.header, proof.proof, action.sourceVault, actionHash] })
       : await chain.readContract({ address: verifier, abi: sourceAbi, functionName: "verifyUnconsumedAction", args: [proof.header, proof.proof, controller, actionHash, action.deadline] });

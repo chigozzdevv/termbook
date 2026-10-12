@@ -1,5 +1,5 @@
 import { assertKeeperFunding, assertSignedKeeperFunding } from "../chain/keeper-funding.js";
-import { ethereumSourceChain } from "../chain/networks.js";
+import { isEvmSource, evmSourceRpcUrl, configuredEvmSources } from "../chain/networks.js";
 import {
   createPublicClient, createWalletClient, encodeAbiParameters, encodeFunctionData, http, keccak256, parseAbi,
   type Address, type Hex, type PublicClient,
@@ -65,7 +65,7 @@ const zero = "0x0000000000000000000000000000000000000000";
 const zeroHash = `0x${"0".repeat(64)}`;
 
 function configured(): boolean {
-  return Boolean(env.sourceRpcUrl
+  return Boolean(configuredEvmSources().length
     && (env.sourceBeaconApiUrl || (env.wormholeScanUrl && env.sourceWormholePublisherKey))
     && env.sourceActionKeeperKey && env.monadConfirmKeeperKey);
 }
@@ -75,7 +75,7 @@ function equal(a: string, b: string): boolean {
 }
 
 async function readSourceBinding(source: PublicClient, action: RemoteAction, actionHash: Hex) {
-  if (await source.getChainId() !== ethereumSourceChain() || action.sourceChain !== BigInt(ethereumSourceChain())) throw new Error("remote-action-source-chain-mismatch");
+  if (BigInt(await source.getChainId()) !== action.sourceChain || !isEvmSource(action.sourceChain)) throw new Error("remote-action-source-chain-mismatch");
   const finalized = await source.getBlock({ blockTag: "finalized" });
   const at = finalized.number;
   const [controller, asset, chainId, remoteMode] = await Promise.all([
@@ -84,7 +84,7 @@ async function readSourceBinding(source: PublicClient, action: RemoteAction, act
     source.readContract({ address: action.sourceVault, abi: vaultAbi, functionName: "chainId_", blockNumber: at }),
     source.readContract({ address: action.sourceVault, abi: vaultAbi, functionName: "remoteMode", blockNumber: at }),
   ]);
-  if (controller === zero || !equal(asset, action.asset) || chainId !== BigInt(ethereumSourceChain()) || !remoteMode) {
+  if (controller === zero || !equal(asset, action.asset) || chainId !== action.sourceChain || !remoteMode) {
     throw new Error("remote-action-source-vault-mismatch");
   }
   const [vault, monadCore, monadChain, recoveryVault, verifier] = await Promise.all([
@@ -267,10 +267,10 @@ async function confirmSourceAction(action: RemoteAction, actionHash: Hex): Promi
     }
     const proof = (await ethereumWormholeMode(verifier))
       ? await fetchEthereumSnapshot({
-        verifier, vault: action.sourceVault, controller, kind: 2, digest: actionHash,
+        sourceChain: action.sourceChain, verifier, vault: action.sourceVault, controller, kind: 2, digest: actionHash,
       })
       : await fetchConsumedActionProof({
-        rpcUrl: env.sourceRpcUrl, actionHash, controller, expectedCodeHash: controllerCodeHash,
+        rpcUrl: evmSourceRpcUrl(action.sourceChain), actionHash, controller, expectedCodeHash: controllerCodeHash,
       });
     const accepted = await chain.readContract({
       address: verifier, abi: verifierAbi, functionName: "verifyAppliedAction",
@@ -392,11 +392,11 @@ export async function handleRemoteActionJob(job: { kind: string; payload: Record
     return;
   }
   const account = privateKeyToAccount(env.sourceActionKeeperKey as Hex);
-  const source = createPublicClient({ transport: http(env.sourceRpcUrl) });
+  const source = createPublicClient({ transport: http(evmSourceRpcUrl(action.sourceChain)) });
   let delivered: "pending" | "reverted" | "confirmed";
   if (record.txHash) {
     if (typeof record.rawTx !== "string" || !word.test(record.txHash)) throw new Error("remote-action-signed-transaction-missing");
-    if (!await remoteActionRepo.acquireSigner(account.address, actionHash)) throw new Error("remote-action-signer-busy");
+    if (!await remoteActionRepo.acquireSigner(account.address, actionHash, Number(action.sourceChain))) throw new Error("remote-action-signer-busy");
     delivered = await deliver(source, action, actionHash, record.txHash as Hex, record.rawTx as Hex);
   } else {
     const current = await readAuthorizedAction(action.creditId, action.kind);
@@ -456,10 +456,10 @@ export async function handleRemoteActionJob(job: { kind: string; payload: Record
       address: binding.controller, abi: controllerAbi, functionName: "execute",
       args: [action, authorization.header, authorization.proof], account: account.address,
     });
-    if (!await remoteActionRepo.acquireSigner(account.address, actionHash)) throw new Error("remote-action-signer-busy");
+    if (!await remoteActionRepo.acquireSigner(account.address, actionHash, Number(action.sourceChain))) throw new Error("remote-action-signer-busy");
     const currentRecord = await remoteActionRepo.find(actionHash);
     if (currentRecord?.txHash) return;
-    const wallet = createWalletClient({ account, transport: http(env.sourceRpcUrl) });
+    const wallet = createWalletClient({ account, transport: http(evmSourceRpcUrl(action.sourceChain)) });
     let persisted = false;
     try {
       const nonce = await source.getTransactionCount({ address: account.address, blockTag: "pending" });
@@ -483,12 +483,12 @@ export async function handleRemoteActionJob(job: { kind: string; payload: Record
       persisted = true;
       delivered = await deliver(source, action, actionHash, hash, rawTx);
     } finally {
-      if (!persisted) await remoteActionRepo.releaseSigner(account.address, actionHash);
+      if (!persisted) await remoteActionRepo.releaseSigner(account.address, actionHash, Number(action.sourceChain));
     }
   }
   if (delivered === "pending") return;
   if (delivered === "reverted") {
-    await remoteActionRepo.releaseSigner(account.address, actionHash);
+    await remoteActionRepo.releaseSigner(account.address, actionHash, Number(action.sourceChain));
     return;
   }
   const updated = await remoteActionRepo.find(actionHash);
@@ -496,7 +496,7 @@ export async function handleRemoteActionJob(job: { kind: string; payload: Record
   const binding = await readSourceBinding(source, action, actionHash as Hex);
   if (!binding.consumed) throw new Error("remote-action-not-applied");
   await remoteActionRepo.state(actionHash, "source_finalized", updated.txHash);
-  await remoteActionRepo.releaseSigner(account.address, actionHash);
+  await remoteActionRepo.releaseSigner(account.address, actionHash, Number(action.sourceChain));
   await confirmSourceAction(action, actionHash as Hex);
 }
 

@@ -48,10 +48,12 @@ contract WormholeEthereumPublisher is ProxyInitializable {
 
     function _initializeWormholeEthereumPublisher(address vault_, address controller_, address wormhole_) private {
         if (
-            (block.chainid != 1 && block.chainid != 11155111) || vault_.code.length == 0 || controller_.code.length == 0 || wormhole_.code.length == 0
-                || IWormholeCore(wormhole_).chainId() != WormholeNetworks.ethereumWormholeChain(block.chainid)
+            !WormholeNetworks.isEvmSource(block.chainid, WormholeNetworks.monadChain(block.chainid))
+                || vault_.code.length == 0 || controller_.code.length == 0 || wormhole_.code.length == 0
+                || IWormholeCore(wormhole_).chainId() != WormholeNetworks.evmWormholeChain(block.chainid)
                 || address(RemoteCollateralController(controller_).vault()) != vault_
                 || CollateralVault(vault_).core() != controller_
+                || RemoteCollateralController(controller_).monadChain() != WormholeNetworks.monadChain(block.chainid)
         ) revert Invalid();
         vault = CollateralVault(vault_);
         controller = RemoteCollateralController(controller_);

@@ -64,9 +64,9 @@ contract WormholeEthereumVerifier is LightClientVerifier {
         bytes32 controllerCodeHash_
     ) private {
         if (
-            sourceChainId != WormholeNetworks.ethereumChain(block.chainid) || publisher_ == address(0) || publisherCodeHash_ == bytes32(0) || vault_ == address(0)
+            !WormholeNetworks.isEvmSource(sourceChainId, block.chainid) || publisher_ == address(0) || publisherCodeHash_ == bytes32(0) || vault_ == address(0)
                 || vaultCodeHash_ == bytes32(0) || controller_ == address(0) || controllerCodeHash_ == bytes32(0)
-                || WormholeEvmMessageClient(client_).sourceWormholeChain() != WormholeNetworks.ethereumWormholeChain(block.chainid)
+                || WormholeEvmMessageClient(client_).sourceWormholeChain() != WormholeNetworks.evmWormholeChain(sourceChainId)
                 || WormholeEvmMessageClient(client_).sourceEmitter() != bytes32(uint256(uint160(publisher_)))
         ) revert InvalidLightClient();
         if (vault_ == controller_) revert InvalidLightClient();

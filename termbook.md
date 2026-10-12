@@ -873,7 +873,7 @@ or bypass its accounting through an administrative update.
 
 For testnet validation, an explicitly disclosed administrator upgrade mode may
 replace logic at stable proxy addresses while preserving storage and interfaces.
-The shipped proxy mode is restricted to Monad testnet and Sepolia. Its controller
+The shipped proxy mode is restricted to Monad testnet, Sepolia, and Base Sepolia. Its controller
 owns all proxy administrators, and ProtocolGovernance authorizes exact
 implementation hashes and initialization calls. Governance ownership transfers
 require acceptance by the nominated owner, allowing a single testnet wallet to

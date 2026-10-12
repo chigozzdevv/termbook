@@ -25,7 +25,7 @@ contract ProtocolGovernance {
 
     constructor(address governance_, uint256 timelock_) {
         if (governance_ == address(0)) revert Unauthorized();
-        uint256 minimum = block.chainid == 10143 || block.chainid == 11155111 ? 0 : 2 days;
+        uint256 minimum = block.chainid == 10143 || block.chainid == 11155111 || block.chainid == 84532 ? 0 : 2 days;
         if (timelock_ < minimum) revert Invalid();
         governance = governance_;
         timelock = timelock_;

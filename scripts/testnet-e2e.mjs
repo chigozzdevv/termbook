@@ -9,18 +9,19 @@ import { viem, artifact, testnetRuntime, writeJsonAtomic } from "./testnet-runti
 const mode = process.argv[2];
 const fast = process.argv[3] === "--fast";
 const clean = process.argv[4] === "--clean";
-const orders = process.argv[3] === "--kuru-orders";
+const base = process.argv[3] === "--base-kuru";
+const orders = process.argv[3] === "--kuru-orders" || base;
 const kuru = process.argv[3] === "--kuru" || orders;
-const native = process.argv[3] === "--native" || kuru;
+const native = !base && (process.argv[3] === "--native" || kuru);
 if (!["--begin", "--start", "--retry-default", "--advance", "--run", "--observe", "--close-unused"].includes(mode) || clean && !fast
-  || process.argv.length !== (clean ? 5 : fast || native ? 4 : 3)) throw new Error("Use --begin, --start, --retry-default, --advance, --run, --observe or --close-unused with optional --kuru-orders, --kuru, --native, or --fast and --clean");
-const journalName = orders ? "kuru-orders-e2e" : kuru ? "kuru-e2e" : native ? "native-e2e" : fast ? clean ? "fast-clean-e2e" : "fast-e2e" : "live-e2e";
-const publicName = orders ? "testnet-kuru-orders-e2e" : kuru ? "testnet-kuru-e2e" : native ? "testnet-native-e2e" : fast ? clean ? "testnet-fast-clean-e2e" : "testnet-fast-e2e" : "testnet-e2e";
+  || process.argv.length !== (clean ? 5 : fast || native || base ? 4 : 3)) throw new Error("Use --begin, --start, --retry-default, --advance, --run, --observe or --close-unused with optional --base-kuru, --kuru-orders, --kuru, --native, or --fast and --clean");
+const journalName = base ? "base-kuru-e2e" : orders ? "kuru-orders-e2e" : kuru ? "kuru-e2e" : native ? "native-e2e" : fast ? clean ? "fast-clean-e2e" : "fast-e2e" : "live-e2e";
+const publicName = base ? "testnet-base-kuru-e2e" : orders ? "testnet-kuru-orders-e2e" : kuru ? "testnet-kuru-e2e" : native ? "testnet-native-e2e" : fast ? clean ? "testnet-fast-clean-e2e" : "testnet-fast-e2e" : "testnet-e2e";
 const api = "http://127.0.0.1:3002";
 const erc20 = viem.parseAbi(["function approve(address,uint256) returns(bool)", "function balanceOf(address) view returns(uint256)"]);
 const wethAbi = viem.parseAbi(["function deposit() payable"]);
 const encode = (name, method, args) => viem.encodeFunctionData({ abi: artifact(name).abi, functionName: method, args });
-const amounts = kuru ? { collateral: viem.parseEther("0.3"), limit: 10_000n, draw: 10_000n, bond: 20_000n }
+const amounts = base ? { collateral: 200_000_000_000_000n, limit: 100_000n, draw: 100_000n, bond: 20_000n } : kuru ? { collateral: viem.parseEther("0.3"), limit: 10_000n, draw: 10_000n, bond: 20_000n }
   : native ? { collateral: viem.parseEther("2"), limit: 100_000n, draw: 100_000n, bond: 20_000n }
   : { collateral: 200_000_000_000_000n, limit: 2_000_000n, draw: 1_000_000n, bond: 20_000n };
 const numericQuote = ["sourceChain", "collateralAmount", "limit", "setupDeadline", "maturity", "gracePeriod", "reservationBond", "nonce", "expiry", "aprBps", "originationFee", "commitmentFeeBps"];
@@ -30,12 +31,13 @@ async function main() {
   const runtime = await testnetRuntime(journalName, false);
   const { deployment, report, persist, account } = runtime;
   const monad = await runtime.context(10143);
-  const source = native ? monad : await runtime.context(11155111);
+  const sourceChainId = native ? 10143 : base ? 84532 : 11155111;
+  const source = native ? monad : await runtime.context(sourceChainId);
   const m = deployment.addresses[10143];
-  const s = deployment.addresses[11155111];
+  const s = deployment.addresses[sourceChainId];
   const usdc = deployment.tokens[10143].USDC;
   const nativeSetup = native ? readConfiguration("native") : undefined;
-  const weth = native ? nativeSetup.asset : deployment.tokens[11155111].WETH;
+  const weth = native ? nativeSetup.asset : deployment.tokens[sourceChainId].WETH;
   const collateralVault = native ? m.NativeCollateralVault : s.CollateralVault;
   const appSetup = readConfiguration(kuru ? "kuru-integration" : "app");
   if (!appSetup || appSetup.core.toLowerCase() !== m.TermbookCore.toLowerCase()) throw new Error("Configure the current integration first");
@@ -199,7 +201,7 @@ async function main() {
     await currentGuards();
   }
   if (!kuru && !await monad.read("IntegrationRegistry", m.IntegrationRegistry, "isActive", [appSetup.bundleId])) throw new Error("Test application is inactive");
-  if (kuru) {
+  if (kuru && !base) {
     if (!report.collateralAmount || report.collateralSizingVersion !== 2) {
       const [price, policy] = await Promise.all([
         monad.read("OracleRegistry", m.OracleRegistry, "read", [nativeSetup.priceId]),
@@ -223,9 +225,9 @@ async function main() {
   }
   if (mode !== "--observe" && !native) {
     const registry = await coreRead("verifierRegistry");
-    const [verifier, version, active] = await monad.read("VerifierRegistry", registry, "verifiers", [11155111n]);
+    const [verifier, version, active] = await monad.read("VerifierRegistry", registry, "verifiers", [BigInt(sourceChainId)]);
     const depth = await source.read("WormholeEthereumPublisher", s.WormholeEthereumPublisher, "confirmationDepth");
-    if (fast ? !active || version !== 2n || depth !== 5 : depth !== 0) throw new Error("E2E confirmation mode does not match the admitted deployment");
+    if (!active || (fast ? version !== 2n || depth !== 5 : version !== 1n || depth !== 0)) throw new Error("E2E confirmation mode does not match the admitted deployment");
     if (fast) {
       const client = await monad.read("WormholeEthereumVerifier", verifier, "lightClient");
       if (await monad.read("WormholeSepoliaMessageClient", client, "confirmationDepth") !== 5
@@ -264,7 +266,7 @@ async function main() {
       const previousCredit = previous && await coreRead("creditDetails", [previous.creditId]);
       if (!previous || previous.drawVerified || ![6, 7].includes(previousCredit.facility)) throw new Error("Close the unused default facility before retrying");
     }
-    for (const kind of mode === "--retry-default" ? ["default-retry"] : fast ? ["repayment"] : kuru ? ["repayment", "default", "active"] : ["repayment", "default"]) {
+    for (const kind of mode === "--retry-default" ? ["default-retry"] : fast ? ["repayment"] : base ? ["repayment", "default"] : kuru ? ["repayment", "default", "active"] : ["repayment", "default"]) {
       let test = report.cases[kind];
       if (!test) {
         const nonce = BigInt(Date.now());
@@ -273,9 +275,9 @@ async function main() {
           [intentId, account.address, account.address, nonce]));
         const lockId = viem.keccak256(viem.encodeAbiParameters(viem.parseAbiParameters("bytes32,string"), [creditId, "source-lock"]));
         const quotedAt = (await monad.client.getBlock()).timestamp;
-        const setupDeadline = quotedAt + (native ? 300n : kind === "default-retry" ? 2700n : 1800n);
+        const setupDeadline = quotedAt + (native ? 300n : base ? 3600n : kind === "default-retry" ? 2700n : 1800n);
         const quote = { borrower: account.address, owner: account.address, intentId, house: account.address,
-          vault: m.HouseVault, sourceChain: native ? 10143n : 11155111n, collateralVault,
+          vault: m.HouseVault, sourceChain: BigInt(sourceChainId), collateralVault,
           collateralAsset: weth, collateralAmount: amounts.collateral, returnRecipient: account.address,
           settlementAsset: usdc, limit: amounts.limit, bundleId: appSetup.bundleId,
           setupDeadline, maturity: kind.startsWith("default") ? setupDeadline + 120n : setupDeadline + 43_200n,
@@ -347,7 +349,7 @@ async function main() {
           if (attempts.length >= 3) throw new Error("Draw retry limit reached");
           delete test.execution; delete test.action; delete test.probe; persist();
         }
-        if (kuru && credit.collateralAmount < amounts.collateral) {
+        if (kuru && native && credit.collateralAmount < amounts.collateral) {
           if (attempts.some((tx) => tx.status !== "reverted")) throw new Error("Reconcile the prepared draw before changing collateral");
           const added = amounts.collateral - credit.collateralAmount;
           await monad.send(`${test.kind}:collateral-cost-buffer`, encode("TermbookCore", "addCollateral", [test.creditId, added, 0n]), m.TermbookCore, added);
@@ -386,7 +388,7 @@ async function main() {
         const pending = orders ? await monad.read("UseCaseReader", app, "pendingCount", [test.creditId, test.account]) : 0n;
         if (health.debt !== expectedDraw || (kuru ? health.appValue <= 0n || (!resting && position !== 1n)
           || resting && pending !== 1n : health.appValue !== amounts.draw || position !== amounts.draw)
-          || cash !== 0n || health.sourceValue >= health.debt || health.healthBps < 12_500n) throw new Error("Live draw or valuation mismatch");
+          || cash !== 0n || !base && health.sourceValue >= health.debt || health.healthBps < 12_500n) throw new Error("Live draw or valuation mismatch");
         test.drawVerified = { at: new Date().toISOString(), ...JSON.parse(canonicalJson(health)), appPosition: String(position), accountCash: String(cash) };
         test.state = test.kind.startsWith("default") ? "awaiting_default" : test.kind === "active" ? "active_for_admission" : "repayment_pending";
         persist();
@@ -478,8 +480,8 @@ async function main() {
   report.observations = observations;
   const lifecycleComplete = observations.some((test) => test.kind === "repayment" && test.completed)
     && (fast || observations.some((test) => test.kind.startsWith("default") && test.drawVerified && test.completed))
-    && (!orders || Boolean(report.cases.active?.ordersVerified));
-  if (kuru && lifecycleComplete && !report.lifecycle) {
+    && (!orders || base || Boolean(report.cases.active?.ordersVerified));
+  if (kuru && !base && lifecycleComplete && !report.lifecycle) {
     const recovered = Object.values(report.cases).find((test) => test.kind.startsWith("default") && test.drawVerified);
     const repayment = report.cases.repayment, active = report.cases.active;
     if (!recovered?.probe?.tx_hash || !repayment?.sell?.probe?.tx_hash || !active?.drawVerified) throw new Error("Kuru lifecycle probes are incomplete");
@@ -527,7 +529,8 @@ async function main() {
   if (mode !== "--observe") persist();
   writeJsonAtomic(operationFile(publicName), { network: "testnet", startedAt: report.startedAt, observedAt: report.observedAt,
     confirmationPolicy: native ? "Atomic Monad custody" : fast ? "Sepolia five-confirmation test policy" : "Full source finality",
-    scope: orders ? "Kuru market and limit buys and sells, cancellation, controlled venue funds, repayment, closure and independent order recovery"
+    scope: base ? "Base Sepolia WETH custody, finalized Wormhole proofs, Kuru market buy/sell, USDC repayment, closure and independent resting-order recovery"
+      : orders ? "Kuru market and limit buys and sells, cancellation, controlled venue funds, repayment, closure and independent order recovery"
       : kuru ? "Kuru market buys and sells, controlled MON holdings, USDC repayment, closure and independent keeper recovery"
       : native ? "Native MON custody, USDC borrowing, API credit tracking and independent reference app recovery"
       : "Real Sepolia WETH custody, Wormhole proofs, Monad USDC borrowing and reference app recovery",

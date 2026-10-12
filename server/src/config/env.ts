@@ -1,3 +1,4 @@
+import { configuredEvmSources } from "../chain/networks.js";
 import { auroraProductionOrigin, validateAuroraApiKey, validateAuroraProvider } from "../settlement/aurora.provider.js";
 
 export const env = {
@@ -8,6 +9,7 @@ export const env = {
   envioApiToken: process.env["ENVIO_API_TOKEN"] ?? "",
   envioUrl: process.env["ENVIO_HYPERSYNC_URL"] ?? "",
   sourceRpcUrl: process.env["SOURCE_RPC_URL"] ?? "",
+  evmSourceRpcUrls: process.env["EVM_SOURCE_RPC_URLS"] ?? "{}",
   sourceBeaconApiUrl: process.env["ETHEREUM_BEACON_API_URL"] ?? "",
   wormholeScanUrl: process.env["WORMHOLE_SCAN_URL"] ?? "",
   sourceWormholePublisherKey: process.env["SOURCE_WORMHOLE_PUBLISHER_KEY"] ?? "",
@@ -79,13 +81,16 @@ export function assertRuntimeConfig(): void {
   if (env.monadConfirmKeeperKey && !/^0x[a-fA-F0-9]{64}$/.test(env.monadConfirmKeeperKey)) {
     throw new Error("MONAD_CONFIRM_KEEPER_KEY is invalid");
   }
+  const sources = configuredEvmSources();
+  if (sources.some(({ chainId }) => chainId === 8453 || chainId === 84532)
+    && (!env.wormholeScanUrl || !env.sourceWormholePublisherKey)) throw new Error("base-wormhole-config-incomplete");
   const ethereumProofConfigured = Boolean(env.sourceBeaconApiUrl
     || (env.wormholeScanUrl && env.sourceWormholePublisherKey));
-  if (env.collateralKeeperKey && (!env.sourceRpcUrl || !ethereumProofConfigured)) {
+  if (env.collateralKeeperKey && (!sources.length || !ethereumProofConfigured)) {
     throw new Error("collateral-worker-config-incomplete");
   }
   if ([env.sourceActionKeeperKey, env.monadConfirmKeeperKey].some(Boolean)
-    && (!env.sourceRpcUrl || !ethereumProofConfigured
+    && (!sources.length || !ethereumProofConfigured
       || !env.sourceActionKeeperKey || !env.monadConfirmKeeperKey)) {
     throw new Error("remote-action-worker-config-incomplete");
   }

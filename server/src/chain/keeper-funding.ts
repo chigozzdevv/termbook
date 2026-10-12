@@ -1,4 +1,6 @@
-import { parseTransaction, recoverTransactionAddress, type Address, type Hex, type PublicClient, type TransactionSerialized } from "viem";
+import { parseAbi, parseTransaction, recoverTransactionAddress, type Address, type Hex, type PublicClient, type TransactionSerialized } from "viem";
+import { base, baseSepolia } from "viem/chains";
+import { estimateL1Fee } from "viem/op-stack";
 
 type FeeRequest = { gas?: bigint; gasPrice?: bigint; maxFeePerGas?: bigint; value?: bigint };
 
@@ -15,5 +17,18 @@ export async function assertKeeperFunding(client: PublicClient, address: Address
 
 export async function assertSignedKeeperFunding(client: PublicClient, raw: Hex): Promise<void> {
   const request = parseTransaction(raw);
-  await assertKeeperFunding(client, await recoverTransactionAddress({ serializedTransaction: raw as TransactionSerialized }), request);
+  const address = await recoverTransactionAddress({ serializedTransaction: raw as TransactionSerialized });
+  let value = request.value ?? 0n;
+  if (request.chainId === 8453 || request.chainId === 84532) {
+    if (await client.getChainId() !== request.chainId) throw new Error("keeper-chain-mismatch");
+    if (!request.gas || request.gas < 0n) throw new Error("keeper-fee-request-invalid");
+    const [l1Fee, operatorFee] = await Promise.all([
+      estimateL1Fee(client, { account: address, chain: request.chainId === 8453 ? base : baseSepolia,
+        ...(request.to ? { to: request.to } : {}), ...(request.data ? { data: request.data } : {}), value }),
+      client.readContract({ address: "0x420000000000000000000000000000000000000F",
+        abi: parseAbi(["function getOperatorFee(uint256) view returns(uint256)"]), functionName: "getOperatorFee", args: [request.gas] }),
+    ]);
+    value += l1Fee + operatorFee;
+  }
+  await assertKeeperFunding(client, address, { ...request, value });
 }

@@ -2,6 +2,7 @@ import { encodeAbiParameters, keccak256, parseAbi, stringToHex, type Address, ty
 import { termbookCoreAbi, verifierRegistryAbi } from "@termbook/bindings";
 import { monadClient } from "./monad.client.js";
 import { env } from "../config/env.js";
+import { ethereumSourceChain, isEvmSource } from "./networks.js";
 
 const abi = parseAbi(["function lightClient() view returns(address)", "function consensusVersion() view returns(uint256)",
   "function publisher() view returns(address)", "function confirmationDepth() view returns(uint16)",
@@ -11,7 +12,8 @@ export function sepoliaConfirmationHash(publisher: Address, depth: number): Hex 
   return keccak256(encodeAbiParameters([{ type: "bytes32" }, { type: "uint256" }, { type: "address" }, { type: "bytes32" }],
     [keccak256(stringToHex("Termbook Wormhole Sepolia confirmations v1")), 11155111n, publisher, config]));
 }
-export async function ethereumConfirmationPolicy(verifier: Address) {
+export async function ethereumConfirmationPolicy(verifier: Address, sourceChain: number | bigint = ethereumSourceChain()) {
+  if (!isEvmSource(sourceChain)) throw new Error("ethereum-confirmation-policy-invalid");
   if (env.monadChainId === 143) return { depth: 0, hash: `0x${"00".repeat(32)}` as Hex, consistency: 0 as const };
   const client = monadClient();
   const at = (await client.getBlock({ blockTag: "finalized" })).number;
@@ -19,7 +21,7 @@ export async function ethereumConfirmationPolicy(verifier: Address) {
     client.readContract({ address, abi, functionName, blockNumber: at });
   const version = await read(verifier, "consensusVersion");
   if (version === 1n) return { depth: 0, hash: `0x${"00".repeat(32)}` as Hex, consistency: 0 as const };
-  if (env.monadChainId !== 10143 || version !== 2n) throw new Error("ethereum-confirmation-policy-invalid");
+  if (sourceChain != 11155111 || env.monadChainId !== 10143 || version !== 2n) throw new Error("ethereum-confirmation-policy-invalid");
   const [lightClient, publisher] = await Promise.all([read(verifier, "lightClient"), read(verifier, "publisher")]);
   const [depth, hash] = await Promise.all([read(lightClient as Address, "confirmationDepth"), read(lightClient as Address, "confirmationPolicyHash")]);
   if (typeof depth !== "number" || depth < 5 || depth > 64 || hash !== sepoliaConfirmationHash(publisher as Address, depth)) {
@@ -39,7 +41,7 @@ export async function ethereumCreditConfirmationPolicy(creditId: Hex) {
   if (!active || version !== credit.verifierVersion || codeHash !== credit.verifierCodeHash || !code || keccak256(code) !== codeHash) {
     throw new Error("ethereum-confirmation-verifier-mismatch");
   }
-  return ethereumConfirmationPolicy(verifier);
+  return ethereumConfirmationPolicy(verifier, sourceChain);
 }
 export async function ethereumConfirmedBlock(client: PublicClient, depth: number) {
   if (depth === 0) return client.getBlock({ blockTag: "finalized" });

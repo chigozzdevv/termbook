@@ -342,7 +342,9 @@ export class Settlement {
         ] },
         message: operation,
       });
-      const wormholeFee = input.kind === "recovery" && operation.sourceChain === (this.client.config.chainId === 10143 ? 11155111n : 1n)
+      const evmSource = this.client.config.chainId === 10143 ? [11155111n, 84532n].includes(operation.sourceChain)
+        : this.client.config.chainId === 143 && [1n, 8453n].includes(operation.sourceChain);
+      const wormholeFee = input.kind === "recovery" && evmSource
         ? await this.client.rpc.ethereumFactoryWormholeFee(factory) : undefined;
       const tx = await this.client.rpc.write(factory, inboxFactoryAbi, "createAuthorized",
         [operation, signature], wormholeFee);

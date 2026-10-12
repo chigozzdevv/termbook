@@ -1,4 +1,4 @@
-import { ethereumSourceChain } from "../chain/networks.js";
+import { evmSourceRpcUrl, configuredEvmSources } from "../chain/networks.js";
 import { createPublicClient, decodeEventLog, encodeFunctionData, http, keccak256, parseAbi, type Address, type Hex } from "viem";
 import { termbookCoreAbi, verifierRegistryAbi } from "@termbook/bindings";
 import { monadClient } from "../chain/monad.client.js";
@@ -50,7 +50,7 @@ export const remoteActionService = {
         kind: action.kind, authorizationTxHash: input.authorizationTxHash as Hex });
       return { actionHash, creditId: input.creditId, kind: action.kind, state: "pending" };
     }
-    if (!env.sourceRpcUrl || !(env.sourceBeaconApiUrl || (env.wormholeScanUrl && env.sourceWormholePublisherKey))
+    if (!configuredEvmSources().length || !(env.sourceBeaconApiUrl || (env.wormholeScanUrl && env.sourceWormholePublisherKey))
       || !env.sourceActionKeeperKey || !env.monadConfirmKeeperKey) {
       throw new Error("remote-action-worker-unavailable");
     }
@@ -76,7 +76,7 @@ export const remoteActionService = {
     return remoteActionRepo.listByCredit(creditId.toLowerCase());
   },
   async attachSourceTx(input: SourceTxInput, requester: Address) {
-    if (!env.sourceRpcUrl || !(env.sourceBeaconApiUrl || (env.wormholeScanUrl && env.sourceWormholePublisherKey))
+    if (!configuredEvmSources().length || !(env.sourceBeaconApiUrl || (env.wormholeScanUrl && env.sourceWormholePublisherKey))
       || !env.monadConfirmKeeperKey) {
       throw new Error("remote-action-worker-unavailable");
     }
@@ -90,8 +90,8 @@ export const remoteActionService = {
     if (hashRemoteAction(action).toLowerCase() !== input.actionHash) throw new Error("remote-action-record-mismatch");
     const current = await readAuthorizedAction(action.creditId, action.kind, requester);
     if (current.actionHash.toLowerCase() !== input.actionHash) throw new Error("remote-action-stale");
-    const source = createPublicClient({ transport: http(env.sourceRpcUrl) });
-    if (await source.getChainId() !== ethereumSourceChain()) throw new Error("source-action-chain-mismatch");
+    const source = createPublicClient({ transport: http(evmSourceRpcUrl(action.sourceChain)) });
+    if (BigInt(await source.getChainId()) !== action.sourceChain) throw new Error("source-action-chain-mismatch");
     const receipt = await source.getTransactionReceipt({ hash: input.sourceTxHash as Hex });
     const policy = await ethereumCreditConfirmationPolicy(action.creditId);
     const sourceFinalized = await ethereumConfirmedBlock(source, policy.depth);
@@ -127,10 +127,10 @@ export const remoteActionService = {
       || BigInt(controllerCodeHash) === 0n) throw new Error("source-controller-mismatch");
     const proof = (await ethereumWormholeMode(verifier))
       ? await fetchEthereumSnapshot({
-        verifier, vault: action.sourceVault, controller, kind: 2, digest: input.actionHash as Hex,
+        sourceChain: action.sourceChain, verifier, vault: action.sourceVault, controller, kind: 2, digest: input.actionHash as Hex,
       })
       : await fetchConsumedActionProof({
-        rpcUrl: env.sourceRpcUrl, actionHash: input.actionHash as Hex,
+        rpcUrl: evmSourceRpcUrl(action.sourceChain), actionHash: input.actionHash as Hex,
         controller, expectedCodeHash: controllerCodeHash,
       });
     const accepted = await chain.readContract({ address: verifier, abi: sourceVerifierAbi,
@@ -153,7 +153,7 @@ export const remoteActionService = {
     return { actionHash: input.actionHash, sourceTxHash: input.sourceTxHash, state: "source_finalized" };
   },
   async prepareExpiredActionCancel(input: CancelInput, requester: Address) {
-    if (!env.sourceRpcUrl || !(env.sourceBeaconApiUrl || (env.wormholeScanUrl && env.sourceWormholePublisherKey))) {
+    if (!configuredEvmSources().length || !(env.sourceBeaconApiUrl || (env.wormholeScanUrl && env.sourceWormholePublisherKey))) {
       throw new Error("source-proof-unavailable");
     }
     const kind = input.kind === "release" ? 0 : 1;
@@ -186,11 +186,11 @@ export const remoteActionService = {
       || BigInt(controllerCodeHash) === 0n) throw new Error("source-controller-mismatch");
     const proof = (await ethereumWormholeMode(verifier))
       ? await fetchEthereumSnapshot({
-        verifier, vault: action.sourceVault, controller, kind: 3,
+        sourceChain: action.sourceChain, verifier, vault: action.sourceVault, controller, kind: 3,
         digest: actionHash, deadline: action.deadline,
       })
       : await fetchUnconsumedActionProof({
-        rpcUrl: env.sourceRpcUrl, actionHash,
+        rpcUrl: evmSourceRpcUrl(action.sourceChain), actionHash,
         controller, expectedCodeHash: controllerCodeHash, deadline: action.deadline,
       });
     const accepted = await chain.readContract({

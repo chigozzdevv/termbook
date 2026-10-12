@@ -18,11 +18,12 @@ const core = hex("1", 40), borrower = hex("2", 40);
 const action: RemoteAction = { monadChain: 143n, monadCore: core, sourceChain: 1n, sourceVault: hex("3", 40),
   creditId: hex("4"), lockId: hex("5"), asset: hex("6", 40), recipient: borrower, kind: 2, amount: 20n, nonce: 1n, deadline: 2000n };
 const actionHash = hashRemoteAction(action);
-const old = { core: env.core, sourceRpcUrl: env.sourceRpcUrl, sourceBeaconApiUrl: env.sourceBeaconApiUrl,
+const old = { monadChainId: env.monadChainId, core: env.core, sourceRpcUrl: env.sourceRpcUrl, sourceBeaconApiUrl: env.sourceBeaconApiUrl,
   sourceActionKeeperKey: env.sourceActionKeeperKey, monadConfirmKeeperKey: env.monadConfirmKeeperKey };
 let timestamp = 1000n;
 const job = { kind: "collateral.remote-action", payload: { actionHash } };
 beforeEach(() => {
+  env.monadChainId = 143;
   vi.resetAllMocks(); timestamp = 1000n;
   env.core = core; env.sourceRpcUrl = "https://eth.example"; env.sourceBeaconApiUrl = "https://beacon.example";
   env.sourceActionKeeperKey = hex("7"); env.monadConfirmKeeperKey = hex("8");

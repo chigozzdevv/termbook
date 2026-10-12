@@ -105,6 +105,7 @@ contract AuthorizedInboxTest is Test {
     }
 
     function setUp() public {
+        vm.chainId(143);
         token = new MockERC20();
         adapter = new MockSettlementReceiver();
         core = new MockRouteCore();

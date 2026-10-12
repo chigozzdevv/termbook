@@ -918,9 +918,10 @@ modal.
 `collateral-health-reader`, and `app-health-reader` require
 Foundry 1.8 or newer, the Monad RPC, and `MONAD_CHAIN_ID`. The wrapper selects
 Monad execution. `source-wormhole` and `ethereum-wormhole-verifier` use paired
-networks: Monad mainnet (`143`) with Ethereum mainnet (`1`), or Monad testnet
-(`10143`) with Sepolia (`11155111`). Their Wormhole chain IDs are `48`/`2`
-and `10009`/`10002`, respectively. Native Beacon stages require mainnet.
+networks: Monad mainnet (`143`) with Ethereum mainnet (`1`) or Base (`8453`),
+or Monad testnet (`10143`) with Sepolia (`11155111`) or Base Sepolia (`84532`).
+Wormhole uses `48`/`10009` for Monad, `2`/`10002` for Ethereum, and `30`/`10004`
+for Base (mainnet/testnet). Native Beacon stages require mainnet.
 Every stage checks the connected chain before broadcasting.
 
 Core's execution, reservation, and price helpers deploy in separate transactions
@@ -1200,6 +1201,68 @@ the market, and unpause the source controller. The publisher checks the vault's
 lock commitment or the controller's executed or expired action before
 publishing. The receiving verifier pins the emitter and message type. This
 route trusts Wormhole's Guardian quorum.
+
+### Base collateral
+
+Base ETH is wrapped into WETH and locked in the source collateral vault. The
+House lends USDC on Monad to the bound Credit Account. Base uses the shared EVM
+custody, Wormhole verification, return, top-up, and recovery implementation.
+
+| Source | EVM chain ID | Wormhole chain ID | Destination |
+| --- | --- | --- | --- |
+| Base | 8453 | 30 | Monad mainnet, 143 |
+| Base Sepolia | 84532 | 10004 | Monad testnet, 10143 |
+
+Base WETH uses `0x4200000000000000000000000000000000000006` on both networks.
+Messages require finalized Wormhole attestations. Sepolia's custom confirmation
+policy is unavailable on Base; Base proofs do not inherit its five-block setting.
+
+Keep the Ethereum endpoint in `SOURCE_RPC_URL` and configure additional EVM
+collateral endpoints in the root `.env`:
+
+```dotenv
+EVM_SOURCE_RPC_URLS={"84532":"https://sepolia.base.org"}
+```
+
+Each proof and custody action selects its endpoint from the credit's source
+chain. Emitter, vault, controller, chain, nonce, deadline, and code bindings are
+checked before settlement or collateral release. Source signers have separate
+nonce locks for each chain.
+
+Upgrade the existing Monad Core and InboxFactory before admitting Base. Simulate
+and deploy the additional source market using the resumable setup command:
+
+```sh
+anvil --fork-url https://testnet-rpc.monad.xyz --port 18545 --chain-id 10143 --code-size-limit 131072
+anvil --fork-url https://sepolia.base.org --port 18548 --chain-id 84532
+```
+
+Run the setup in another terminal:
+
+```sh
+node --env-file=.env scripts/setup-testnet-collateral.mjs 84532 --simulate
+node --env-file=.env scripts/setup-testnet-collateral.mjs 84532 --broadcast
+```
+
+`--deploy-source` deploys only source custody and keepers; `--broadcast` checks
+the Monad implementation hashes before admitting the market.
+
+The setup deploys governed testnet proxies, registers the Base verifier and vaults,
+configures the ETH/USDC risk market, funds the existing source keeper roles, and
+updates `deployments/testnet.json` and the root `.env`. It preserves the Ethereum
+source configuration. Restart the local API and worker after setup.
+
+With the tracked Kuru integration active, run the live borrowing, repayment,
+closure, and borrower-independent app recovery exercises:
+
+```sh
+node --env-file=.env scripts/testnet-e2e.mjs --begin --base-kuru
+node --env-file=.env scripts/testnet-e2e.mjs --run --base-kuru
+node --env-file=.env scripts/verify-testnet-e2e.mjs --base-kuru
+```
+
+Aurora repayment and converted collateral recovery need a separately admitted
+value route. Base collateral verification does not depend on an Aurora quote.
 
 ### Optional native consensus route
 

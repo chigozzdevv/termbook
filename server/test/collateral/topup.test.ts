@@ -17,7 +17,7 @@ const hex = (s: string, n = 64) => `0x${s.repeat(n)}` as `0x${string}`;
 const core = hex("1", 40), vault = hex("2", 40), controller = hex("3", 40), asset = hex("4", 40);
 const verifier = hex("5", 40), owner = hex("6", 40), creditId = hex("7"), actionHash = hex("8"), auth = hex("9");
 const code = "0x1234", codeHash = keccak256(code);
-const old = { sourceRpcUrl: env.sourceRpcUrl, wormholeScanUrl: env.wormholeScanUrl,
+const old = { evmSourceRpcUrls: env.evmSourceRpcUrls, monadChainId: env.monadChainId, sourceRpcUrl: env.sourceRpcUrl, wormholeScanUrl: env.wormholeScanUrl,
   sourceWormholePublisherKey: env.sourceWormholePublisherKey, core: env.core };
 let consumed = true;
 let sourceCode = code;
@@ -25,7 +25,7 @@ let proofAccepted = true;
 let call = vi.fn();
 beforeEach(() => {
   consumed = true; sourceCode = code; proofAccepted = true; call = vi.fn(async () => ({}));
-  env.core = core; env.sourceRpcUrl = "https://eth.example"; env.wormholeScanUrl = "https://scan.example";
+  env.monadChainId = 143; env.core = core; env.sourceRpcUrl = "https://eth.example"; env.wormholeScanUrl = "https://scan.example";
   env.sourceWormholePublisherKey = hex("a");
   vi.mocked(readAuthorizedAction).mockResolvedValue({ action: { monadCore: core, monadChain: 143n,
     sourceChain: 1n, sourceVault: vault, asset, creditId, lockId: hex("b"), kind: 2, recipient: owner,
@@ -62,7 +62,7 @@ describe("Ethereum top-up proof plans", () => {
     const plan = await topUpService.confirmation({ creditId, mode: "apply" }, owner);
     const decoded = decodeFunctionData({ abi: parseAbi(["function confirmCollateralTopUp(bytes32,bytes,bytes)"]), data: plan.data });
     expect(decoded.args).toEqual([creditId, "0xcc", "0xdd"]);
-    expect(fetchEthereumSnapshot).toHaveBeenCalledWith({ verifier, vault, controller, kind: 2, digest: actionHash, deadline: 2000n });
+    expect(fetchEthereumSnapshot).toHaveBeenCalledWith({ sourceChain: 1n, verifier, vault, controller, kind: 2, digest: actionHash });
     expect(call).toHaveBeenCalledWith({ account: owner, to: core, data: plan.data });
   });
   it("requires an applied action before requesting an application proof", async () => {
@@ -73,7 +73,20 @@ describe("Ethereum top-up proof plans", () => {
   it("requires verified nonexecution before cancelling an expired authorization", async () => {
     proofAccepted = false;
     await expect(topUpService.confirmation({ creditId, mode: "expire" }, owner)).rejects.toThrow("source-action-proof-rejected");
-    expect(fetchEthereumSnapshot).toHaveBeenCalledWith({ verifier, vault, controller, kind: 3, digest: actionHash, deadline: 2000n });
+    expect(fetchEthereumSnapshot).toHaveBeenCalledWith({ sourceChain: 1n, verifier, vault, controller, kind: 3, digest: actionHash, deadline: 2000n });
     expect(call).not.toHaveBeenCalled();
   });
+});
+
+it("prepares a Base top-up using the Base endpoint and admitted source identity", async () => {
+  env.evmSourceRpcUrls = '{"8453":"https://base.example"}';
+  const prepared = await readAuthorizedAction(creditId, 2);
+  vi.mocked(readAuthorizedAction).mockResolvedValue({ ...prepared, action: { ...prepared.action, sourceChain: 8453n } });
+  vi.mocked(createPublicClient).mockReturnValue({ getChainId: async () => 8453, getBlock: async () => ({ number: 10n }),
+    getCode: async () => code, readContract: async ({ functionName }: { functionName: string }) => ({
+      core: controller, asset, chainId_: 8453n, vault, monadCore: core, monadChain: 143n, verifier,
+      consumed, wormholeMode: true, verifyEvent: true })[functionName] } as never);
+  const plan = await topUpService.plan({ creditId, authorizationTxHash: auth }, owner);
+  expect(plan.transaction.to).toBe(controller);
+  expect(plan.actionHash).toBe(actionHash);
 });

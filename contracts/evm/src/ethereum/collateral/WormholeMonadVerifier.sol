@@ -33,7 +33,7 @@ contract WormholeMonadVerifier is LightClientVerifier {
 
     function _initializeWormholeMonadVerifier(address authorizationClient_, address recoveryClient_, address core_, address factory_) private {
         if (
-            sourceChainId != WormholeNetworks.monadChain(block.chainid) || core_ == address(0) || factory_ == address(0)
+            !WormholeNetworks.isEvmSource(block.chainid, sourceChainId) || core_ == address(0) || factory_ == address(0)
                 || recoveryClient_.code.length == 0
                 || WormholeEvmMessageClient(authorizationClient_).sourceWormholeChain() != WormholeNetworks.monadWormholeChain(block.chainid)
                 || WormholeEvmMessageClient(authorizationClient_).sourceEmitter() != bytes32(uint256(uint160(core_)))

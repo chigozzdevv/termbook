@@ -8,7 +8,7 @@ vi.mock("../../../server/dist/chain/envio.client.js", () => ({ readCoreEvents: a
 vi.mock("../../../server/dist/config/env.js", () => ({ env: archive.env }));
 vi.mock("../../../scripts/testnet-runtime.mjs", () => ({
   artifact: () => ({ abi: [{ type: "event", name: "CreditCreated" }] }),
-  viem: { decodeEventLog: ({ data }: { data: string }) => ({ args: { creditId: data } }) },
+  viem: { toEventSelector: () => `0x${"1".repeat(64)}`, decodeEventLog: ({ data }: { data: string }) => ({ args: { creditId: data } }) },
 }));
 
 vi.stubEnv("ENVIO_API_TOKEN", "");
@@ -91,7 +91,7 @@ describe("onchain credit inventory", () => {
     archive.read.mockResolvedValueOnce({ source: "envio", nextBlock: 100n, logs: [{ data: "first" }] })
       .mockResolvedValueOnce({ source: "envio", nextBlock: 201n, logs: [{ data: "second" }] });
     expect((await loadCredits(deployment, { client })).observations).toHaveLength(2);
-    expect(archive.read).toHaveBeenNthCalledWith(2, client, 100n, 200n, "json");
+    expect(archive.read).toHaveBeenNthCalledWith(2, client, 100n, 200n, "json", `0x${"1".repeat(64)}`);
     expect(client.getLogs).not.toHaveBeenCalled();
   });
 

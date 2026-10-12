@@ -22,6 +22,7 @@ function fixture(format: "evm" | "solana", depositAddress: string, sourceRefundR
     read: vi.fn().mockResolvedValue(inbox),
     client: { readContract: vi.fn().mockResolvedValue(inbox) },
     write: vi.fn(), wait: vi.fn(),
+    ethereumFactoryWormholeFee: vi.fn().mockResolvedValue(7n),
   };
   const authenticatedPost = vi.fn().mockImplementation(async (_path: string, body: { operationId: string; sourceRefundRecipient: string }) => ({
     operationId: body.operationId,
@@ -46,10 +47,22 @@ function fixture(format: "evm" | "solana", depositAddress: string, sourceRefundR
     sourceAddressFormat: format, sourceRefundRecipient, monadRefund: address("8"),
     registrationTxHash: word("9"),
   };
-  return { settlement: new Settlement(client), input, rpc, authenticatedPost };
+  return { settlement: new Settlement(client), input, rpc, authenticatedPost, client };
 }
 
 describe("settlement", () => {
+  it.each([[143, 8453], [10143, 84532]])("includes the Base recovery publication fee for Monad %i", async (monadChain, sourceChain) => {
+    const { settlement, input, rpc, client } = fixture("evm", address("2"), address("7"));
+    client.config.chainId = monadChain;
+    const { registrationTxHash, ...registration } = input;
+    expect(registrationTxHash).toBeDefined();
+    rpc.read.mockResolvedValue(address("0"));
+    rpc.write.mockRejectedValue(new Error("registration-stop"));
+    await expect(settlement.register({ ...registration, chainId: sourceChain })).rejects.toThrow("registration-stop");
+    expect(rpc.ethereumFactoryWormholeFee).toHaveBeenCalledWith(address("f"));
+    expect(rpc.write).toHaveBeenCalledWith(address("f"), expect.anything(), "createAuthorized", expect.anything(), 7n);
+  });
+
   it("revises only the next LP authorization and enforces the payer wallet", async () => {
     const { settlement, rpc } = fixture("evm", address("2"), address("7"));
     const zero = word("0");

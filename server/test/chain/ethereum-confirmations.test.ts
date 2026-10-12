@@ -35,3 +35,10 @@ it("reads the block five successors behind head and rejects mainnet", async () =
   expect((await ethereumConfirmedBlock(client as never, 0)).number).toBe(90n);
   await expect(ethereumConfirmedBlock({ ...client, getChainId: async () => 1 } as never, 5)).rejects.toThrow("ethereum-confirmation-policy-invalid");
 });
+it("requires full finality for Base Sepolia and rejects Sepolia custom confirmations", async () => {
+  version = 1n;
+  expect(await ethereumConfirmationPolicy(verifier, 84532)).toMatchObject({ depth: 0, consistency: 0 });
+  version = 2n;
+  await expect(ethereumConfirmationPolicy(verifier, 84532)).rejects.toThrow("ethereum-confirmation-policy-invalid");
+  await expect(ethereumConfirmedBlock({ getChainId: async () => 84532 } as never, 5)).rejects.toThrow("ethereum-confirmation-policy-invalid");
+});

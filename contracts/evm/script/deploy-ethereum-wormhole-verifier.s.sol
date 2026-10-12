@@ -18,9 +18,11 @@ contract DeployEthereumWormholeVerifier is Script {
         bytes32 controllerHash = vm.envBytes32("SOURCE_CONTROLLER_CODE_HASH");
         uint256 version = vm.envUint("ETHEREUM_WORMHOLE_VERIFIER_VERSION");
         uint256 maxAge = vm.envUint("ETHEREUM_WORMHOLE_PROOF_MAX_AGE");
+        uint256 sourceChain = vm.envOr("SOURCE_CHAIN_ID", WormholeNetworks.ethereumChain(block.chainid));
+        require(WormholeNetworks.isEvmSource(sourceChain, block.chainid), "invalid-source-chain");
         require(maxAge >= 2 hours, "proof-age-too-short");
         vm.startBroadcast(vm.envUint("DEPLOYER_PRIVATE_KEY"));
-        client = new WormholeEvmMessageClient(wormhole, WormholeNetworks.monadWormholeChain(block.chainid), WormholeNetworks.ethereumWormholeChain(block.chainid), WormholeNetworks.ethereumChain(block.chainid), version, bytes32(uint256(uint160(publisher))), maxAge);
+        client = new WormholeEvmMessageClient(wormhole, WormholeNetworks.monadWormholeChain(block.chainid), WormholeNetworks.evmWormholeChain(sourceChain), sourceChain, version, bytes32(uint256(uint160(publisher))), maxAge);
         verifier = new WormholeEthereumVerifier(
             address(client), publisher, publisherHash, vault, vaultHash, controller, controllerHash
         );

@@ -12,7 +12,7 @@ contract TestnetProxy is TransparentUpgradeableProxy, Initializable {
     constructor(address implementation_, address controller_, bytes memory initialization)
         TransparentUpgradeableProxy(implementation_, controller_, initialization)
     {
-        if (block.chainid != 10143 && block.chainid != 11155111) revert UnsupportedChain();
+        if (block.chainid != 10143 && block.chainid != 11155111 && block.chainid != 84532) revert UnsupportedChain();
         if (initialization.length < 4 || _getInitializedVersion() != 1) revert MissingInitialization();
     }
 

@@ -8,6 +8,7 @@ import {WormholeEthereumVerifier} from "../../src/monad/collateral/WormholeEther
 import {WormholeMonadVerifier} from "../../src/ethereum/collateral/WormholeMonadVerifier.sol";
 import {WormholeEthereumPublisher} from "../../src/ethereum/collateral/WormholeEthereumPublisher.sol";
 import {WormholeTermbookMessages as Messages} from "../../src/shared/collateral/WormholeTermbookMessages.sol";
+import {WormholeNetworks} from "../../src/shared/collateral/WormholeNetworks.sol";
 
 contract MockEvmWormhole is IWormholeCore {
     uint16 public immutable override chainId;
@@ -71,6 +72,7 @@ contract MockEvmWormhole is IWormholeCore {
 
     contract MockSnapshotController {
         address public vault;
+        uint256 public monadChain = WormholeNetworks.monadChain(block.chainid);
         mapping(bytes32 => bool) public consumed;
 
         function setVault(address vault_) external {
@@ -113,6 +115,7 @@ contract MockEvmWormhole is IWormholeCore {
             assertEq(sourceWormhole.lastPayload(), abi.encode(Messages.SNAPSHOT, Messages.LOCK, COMMITMENT, uint256(0)));
             assertEq(sourceWormhole.lastConsistency(), 0);
 
+            vm.chainId(143);
             MockEvmWormhole destinationWormhole = new MockEvmWormhole(48);
             WormholeEvmMessageClient client = new WormholeEvmMessageClient(
                 address(destinationWormhole), 48, 2, 1, 1, bytes32(uint256(uint160(address(publisher)))), 1 days

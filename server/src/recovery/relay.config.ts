@@ -1,3 +1,4 @@
+import { configuredEvmSources } from "../chain/networks.js";
 import { privateKeyToAccount } from "viem/accounts";
 import { env } from "../config/env.js";
 
@@ -6,7 +7,7 @@ export function recoveryRelayConfig() {
   const ethereum = process.env["SOURCE_RECOVERY_RELAY_KEY"];
   if (!monad && !ethereum) return null;
   if (![monad, ethereum].every((key) => /^0x[a-fA-F0-9]{64}$/.test(key ?? ""))
-    || !env.sourceRpcUrl || !env.settlementFactory || !env.wormholeScanUrl) throw new Error("recovery-relay-config-invalid");
+    || !configuredEvmSources().length || !env.settlementFactory || !env.wormholeScanUrl) throw new Error("recovery-relay-config-invalid");
   for (const [key, peers] of [
     [monad!, [env.monadWormholePublisherKey, env.monadConfirmKeeperKey, env.settlementKeeperKey,
       env.collateralKeeperKey, process.env["RISK_KEEPER_KEY"], process.env["SOLANA_COLLATERAL_KEEPER_KEY"],

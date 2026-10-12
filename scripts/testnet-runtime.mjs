@@ -5,9 +5,9 @@ import { URL } from "node:url";
 import { createRequire } from "node:module";
 import { setTimeout as delay } from "node:timers/promises";
 
-import { root, writeJsonAtomic, operationFile } from "./testnet-state.mjs";
+import { root, writeJsonAtomic, operationFile, canonicalReceipt } from "./testnet-state.mjs";
 import { pacedHttp } from "../server/dist/chain/rpc.transport.js";
-export { root, writeJsonAtomic };
+export { root, writeJsonAtomic, canonicalReceipt };
 const require = createRequire(path.join(root, "packages/sdk/package.json"));
 export const viem = require("viem");
 const { privateKeyToAccount } = require("viem/accounts");
@@ -158,15 +158,15 @@ export async function testnetRuntime(name, simulate) {
   const contexts = new Map();
   async function context(chainId) {
     if (contexts.has(chainId)) return contexts.get(chainId);
-    if (![10143, 11155111].includes(chainId)) throw new Error("Unsupported testnet");
-    const localOverride = simulate && chainId === 10143 ? process.env["TERMBOOK_SIMULATION_MONAD_RPC"] : undefined;
+    if (![10143, 11155111, 84532].includes(chainId)) throw new Error("Unsupported testnet");
+    const localOverride = simulate ? process.env[chainId === 10143 ? "TERMBOOK_SIMULATION_MONAD_RPC" : "TERMBOOK_SIMULATION_SOURCE_RPC"] : undefined;
     if (localOverride) {
       const parsed = new URL(localOverride);
       if (parsed.protocol !== "http:" || !["127.0.0.1", "localhost"].includes(parsed.hostname)
         || parsed.username || parsed.password || parsed.pathname !== "/" || parsed.search || parsed.hash) throw new Error("Simulation RPC must be local");
     }
-    const url = simulate ? localOverride ?? `http://127.0.0.1:${chainId === 10143 ? 18545 : 18546}`
-      : chainId === 10143 ? "https://testnet-rpc.monad.xyz" : "https://ethereum-sepolia-rpc.publicnode.com";
+    const url = simulate ? localOverride ?? `http://127.0.0.1:${chainId === 10143 ? 18545 : chainId === 84532 ? 18548 : 18546}`
+      : chainId === 10143 ? "https://testnet-rpc.monad.xyz" : chainId === 84532 ? "https://sepolia.base.org" : "https://ethereum-sepolia-rpc.publicnode.com";
     const transport = simulate ? http(url, { timeout: 30_000 }) : pacedHttp(url, 5, 0, { timeout: 30_000 });
     const client = createPublicClient({ transport });
     if (await client.getChainId() !== chainId) throw new Error("Network mismatch");
@@ -177,10 +177,16 @@ export async function testnetRuntime(name, simulate) {
     }
     async function send(label, data, to, value = 0n, blockNumber) {
       const inputHash = keccak256(data);
+      const balanceReserve = chainId === 84532 ? 100_000_000_000_000n : 10_000_000_000_000_000n;
       let entry = report.transactions.find((tx) => tx.chainId === chainId && tx.name === label);
       if (entry && (entry.inputHash !== inputHash || entry.to !== to || entry.value !== value.toString())) throw new Error(`Transaction changed: ${label}`);
       if (entry?.status === "success") {
-        const receipt = await client.getTransactionReceipt({ hash: entry.hash });
+        const receipt = await canonicalReceipt(client, entry.hash);
+        if (!receipt) throw new Error(`Receipt is not sealed: ${label}`);
+        if (entry.blockHash === viem.zeroHash && String(receipt.blockNumber) === entry.block
+          && receipt.contractAddress === entry.address && receipt.status === "success") {
+          entry.blockHash = receipt.blockHash; persist();
+        }
         if (receipt.status !== "success" || receipt.blockHash !== entry.blockHash) throw new Error(`Receipt changed: ${label}`);
         return entry;
       }
@@ -193,7 +199,7 @@ export async function testnetRuntime(name, simulate) {
         let gasPrice = await client.getGasPrice();
         if (chainId === 10143 && gasPrice < 100_000_000_000n) gasPrice = 100_000_000_000n;
         if (chainId === 11155111) gasPrice += gasPrice / 4n;
-        if (await client.getBalance({ address: deployment.deployer }) < gas * gasPrice + value + 10_000_000_000_000_000n) throw new Error("Insufficient testnet gas");
+        if (await client.getBalance({ address: deployment.deployer }) < gas * gasPrice + value + balanceReserve) throw new Error("Insufficient testnet gas");
         const nonce = await client.getTransactionCount({ address: deployment.deployer, blockTag: "pending" });
         entry = { chainId, name: label, inputHash, to, value: value.toString(), nonce, gasLimit: gas.toString(), gasPrice: gasPrice.toString(), status: "prepared" };
         if (!simulate) {
@@ -210,7 +216,7 @@ export async function testnetRuntime(name, simulate) {
       const receipts = async () => {
         const candidates = [entry, ...(entry.replacements ?? [])];
         for (const candidate of candidates) {
-          const receipt = await client.getTransactionReceipt({ hash: candidate.hash }).catch(() => null);
+          const receipt = await canonicalReceipt(client, candidate.hash);
           if (receipt) return { receipt, candidate };
         }
         return null;
@@ -224,7 +230,7 @@ export async function testnetRuntime(name, simulate) {
           const minimum = BigInt(entry.gasPrice) * 5n / 4n + 1n;
           const price = current * 5n / 4n > minimum ? current * 5n / 4n : minimum;
           const gas = BigInt(entry.gasLimit);
-          if (await client.getBalance({ address: deployment.deployer }) < gas * price + value + 10_000_000_000_000_000n) throw new Error("Insufficient replacement gas");
+          if (await client.getBalance({ address: deployment.deployer }) < gas * price + value + balanceReserve) throw new Error("Insufficient replacement gas");
           const raw = await wallet.signTransaction({ chain: null, chainId, data, to, value, gas, gasPrice: price, nonce: entry.nonce, type: "legacy" });
           entry.replacements ??= [];
           entry.replacements.push({ hash: entry.hash, gasPrice: entry.gasPrice });
@@ -259,7 +265,7 @@ export async function testnetRuntime(name, simulate) {
     async function deploy(name, args, label = name) {
       const compiled = artifact(name);
       const entry = await send(label, encodeDeployData({ abi: compiled.abi, bytecode: compiled.bytecode.object, args }));
-      const code = await client.getCode({ address: entry.address });
+      const code = await client.getCode({ address: entry.address, blockNumber: BigInt(entry.block) });
       if (!code || code === "0x" || entry.codeHash && entry.codeHash !== keccak256(code)) throw new Error(`Deployment changed: ${label}`);
       entry.codeHash = keccak256(code);
       report.addresses[label] = entry.address;
@@ -271,11 +277,12 @@ export async function testnetRuntime(name, simulate) {
     }
     async function governData(target, data, description = {}) {
       if (!viem.isAddress(target) || !/^0x(?:[a-fA-F0-9]{2}){4,}$/.test(data)) throw new Error("Invalid governance call");
-      if (simulate && target.toLowerCase() === deployment.addresses[chainId].ReadProgram?.toLowerCase()) await warmReadProgram(client, target, data);
+      if (simulate && target.toLowerCase() === deployment.addresses[chainId]?.ReadProgram?.toLowerCase()) await warmReadProgram(client, target, data);
       if (simulate) for (const name of ["SpotOrderTracker", "UseCaseReader", "UseCasePolicy", "UseCaseRecovery"]) {
-        if (target.toLowerCase() === deployment.addresses[chainId][name]?.toLowerCase()) await warmIntegrationConfiguration(client, name, target, data);
+        if (target.toLowerCase() === deployment.addresses[chainId]?.[name]?.toLowerCase()) await warmIntegrationConfiguration(client, name, target, data);
       }
-      const governance = deployment.addresses[chainId].ProtocolGovernance;
+      const governance = report.addresses[`Source${chainId}ProtocolGovernance`] ?? deployment.addresses[chainId]?.ProtocolGovernance;
+      if (!governance) throw new Error("Source governance is unavailable");
       if (await read("ProtocolGovernance", governance, "timelock") !== 0n) throw new Error("Testnet delay changed");
       const salt = keccak256(data);
       const id = await read("ProtocolGovernance", governance, "actionId", [target, 0n, data, salt]);

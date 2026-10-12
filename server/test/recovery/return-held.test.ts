@@ -17,7 +17,7 @@ vi.mock("../../src/chain/monad-receipt-proof.js", async (load) => ({
 }));
 vi.mock("../../src/config/env.js", () => ({ env: {
   sourceRpcUrl: "http://source.test",
-  monadChainId: 101, core: `0x${"1".repeat(40)}`,
+  monadChainId: 143, core: `0x${"1".repeat(40)}`,
 } }));
 
 const address = (digit: string) => `0x${digit.repeat(40)}` as Address;
@@ -52,7 +52,7 @@ function receipt(): TransactionReceipt {
 }
 
 function setup() {
-  mocks.monad.getChainId.mockResolvedValue(101);
+  mocks.monad.getChainId.mockResolvedValue(143);
   mocks.monad.getTransactionReceipt.mockResolvedValue(receipt());
   mocks.monad.getBlock.mockResolvedValue({ number: 100n, hash: blockHash });
   mocks.monad.readContract.mockImplementation(async ({ functionName }: { functionName: string }) => {
@@ -67,7 +67,7 @@ function setup() {
   mocks.source.getBlock.mockResolvedValue({ number: 12n });
   mocks.source.readContract.mockImplementation(async ({ functionName }: { functionName: string }) => {
     const values: Record<string, unknown> = {
-      asset, controller, verifier: address("d"), monadChain: 101n, held: 40n, returnHeldHash: actionHash,
+      asset, controller, verifier: address("d"), monadChain: 143n, held: 40n, returnHeldHash: actionHash,
       monadCore: core, recoveryVault: vault,
     };
     return values[functionName];
@@ -108,7 +108,7 @@ describe("held collateral return preparation", () => {
     setup();
     mocks.source.readContract.mockImplementation(async ({ functionName }: { functionName: string }) => {
       const values: Record<string, unknown> = {
-        asset, controller, verifier: address("d"), monadChain: 101n, held: 40n, returnHeldHash: word("c"),
+        asset, controller, verifier: address("d"), monadChain: 143n, held: 40n, returnHeldHash: word("c"),
         monadCore: core, recoveryVault: vault,
       };
       return values[functionName];

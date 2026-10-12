@@ -8,6 +8,16 @@ export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 export const manifestFile = path.join(root, "deployments/testnet.json");
 export const operations = path.join(root, ".data/operations");
 
+export async function canonicalReceipt(client, hash) {
+  const receipt = await client.getTransactionReceipt({ hash }).catch(() => null);
+  if (!receipt || receipt.blockHash === `0x${"0".repeat(64)}`) return null;
+  const block = await client.getBlock({ blockNumber: receipt.blockNumber });
+  if (block.hash !== receipt.blockHash || block.transactions[receipt.transactionIndex] !== hash) {
+    throw new Error("Transaction receipt is not canonical");
+  }
+  return receipt;
+}
+
 export function writeJsonAtomic(file, value) {
   const body = JSON.stringify(value, null, 2) + "\n";
   const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;

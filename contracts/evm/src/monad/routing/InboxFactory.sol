@@ -199,7 +199,7 @@ contract InboxFactory is ProxyInitializable {
             recoveryOperationDeadlineOf[op.operationId] = op.deadline;
             recoverySourceChain[op.operationId] = op.sourceChain;
         }
-        if (op.kind == 1 && op.sourceChain == WormholeNetworks.ethereumChain(block.chainid) && ethereumWormholeCore != address(0)) {
+        if (op.kind == 1 && WormholeNetworks.isEvmSource(op.sourceChain, block.chainid) && ethereumWormholeCore != address(0)) {
             address wormhole = ethereumWormholeCore;
             if (wormhole.codehash != ethereumWormholeCodeHash || msg.value != IWormholeCore(wormhole).messageFee()) {
                 revert Invalid();
@@ -271,7 +271,7 @@ contract InboxFactory is ProxyInitializable {
     function publishEthereumRecoverySettlement(bytes32 operationId) external payable {
         address wormhole = ethereumWormholeCore;
         if (wormhole == address(0) || wormhole.codehash != ethereumWormholeCodeHash
-            || recoverySourceChain[operationId] != WormholeNetworks.ethereumChain(block.chainid)
+            || !WormholeNetworks.isEvmSource(recoverySourceChain[operationId], block.chainid)
             || recoveryCancelled[operationId]
             || (recoverySettlementPublishedAt[operationId] != 0
                 && block.timestamp < recoverySettlementPublishedAt[operationId] + 1 hours)

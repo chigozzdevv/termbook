@@ -109,6 +109,7 @@ contract RemoteSeizureCancelTest is CoreFixture {
     address private sourceController = address(0xABCD);
 
     function setUp() public {
+        vm.chainId(143);
         settlement = new MockERC20();
         healthSource = new MockHealthSource();
         core = _deployCore(address(this), address(this), address(0));

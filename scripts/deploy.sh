@@ -60,6 +60,15 @@ case "$MONAD_CHAIN_ID" in
   *) echo "Monad mainnet or testnet chain ID required" >&2; exit 1 ;;
 esac
 
+if [ "$1" = source-wormhole ] || [ "$1" = ethereum-wormhole-verifier ]; then
+  case "${SOURCE_CHAIN_ID:-$ethereum_chain_id}:$MONAD_CHAIN_ID" in
+    8453:143) ethereum_chain_id=8453; ethereum_wormhole_id=30; ethereum_wormhole_core=0xbebdb6C8ddC678FfA9f8748f85C815C556Dd8ac6 ;;
+    84532:10143) ethereum_chain_id=84532; ethereum_wormhole_id=10004; ethereum_wormhole_core=0x79A1027a6A159502049F10906D333EC57E95F083 ;;
+    1:143|11155111:10143) ;;
+    *) fail "Unsupported source and Monad network pair" ;;
+  esac
+fi
+
 case "$1" in
   protocol|routing|ethereum-beacon-client|ethereum-verifier|ethereum-wormhole-verifier|native-collateral|collateral-health-reader|app-health-reader|app-exit-verifier|retention-verifier|solana-wormhole)
     foundry_version=$(forge --version)
@@ -70,7 +79,7 @@ case "$1" in
     ;;
   source|source-wormhole)
     : "${SOURCE_CHAIN_ID:?SOURCE_CHAIN_ID is required}"
-    [ "$SOURCE_CHAIN_ID" = "$ethereum_chain_id" ] || { echo "Ethereum source network mismatch" >&2; exit 1; }
+    [ "$SOURCE_CHAIN_ID" = "$ethereum_chain_id" ] || { echo "EVM source network mismatch" >&2; exit 1; }
     ;;
   *) usage ;;
 esac
@@ -117,9 +126,11 @@ if [ "$1" = ethereum-verifier ] || [ "$1" = ethereum-wormhole-verifier ]; then
 fi
 
 if [ "$1" = source-wormhole ]; then
-  : "${ETHEREUM_WORMHOLE_CORE:?ETHEREUM_WORMHOLE_CORE is required}"
-  same "$ETHEREUM_WORMHOLE_CORE" "$ethereum_wormhole_core" || fail "canonical Ethereum Wormhole Core required"
-  [ "$(cast to-dec "$(cast call "$ETHEREUM_WORMHOLE_CORE" 'chainId()(uint16)' --rpc-url "$RPC_URL")")" = "$ethereum_wormhole_id" ] || fail "Ethereum Wormhole Core mismatch"
+  SOURCE_WORMHOLE_CORE=${SOURCE_WORMHOLE_CORE:-${ETHEREUM_WORMHOLE_CORE:-}}
+  export SOURCE_WORMHOLE_CORE
+  : "${SOURCE_WORMHOLE_CORE:?SOURCE_WORMHOLE_CORE is required}"
+  same "$SOURCE_WORMHOLE_CORE" "$ethereum_wormhole_core" || fail "canonical source Wormhole Core required"
+  [ "$(cast to-dec "$(cast call "$SOURCE_WORMHOLE_CORE" 'chainId()(uint16)' --rpc-url "$RPC_URL")")" = "$ethereum_wormhole_id" ] || fail "Ethereum Wormhole Core mismatch"
 fi
 
 if [ "$1" = ethereum-wormhole-verifier ]; then

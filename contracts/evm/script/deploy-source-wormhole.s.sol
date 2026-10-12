@@ -23,7 +23,7 @@ contract DeploySourceWormhole is Script {
         address core = vm.envAddress("MONAD_CORE_ADDRESS");
         address factory = vm.envAddress("MONAD_FACTORY_ADDRESS");
         address asset = vm.envAddress("COLLATERAL_ASSET");
-        address wormhole = vm.envAddress("ETHEREUM_WORMHOLE_CORE");
+        address wormhole = vm.envOr("SOURCE_WORMHOLE_CORE", vm.envOr("ETHEREUM_WORMHOLE_CORE", address(0)));
         address governance = vm.envAddress("SOURCE_GOVERNANCE");
         address pauseGuardian = vm.envAddress("SOURCE_PAUSE_GUARDIAN");
         address routeSigner = vm.envAddress("ROUTE_SIGNER");
@@ -31,10 +31,11 @@ contract DeploySourceWormhole is Script {
         uint256 version = vm.envUint("MONAD_WORMHOLE_VERIFIER_VERSION");
         uint256 maxAge = vm.envUint("MONAD_WORMHOLE_PROOF_MAX_AGE");
         require(maxAge >= 2 hours, "proof-age-too-short");
-        require((block.chainid == 1 || block.chainid == 11155111) && vm.envUint("SOURCE_CHAIN_ID") == block.chainid, "invalid-source-chain");
+        require(WormholeNetworks.isEvmSource(block.chainid, WormholeNetworks.monadChain(block.chainid))
+            && vm.envUint("SOURCE_CHAIN_ID") == block.chainid, "invalid-source-chain");
         uint256 monadChain = WormholeNetworks.monadChain(block.chainid);
         uint16 monadWormholeChain = WormholeNetworks.monadWormholeChain(block.chainid);
-        uint16 ethereumWormholeChain = WormholeNetworks.ethereumWormholeChain(block.chainid);
+        uint16 ethereumWormholeChain = WormholeNetworks.evmWormholeChain(block.chainid);
         require(vm.envUint("MONAD_CHAIN_ID") == monadChain, "invalid-monad-chain");
         vm.startBroadcast(key);
         WormholeEvmMessageClient coreClient =

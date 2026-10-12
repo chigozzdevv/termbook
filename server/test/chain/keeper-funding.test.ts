@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { privateKeyToAccount } from "viem/accounts";
+import { estimateL1Fee } from "viem/op-stack";
 import { assertKeeperFunding, assertSignedKeeperFunding } from "../../src/chain/keeper-funding.js";
 
+vi.mock("viem/op-stack", () => ({ estimateL1Fee: vi.fn() }));
 const account = privateKeyToAccount(`0x${"11".repeat(32)}`);
 describe("keeper gas funding", () => {
   it("requires the full EIP-1559 fee cap plus value rather than the expected fee", async () => {
@@ -28,5 +30,17 @@ describe("keeper gas funding", () => {
       await expect(assertKeeperFunding({ getBalance } as never, account.address, request)).rejects.toThrow("keeper-fee-request-invalid");
     }
     expect(getBalance).not.toHaveBeenCalled();
+  });
+
+  it.each([8453, 84532])("includes L1 data and operator fees for Base chain %i", async (chainId) => {
+    const raw = await account.signTransaction({ chainId, type: "legacy", nonce: 1,
+      to: account.address, gas: 10n, gasPrice: 20n, value: 3n });
+    vi.mocked(estimateL1Fee).mockResolvedValue(30n);
+    const getBalance = vi.fn(async () => 203n);
+    const client = { getBalance, getChainId: async () => chainId, readContract: vi.fn(async () => 7n) } as never;
+    await expect(assertSignedKeeperFunding(client, raw)).rejects.toThrow("requiredWei=240 balanceWei=203");
+    getBalance.mockResolvedValue(240n);
+    await expect(assertSignedKeeperFunding(client, raw)).resolves.toBeUndefined();
+    expect(estimateL1Fee).toHaveBeenCalledWith(client, expect.objectContaining({ value: 3n, account: account.address }));
   });
 });

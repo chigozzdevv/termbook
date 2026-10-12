@@ -1,7 +1,8 @@
-import { operations, operationFile, writeJsonAtomic } from "./testnet-state.mjs";
+import { operations, operationFile, writeJsonAtomic, canonicalReceipt } from "./testnet-state.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { setTimeout as delay } from "node:timers/promises";
 import { log } from "node:console";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -14,10 +15,10 @@ const { createPublicClient, createWalletClient, http, encodeDeployData, encodeFu
 const { privateKeyToAccount } = require("viem/accounts");
 const [chainText, label, artifactName = label, mode = "--prepare", initialization = "0x"] = process.argv.slice(2);
 const chainId = Number(chainText);
-if (![10143, 11155111].includes(chainId) || !/^[A-Za-z][A-Za-z0-9]*$/.test(label ?? "")
+if (![10143, 11155111, 84532].includes(chainId) || !/^[A-Za-z][A-Za-z0-9]*$/.test(label ?? "")
   || !/^[A-Za-z][A-Za-z0-9]*$/.test(artifactName ?? "") || !["--prepare", "--broadcast"].includes(mode)
   || !/^0x(?:[0-9a-f]{2})*$/i.test(initialization) || process.argv.length > 7) {
-  throw new Error("Usage: node scripts/upgrade-testnet.mjs <10143|11155111> <deployment-name> <artifact-name> <--prepare|--broadcast> [initialization-hex]");
+  throw new Error("Usage: node scripts/upgrade-testnet.mjs <10143|11155111|84532> <deployment-name> <artifact-name> <--prepare|--broadcast> [initialization-hex]");
 }
 const artifact = upgradeArtifactLoader(path.join(root, "contracts/evm/out"));
 const manifestFile = path.join(root, "deployments/testnet.json");
@@ -37,7 +38,7 @@ const expectedCodeHash = keccak256(candidate.deployedBytecode.object);
 const proxy = manifest.addresses[chainId][label], controller = manifest.addresses[chainId].UpgradeController;
 const governance = manifest.addresses[chainId].ProtocolGovernance;
 const rpcUrl = process.env["TERMBOOK_UPGRADE_RPC_URL"]
-  ?? (chainId === 10143 ? "https://testnet-rpc.monad.xyz" : "https://ethereum-sepolia-rpc.publicnode.com");
+  ?? (chainId === 10143 ? "https://testnet-rpc.monad.xyz" : chainId === 84532 ? "https://sepolia.base.org" : "https://ethereum-sepolia-rpc.publicnode.com");
 const client = createPublicClient({ transport: http(rpcUrl) });
 if (await client.getChainId() !== chainId) throw new Error("Upgrade network mismatch");
 const read = (name, address, functionName, args = []) => client.readContract({ address, abi: artifact(name).abi, functionName, args });
@@ -101,14 +102,18 @@ async function send(name, data, to) {
     entry = { name, data, to, raw, hash: keccak256(raw) };
     journal.transactions.push(entry); persist();
   }
-  let receipt = await client.getTransactionReceipt({ hash: entry.hash }).catch(() => null);
+  let receipt = await canonicalReceipt(client, entry.hash);
   if (!receipt) {
     try { await client.sendRawTransaction({ serializedTransaction: entry.raw }); }
     catch (error) {
       if (!await client.getTransaction({ hash: entry.hash }).catch(() => null)) throw error;
     }
-    receipt = await client.waitForTransactionReceipt({ hash: entry.hash, timeout: 60_000 });
+    for (let attempt = 0; !receipt && attempt < 60; attempt++) {
+      await delay(1000);
+      receipt = await canonicalReceipt(client, entry.hash);
+    }
   }
+  if (!receipt) throw new Error(`Upgrade receipt pending: ${name}; resume the operation`);
   if (receipt.status !== "success") throw new Error(`Upgrade transaction reverted: ${name}`);
   entry.status = "success"; persist();
 }

@@ -1,5 +1,5 @@
 import { assertKeeperFunding, assertSignedKeeperFunding } from "../chain/keeper-funding.js";
-import { ethereumSourceChain } from "../chain/networks.js";
+import { isEvmSource, evmSourceRpcUrl, configuredEvmSources } from "../chain/networks.js";
 import { createWalletClient, encodeAbiParameters, encodeFunctionData, http, keccak256, parseAbi, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { termbookCoreAbi, verifierRegistryAbi } from "@termbook/bindings";
@@ -46,7 +46,7 @@ export function lockCommitment(input: LockContext): Hex {
 }
 
 function configured(): boolean {
-  return Boolean(env.sourceRpcUrl && env.collateralKeeperKey
+  return Boolean(configuredEvmSources().length && env.collateralKeeperKey
     && (env.sourceBeaconApiUrl || (env.wormholeScanUrl && env.sourceWormholePublisherKey)));
 }
 
@@ -79,7 +79,7 @@ export async function handleCollateralJob(job: { kind: string; payload: Record<s
     chain.readContract({ address: env.core as Address, abi: termbookCoreAbi, functionName: "remoteRecoveryVaultOf", args: [creditId], blockNumber: at }),
     chain.readContract({ address: env.core as Address, abi: termbookCoreAbi, functionName: "collateralProven", args: [creditId], blockNumber: at }),
   ]);
-  if (!remote || !credit.collateralBound || sourceChain !== BigInt(ethereumSourceChain())
+  if (!remote || !credit.collateralBound || !isEvmSource(sourceChain)
     || credit.lockId.toLowerCase() !== lockId.toLowerCase()
     || owner.toLowerCase() !== tracked.owner.toLowerCase()
     || recoveryVault.toLowerCase() === zeroAddress || credit.collateralVault.toLowerCase() === zeroAddress) {
@@ -123,10 +123,10 @@ export async function handleCollateralJob(job: { kind: string; payload: Record<s
   });
   const proof = (await ethereumWormholeMode(verifier))
     ? await fetchEthereumSnapshot({
-      verifier, vault: credit.collateralVault, kind: 1, digest: commitment, lockId: lockId as Hex,
+      sourceChain, verifier, vault: credit.collateralVault, kind: 1, digest: commitment, lockId: lockId as Hex,
     })
     : await fetchProof({
-      rpcUrl: env.sourceRpcUrl, lockId: lockId as Hex,
+      rpcUrl: evmSourceRpcUrl(sourceChain), lockId: lockId as Hex,
       vault: credit.collateralVault, commitment, expectedCodeHash: sourceCodeHash,
     });
   await collateralRepo.setState(lockId, "proof_fetched", proof);

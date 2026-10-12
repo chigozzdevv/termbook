@@ -62,6 +62,7 @@ contract RemoteReturnCancelTest is CoreFixture {
     uint256 private sourceChain;
 
     function setUp() public virtual {
+        if (block.chainid != 10143) vm.chainId(143);
         sourceChain = block.chainid == 10143 ? 11155111 : 1;
         settlement = new MockERC20();
         core = _deployCore(address(this), address(this), address(0));

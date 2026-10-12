@@ -1,4 +1,4 @@
-import { ethereumSourceChain } from "../chain/networks.js";
+import { isEvmSource } from "../chain/networks.js";
 import { encodeAbiParameters, encodeFunctionData, keccak256, parseAbi, type Address, type Hex } from "viem";
 import { termbookCoreAbi, verifierRegistryAbi } from "@termbook/bindings";
 import { monadClient } from "../chain/monad.client.js";
@@ -48,12 +48,12 @@ export async function recoveryClearancePlan(input: { creditId: Hex; sourceTx?: s
       genesis: identity[0], programId: identity[1], programDataHash: market[2],
       lockPda, accountPda: identity[5], sourceTx: input.sourceTx });
   } else {
-    if (sourceChain !== BigInt(ethereumSourceChain())) throw new Error("recovery-proof-market-unsupported");
+    if (!isEvmSource(sourceChain)) throw new Error("recovery-proof-market-unsupported");
     const controller = await chain.readContract({ address: verifier, abi: verifierAbi,
       functionName: "sourceController", blockNumber });
     const digest = keccak256(encodeAbiParameters([{ type: "bytes32" }, { type: "address" }, { type: "bytes32" }],
       [input.creditId, recoveryVault, seizure]));
-    proof = await fetchEthereumSnapshot({ verifier, vault: c.collateralVault, controller,
+    proof = await fetchEthereumSnapshot({ sourceChain, verifier, vault: c.collateralVault, controller,
       kind: 4, digest, creditId: input.creditId });
   }
   const data = encodeFunctionData({ abi: coreAbi, functionName: "confirmRemoteRecoveryClearance",

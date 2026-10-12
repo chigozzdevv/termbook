@@ -4,7 +4,7 @@ type Pending = { queuedAt: number; priority: number; order: number; run(): void;
 type Schedule = { next: number; counter: number; queue: Pending[]; timer?: ReturnType<typeof setTimeout> };
 const schedules = new Map<string, Schedule>();
 
-export function pacedHttp(url: string, requestsPerSecond = 8, priority = 0): Transport {
+export function pacedHttp(url: string, requestsPerSecond = 8, priority = 0, httpOptions?: Parameters<typeof http>[1]): Transport {
   if (!Number.isSafeInteger(requestsPerSecond) || requestsPerSecond < 1 || requestsPerSecond > 1000
     || !Number.isInteger(priority) || priority < 0 || priority > 2) throw new Error("rpc-rate-invalid");
   const endpoint = new URL(url).toString();
@@ -34,7 +34,7 @@ export function pacedHttp(url: string, requestsPerSecond = 8, priority = 0): Tra
     else state.timer = setTimeout(dispatch, state.next - Date.now());
   };
   return (options) => {
-    const transport = http(url)(options);
+    const transport = http(url, httpOptions)(options);
     const request: typeof transport.request = async (parameters, requestOptions) => {
       await new Promise<void>((resolve, reject) => {
         if (state.queue.length >= requestsPerSecond * 30) { reject(new Error("rpc-queue-full")); return; }

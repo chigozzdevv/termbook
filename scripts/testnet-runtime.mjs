@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { root, writeJsonAtomic, operationFile } from "./testnet-state.mjs";
+import { pacedHttp } from "../server/dist/chain/rpc.transport.js";
 export { root, writeJsonAtomic };
 const require = createRequire(path.join(root, "packages/sdk/package.json"));
 export const viem = require("viem");
@@ -166,9 +167,10 @@ export async function testnetRuntime(name, simulate) {
     }
     const url = simulate ? localOverride ?? `http://127.0.0.1:${chainId === 10143 ? 18545 : 18546}`
       : chainId === 10143 ? "https://testnet-rpc.monad.xyz" : "https://ethereum-sepolia-rpc.publicnode.com";
-    const client = createPublicClient({ transport: http(url, { timeout: 30_000 }) });
+    const transport = pacedHttp(url, 5, 0, { timeout: 30_000 });
+    const client = createPublicClient({ transport });
     if (await client.getChainId() !== chainId) throw new Error("Network mismatch");
-    const wallet = createWalletClient({ account, transport: http(url, { timeout: 30_000 }) });
+    const wallet = createWalletClient({ account, transport });
     if (simulate) {
       await client.request({ method: "anvil_impersonateAccount", params: [deployment.deployer] });
       await client.request({ method: "anvil_setBalance", params: [deployment.deployer, "0x204fce5e3e25026110000000"] });

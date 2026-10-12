@@ -43982,6 +43982,26 @@
             "runtimeMatch": "exact_match",
             "creationMatch": "exact_match",
             "url": "https://sourcify.dev/server/v2/contract/10143/0xfAc81b95d37df756eA42b449048FB371562473b0"
+          },
+          {
+            "name": "CollateralHealthReader",
+            "address": "0xb9d2ceef10d25bfe8d3f73dd618e84de75f7f6fb",
+            "verificationId": "f0943d47-bd62-4cda-a410-05268ce5ad80",
+            "matchId": "55969389",
+            "verifiedAt": "2026-10-12T08:20:19Z",
+            "runtimeMatch": "exact_match",
+            "creationMatch": "exact_match",
+            "url": "https://sourcify.dev/server/v2/contract/10143/0xb9d2ceef10d25bfe8d3f73dd618e84de75f7f6fb"
+          },
+          {
+            "name": "AppHealthReaderFactory",
+            "address": "0x99cc490c6b8c58e7f1cf37ece3e083398cc7d2d8",
+            "verificationId": "bf772558-e769-4c2a-a1b4-02f1a0a25821",
+            "matchId": "55969394",
+            "verifiedAt": "2026-10-12T08:20:32Z",
+            "runtimeMatch": "exact_match",
+            "creationMatch": "exact_match",
+            "url": "https://sourcify.dev/server/v2/contract/10143/0x99cc490c6b8c58e7f1cf37ece3e083398cc7d2d8"
           }
         ]
       }

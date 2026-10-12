@@ -38,7 +38,7 @@ export const deployments: DeploymentMap = {
     "RouteRegistry": "0x571896cc2611cc9fbad0284999acabdc010b0188",
     "NativeCollateralVaultImplementation": "0xf5ebe938edd65642b458d869e7f83597b94b3884",
     "NativeCollateralVault": "0x60137739e130157b18c69df63289d8b823c82854",
-    "CollateralHealthReader": "0xd79972db1fb54f3ee179ebdf43172f2014ac2785",
+    "CollateralHealthReader": "0xb9d2ceef10d25bfe8d3f73dd618e84de75f7f6fb",
     "WormholeEvmMessageClientImplementation": "0xdbfffeb1ef8fdba0ba4d21deca63ca3807f702b4",
     "WormholeEvmMessageClient": "0x182074939ae54a1eb272659628699da326a826ca",
     "WormholeEthereumVerifierImplementation": "0x6487f7446076ebb465619730d00df6b9636f1e05",
@@ -50,13 +50,13 @@ export const deployments: DeploymentMap = {
     "SepoliaConfirmationClient": "0x053ec9f44822700113347b2f97c9b2dad05cf5b7",
     "SepoliaConfirmationVerifier": "0x1ba7a86b05c9116ea71b8389c116292f44c5ba46",
     "ReadProgram": "0x2ed2c74faca711835ee58ea8f9e8f2b137a1c465",
-    "UseCaseReader": "0xcd8e05ba31c93b975b41fad1679c99bd290fa9d6",
-    "UseCasePolicy": "0x30c14f8b8fdd6c13719843ccf8bd8be457b7181c",
-    "UseCaseRecovery": "0x3cef8dce8b85edb5807dd49eb8c5f12c1e737c87",
+    "UseCaseReader": "0x87eddaaec55f06856615ebff6ca2d5e29807c4ea",
+    "UseCasePolicy": "0xacc595a5969d97709bd24e3244dfe033d9e53edc",
+    "UseCaseRecovery": "0x5d6850bfb5880fa778f04fbd505d3dacd013da4f",
     "AtomicSpotRouter": "0xf3e33781e2b5c6265da2f2775b339cc5a94a50d1",
     "AtomicSpotModule": "0x0b626a1a6ef46c4470bc1acde3c6d719ceb050ed",
-    "AppHealthReaderFactory": "0x8caa65ee0cadaa7dba9185c01e5790a53fd61c2c",
-    "SpotOrderTracker": "0x84a150710ade003a1dace839898250879f42da6e"
+    "AppHealthReaderFactory": "0x99cc490c6b8c58e7f1cf37ece3e083398cc7d2d8",
+    "SpotOrderTracker": "0x2c767ca1a112f66a2a94a39b11c912a73672400d"
   },
   "11155111": {
     "ProtocolGovernance": "0xb0e8089b8067dbe49ef67e2c8d2dd1ab710d3387",

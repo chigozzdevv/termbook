@@ -54,13 +54,13 @@
       "SepoliaConfirmationClient": "0x053ec9f44822700113347b2f97c9b2dad05cf5b7",
       "SepoliaConfirmationVerifier": "0x1ba7a86b05c9116ea71b8389c116292f44c5ba46",
       "ReadProgram": "0x2ed2c74faca711835ee58ea8f9e8f2b137a1c465",
-      "UseCaseReader": "0xcd8e05ba31c93b975b41fad1679c99bd290fa9d6",
-      "UseCasePolicy": "0x30c14f8b8fdd6c13719843ccf8bd8be457b7181c",
-      "UseCaseRecovery": "0x3cef8dce8b85edb5807dd49eb8c5f12c1e737c87",
+      "UseCaseReader": "0x87eddaaec55f06856615ebff6ca2d5e29807c4ea",
+      "UseCasePolicy": "0xacc595a5969d97709bd24e3244dfe033d9e53edc",
+      "UseCaseRecovery": "0x5d6850bfb5880fa778f04fbd505d3dacd013da4f",
       "AtomicSpotRouter": "0xf3e33781e2b5c6265da2f2775b339cc5a94a50d1",
       "AtomicSpotModule": "0x0b626a1a6ef46c4470bc1acde3c6d719ceb050ed",
       "AppHealthReaderFactory": "0x99cc490c6b8c58e7f1cf37ece3e083398cc7d2d8",
-      "SpotOrderTracker": "0x84a150710ade003a1dace839898250879f42da6e"
+      "SpotOrderTracker": "0x2c767ca1a112f66a2a94a39b11c912a73672400d"
     },
     "11155111": {
       "ProtocolGovernance": "0xb0e8089b8067dbe49ef67e2c8d2dd1ab710d3387",
@@ -35646,8 +35646,8 @@
     }
   },
   "sharedIntegrations": {
-    "sourceCommit": "40c485c108b1bd3192ca50d491206805416fa8de",
-    "completedAt": "2026-10-11T16:04:59.029Z",
+    "sourceCommit": "99d31e8b7d9e5c11b788948d806478fe10ebec68",
+    "completedAt": "2026-10-12T14:19:59.304Z",
     "configuration": "order-integrations"
   },
   "configuration": {
@@ -43888,128 +43888,89 @@
       "core": "0x198995faab55a9d5d4dceab56abaaa273c26fad7",
       "network": "testnet",
       "chainId": 10143,
-      "sourceCommit": "40c485c108b1bd3192ca50d491206805416fa8de",
-      "completedAt": "2026-10-11T16:04:59.029Z",
+      "sourceCommit": "99d31e8b7d9e5c11b788948d806478fe10ebec68",
+      "completedAt": "2026-10-12T14:19:59.304Z",
       "verified": true,
+      "builds": {
+        "SpotOrderTracker": "0x2f7b256665f7e93a47a62961a02fbe1de7bd7006947bdf9ab3938296c570ca70",
+        "UseCaseReader": "0xa108f5a5995ea86145b3aa2530425ccbfb0d57aecc66f195ca0056907123533b",
+        "UseCasePolicy": "0xef48848cf72a551514d5d5bdc36c445d8a364194187e68f4beeac89832ba26ab",
+        "UseCaseRecovery": "0x1aa4ca876821fd51b553cc3e8dc97cea7a28df767f9bdaa8ef72603566fb0014"
+      },
       "addresses": {
-        "SpotOrderTracker": "0x84a150710ade003a1dace839898250879f42da6e",
-        "UseCaseReader": "0xcd8e05ba31c93b975b41fad1679c99bd290fa9d6",
-        "UseCasePolicy": "0x30c14f8b8fdd6c13719843ccf8bd8be457b7181c",
-        "UseCaseRecovery": "0x3cef8dce8b85edb5807dd49eb8c5f12c1e737c87"
+        "SpotOrderTracker": "0x2c767ca1a112f66a2a94a39b11c912a73672400d",
+        "UseCaseReader": "0x87eddaaec55f06856615ebff6ca2d5e29807c4ea",
+        "UseCasePolicy": "0xacc595a5969d97709bd24e3244dfe033d9e53edc",
+        "UseCaseRecovery": "0x5d6850bfb5880fa778f04fbd505d3dacd013da4f"
       },
       "contractPins": {
-        "FlowExecutorSharedImplementation": {
-          "address": "0xa4d557aa6ed8057136b6d1e6131026c532fd8729",
-          "codeHash": "0x88a7f117be28f0bc01ec456fa4f4e3eabd246f4201264bcf358cad00643ea1e8"
-        },
         "SpotOrderTracker": {
-          "address": "0x84a150710ade003a1dace839898250879f42da6e",
-          "codeHash": "0x702efdc009a11a3f55151474eee8f82e84ee4d9f15446527ba409f6b42181fb3"
+          "address": "0x2c767ca1a112f66a2a94a39b11c912a73672400d",
+          "codeHash": "0xd4970e4cf3c5cb3b7a34d07e597fb3dff9440cafd5100893fe4fb41cdab40c29"
         },
         "UseCaseReader": {
-          "address": "0xcd8e05ba31c93b975b41fad1679c99bd290fa9d6",
-          "codeHash": "0x8cbc19c6839265509894d25c347420d6c62e712dd1a424422c1923baedcb173a"
+          "address": "0x87eddaaec55f06856615ebff6ca2d5e29807c4ea",
+          "codeHash": "0xa30941ee4b97f5693f9ffc7a2fb0afa784ddad2abeabf88645cdf7d8328ecce3"
         },
         "UseCasePolicy": {
-          "address": "0x30c14f8b8fdd6c13719843ccf8bd8be457b7181c",
-          "codeHash": "0x553f938ec0cc957ee315d0cd6da85d258d809bf6de1b336b7e895956b4b9b957"
+          "address": "0xacc595a5969d97709bd24e3244dfe033d9e53edc",
+          "codeHash": "0x75d344698a54cec3d56375ae81b5baa58e33575e39fdaa3d64b8319945ae7e74"
         },
         "UseCaseRecovery": {
-          "address": "0x3cef8dce8b85edb5807dd49eb8c5f12c1e737c87",
-          "codeHash": "0x73d9931417a21fa2b65fe2afff2b0d502c1d2e9e609517129e31df9ecfdca3c8"
+          "address": "0x5d6850bfb5880fa778f04fbd505d3dacd013da4f",
+          "codeHash": "0x67740aa0dc1736806de1682ebf0f3e36f511a6ae0f0e063ed7348a354f80d26a"
         }
       },
       "sourceVerification": {
         "contracts": [
           {
             "name": "SpotOrderTracker",
-            "address": "0x84a150710ade003a1dace839898250879f42da6e",
-            "verificationId": "c874d28c-dec7-46a3-bf9a-9d164a396779",
-            "matchId": "55933094",
-            "verifiedAt": "2026-10-11T16:21:07Z",
+            "address": "0x2c767ca1a112f66a2a94a39b11c912a73672400d",
+            "verificationId": "0ea88984-cb94-496d-8e3c-8ecd78df2a34",
+            "matchId": "55994315",
+            "verifiedAt": "2026-10-12T14:21:36Z",
             "runtimeMatch": "exact_match",
             "creationMatch": "exact_match",
-            "url": "https://sourcify.dev/server/v2/contract/10143/0x84a150710ade003a1dace839898250879f42da6e"
+            "url": "https://sourcify.dev/server/v2/contract/10143/0x2c767ca1a112f66a2a94a39b11c912a73672400d"
           },
           {
             "name": "UseCaseReader",
-            "address": "0xcd8e05ba31c93b975b41fad1679c99bd290fa9d6",
-            "verificationId": "7ddfef63-7617-45b1-94c1-1f15b7fc3054",
-            "matchId": "55933112",
-            "verifiedAt": "2026-10-11T16:21:21Z",
+            "address": "0x87eddaaec55f06856615ebff6ca2d5e29807c4ea",
+            "verificationId": "780b3368-0725-4530-9f5e-4fd3a9961a3f",
+            "matchId": "55994320",
+            "verifiedAt": "2026-10-12T14:21:49Z",
             "runtimeMatch": "exact_match",
             "creationMatch": "exact_match",
-            "url": "https://sourcify.dev/server/v2/contract/10143/0xcd8e05ba31c93b975b41fad1679c99bd290fa9d6"
+            "url": "https://sourcify.dev/server/v2/contract/10143/0x87eddaaec55f06856615ebff6ca2d5e29807c4ea"
           },
           {
             "name": "UseCasePolicy",
-            "address": "0x30c14f8b8fdd6c13719843ccf8bd8be457b7181c",
-            "verificationId": "17695275-8e3f-4376-acca-28a27da3fed7",
-            "matchId": "55933115",
-            "verifiedAt": "2026-10-11T16:21:31Z",
+            "address": "0xacc595a5969d97709bd24e3244dfe033d9e53edc",
+            "verificationId": "1c12fd53-81f6-42d9-b6e5-d0469582b48c",
+            "matchId": "55994327",
+            "verifiedAt": "2026-10-12T14:21:59Z",
             "runtimeMatch": "exact_match",
             "creationMatch": "exact_match",
-            "url": "https://sourcify.dev/server/v2/contract/10143/0x30c14f8b8fdd6c13719843ccf8bd8be457b7181c"
+            "url": "https://sourcify.dev/server/v2/contract/10143/0xacc595a5969d97709bd24e3244dfe033d9e53edc"
           },
           {
             "name": "UseCaseRecovery",
-            "address": "0x3cef8dce8b85edb5807dd49eb8c5f12c1e737c87",
-            "verificationId": "34cb5b41-5626-4a10-8da0-99435293ff57",
-            "matchId": "55933116",
-            "verifiedAt": "2026-10-11T16:21:43Z",
+            "address": "0x5d6850bfb5880fa778f04fbd505d3dacd013da4f",
+            "verificationId": "c13d35dd-6858-4bd1-afae-13237de937b4",
+            "matchId": "55994360",
+            "verifiedAt": "2026-10-12T14:22:11Z",
             "runtimeMatch": "exact_match",
             "creationMatch": "exact_match",
-            "url": "https://sourcify.dev/server/v2/contract/10143/0x3cef8dce8b85edb5807dd49eb8c5f12c1e737c87"
+            "url": "https://sourcify.dev/server/v2/contract/10143/0x5d6850bfb5880fa778f04fbd505d3dacd013da4f"
           },
           {
             "name": "FlowExecutorImplementation",
             "address": "0xa4d557aa6ed8057136b6d1e6131026c532fd8729",
-            "verificationId": "f680eb90-c1ae-48e8-b9f2-f87e76cfbcfb",
             "matchId": "55933117",
             "verifiedAt": "2026-10-11T16:21:52Z",
             "runtimeMatch": "exact_match",
             "creationMatch": "exact_match",
             "url": "https://sourcify.dev/server/v2/contract/10143/0xa4d557aa6ed8057136b6d1e6131026c532fd8729"
-          },
-          {
-            "name": "PriceProtectionImplementation",
-            "address": "0x6226d54fd8112fff17d0d30cfe21e06644b8e0d5",
-            "verificationId": "477364ae-b9b1-47e0-bb75-598bd40b3be9",
-            "matchId": "55934146",
-            "verifiedAt": "2026-10-11T16:52:11Z",
-            "runtimeMatch": "exact_match",
-            "creationMatch": "exact_match",
-            "url": "https://sourcify.dev/server/v2/contract/10143/0x6226d54fd8112fff17d0d30cfe21e06644b8e0d5"
-          },
-          {
-            "name": "HealthSourceImplementation",
-            "address": "0xfAc81b95d37df756eA42b449048FB371562473b0",
-            "verificationId": "2bdc291a-e47f-411b-9040-bc24827bd88f",
-            "matchId": "55939306",
-            "verifiedAt": "2026-10-11T18:33:31Z",
-            "runtimeMatch": "exact_match",
-            "creationMatch": "exact_match",
-            "url": "https://sourcify.dev/server/v2/contract/10143/0xfAc81b95d37df756eA42b449048FB371562473b0"
-          },
-          {
-            "name": "CollateralHealthReader",
-            "address": "0xb9d2ceef10d25bfe8d3f73dd618e84de75f7f6fb",
-            "verificationId": "f0943d47-bd62-4cda-a410-05268ce5ad80",
-            "matchId": "55969389",
-            "verifiedAt": "2026-10-12T08:20:19Z",
-            "runtimeMatch": "exact_match",
-            "creationMatch": "exact_match",
-            "url": "https://sourcify.dev/server/v2/contract/10143/0xb9d2ceef10d25bfe8d3f73dd618e84de75f7f6fb"
-          },
-          {
-            "name": "AppHealthReaderFactory",
-            "address": "0x99cc490c6b8c58e7f1cf37ece3e083398cc7d2d8",
-            "verificationId": "bf772558-e769-4c2a-a1b4-02f1a0a25821",
-            "matchId": "55969394",
-            "verifiedAt": "2026-10-12T08:20:32Z",
-            "runtimeMatch": "exact_match",
-            "creationMatch": "exact_match",
-            "url": "https://sourcify.dev/server/v2/contract/10143/0x99cc490c6b8c58e7f1cf37ece3e083398cc7d2d8"
           }
         ]
       }

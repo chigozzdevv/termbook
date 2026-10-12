@@ -5,6 +5,7 @@ import { log, error } from "node:console";
 import { root, viem, artifact } from "./testnet-runtime.mjs";
 import { readConfiguration, writeJsonAtomic, operationFile, clearOperation } from "./testnet-state.mjs";
 import { setTimeout as delay } from "node:timers/promises";
+import { pacedHttp } from "../server/dist/chain/rpc.transport.js";
 
 const priceSource = process.argv[2] === "--publish-price-source";
 const healthSource = process.argv[2] === "--publish-health-source";
@@ -22,7 +23,7 @@ async function main() {
   const deployment = JSON.parse(fs.readFileSync(path.join(root, "deployments/testnet.json"), "utf8"));
   const orderUpdate = deployment.sharedIntegrations?.configuration === "order-integrations";
   const report = readConfiguration(orderUpdate ? "order-integrations" : "integrations", deployment);
-  const client = viem.createPublicClient({ transport: viem.http("https://testnet-rpc.monad.xyz") });
+  const client = viem.createPublicClient({ transport: pacedHttp("https://testnet-rpc.monad.xyz", 5) });
   equal(await client.getChainId(), 10143, "network");
   const block = await client.getBlock({ blockTag: "finalized" });
   const m = deployment.addresses[10143];

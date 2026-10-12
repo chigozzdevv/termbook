@@ -86,6 +86,9 @@ The same keeper records authenticated execution-price checkpoints for admitted
 app rules. `PRICE_REFERENCE_RULES` can prime configured rules before admission
 using `{ bundle, capability, market }` hashes. Quotes use these checkpoints;
 execution still verifies the current guarded price, deviation and slippage.
+Set `PRICE_REFERENCE_ENABLED=false` to stop automatic trade checkpoints while
+keeping ratio-feed updates active. The caller must record a fresh checkpoint
+before submitting a trade; execution keeps the same price checks.
 
 Health snapshots describe account state read at the current block. `OracleRegistry`
 checks price freshness independently against each admitted feed's age limit;

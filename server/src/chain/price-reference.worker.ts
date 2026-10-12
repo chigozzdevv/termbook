@@ -19,6 +19,9 @@ type PriceRule = { bundle: Hex; capability: Hex; market: Hex };
 const word = (value: unknown): value is Hex => typeof value === "string" && /^0x[a-fA-F0-9]{64}$/.test(value) && !/^0x0{64}$/i.test(value);
 
 export function priceReferenceConfig() {
+  const enabled = process.env["PRICE_REFERENCE_ENABLED"] ?? "true";
+  if (!["true", "false"].includes(enabled)) throw new Error("price-reference-config-invalid");
+  if (enabled === "false") return null;
   const raw = process.env["PRICE_REFERENCE_RULES"];
   const key = process.env["ORACLE_KEEPER_KEY"];
   if (!key && !raw) return null;

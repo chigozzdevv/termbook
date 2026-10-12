@@ -21,6 +21,7 @@ const simulateContract = vi.fn();
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubEnv("PRICE_REFERENCE_ENABLED", "true");
   vi.stubEnv("PRICE_REFERENCE_RULES", JSON.stringify([{ bundle, capability, market }]));
   vi.stubEnv("ORACLE_KEEPER_KEY", key);
   vi.stubEnv("RISK_KEEPER_KEY", "");
@@ -39,6 +40,14 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("execution price checkpoints", () => {
+  it("can stop automatic checkpoints without removing the oracle keeper configuration", async () => {
+    vi.stubEnv("PRICE_REFERENCE_ENABLED", "false");
+    expect(await runPriceReferenceWorker()).toBe(0);
+    expect(keeperTransaction).not.toHaveBeenCalled();
+    expect(process.env["ORACLE_KEEPER_KEY"]).toBe(key);
+    vi.stubEnv("PRICE_REFERENCE_ENABLED", "invalid");
+    expect(priceReferenceConfig).toThrow("price-reference-config-invalid");
+  });
   it("records an aging reference through the durable keeper journal", async () => {
     expect(await runPriceReferenceWorker()).toBe(1);
     expect(keeperTransaction).toHaveBeenCalledWith(expect.objectContaining({ to: address,

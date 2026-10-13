@@ -26,7 +26,7 @@ const statuses = [
   "expired",
 ];
 
-export function Explorer({ view = "orders" }: { view?: View }) {
+export function Explorer({ view = "orders", tabbed = false }: { view?: View; tabbed?: boolean }) {
   const router = useRouter();
   const { supply } = useDialogs();
   const [query, setQuery] = useState("");
@@ -54,7 +54,7 @@ export function Explorer({ view = "orders" }: { view?: View }) {
 
   return (
     <div>
-      <div id="records" role="region" aria-labelledby={`${view}-tab`}>
+      <div id="records" role={tabbed ? "tabpanel" : "region"} aria-labelledby={`${view}-tab`}>
         <Toolbar
           label={view === "houses" ? "Houses" : "borrowing orders"}
           query={query}

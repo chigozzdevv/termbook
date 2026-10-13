@@ -52,7 +52,7 @@ export function KuruPage() {
     {data.market && data.market.state !== 0 && <div className="kuru-notice" role="status"><p>This market is temporarily paused.</p></div>}
     <div className="kuru-trading-grid"><div className="kuru-market" data-view={view}>
       <div className="kuru-view-toggle" role="group" aria-label="Market view">{(["chart", "book"] as const).map((value) => <button key={value} type="button" aria-pressed={view === value} onClick={() => setView(value)}>{value === "chart" ? "Chart" : "Order book"}</button>)}</div>
-      <Chart trades={data.trades} error={data.historyError} /><Book market={data.market} /></div>
+      <Chart /><Book market={data.market} /></div>
       <Order market={data.market} account={credit.account} connected={!!wallet.connection} ready={!!wallet.client} busy={wallet.busy} stale={stale} failed={!!wallet.error} onConnect={() => setWalletOpen(true)} onOpen={open} />
       <Account rows={credit.rows} account={credit.account} trades={data.trades} connected={!!wallet.connection} ready={!!wallet.client} error={credit.error} onSelect={credit.select} onOpen={open} onRefresh={() => { data.refresh(); credit.refresh(); }} />
     </div>

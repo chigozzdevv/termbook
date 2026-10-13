@@ -18,6 +18,26 @@ export const marketSchema = z.object({
 const tradeSchema = z.object({ id: z.string(), tx: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
   block: z.string().regex(/^\d+$/), time: z.number().int().positive(), direction: z.enum(["buy", "sell"]), price: decimal, size: decimal });
 export const historySchema = z.object({ trades: z.array(tradeSchema).max(2000), through: z.string().regex(/^\d+$/) });
+export const chartSource = "https://www.kuru.io/markets/0x065c9d28e428a0db40191a54d33d5b7c71a9c394/trade";
+const chartDecimal = z.string().max(80).regex(/^\d+(?:\.\d{1,36})?$/);
+export const chartSchema = z.object({
+  chain_id: z.literal(143), market_id: z.literal("0x065c9d28e428a0db40191a54d33d5b7c71a9c394"),
+  interval: z.union([z.literal(1), z.literal(5), z.literal(15), z.literal(60)]), source_url: z.literal(chartSource),
+  timestamp: z.number().int().positive(),
+  candles: z.array(z.object({ time: z.number().int().positive(), open: chartDecimal, high: chartDecimal,
+    low: chartDecimal, close: chartDecimal, volume: chartDecimal })).max(500),
+}).superRefine((data, context) => {
+  let previous = 0;
+  for (const bar of data.candles) {
+    const [open, high, low, close, volume] = [bar.open, bar.high, bar.low, bar.close, bar.volume].map(Number);
+    if (![open, high, low, close, volume].every(Number.isFinite) || low <= 0 || high < Math.max(open, close)
+      || low > Math.min(open, close) || volume < 0 || bar.time <= previous || bar.time % (data.interval * 60) !== 0
+      || bar.time > data.timestamp) {
+      context.addIssue({ code: "custom", message: "Invalid chart candle" }); break;
+    }
+    previous = bar.time;
+  }
+});
 export type Market = z.infer<typeof marketSchema>;
 export type Trade = z.infer<typeof tradeSchema>;
 export type Level = z.infer<typeof level>;

@@ -48,3 +48,13 @@ export function candles(trades: Trade[], minutes: number) {
   }
   return [...buckets.values()];
 }
+
+export function chartTimeline(bars: ReturnType<typeof candles>, minutes: number) {
+  if (!bars.length || !Number.isInteger(minutes) || minutes <= 0) return [];
+  const step = minutes * 60, last = bars.at(-1)!.time;
+  const first = Math.max(bars[0].time, last - 2000 * step);
+  const byTime = new Map(bars.map((bar) => [bar.time, bar]));
+  const points: (ReturnType<typeof candles>[number] | { time: number })[] = [];
+  for (let time = first; time <= last; time += step) points.push(byTime.get(time) ?? { time });
+  return points;
+}

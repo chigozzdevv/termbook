@@ -68,7 +68,7 @@
   }
   @media (max-width: 740px) {
     .site-header {
-      @apply grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-0 pt-2 pb-1;
+      @apply grid-cols-[minmax(0,1fr)_44px_minmax(0,1fr)] gap-x-2 py-2;
     }
     .site-header > :first-child {
       @apply min-w-0;
@@ -76,11 +76,13 @@
     .site-header > :first-child img {
       max-width: 100%;
     }
-    .site-actions {
-      @apply col-start-2;
-    }
     .site-header .network-switch {
-      @apply col-span-full col-start-1 row-start-2;
+      @apply col-start-2 row-start-1;
+    }
+  }
+  @media (max-width: 350px) {
+    .site-navbar > :first-child img {
+      width: 106px;
     }
   }
   .gutter {
@@ -161,7 +163,13 @@
     @apply text-xs tracking-normal text-muted;
   }
   .order-sections {
-    @apply grid grid-cols-[1.3fr_1fr] items-start gap-5 max-[960px]:grid-cols-1;
+    @apply grid grid-cols-[1.3fr_1fr] overflow-hidden rounded-[18px] border border-line bg-panel max-[960px]:grid-cols-1;
+  }
+  .order-sections > .order-section {
+    @apply rounded-none border-0 bg-transparent;
+  }
+  .order-sections > .order-section + .order-section {
+    @apply border-l border-line max-[960px]:border-t max-[960px]:border-l-0;
   }
   .order-section {
     @apply min-w-0 rounded-[18px] border border-line bg-panel px-6 py-5 max-[430px]:px-4;
@@ -170,7 +178,7 @@
     @apply m-0 text-sm font-medium;
   }
   .order-field {
-    @apply grid grid-cols-[110px_minmax(0,1fr)] items-start gap-4 border-b border-line py-[14px] text-xs last:border-b-0 last:pb-0 max-[430px]:grid-cols-1 max-[430px]:gap-2;
+    @apply grid grid-cols-[110px_minmax(0,1fr)] items-start gap-4 border-b border-line py-[14px] text-xs last:border-b-0 last:pb-0 max-[430px]:grid-cols-[90px_minmax(0,1fr)] max-[430px]:gap-3;
   }
   .order-field dt {
     @apply pt-1 text-muted;
@@ -202,53 +210,77 @@
 }
 
 .network-switch {
-  position: relative;
-  display: inline-flex;
-  width: max-content;
-  min-height: 36px;
-  align-items: center;
   justify-self: center;
 }
-.network-label {
+.network-trigger {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding-inline: 4px;
+  justify-content: center;
+  min-height: 36px;
+  padding-inline: 8px;
   font-size: 13px;
   white-space: nowrap;
+  color: inherit;
 }
-.network-label svg {
-  flex-shrink: 0;
-  color: var(--color-muted);
+.network-trigger:hover, .network-trigger[aria-expanded="true"] {
+  color: #a6a6ff;
 }
 .network-icon {
   display: none;
 }
-.network-select {
-  position: absolute;
-  inset: 0;
+.network-menu {
+  position: fixed;
+  inset: auto;
+  width: 208px;
+  margin: 0;
+  padding: 5px;
+  border: 1px solid var(--docs-line, var(--color-line));
+  border-radius: 8px;
+  background: var(--docs-panel, var(--color-panel));
+  color: var(--docs-text, var(--color-foreground));
+  box-shadow: 0 8px 24px #0004;
+}
+.network-menu .network-option {
+  display: flex;
   width: 100%;
-  height: 100%;
-  opacity: 0;
-  font-size: 16px;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  border: 0;
+  border-radius: 4px;
+  padding: 10px 12px;
+  font-size: 13px;
+  text-align: left;
 }
-.network-switch:has(.network-select:focus-visible) {
-  outline: 2px solid #8585ff;
-  outline-offset: 3px;
+.network-menu .network-option[aria-pressed="true"] {
+  color: #a6a6ff;
+  background: #5555ff14;
 }
-html[data-focus-mode="pointer"] .network-switch:has(.network-select:focus) {
-  outline: none;
+.network-menu .network-option:disabled {
+  color: var(--docs-muted, var(--color-muted));
+  opacity: .5;
+}
+.brand-mobile-mark {
+  display: none;
 }
 @media (max-width: 740px) {
-  .network-switch {
-    min-width: 44px;
-    justify-content: center;
+  .network-trigger {
+    width: 44px;
+    height: 44px;
+    padding: 0;
   }
   .network-icon {
     display: block;
   }
   .network-name {
     display: none;
+  }
+  .brand-logo--mobile-mark .brand-wordmark {
+    display: none;
+  }
+  .brand-logo--mobile-mark .brand-mobile-mark {
+    display: block;
+    width: 28px;
   }
 }
 
@@ -261,7 +293,7 @@ html[data-focus-mode="pointer"] select.field:focus {
 }
 
 @media (pointer: coarse) {
-  .network-switch {
+  .network-trigger {
     min-height: 44px;
   }
   .field {

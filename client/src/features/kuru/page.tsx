@@ -34,11 +34,11 @@ export function KuruPage() {
   const stale = !!data.error || !data.market;
   return <>
     <header className="kuru-topbar site-header gutter">
-      <div className="kuru-brand"><Logo /><div className="kuru-identity"><Image src="/apps/kuru.svg" alt="" width={20} height={36} className="h-auto w-4" /><span>Kuru</span></div></div>
+      <div className="kuru-brand"><Logo mobileMark /><div className="kuru-identity"><Image src="/apps/kuru.svg" alt="" width={20} height={36} className="h-auto w-4" /><span>Kuru</span></div></div>
       <Network />
       <div className="kuru-wallet">
-        {wallet.connection ? <><Button variant="secondary" onClick={() => wallet.client ? void open({ tab: "account", creditId: credit.account?.id }) : wallet.refresh()} disabled={wallet.busy}><Wallet size={14} />{short(wallet.connection.address)}</Button><button type="button" className="kuru-disconnect" aria-label="Disconnect wallet" onClick={wallet.disconnect}><X size={14} /></button></>
-          : <Button onClick={() => setWalletOpen(true)} disabled={wallet.busy}><Wallet size={14} />{wallet.busy ? "Connecting…" : "Connect wallet"}</Button>}
+        {wallet.connection ? <><Button variant="secondary" aria-label={`Open account ${wallet.connection.address}`} title={wallet.connection.address} onClick={() => wallet.client ? void open({ tab: "account", creditId: credit.account?.id }) : wallet.refresh()} disabled={wallet.busy}><Wallet size={14} /><span className="kuru-wallet-address">{short(wallet.connection.address)}</span></Button><button type="button" className="kuru-disconnect" aria-label="Disconnect wallet" onClick={wallet.disconnect}><X size={14} /></button></>
+          : <Button aria-label={wallet.busy ? "Connecting wallet" : "Connect wallet"} onClick={() => setWalletOpen(true)} disabled={wallet.busy}><Wallet size={14} />{wallet.busy ? "Connecting…" : <>Connect<span className="kuru-wallet-word">wallet</span></>}</Button>}
       </div>
     </header>
     <main className="kuru-page">

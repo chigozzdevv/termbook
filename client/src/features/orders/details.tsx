@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { ArrowUpRight } from "lucide-react";
 import type { ReactNode } from "react";
 import { CopyButton } from "@/components/ui/copy-button";
 import { explorer } from "@/lib/explorers";
@@ -36,15 +35,14 @@ function Address({
           aria-label={`View ${label} ${value}`}
           target={external ? "_blank" : undefined}
           rel={external ? "noopener noreferrer" : undefined}
-          className="min-w-0 pt-1 text-foreground underline decoration-line underline-offset-4 wrap-anywhere hover:text-accent"
+          className="min-w-0 pt-1 text-foreground underline decoration-line underline-offset-4 whitespace-nowrap hover:text-accent"
         >
-          {value}
-          {external && (
-            <ArrowUpRight size={12} aria-hidden="true" className="ml-1 inline-block align-middle" />
-          )}
+          {short(value)}
         </Link>
       ) : (
-        <span className="min-w-0 pt-1 wrap-anywhere">{value}</span>
+        <span className="min-w-0 pt-1 whitespace-nowrap" title={value}>
+          {short(value)}
+        </span>
       )}
       <CopyButton value={value} label={label} />
     </span>
@@ -120,17 +118,19 @@ export function Details({ order }: { order: Order }) {
               )}
             </Field>
             <Field label="Lend asset">
-              <Link
-                href={explorer.address(order.settlementAsset)}
-                title={order.settlementAsset}
-                aria-label="View lending asset on explorer"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 hover:text-accent"
-              >
-                USDC
-                <ArrowUpRight size={12} aria-hidden="true" />
-              </Link>
+              <span className="inline-flex items-center gap-1">
+                <Link
+                  href={explorer.address(order.settlementAsset)}
+                  title={order.settlementAsset}
+                  aria-label="View lending asset on explorer"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 hover:text-accent"
+                >
+                  USDC
+                </Link>
+                <CopyButton value={order.settlementAsset} label="lending asset address" />
+              </span>
             </Field>
             {order.creditId && (
               <Field label="Intent ID">
@@ -222,15 +222,18 @@ export function Details({ order }: { order: Order }) {
                       </span>
                     </td>
                     <td>
-                      <Link
-                        href={explorer.block(transaction.block)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 font-mono text-xs text-muted hover:text-foreground"
-                      >
-                        {transaction.block.toLocaleString("en-US")}
-                        <ArrowUpRight size={12} aria-hidden="true" />
-                      </Link>
+                      <span className="inline-flex items-center gap-1">
+                        <Link
+                          href={explorer.block(transaction.block)}
+                          aria-label={`View block ${transaction.block}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 font-mono text-xs hover:text-accent"
+                        >
+                          {transaction.block.toLocaleString("en-US")}
+                        </Link>
+                        <CopyButton value={String(transaction.block)} label="block number" />
+                      </span>
                     </td>
                   </tr>
                 ))}

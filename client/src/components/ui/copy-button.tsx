@@ -26,7 +26,7 @@ export function CopyButton({ value, label }: { value: string; label: string }) {
 
   const Icon = state === "copied" ? Check : Copy;
   return (
-    <>
+    <span className="relative inline-flex shrink-0">
       <button
         type="button"
         onClick={copy}
@@ -43,6 +43,6 @@ export function CopyButton({ value, label }: { value: string; label: string }) {
             ? `Could not copy ${label}.`
             : ""}
       </span>
-    </>
+    </span>
   );
 }

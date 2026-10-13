@@ -119,8 +119,11 @@ export function Shell({ children, pages, search }: Props) {
       {bottom}
     </aside>
     <header className="docs-mobile-header">
-      <button aria-label="Open documentation navigation" onClick={() => setMenuOpen(true)}><Menu size={21} /></button>
-      <Logo /><button aria-label="Search documentation" onClick={openSearch}><Search size={20} /></button>
+      <Logo /><Network />
+      <div className="docs-mobile-actions">
+        <button aria-label="Search documentation" onClick={openSearch}><Search size={20} /></button>
+        <button aria-label="Open documentation navigation" onClick={() => setMenuOpen(true)}><Menu size={21} /></button>
+      </div>
     </header>
     <div className="docs-networkbar"><Network /></div>
     <div className="docs-body">

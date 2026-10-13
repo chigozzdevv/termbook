@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Globe } from "lucide-react";
+import { Check, ChevronDown, Globe } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 
 export function Network() {
@@ -41,6 +41,7 @@ export function Network() {
       >
         <Globe size={18} className="network-icon" aria-hidden="true" />
         <span className="network-name">Monad testnet</span>
+        <ChevronDown size={14} className="network-chevron" aria-hidden="true" />
       </button>
       <div
         id={id}

@@ -216,6 +216,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 6px;
   min-height: 36px;
   padding-inline: 8px;
   font-size: 13px;
@@ -272,7 +273,7 @@
   .network-icon {
     display: block;
   }
-  .network-name {
+  .network-name, .network-chevron {
     display: none;
   }
   .brand-logo--mobile-mark .brand-wordmark {

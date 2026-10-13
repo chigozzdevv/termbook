@@ -1,34 +1,25 @@
 import type { CollateralMarket, CapabilityDefinition, CapabilityCall, TermAction } from "@termbook/schema";
 import { assertActionUseCase, assertStandardAction, capabilityCalls, matchesAction, standardActionFields } from "@termbook/schema";
-import { formatEther, parseAbiItem, parseUnits } from "viem";
+import { formatUnits, parseAbi, parseAbiItem, zeroAddress } from "viem";
 import type { TermbookClient } from "../client/client.js";
 import type { AppAction, ActionReview } from "../types/app.types.js";
 import type { SourceLockWallet } from "../collateral/setup.js";
 import { CollateralSetupInterruptedError } from "../collateral/setup.js";
+import { solanaAlias, solanaPubkeyBase58 } from "../collateral/solana.js";
 import type { Offer } from "../intent/intent.js";
 import type { Intent } from "../intent/intent.js";
 import type { Credit } from "../credit/credit.js";
 import type { ExecuteResult, ExecutionCheckpoint, ActionOutcome } from "../types/credit.types.js";
 import { HttpClient } from "../transport/http.js";
+import { modalStyle } from "./modal-style.js";
+import { kuruLogo, termbookLogo } from "./modal-brand.js";
+import { element, icon, dropdown, rows, hero, pair, context, section, explorer, compactAddress, money, amountText, parseAmount, healthText, type TokenInfo } from "./modal-ui.js";
 
 export type OpenOptions = { action?: AppAction; tab?: "account" | "app"; creditId?: `0x${string}` };
 
-const css = `
-:host{position:fixed;inset:0;z-index:2147483647;font:14px/1.45 system-ui,sans-serif;color:#e8eef5}
-*{box-sizing:border-box}.backdrop{position:absolute;inset:0;background:#070c14c9}
-.panel{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:min(620px,calc(100vw - 24px));max-height:calc(100vh - 24px);overflow:auto;background:#101b29;border:1px solid #415267;border-radius:16px;box-shadow:0 24px 80px #0008;padding:20px}
-header,.row,.tabs,.offer{display:flex;align-items:center;justify-content:space-between;gap:12px}header h2{margin:0;font-size:20px}.tabs{justify-content:flex-start;margin:18px 0;border-bottom:1px solid #415267}.tabs button{border-radius:8px 8px 0 0}
-button,select,input,textarea{font:inherit}button{background:#24364a;color:#e8eef5;border:1px solid #526983;border-radius:8px;padding:9px 12px;cursor:pointer}button.primary{background:#146ad3;border-color:#3984de}button:disabled{opacity:.5;cursor:wait}button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid #80b7ff;outline-offset:2px}
-label{display:block;margin:12px 0 4px;font-weight:600}input,select,textarea{width:100%;background:#0a1420;color:#e8eef5;border:1px solid #526983;border-radius:8px;padding:9px}textarea{min-height:75px}
-.muted{color:#a8b8ca}.status{min-height:20px;margin:12px 0}.error{color:#ffadad}.card{border:1px solid #415267;border-radius:10px;padding:14px;margin:12px 0}.card h3{margin:0 0 8px}.card p{margin:5px 0}.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:15px}.offer{align-items:flex-start}.offer div{flex:1}.mono{font-family:ui-monospace,monospace;overflow-wrap:anywhere}small{display:block;color:#a8b8ca;margin-top:4px}
-`;
-
-function element<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string, className?: string): HTMLElementTagNameMap[K] {
-  const value = document.createElement(tag);
-  if (text !== undefined) value.textContent = text;
-  if (className) value.className = className;
-  return value;
-}
+const metadataAbi = parseAbi(["function symbol() view returns (string)", "function decimals() view returns (uint8)"]);
+let modalCount = 0;
+let previousOverflow = "";
 
 function stringify(value: unknown): string {
   return JSON.stringify(value, (_, part) => typeof part === "bigint" ? part.toString() : part, 2);
@@ -62,9 +53,13 @@ export class TermbookModal {
   private readonly host: HTMLDivElement;
   private readonly root: ShadowRoot;
   private readonly body: HTMLDivElement;
+  private readonly panel: HTMLElement;
+  private readonly footer: HTMLElement;
+  private readonly tabs: HTMLElement;
   private readonly status: HTMLDivElement;
   private readonly previousFocus: Element | null;
   private readonly keyHandler: (event: KeyboardEvent) => void;
+  private readonly resizeObserver?: ResizeObserver;
   private readonly operationAbort = new AbortController();
   private readonly requestedTab?: "account" | "app";
   private tab: "account" | "app";
@@ -82,7 +77,6 @@ export class TermbookModal {
   private offer?: Offer;
   private action?: TermAction;
   private readonly preparedAction: boolean;
-  private editingAction = false;
   private review?: ActionReview;
   private recentAction?: { capability: string; status: ExecuteResult["status"]; tx?: `0x${string}`; checkpoint?: ExecutionCheckpoint };
   private amountText = "";
@@ -91,6 +85,13 @@ export class TermbookModal {
   private busy = false;
   private closed = false;
   private fieldSeq = 0;
+  private accountView: "overview" | "collateral" | "offer" | "setup" | "repayment" | "closure" = "overview";
+  private detailsOpen = false;
+  private closureMode: "unwind" | "retain" = "unwind";
+  private details?: Record<string, unknown>;
+  private setupStage = "reserved";
+  private readonly tokens = new Map<string, TokenInfo>();
+  private settlement?: TokenInfo;
 
   constructor(client: TermbookClient, options: OpenOptions = {}) {
     if (typeof document === "undefined" || !document.body) throw new Error("modal-dom-unavailable");
@@ -103,28 +104,41 @@ export class TermbookModal {
     this.host = element("div");
     this.root = this.host.attachShadow({ mode: "open" });
     const style = element("style");
-    style.textContent = css;
+    style.textContent = modalStyle;
     const backdrop = element("div", undefined, "backdrop");
     const panel = element("section", undefined, "panel");
+    this.panel = panel;
     panel.setAttribute("role", "dialog");
     panel.setAttribute("aria-modal", "true");
     panel.setAttribute("aria-label", "Termbook");
     const header = element("header");
-    const closeButton = element("button", "Close");
+    const closeButton = element("button", undefined, "close");
     closeButton.type = "button";
+    closeButton.setAttribute("aria-label", "Close modal"); closeButton.append(icon("close"));
     closeButton.addEventListener("click", () => this.close());
-    header.append(element("h2", "Termbook"), closeButton);
+    const brand = element("span", undefined, "brand"); brand.innerHTML = termbookLogo;
+    header.append(brand, closeButton);
+    this.tabs = element("nav", undefined, "tabs"); this.tabs.setAttribute("role", "tablist"); this.tabs.setAttribute("aria-label", "Termbook");
     this.status = element("div", "Loading…", "status");
-    this.body = element("div");
-    panel.append(header, this.status, this.body);
+    this.status.setAttribute("role", "status"); this.status.setAttribute("aria-live", "polite");
+    this.body = element("div", undefined, "body"); this.body.id = "termbook-content"; this.body.setAttribute("role", "tabpanel");
+    this.footer = element("footer", undefined, "footer");
+    panel.append(header, this.tabs, this.status, this.body, this.footer);
     this.root.append(style, backdrop, panel);
     document.body.append(this.host);
+    if (typeof ResizeObserver !== "undefined") { this.resizeObserver = new ResizeObserver(() => this.detailHeight()); this.resizeObserver.observe(this.body); }
+    if (modalCount++ === 0) { previousOverflow = document.body.style.overflow; document.body.style.overflow = "hidden"; }
+    this.body.addEventListener("scroll", () => { for (const menu of Array.from(this.body.querySelectorAll<HTMLElement>(".menu:popover-open"))) menu.hidePopover(); });
     backdrop.addEventListener("click", () => this.close());
     this.keyHandler = (event) => {
       if (this.closed) return;
-      if (event.key === "Escape") { event.preventDefault(); this.close(); return; }
+      if (event.key === "Escape") {
+        const menu = this.root.querySelector<HTMLElement>(".menu:popover-open");
+        if (menu) { event.preventDefault(); menu.hidePopover(); menu.parentElement?.querySelector("button")?.focus(); return; }
+        event.preventDefault(); this.close(); return;
+      }
       if (event.key !== "Tab") return;
-      const focusable = Array.from(this.root.querySelectorAll<HTMLElement>("button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled)"));
+      const focusable = Array.from(this.root.querySelectorAll<HTMLElement>("button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href]")).filter((node) => node.getClientRects().length > 0);
       if (focusable.length === 0) return;
       const first = focusable[0]!;
       const last = focusable.at(-1)!;
@@ -133,15 +147,17 @@ export class TermbookModal {
     };
     document.addEventListener("keydown", this.keyHandler);
     (header.querySelector("button") as HTMLButtonElement).focus();
-    this.ready = this.load(options.creditId).catch((error: unknown) => this.showError(error));
+    this.ready = this.load(options.creditId).catch((error: unknown) => { this.showError(error); if (!this.closed) this.footer.replaceChildren(this.button("Retry", () => this.load(options.creditId), true)); });
   }
 
   close(): void {
     if (this.closed) return;
     this.closed = true;
     this.operationAbort.abort();
+    this.resizeObserver?.disconnect();
     document.removeEventListener("keydown", this.keyHandler);
     this.host.remove();
+    if (--modalCount === 0) document.body.style.overflow = previousOverflow;
     if (this.previousFocus instanceof HTMLElement) this.previousFocus.focus();
   }
 
@@ -154,21 +170,142 @@ export class TermbookModal {
 
   private async run(action: () => void | Promise<void>): Promise<void> {
     if (this.busy || this.closed) return;
+    const focused = this.root.activeElement;
+    const selectLabel = focused?.closest(".select")?.querySelector("button")?.getAttribute("aria-label");
     this.busy = true;
+    this.showStatus("Please wait…");
+    this.setBusy();
     try { await action(); } catch (error) { this.showError(error); }
-    finally { this.busy = false; }
+    finally {
+      this.busy = false; if (this.status.textContent === "Please wait…") this.showStatus(""); this.render();
+      if (!this.closed) {
+        const next = selectLabel ? Array.from(this.root.querySelectorAll<HTMLButtonElement>('button[role="combobox"]')).find((button) => button.getAttribute("aria-label") === selectLabel)
+          : focused?.id ? this.root.getElementById(focused.id) : this.footer.querySelector<HTMLElement>(".primary");
+        next?.focus({ preventScroll: true });
+      }
+    }
+  }
+
+  private setBusy(): void {
+    this.panel.setAttribute("aria-busy", String(this.busy));
+    if (this.busy) for (const control of Array.from(this.root.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("button:not(.close):not(.disclosure-toggle),input,select,textarea"))) control.disabled = true;
   }
 
   private showError(error: unknown): void {
     if (this.closed) return;
     this.status.className = "status error";
-    this.status.textContent = error instanceof Error ? error.message : "operation-failed";
+    this.status.setAttribute("role", "alert");
+    const message = error instanceof Error ? error.message : "Operation failed. Please retry.";
+    this.status.textContent = ({ "close-funding-required": "Repay the remaining debt, then continue closure.", "close-pending": "Closure is still pending. Continue closure to check its progress.", "action-review-stale": "The amounts changed. Review the action again.", "action-health-insufficient": "Insufficient health. Reduce the amount.", "source-wallet-required": "Connect your collateral wallet to continue.", "setup-checkpoint-unavailable": "Setup cannot be resumed on this device.", "offer-expired": "This offer expired. Request new offers." } as Record<string, string>)[message]
+      ?? (error instanceof Error && "shortMessage" in error && typeof error.shortMessage === "string" ? error.shortMessage : message);
   }
 
   private showStatus(message: string): void {
     if (this.closed) return;
     this.status.className = "status";
+    this.status.setAttribute("role", "status");
     this.status.textContent = message;
+  }
+
+  private control(label: string, action: () => void, className = "text-button"): HTMLButtonElement {
+    const button = element("button", label, className); button.type = "button"; button.addEventListener("click", action); return button;
+  }
+
+  private asset(address?: string): TokenInfo {
+    return this.tokens.get(address?.toLowerCase() ?? "") ?? { address: (address ?? zeroAddress) as `0x${string}`, decimals: 0, symbol: "units" };
+  }
+
+  private async token(value: string, decimals?: number): Promise<TokenInfo> {
+    if (!/^0x[a-fA-F0-9]{40}$/.test(value)) throw new Error("Token address unavailable.");
+    const address = value as `0x${string}`;
+    const cached = this.tokens.get(address.toLowerCase()); if (cached) return cached;
+    if (address === zeroAddress) { const native = { address, symbol: this.client.config.chainId === 143 || this.client.config.chainId === 10143 ? "MON" : "Native", decimals: 18 }; this.tokens.set(address, native); return native; }
+    const [symbol, precision] = await Promise.all([
+      this.client.rpc.read<string>(address, metadataAbi, "symbol").catch(() => compactAddress(address)),
+      decimals === undefined ? this.client.rpc.read<number>(address, metadataAbi, "decimals") : Promise.resolve(decimals),
+    ]);
+    if (!Number.isInteger(Number(precision)) || Number(precision) < 0 || Number(precision) > 36) throw new Error("Token decimals unavailable.");
+    const info = { address, symbol, decimals: Number(precision) }; this.tokens.set(address.toLowerCase(), info); return info;
+  }
+
+  private detail(key: string, index: number): unknown { return Array.isArray(this.details) ? this.details[index] : this.details?.[key]; }
+
+  private collateralMarket(): CollateralMarket | undefined {
+    const asset = this.detail("collateralAsset", 7); const vault = this.detail("collateralVault", 6);
+    return this.markets.find((market) => typeof asset === "string" && typeof vault === "string" && (market.kind === "evm"
+      ? market.asset.toLowerCase() === asset.toLowerCase() && market.vault.toLowerCase() === vault.toLowerCase()
+      : solanaAlias(market.genesis as `0x${string}`, market.asset as `0x${string}`).toLowerCase() === asset.toLowerCase()
+        && solanaAlias(market.genesis as `0x${string}`, market.program as `0x${string}`).toLowerCase() === vault.toLowerCase()));
+  }
+
+  private collateralLabel(): string {
+    const amount = this.detail("collateralAmount", 9); const market = this.collateralMarket();
+    if (amount === undefined) return "Unavailable";
+    return market ? `${amountText(BigInt(String(amount)), market.decimals)} ${market.label}` : `${String(amount)} units`;
+  }
+
+  private async refreshCredit(): Promise<void> {
+    if (!this.credit) return;
+    const [summary, details, health, support] = await Promise.all([
+      this.credit.summary(), this.credit.details(), this.credit.account.health().catch(() => undefined), this.credit.closureSupport().catch(() => undefined),
+    ]);
+    if (this.closed) return;
+    this.summary = summary; this.details = details; this.health = health; this.closureSupport = support;
+    this.closureMode = support?.retaining ? "retain" : "unwind";
+    const configured = this.client.config.settlementAsset;
+    const vault = summary.vault;
+    const asset = configured ?? (vault ? await this.client.rpc.read<`0x${string}`>(vault, parseAbi(["function asset() view returns (address)"]), "asset") : undefined);
+    if (asset) this.settlement = await this.token(asset);
+  }
+
+  private navigate(view: typeof this.accountView): void {
+    this.accountView = view; this.detailsOpen = false; this.body.scrollTop = 0; this.showStatus(""); this.render();
+  }
+
+  private disclosure(title: string, ...children: Node[]): HTMLElement {
+    const wrapper = element("div", undefined, "disclosure");
+    const trigger = this.control(title, () => {
+      this.detailsOpen = !this.detailsOpen; trigger.setAttribute("aria-expanded", String(this.detailsOpen));
+      trigger.replaceChildren(document.createTextNode(title), icon(this.detailsOpen ? "up" : "down")); panel.hidden = !this.detailsOpen;
+      this.detailHeight();
+      if (this.detailsOpen) this.body.scrollTop += trigger.getBoundingClientRect().top - this.body.getBoundingClientRect().top;
+      else this.body.scrollTop = 0;
+    }, "disclosure-toggle");
+    trigger.setAttribute("aria-expanded", String(this.detailsOpen)); trigger.setAttribute("aria-controls", "termbook-details"); trigger.append(icon(this.detailsOpen ? "up" : "down"));
+    const panel = element("div", undefined, "details-panel"); panel.id = "termbook-details"; panel.hidden = !this.detailsOpen; panel.append(...children);
+    wrapper.append(trigger, panel); return wrapper;
+  }
+
+  private detailHeight(): void {
+    this.body.style.setProperty("--detail-height", `${Math.max(0, this.body.clientHeight - (this.body.querySelector<HTMLElement>(".disclosure-toggle")?.offsetHeight ?? 0))}px`);
+  }
+
+  private houseIdentity(): HTMLElement | undefined {
+    const house = this.detail("house", 3); if (typeof house !== "string" || !/^0x[a-fA-F0-9]{40}$/.test(house)) return undefined;
+    const group = element("span", "House ", "house"); group.append(explorer(house as `0x${string}`, this.client.config.chainId, "House contract")); return group;
+  }
+
+  private appBrand(): HTMLElement | undefined {
+    const name = this.client.config.integration_definition?.name;
+    if (!name) return undefined;
+    if (!/^kuru(?:\s|$)/i.test(name)) return element("span", name, "hero-label");
+    const group = element("span", undefined, "kuru"); group.setAttribute("role", "img"); group.setAttribute("aria-label", "Kuru"); group.title = "Kuru";
+    const mark = element("span", undefined, "kuru-mark"); mark.innerHTML = kuruLogo; group.append(mark); return group;
+  }
+
+  private invalidateReview(): void {
+    this.review = undefined;
+    this.body.querySelector(".funding-review")?.remove();
+    this.body.querySelector(".swap")?.remove();
+    this.body.querySelector(".review-derived")?.remove();
+    this.footer.replaceChildren(this.button("Review action", () => this.reviewAction(), true));
+  }
+
+  private async reviewAction(): Promise<void> {
+    if (!this.credit) return;
+    this.review = await this.credit.app.review(this.validatedAction());
+    await Promise.all([this.token(this.review.settlementAsset), this.token(zeroAddress), ...(this.review.spending ?? []).map((spend) => this.token(spend.token))]);
+    this.detailsOpen = false; this.body.scrollTop = 0; this.showStatus("");
   }
 
   private storageKey(): string {
@@ -209,13 +346,14 @@ export class TermbookModal {
 
   private executionProgress(checkpoint: ExecutionCheckpoint, outcomes: ActionOutcome[]): void {
     this.saveRecentAction({ status: "pending", tx: checkpoint.tx, draw: 0n, checkpoint });
-    const fills = outcomes.map((state) => `${state.status}: filled ${state.filled}, refunded ${state.refunded}, remaining ${state.remaining}`).join("; ");
-    this.showStatus(fills || "Waiting for finalized application settlement…");
+    const completed = outcomes.filter((state) => state.status === "settled").length;
+    this.showStatus(outcomes.length ? `Waiting for settlement. ${completed} of ${outcomes.length} complete.` : "Waiting for application settlement…");
     this.render();
   }
 
   private async load(preferred?: `0x${string}`): Promise<void> {
     await this.client.ready();
+    if (this.closed) return;
     if (this.action) { assertActionUseCase(this.action, this.client.config.use_case); assertStandardAction(this.action, this.client.config.use_case); }
     const http = new HttpClient(this.client.config.apiBase!);
     const [markets, serverRows] = await Promise.all([
@@ -224,6 +362,9 @@ export class TermbookModal {
     ]);
     this.markets = markets;
     this.market = markets[0];
+    const configuredMarkets = this.client.config.integration_definition?.markets ?? [];
+    await Promise.all(configuredMarkets.flatMap((market) => [this.token(market.base_asset, market.base_decimals), this.token(market.quote_asset, market.quote_decimals)]));
+    if (this.client.config.settlementAsset) this.settlement = await this.token(this.client.config.settlementAsset);
     const ids = [...new Set([...serverRows.map((row) => row.creditId), ...this.savedIds()])];
     const verified = await Promise.all(ids.map(async (id) => {
       if (!/^0x[a-fA-F0-9]{64}$/.test(id)) return undefined;
@@ -239,133 +380,147 @@ export class TermbookModal {
     this.credit = this.credits.find((credit) => credit.id.toLowerCase() === preferred?.toLowerCase())
       ?? this.credits[0];
     if (this.credit) {
-      this.summary = await this.credit.summary();
-      this.health = await this.credit.account.health().catch(() => undefined);
-      this.closureSupport = await this.credit.closureSupport().catch(() => undefined);
+      await this.refreshCredit();
       this.loadRecentAction(this.credit.id);
     }
     if (!this.requestedTab && !this.action && this.summary?.facility === "ready") this.tab = "app";
-    this.showStatus(this.credits.length ? "Select a credit or create one." : "Choose collateral to request credit.");
+    this.showStatus("");
+    if (this.action && this.tab === "app" && this.summary?.facility === "ready" && this.recentAction?.status !== "pending") {
+      try { await this.reviewAction(); } catch (error) { this.showError(error); }
+    }
     this.render();
   }
 
   private render(): void {
     if (this.closed) return;
-    this.body.replaceChildren();
-    const tabs = element("nav", undefined, "tabs");
+    const scroll = this.body.scrollTop;
+    this.fieldSeq = 0;
+    this.body.replaceChildren(); this.footer.replaceChildren(); this.tabs.replaceChildren();
     for (const name of ["account", "app"] as const) {
-      const button = this.button(name === "account" ? "Account" : "App", () => { this.tab = name; this.render(); });
-      button.setAttribute("aria-current", this.tab === name ? "page" : "false");
-      tabs.append(button);
+      const button = this.control(name === "account" ? "Account" : "App", () => { this.tab = name; this.detailsOpen = false; this.body.scrollTop = 0; this.showStatus(""); this.render(); }, "tab");
+      button.id = `termbook-tab-${name}`; button.setAttribute("role", "tab"); button.setAttribute("aria-selected", String(this.tab === name)); button.setAttribute("aria-controls", this.body.id); this.tabs.append(button);
     }
-    this.body.append(tabs);
-    if (this.credits.length) {
-      const row = element("div", undefined, "row");
-      const select = element("select");
-      for (const credit of this.credits) {
-        const option = element("option", `Credit ${credit.id.slice(0, 10)}…`);
-        option.value = credit.id;
-        option.selected = credit.id === this.credit?.id;
-        select.append(option);
-      }
-      select.addEventListener("change", () => void this.run(async () => {
-        this.credit = this.credits.find((credit) => credit.id === select.value);
-        this.summary = this.credit ? await this.credit.summary() : undefined;
-        this.health = this.credit ? await this.credit.account.health().catch(() => undefined) : undefined;
-        this.closureSupport = this.credit ? await this.credit.closureSupport().catch(() => undefined) : undefined;
-        this.repaymentReview = undefined;
-        if (this.credit) this.loadRecentAction(this.credit.id);
-        else this.recentAction = undefined;
-        this.review = undefined;
-        this.render();
+    this.body.setAttribute("aria-labelledby", `termbook-tab-${this.tab}`);
+    if (this.credits.length > 1 && this.accountView === "overview") {
+      const picker = dropdown("Credit account", this.credit?.id ?? "", this.credits.map((credit) => ({ value: credit.id, label: `Credit ${compactAddress(credit.id)}` })), (id) => void this.run(async () => {
+        this.credit = this.credits.find((credit) => credit.id === id); this.review = undefined; this.repaymentReview = undefined; this.detailsOpen = false;
+        await this.refreshCredit(); if (this.credit) this.loadRecentAction(this.credit.id);
       }));
-      row.append(select);
-      if (!this.summary || !["reserved", "collateral_locking", "collateral_proving", "account_creating"].includes(this.summary.facility)) {
-        row.append(this.button("New credit", () => { this.credit = undefined; this.summary = undefined; this.health = undefined; this.recentAction = undefined; this.tab = "account"; this.render(); }));
-      }
-      this.body.append(row);
+      picker.classList.add("credit-picker"); this.body.append(picker);
     }
-    if (this.tab === "account") this.renderAccount();
-    else this.renderApp();
+    if (this.tab === "account") this.renderAccount(); else this.renderApp();
+    this.detailHeight(); this.body.scrollTop = scroll; this.setBusy();
   }
 
   private renderAccount(): void {
-    if (this.credit && this.summary) {
-      const card = element("div", undefined, "card");
-      card.append(element("h3", "Credit account"));
-      for (const [label, value] of [
-        ["Status", this.summary.facility], ["Limit", this.summary.limit.toString()],
-        ["Debt", this.summary.debt.toString()], ["Account", this.summary.account ?? "Pending"],
-        ["Recovery health", this.summary.debt === 0n ? "No debt" : this.health?.value === null || !this.health ? "Unavailable" : `${this.health.value} bps (${this.health.state})`],
-      ]) card.append(element("p", `${label}: ${value}`));
-      const actions = element("div", undefined, "actions");
-      actions.append(this.button("Refresh", async () => {
-        this.summary = await this.credit!.summary(); this.health = await this.credit!.account.health().catch(() => undefined);
-        this.closureSupport = await this.credit!.closureSupport().catch(() => undefined); this.render();
-      }));
-      if (this.summary.facility === "ready" || this.summary.facility === "closing") {
-        actions.append(this.button("Review repayment", async () => {
-          this.repaymentReview = await this.credit!.reviewRepayment({ amount: "max", from: "wallet" });
-          this.render();
-        }));
-      }
-      if (this.repaymentReview) {
-        const review = this.repaymentReview;
-        card.append(element("p", `Repay current debt ${review.debt}. Maximum wallet payment ${review.cap}, including interest until ${new Date(review.deadline * 1000).toLocaleTimeString()}. Only the debt due at settlement is transferred.`));
-        actions.append(this.button("Confirm repayment", async () => {
-          const result = await this.credit!.repay({ amount: "max", from: "wallet", maxPayment: review.cap, deadline: review.deadline });
-          this.repaymentReview = undefined;
-          this.showStatus(`Repayment ${result.status}; paid ${result.applied}; remaining debt ${result.remaining}.${result.approvalCleanupRequired ? " Clear the unused token approval in your wallet." : ""}`);
-          this.summary = await this.credit!.summary(); this.render();
-        }, true));
-      }
-      if (this.summary.facility === "ready" || this.summary.facility === "closing") {
-        actions.append(this.button(this.summary.facility === "closing" ? "Continue closure" : "Close facility", async () => {
-          await this.closeFacility();
-        }));
-        if (this.summary.facility === "ready" && this.closureSupport?.retention) {
-          card.append(element("p", "You can repay and keep the position. This freezes trading and requires full repayment before account ownership and collateral are released."));
-          actions.append(this.button("Repay and keep position", () => this.closeFacility("retain")));
-        }
-      }
-      if (["reserved", "collateral_locking", "collateral_proving", "account_creating"].includes(this.summary.facility)) {
-        actions.append(this.button("Continue setup", () => this.resumeSetup()));
-      }
-      card.append(actions);
-      this.body.append(card);
-      return;
+    if (this.accountView === "setup" || this.credit && this.summary && ["reserved", "collateral_locking", "collateral_proving", "account_creating"].includes(this.summary.facility)) { this.renderSetup(); return; }
+    if (this.accountView === "offer" && this.offers.length) { this.renderOffers(); return; }
+    if (this.accountView === "repayment" && this.credit && this.repaymentReview) { this.renderRepayment(); return; }
+    if (this.accountView === "closure" && this.credit && this.summary) { this.renderClosure(); return; }
+    if (!this.credit || !this.summary || this.accountView === "collateral") { this.renderCollateral(); return; }
+    const summary = this.summary;
+    const token = this.settlement ?? this.asset();
+    const used = this.detail("revolving", 26) === false ? BigInt(String(this.detail("drawn", 12) ?? summary.limit)) : summary.debt;
+    const available = summary.limit > used ? summary.limit - used : 0n;
+    this.body.append(context("Your credit", this.houseIdentity()), hero("Debt", summary.debt, token), pair(["Limit", summary.limit], ["Available", available], token));
+    const accountData = element("div", undefined, "account-data");
+    const apr = this.detail("aprBps", 30); const maturity = Number(this.detail("maturity", 13));
+    accountData.append(rows([["APR", apr === undefined ? "—" : `${Number(apr) / 100}%`], ["Due", Number.isFinite(maturity) && maturity > 0 ? new Date(maturity * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—"]]));
+    const network = element("div", undefined, "network-row");
+    network.append(element("span", this.client.config.chainId === 10143 ? "Monad testnet" : this.client.config.chainId === 143 ? "Monad" : `Chain ${this.client.config.chainId}`), healthText(summary.debt === 0n ? null : this.health?.value, this.health?.state));
+    accountData.append(network); this.body.append(accountData);
+    const details: [string, string | Node][] = [["Status", summary.facility.replaceAll("_", " ")], ["Collateral", this.collateralLabel()]];
+    if (summary.account) details.unshift(["Credit account", explorer(summary.account, this.client.config.chainId, "Credit Account contract")]);
+    const house = this.detail("house", 3); if (typeof house === "string") details.push(["House", explorer(house as `0x${string}`, this.client.config.chainId, "House contract")]);
+    const refresh = this.button("Refresh account", () => this.refreshCredit()); refresh.className = "text-button";
+    this.body.append(this.disclosure("Details", rows(details), refresh));
+    if (["ready", "closing"].includes(summary.facility)) {
+      if (summary.debt > 0n) this.footer.append(this.button("Repay", async () => { this.repaymentReview = await this.credit!.reviewRepayment({ amount: "max", from: "wallet" }); this.navigate("repayment"); }, true));
+      else if (summary.facility === "ready") this.footer.append(this.button("Use in app", async () => { this.tab = "app"; if (this.action) await this.reviewAction(); this.render(); }, true));
+      else this.footer.append(this.button("Continue closure", () => { this.navigate("closure"); }, true));
+      const secondary = element("div", undefined, "secondary");
+      if (summary.facility === "ready" || summary.debt > 0n) secondary.append(this.control(summary.facility === "closing" ? "Continue closure" : "Close credit", () => this.navigate("closure")));
+      if (summary.facility === "ready") secondary.append(this.control("New credit", () => this.newCredit()));
+      this.footer.append(secondary);
+    } else {
+      this.body.append(element("p", `Credit ${summary.facility.replaceAll("_", " ")}.`, "notice"));
+      this.footer.append(["closed", "aborted", "liquidated"].includes(summary.facility) ? this.button("New credit", () => this.newCredit(), true) : this.button("Refresh account", () => this.refreshCredit(), true));
     }
-    if (!this.market || this.markets.length === 0) {
-      this.body.append(element("p", "No collateral market is currently admitted. Try again after governance and the market operator publish one.", "muted"));
-      return;
+  }
+
+  private newCredit(): void {
+    this.credit = undefined; this.summary = undefined; this.details = undefined; this.health = undefined; this.recentAction = undefined; this.repaymentReview = undefined; this.review = undefined; this.offer = undefined; this.offers = []; this.tab = "account"; this.navigate("collateral");
+  }
+
+  private renderCollateral(): void {
+    this.body.append(context("Set up credit"));
+    if (!this.market || !this.markets.length) { this.body.append(element("p", "No collateral market is available.", "notice")); this.footer.append(this.button("Retry", () => this.load(), true)); return; }
+    const market = this.market;
+    const walletRow = element("div", undefined, "wallet-row");
+    walletRow.append(element("span", market.kind === "solana" ? "Solana" : market.chainId === 11155111 ? "Ethereum testnet" : market.chainId === 1 ? "Ethereum" : `Chain ${market.chainId}`));
+    const sourceAccount = this.sourceWallet?.account;
+    const sourceAddress = sourceAccount ? sourceAccount.namespace === "solana" ? solanaPubkeyBase58(sourceAccount.accountBytes) : sourceAccount.accountBytes : undefined;
+    const connect = this.button(sourceAddress ? compactAddress(sourceAddress) : "Connect wallet", async () => { this.sourceWallet = await this.client.sourceWallet(this.market!); }); connect.className = "wallet-button"; walletRow.append(connect); this.body.append(walletRow);
+    this.body.append(this.selectField("Asset", dropdown("Collateral asset", market.id, this.markets.map((item) => ({ value: item.id, label: item.label })), (id) => {
+      this.market = this.markets.find((item) => item.id === id); this.sourceWallet = undefined; this.intent = undefined; this.offers = []; this.offer = undefined; this.amountText = ""; this.render();
+    })));
+    this.body.append(this.input("Collateral", this.amountText, (value) => { this.amountText = value; }, market.label));
+    const fields = element("div", undefined, "two-fields");
+    fields.append(this.input(this.action ? "Limit cap (optional)" : "Limit", this.limitText, (value) => { this.limitText = value; }, this.settlement?.symbol ?? "units"), this.input("Term", this.durationDays, (value) => { this.durationDays = value; }, "days"));
+    this.body.append(fields);
+    const find = this.button("Find offers", () => this.findOffers(), true); find.disabled = !this.sourceWallet; this.footer.append(find);
+  }
+
+  private selectField(label: string, select: HTMLElement): HTMLElement {
+    const field = element("div", undefined, "field"); const name = element("label", label, "field-label"); const trigger = select.querySelector("button");
+    if (trigger) { trigger.id = `termbook-field-${++this.fieldSeq}`; name.htmlFor = trigger.id; } field.append(name, select); return field;
+  }
+
+  private renderRepayment(): void {
+    const review = this.repaymentReview!; const token = this.settlement ?? this.asset();
+    this.body.append(context("Repay", this.control("Back", () => { this.repaymentReview = undefined; this.navigate("overview"); })), hero("Debt", review.debt, token));
+    this.body.append(rows([["Wallet", explorer(this.client.signer.address(), this.client.config.chainId, "payment wallet")], ["Network", this.client.config.chainId === 10143 ? "Monad testnet" : this.client.config.chainId === 143 ? "Monad" : `Chain ${this.client.config.chainId}`], ["Payment cap", money(review.cap, token)]]));
+    this.body.append(element("p", "Pays only the debt due.", "risk"), this.disclosure("Details", section("Payment", element("p", `The cap allows for interest accrued until ${new Date(review.deadline * 1000).toLocaleTimeString()}. Only the debt due is transferred.`, "detail-copy")), section("After repayment", element("p", "Your credit stays open. Collateral remains locked until you close the facility.", "detail-copy"))));
+    this.footer.append(this.button("Confirm repayment", async () => {
+      const result = await this.credit!.repay({ amount: "max", from: "wallet", maxPayment: review.cap, deadline: review.deadline });
+      this.repaymentReview = undefined; await this.refreshCredit(); this.accountView = "overview"; this.detailsOpen = false; this.body.scrollTop = 0;
+      this.showStatus(`Repaid ${money(result.applied, token)}. Remaining debt ${money(result.remaining, token)}.${result.approvalCleanupRequired ? " Clear the unused token approval in your wallet." : ""}`);
+    }, true));
+  }
+
+  private renderClosure(): void {
+    const summary = this.summary!; const retaining = this.closureSupport?.retaining === true || this.closureMode === "retain";
+    this.body.append(context("Close credit", this.control("Back", () => this.navigate("overview"))), hero("Debt to settle", summary.debt, this.settlement ?? this.asset()));
+    if (this.closureSupport?.retention && summary.facility === "ready") {
+      const choice = element("div", undefined, "choice"); choice.setAttribute("role", "group"); choice.setAttribute("aria-label", "Position closure");
+      for (const [mode, label] of [["unwind", "Sell positions"], ["retain", "Keep positions"]] as const) {
+        const button = this.control(label, () => { this.closureMode = mode; this.render(); }, ""); button.setAttribute("aria-pressed", String(this.closureMode === mode)); choice.append(button);
+      }
+      this.body.append(choice);
     }
-    const form = element("div", undefined, "card");
-    form.append(element("h3", "Request credit"));
-    form.append(element("label", "Collateral market"));
-    const marketSelect = element("select");
-    for (const market of this.markets) {
-      const option = element("option", `${market.label} (${market.kind === "evm" ? market.chainId : "Solana"})`);
-      option.value = market.id; option.selected = market.id === this.market.id; marketSelect.append(option);
+    const recipient = this.detail("returnRecipient", 8);
+    const sourceMarket = this.collateralMarket();
+    this.body.append(rows([["Collateral returned", this.collateralLabel()], ["To wallet", sourceMarket?.kind === "evm" && typeof recipient === "string" && /^0x[a-fA-F0-9]{40}$/.test(recipient) ? explorer(recipient as `0x${string}`, sourceMarket.chainId, "collateral recipient") : "Source wallet"]]), element("p", "Full repayment is required before release.", "risk"));
+    const steps = element("ol", undefined, "steps");
+    const text = retaining ? [["Keep positions", "Trading stops. Supported positions stay in the account."], ["Repay debt", "The full debt must be settled before release."], ["Release", "Account ownership and collateral are released after repayment."]] : [["Sell positions", "Positions are sold to settle the debt."], ["Settle the balance", "Pay any shortfall. Any surplus is returned to your wallet."], ["Release collateral", "Collateral is released after full repayment."]];
+    text.forEach(([title, copy], index) => { const row = element("li"); const body = element("div"); body.append(element("h3", title), element("p", copy)); row.append(element("span", String(index + 1), "step-mark"), body); steps.append(row); });
+    this.body.append(this.disclosure("Details", steps));
+    this.footer.append(this.button(retaining && summary.debt > 0n ? "Repay and close" : summary.facility === "closing" ? "Continue closure" : "Close credit", () => this.closeFacility(summary.facility === "closing" ? undefined : this.closureMode), true));
+    if (summary.facility === "closing" && summary.debt > 0n) {
+      const secondary = element("div", undefined, "secondary"); secondary.append(this.button("Repay remaining debt", async () => { this.repaymentReview = await this.credit!.reviewRepayment({ amount: "max", from: "wallet" }); this.navigate("repayment"); })); secondary.firstElementChild!.className = "text-button"; this.footer.append(secondary);
     }
-    marketSelect.addEventListener("change", () => {
-      this.market = this.markets.find((market) => market.id === marketSelect.value);
-      this.sourceWallet = undefined; this.intent = undefined; this.offers = []; this.offer = undefined; this.render();
-    });
-    form.append(marketSelect);
-    const source = this.button(this.sourceWallet ? `Source wallet ${this.sourceWallet.account.accountBytes.slice(0, 12)}…` : "Connect source wallet", async () => {
-      this.sourceWallet = await this.client.sourceWallet(this.market!);
-      this.showStatus("Source wallet connected. Review collateral and terms."); this.render();
-    });
-    form.append(source);
-    form.append(this.input("Collateral amount", this.amountText, (value) => { this.amountText = value; }, `Decimal amount, ${this.market.decimals} decimals`));
-    form.append(this.input("Duration (days)", this.durationDays, (value) => { this.durationDays = value; }));
-    form.append(this.input(this.action ? "Borrow limit cap (optional, base units)" : "Borrow limit (base units)", this.limitText,
-      (value) => { this.limitText = value; }));
-    const controls = element("div", undefined, "actions");
-    controls.append(this.button("Find offers", () => this.findOffers(), true));
-    form.append(controls);
-    this.body.append(form);
-    if (this.offers.length) this.renderOffers();
+  }
+
+  private renderSetup(): void {
+    this.body.append(context("Set up credit"));
+    const stage = this.credit?.setup?.snapshot().stage ?? this.setupStage;
+    const names = [["reserved", "Reserve credit"], ["source_approved", "Lock collateral"], ["source_locked", "Verify collateral"], ["account_creating", "Create account"], ["ready", "Credit ready"]];
+    const current = stage === "ready" ? 4 : stage.includes("account") || stage.includes("activat") || stage === "collateral_proved" ? 3 : stage.includes("prov") || stage.includes("confirm") || stage.includes("bound") || stage === "source_locked" ? 2 : stage.includes("lock") || stage.includes("approv") ? 1 : 0;
+    const steps = element("ol", undefined, "steps"); names.forEach(([, title], index) => {
+      const row = element("li"); row.append(element("span", index < current ? "✓" : String(index + 1), `step-mark ${index < current ? "done" : index === current ? "current" : ""}`), element("div", title)); steps.append(row);
+    }); this.body.append(steps);
+    if (this.credit) this.footer.append(this.button(this.busy ? "Confirming…" : "Continue setup", () => this.resumeSetup(), true));
+    else { const button = this.button("Confirming…", () => {}, true); button.disabled = true; this.footer.append(button); }
   }
 
   private async closeFacility(mode?: "unwind" | "retain"): Promise<void> {
@@ -378,23 +533,24 @@ export class TermbookModal {
         closed: "Facility closed.",
       }[stage]) });
     } finally {
-      this.summary = await this.credit!.summary();
-      this.closureSupport = await this.credit!.closureSupport().catch(() => undefined);
+      await this.refreshCredit();
+      if (this.summary?.facility === "closed") { this.accountView = "overview"; this.detailsOpen = false; this.body.scrollTop = 0; }
       this.render();
     }
   }
 
-  private input(label: string, value: string, update: (value: string) => void, hint?: string): HTMLDivElement {
-    const wrapper = element("div");
+  private input(label: string, value: string, update: (value: string) => void, unit?: string): HTMLDivElement {
+    const wrapper = element("div", undefined, "field");
     const input = element("input");
     const id = `termbook-field-${++this.fieldSeq}`;
     input.id = id;
     input.value = value;
+    input.inputMode = "decimal"; input.autocomplete = "off";
     input.addEventListener("input", () => update(input.value));
-    const fieldLabel = element("label", label);
+    const fieldLabel = element("label", label, "field-label");
     fieldLabel.htmlFor = id;
-    wrapper.append(fieldLabel, input);
-    if (hint) wrapper.append(element("small", hint));
+    const box = element("span", undefined, "input"); box.append(input); if (unit) box.append(element("span", unit));
+    wrapper.append(fieldLabel, box);
     return wrapper;
   }
 
@@ -403,10 +559,10 @@ export class TermbookModal {
     if (!this.client.config.actions?.find((item) => item.capability === this.action?.capability) && this.action) {
       throw new Error("capability-denied");
     }
-    const amount = parseUnits(this.amountText, this.market.decimals);
+    const amount = parseAmount(this.amountText, this.market.decimals);
     const days = Number(this.durationDays);
     if (amount <= 0n || !Number.isSafeInteger(days) || days < 1 || days > 365) throw new Error("credit-terms-invalid");
-    const limit = this.limitText ? BigInt(this.limitText) : undefined;
+    const limit = this.limitText ? parseAmount(this.limitText, this.settlement?.decimals ?? 0) : undefined;
     if (!this.action && (!limit || limit <= 0n)) throw new Error("credit-limit-required");
     const owner = this.sourceWallet.account;
     const collateral = this.market.kind === "evm"
@@ -422,65 +578,63 @@ export class TermbookModal {
     this.showStatus("Requesting House offers…");
     this.intent = this.client.intent({ collateral, credit: { duration: days * 86400, limit }, action: this.action ? this.validatedAction() : undefined });
     this.offers = await this.intent.offers();
-    this.offer = undefined;
-    this.showStatus(this.offers.length ? "Select an offer to review its terms." : "No compatible House offer is available.");
+    this.offer = this.offers[0];
+    this.accountView = this.offer ? "offer" : "collateral"; this.detailsOpen = false; this.body.scrollTop = 0;
+    this.showStatus(this.offers.length ? "" : "No compatible House offer is available.");
     this.render();
   }
 
   private renderOffers(): void {
-    const section = element("div");
-    section.append(element("h3", "House offers"));
-    for (const offer of this.offers) {
-      const card = element("div", undefined, "card offer");
-      const detail = element("div");
-      detail.append(element("p", `Limit ${offer.limit} base units · APR ${offer.aprBps / 100}%`));
-      if (offer.estimatedTotalCost !== undefined) detail.append(element("p", `Estimated total cost ${offer.estimatedTotalCost} base units for a ${offer.costAssumptions?.draw ?? 0n} base-unit draw over ${offer.costAssumptions?.durationSeconds ?? 0} seconds.`));
-      if (offer.riskTerms) detail.append(element("p", `Required initial health ${offer.riskTerms.initialBps} bps · Recovery threshold ${offer.riskTerms.liquidationBps} bps`));
-      detail.append(element("small", `Fee ${offer.originationFee} · Bond ${offer.reservationBond} · Maturity ${new Date(offer.maturity * 1000).toLocaleString()}`));
-      card.append(detail, this.button("Review terms", () => { this.offer = offer; this.render(); }));
-      section.append(card);
-    }
-    if (this.offer) {
-      const terms = element("div", undefined, "card");
-      terms.append(element("h3", "Confirm offer"));
-      terms.append(element("p", `House ${this.offer.house}`, "mono"));
-      terms.append(element("p", `Collateral ${this.offer.collateralAmount} · Credit ${this.offer.limit} · APR ${this.offer.aprBps / 100}%`));
-      terms.append(element("p", `Origination fee ${this.offer.originationFee} · Reservation bond ${this.offer.reservationBond}`));
-      terms.append(element("p", this.offer.retentionSupported ? "Exit options: unwind positions, or repay and keep positions after verified ownership release." : "Exit option: unwind positions and repay before closure."));
-      if (this.offer.reservationTerms) {
-        const reservation = this.offer.reservationTerms;
-        terms.append(element("p", `Reservation rate ${reservation.annualRateBps / 100}% annually on the reserved limit until ready or the setup deadline.`));
-        terms.append(element("p", `Setup fee ${reservation.readyFee} · Abandonment fee ${reservation.abandonFee + reservation.repeatCharge} · Expiry fee ${reservation.expiryFee + reservation.repeatCharge}.`));
-        terms.append(element("p", "Unused bond returns to the authorized payer. An attested protocol setup failure refunds the full bond."));
-      }
-      if (this.offer.estimatedTotalCost !== undefined) terms.append(element("p", `Estimated total cost ${this.offer.estimatedTotalCost} base units for a ${this.offer.costAssumptions?.draw ?? 0n} base-unit draw over ${this.offer.costAssumptions?.durationSeconds ?? 0} seconds.`));
-      if (this.offer.riskTerms) terms.append(element("p", `Initial ${this.offer.riskTerms.initialBps} · Maintenance ${this.offer.riskTerms.maintenanceBps} · Watch ${this.offer.riskTerms.watchBps} · Freeze ${this.offer.riskTerms.freezeBps} · Recovery ${this.offer.riskTerms.liquidationBps} bps`));
-      terms.append(element("p", `Expires ${new Date(this.offer.expiry * 1000).toLocaleString()}`));
-      terms.append(this.button("Accept offer", () => this.acceptOffer(), true));
-      section.append(terms);
-    }
-    this.body.append(section);
+    const offer = this.offer ?? this.offers[0]; if (!offer) { this.navigate("collateral"); return; }
+    this.offer = offer;
+    const token = this.settlement ?? this.asset(offer.settlementAsset);
+    const house = element("div", "House ", "house");
+    if (this.offers.length > 1) house.append(dropdown("House offer", offer.id, this.offers.map((value) => ({ value: value.id, label: `${compactAddress(value.house)} · ${value.aprBps / 100}%` })), (id) => { this.offer = this.offers.find((value) => value.id === id); this.detailsOpen = false; this.render(); }, true));
+    house.append(explorer(offer.house, this.client.config.chainId, "House contract", false, this.offers.length > 1));
+    this.body.append(context("Offer", house), hero("Credit limit", offer.limit, token));
+    const strip = element("div", undefined, "terms"); strip.append(element("span", `${offer.aprBps / 100}% APR`), element("span", `${this.durationDays} days`)); this.body.append(strip);
+    const collateral = this.market ? `${amountText(offer.collateralAmount ?? parseAmount(this.amountText, this.market.decimals), this.market.decimals)} ${this.market.label}` : "Unavailable";
+    const collateralValue = element("span", collateral);
+    const edit = this.control("Edit", () => this.navigate("collateral")); edit.setAttribute("aria-label", "Edit collateral");
+    const collateralRow = rows([["Collateral", collateralValue]]); collateralRow.querySelector("dd")!.append(edit);
+    this.body.append(collateralRow, rows([["Fees", money(offer.originationFee + (offer.reservationTerms?.readyFee ?? 0n), token)], ["Bond", money(offer.reservationBond, token)]]));
+    const costs: [string, string | Node][] = [["Origination fee", money(offer.originationFee, token)], ["Charged", "Once, on first borrowing"]];
+    if (offer.reservationTerms) costs.push(["Setup fee", money(offer.reservationTerms.readyFee, token)], ["Reservation rate", `${offer.reservationTerms.annualRateBps / 100}% APR`], ["Abandonment fee", money(offer.reservationTerms.abandonFee + offer.reservationTerms.repeatCharge, token)], ["Expiry fee", money(offer.reservationTerms.expiryFee + offer.reservationTerms.repeatCharge, token)]);
+    if (offer.estimatedTotalCost !== undefined) costs.push(["Estimated cost", money(offer.estimatedTotalCost, token)]);
+    const costSection = section("Costs", rows(costs));
+    if (offer.costAssumptions) costSection.append(element("p", `Estimate assumes ${money(offer.costAssumptions.draw, token)} drawn for ${offer.costAssumptions.durationSeconds / 86400} days.`, "detail-copy"));
+    if (offer.reservationTerms) costSection.append(element("p", "Reservation charges run until credit is ready or the setup deadline. Unused bond returns to the authorized payer; an attested protocol setup failure refunds the full bond.", "detail-copy"));
+    const risks: [string, string | Node][] = [];
+    if (offer.riskTerms) for (const [label, value] of [["Required health", offer.riskTerms.initialBps], ["Maintenance", offer.riskTerms.maintenanceBps], ["Watch", offer.riskTerms.watchBps], ["Freeze", offer.riskTerms.freezeBps], ["Recovery below", offer.riskTerms.liquidationBps]] as const) risks.push([label, `${(Number(value) / 10000).toFixed(2)}×`]);
+    risks.push(["Due", new Date(offer.maturity * 1000).toLocaleDateString()], ["Offer expires", new Date(offer.expiry * 1000).toLocaleString()]);
+    const riskSection = section("Terms", rows(risks), element("p", offer.retentionSupported ? "Repay and sell positions, or repay fully and keep supported positions." : "Sell positions and repay fully before closure.", "detail-copy"));
+    this.body.append(this.disclosure("Terms & risk", costSection, riskSection));
+    const risk = element("p", undefined, "risk"); const warning = element("span", "!", "warning-mark"); warning.setAttribute("aria-hidden", "true"); risk.append(warning, element("span", "Recovery can sell your positions and collateral.")); this.body.append(risk);
+    this.footer.append(this.button("Accept offer", () => this.acceptOffer(), true));
   }
 
   private async acceptOffer(): Promise<void> {
     if (!this.intent || !this.offer || !this.sourceWallet) throw new Error("offer-required");
-    this.showStatus("Waiting for wallet approvals and collateral confirmation…");
+    this.accountView = "setup"; this.setupStage = "reserved"; this.detailsOpen = false; this.body.scrollTop = 0;
+    this.showStatus("Confirm the request in your wallet."); this.render();
     try {
       this.credit = await this.intent.accept({ offer_id: this.offer.id, reviewedOffer: this.offer, source_wallet: this.sourceWallet,
         on_progress: (checkpoint, binding) => {
+          this.setupStage = checkpoint.stage;
           this.saveId(binding.creditId);
-          this.showStatus(`Collateral setup: ${checkpoint.stage.replaceAll("_", " ")}.`);
+          this.showStatus(checkpoint.stage.replaceAll("_", " ")); this.render();
           try { localStorage.setItem(`${this.storageKey()}:setup:${binding.creditId}`, stringify({ binding, checkpoint })); } catch { /* storage is optional */ }
         } });
     } catch (error) {
       if (error instanceof Error && ["offer-review-stale", "offer-not-found"].includes(error.message)) {
         this.offers = await this.intent.offers();
         this.offer = undefined;
+        this.accountView = "offer";
         this.showStatus("House terms changed. Review the current offers.");
         this.render();
         return;
       }
-      if (!(error instanceof CollateralSetupInterruptedError)) throw error;
+      if (!(error instanceof CollateralSetupInterruptedError)) { this.accountView = "offer"; throw error; }
       this.credit = error.setup.credit;
       this.credit.setup = error.setup;
       this.saveId(this.credit.id);
@@ -491,10 +645,10 @@ export class TermbookModal {
     this.loadRecentAction(this.credit.id);
     await this.trackCredit(this.credit, this.offer.house).catch(() => undefined);
     if (!this.credits.some((credit) => credit.id === this.credit!.id)) this.credits.push(this.credit);
-    this.summary = await this.credit.summary();
-    this.closureSupport = await this.credit.closureSupport().catch(() => undefined);
+    await this.refreshCredit();
     this.offers = []; this.offer = undefined;
-    if (this.summary.facility === "ready" && this.action) this.tab = "app";
+    this.accountView = "overview";
+    if (this.summary?.facility === "ready" && this.action) { this.tab = "app"; await this.reviewAction(); }
     this.render();
   }
 
@@ -521,101 +675,121 @@ export class TermbookModal {
       }
       this.credit.setup = await this.client.collateral_setup(saved, { sourceWallet: this.sourceWallet,
         onProgress: (checkpoint, binding) => {
-          this.showStatus(`Collateral setup: ${checkpoint.stage.replaceAll("_", " ")}.`);
+          this.setupStage = checkpoint.stage; this.showStatus(checkpoint.stage.replaceAll("_", " ")); this.render();
           try { localStorage.setItem(`${this.storageKey()}:setup:${binding.creditId}`, stringify({ binding, checkpoint })); } catch { /* storage is optional */ }
         } });
     }
     const checkpoint = await this.credit.setup.resume();
     this.showStatus(`Collateral setup: ${checkpoint.stage.replaceAll("_", " ")}.`);
-    this.summary = await this.credit.summary();
-    if (checkpoint.stage === "ready" && this.action) this.tab = "app";
+    await this.refreshCredit();
+    if (checkpoint.stage === "ready") { this.accountView = "overview"; this.showStatus(""); if (this.action) { this.tab = "app"; await this.reviewAction(); } }
     this.render();
   }
 
+  private spotMarket() {
+    return this.client.config.use_case === "spot" ? this.client.config.integration_definition?.markets.find((market) => market.market_id === String(this.action?.params.market_id)) : undefined;
+  }
+
+  private actionTitle(): string {
+    const market = this.spotMarket();
+    if (market && this.action?.capability === "place_order") return `${this.action.params.direction === "sell" ? "Sell" : "Buy"} ${this.asset(market.base_asset).symbol}`;
+    return this.client.config.actions?.find((item) => item.capability === this.action?.capability)?.label ?? "Application action";
+  }
+
+  private renderSpotFields(container: HTMLElement): void {
+    const action = this.action!; const market = this.spotMarket()!;
+    const amount = action.params.amount as Record<string, unknown>;
+    const mode = amount && "receive" in amount ? "receive" : "spend";
+    const buy = action.params.direction !== "sell";
+    const token = this.asset(mode === "spend" ? buy ? market.quote_asset : market.base_asset : buy ? market.base_asset : market.quote_asset);
+    const raw = amount?.[mode]; const text = /^\d+$/.test(String(raw)) ? formatUnits(BigInt(String(raw)), token.decimals) : String(raw ?? "");
+    const fields = element("div", undefined, "two-fields");
+    fields.append(this.input(mode === "spend" ? "Spend amount" : "Receive amount", text, (value) => {
+      let next: string; try { next = parseAmount(value, token.decimals).toString(); } catch { next = value; }
+      this.action = { ...this.action!, params: setValue(this.action!.params, `amount.${mode}`, next) }; this.invalidateReview();
+    }, token.symbol));
+    if (action.params.order_type === "market") {
+      const slippage = String(action.params.slippage_bps ?? 50);
+      const values = [...new Set(["50", "100", slippage])];
+      fields.append(this.selectField("Slippage", dropdown("Slippage", slippage, values.map((value) => ({ value, label: `${Number(value) / 100}%` })), (value) => {
+        this.action = { ...this.action!, params: setValue(this.action!.params, "slippage_bps", value) }; this.invalidateReview();
+      })));
+    } else fields.append(this.input("Limit price", /^\d+$/.test(String(action.params.limit_price)) ? formatUnits(BigInt(String(action.params.limit_price)), 18) : String(action.params.limit_price ?? ""), (value) => {
+      let next: string; try { next = parseAmount(value, 18).toString(); } catch { next = value; }
+      this.action = { ...this.action!, params: setValue(this.action!.params, "limit_price", next) }; this.invalidateReview();
+    }, `${this.asset(market.quote_asset).symbol}/${this.asset(market.base_asset).symbol}`));
+    container.append(fields);
+  }
+
   private renderApp(): void {
-    if (this.recentAction) {
-      const status = element("div", undefined, "card");
-      status.append(element("h3", "Recent action"), element("p", `${this.recentAction.capability.replaceAll("_", " ")}: ${this.recentAction.status}`));
-      if (this.recentAction.tx) status.append(element("p", this.recentAction.tx, "mono"));
-      if (this.recentAction.status === "pending" && this.credit) {
-        status.append(this.button("Resume action", async () => {
-          const result = await this.credit!.app.resumeExecution({ checkpoint: this.recentAction?.checkpoint,
-            signal: this.operationAbort.signal, onProgress: (checkpoint, outcomes) => this.executionProgress(checkpoint, outcomes) });
-          this.saveRecentAction(result); this.showStatus(`Action ${result.status}.`); this.render();
-        }));
+    if (this.recentAction && (this.recentAction.status === "pending" || !this.review)) {
+      const recent = this.recentAction;
+      this.body.append(context(recent.status === "settled" ? "Action complete" : recent.status === "pending" ? "Action pending" : `Action ${recent.status}`), rows([["Action", this.client.config.actions?.find((item) => item.capability === recent.capability)?.label ?? recent.capability.replaceAll("_", " ")], ["Status", recent.status]]));
+      if (recent.tx) this.body.append(rows([["Transaction", explorer(recent.tx, this.client.config.chainId, "transaction", true)]]));
+      if (recent.status === "pending" && this.credit) {
+        this.body.append(element("p", "Waiting for the application to settle.", "notice"));
+        this.footer.append(this.button("Resume action", async () => { const result = await this.credit!.app.resumeExecution({ checkpoint: recent.checkpoint, signal: this.operationAbort.signal, onProgress: (checkpoint, outcomes) => this.executionProgress(checkpoint, outcomes) }); this.saveRecentAction(result); await this.refreshCredit(); this.showStatus(`Action ${result.status}.`); }, true));
+      } else {
+        this.footer.append(this.button("View account", () => { this.tab = "account"; this.navigate("overview"); }, true));
+        const secondary = element("div", undefined, "secondary"); secondary.append(this.button("New action", async () => { this.recentAction = undefined; if (this.action && this.summary?.facility === "ready") await this.reviewAction(); })); secondary.firstElementChild!.className = "text-button"; this.footer.append(secondary);
       }
-      this.body.append(status);
-    }
-    if (!this.credit || !this.summary || this.summary.facility !== "ready") {
-      this.body.append(element("p", this.action ? "Your saved action is ready for review after a compatible credit is ready." : "Select or create a ready credit in Account.", "muted"));
-      if (this.action) {
-        const card = element("div", undefined, "card");
-        card.append(element("h3", this.action.capability.replaceAll("_", " ")),
-          element("pre", stringify(this.action.params), "mono"));
-        this.body.append(card);
-      }
-      this.body.append(this.button("Go to Account", () => { this.tab = "account"; this.render(); }));
       return;
     }
+    if (!this.credit || !this.summary || this.summary.facility !== "ready") {
+      this.body.append(context(this.action ? this.actionTitle() : "Application credit", this.appBrand()), element("p", "Set up credit to continue.", "notice"));
+      this.footer.append(this.button("Set up credit", () => { this.tab = "account"; this.navigate(this.credit ? "overview" : "collateral"); }, true)); return;
+    }
     const definitions = this.client.config.actions ?? [];
-    if (!definitions.length) { this.body.append(element("p", "No application capability is published.", "muted")); return; }
-    if (!this.preparedAction || this.editingAction) {
-      const picker = element("select");
-      const placeholder = element("option", "Select an action"); placeholder.value = ""; picker.append(placeholder);
-      for (const definition of definitions.filter((item, index) => definitions.findIndex((entry) => entry.capability === item.capability) === index)) {
-        const option = element("option", definition.label);
-        option.value = definition.capability; option.selected = this.action?.capability === definition.capability; picker.append(option);
-      }
-      picker.addEventListener("change", () => { this.action = picker.value ? { use_case: this.client.config.use_case, capability: picker.value, params: {} } : undefined; this.review = undefined; this.render(); });
-      this.body.append(element("label", "Application action"), picker);
+    if (!definitions.length) { this.body.append(context("App"), element("p", "No application action is available.", "notice")); return; }
+    if (!this.preparedAction) {
+      const choices = definitions.filter((item, index) => definitions.findIndex((entry) => entry.capability === item.capability) === index).map((item) => ({ value: item.capability, label: item.label }));
+      this.body.append(this.selectField("Action", dropdown("Application action", this.action?.capability ?? "", [{ value: "", label: "Select an action" }, ...choices], (value) => { this.action = value ? { use_case: this.client.config.use_case, capability: value, params: {} } : undefined; this.review = undefined; this.detailsOpen = false; this.render(); })));
     }
     if (!this.action) return;
     const definition = definitions.find((item) => matchesAction(item, this.action!)) ?? definitions.find((item) => item.capability === this.action!.capability);
-    if (!definition) { this.body.append(element("p", "This action is no longer available.", "error")); return; }
-    const form = element("div", undefined, "card");
-    form.append(element("h3", definition.label));
-    if (this.preparedAction && !this.editingAction) {
-      form.append(element("pre", stringify(this.action.params), "mono"));
-      form.append(this.button("Edit trade", () => { this.editingAction = true; this.review = undefined; this.render(); }));
-    } else this.renderActionFields(form, definition);
-    const controls = element("div", undefined, "actions");
-    controls.append(this.button("Review action", async () => {
-      this.review = await this.credit!.app.review(this.validatedAction());
-      this.showStatus("Review the fresh funding and debt amounts before confirming."); this.render();
-    }));
-    form.append(controls);
-    if (this.review) {
-      const review = element("div", undefined, "card");
-      review.append(element("h3", "Execution review"));
-      review.append(element("p", `Required input ${this.review.requiredInput} · Free account assets ${this.review.freeAssets}`));
-      review.append(element("p", `New draw ${this.review.draw} · Debt ${this.review.currentDebt} → ${this.review.projectedDebt}`));
-      if (this.review.nativeValue) review.append(element("p", `MON attached to calls ${formatEther(this.review.nativeValue)}`));
-      for (const spend of this.review.spending ?? []) review.append(element("p", `Spend ${spend.amount} of token ${spend.token}`));
-      review.append(element("p", `Origination fee ${this.review.originationFee} · Current recovery health ${this.review.healthBps === null ? "unavailable" : `${this.review.healthBps} bps (${this.review.healthState})`}`));
-      review.append(element("p", `Projected recovery health ${this.review.projectedHealthBps} bps · Required ${this.review.initialHealthBps} bps`));
-      review.append(element("p", `Projected recoverable value ${this.review.projectedRecoveryValue}`));
-      if (this.review.price) {
-        const label = this.review.boundKind === "min_output" ? "Minimum token output" : this.review.boundKind === "max_input" ? "Maximum token input"
-          : `${this.review.price.isMax ? "Maximum" : "Minimum"} execution price`;
-        review.append(element("p", `Slippage ${this.review.price.slippageBps} bps · ${label} ${this.review.price.bound}`));
-        review.append(element("small", "Token bounds use smallest token units. A changed bound requires a fresh review."));
+    if (!definition) { this.body.append(element("p", "This action is no longer available.", "notice error")); return; }
+    this.body.append(context(this.actionTitle(), this.appBrand()));
+    const market = this.spotMarket(); const simpleSpot = !!market && this.action.capability === "place_order" && this.preparedAction;
+    const review = this.review;
+    if (review && market && this.action.capability === "place_order") {
+      const amount = this.action.params.amount as Record<string, unknown>; const buy = this.action.params.direction === "buy";
+      const input = this.asset(buy ? market.quote_asset : market.base_asset); const output = this.asset(buy ? market.base_asset : market.quote_asset);
+      const spend = amount?.spend !== undefined ? BigInt(String(amount.spend)) : review.boundKind === "max_input" && review.price ? review.price.bound : undefined;
+      const receive = amount?.receive !== undefined ? BigInt(String(amount.receive)) : review.boundKind === "min_output" && review.price ? review.price.bound * 10000n / BigInt(10000 - review.price.slippageBps) : undefined;
+      const swap = element("div", undefined, "swap");
+      for (const [value, token, approximate] of [[spend, input, false], [receive, output, amount?.receive === undefined]] as const) {
+        const display = value === undefined ? "—" : amountText(value, token.decimals);
+        const side = element("div"); side.append(element("span", approximate && value !== undefined && !/^[≈<>]/.test(display) ? `≈ ${display}` : display, "swap-number"), element("span", token.symbol, "swap-symbol"));
+        if (token === output && review.price && review.boundKind === "min_output") side.append(element("span", `Min. ${money(review.price.bound, output)}`, "swap-min"));
+        else if (token === input && review.price && review.boundKind === "max_input") side.append(element("span", `Max. ${money(review.price.bound, input)}`, "swap-min"));
+        swap.append(side);
       }
-      if (!this.review.canExecute) review.append(element("p", "This action is below the required recovery health.", "error"));
-      review.append(element("small", `Settlement asset ${this.review.settlementAsset}. Amounts shown in smallest token units.`));
-      if (this.review.canExecute) review.append(this.button("Confirm action", async () => {
-        if (!this.review) throw new Error("action-review-required");
-        const result = await this.credit!.app.execute(this.validatedAction(), this.review, undefined, {
-          signal: this.operationAbort.signal, onProgress: (checkpoint, outcomes) => this.executionProgress(checkpoint, outcomes),
-        });
-        this.saveRecentAction(result);
-        this.review = undefined;
-        this.summary = await this.credit!.summary();
-        this.showStatus(`Action ${result.status}. Transaction ${result.tx ?? "unavailable"}.`);
-        this.render();
-      }, true));
-      form.append(review);
+      const arrow = element("span", undefined, "swap-arrow"); arrow.append(icon("arrow")); swap.append(arrow); this.body.append(swap);
     }
-    this.body.append(form);
+    const fields = element("div");
+    if (simpleSpot) this.renderSpotFields(fields); else this.renderActionFields(fields, definition);
+    if (!review && !simpleSpot) this.body.append(fields);
+    if (review) {
+      const token = this.asset(review.settlementAsset); const funding = pair(["New borrowing", review.draw, `Borrow fee ${money(review.draw > 0n ? review.originationFee : 0n, token)}`], ["Debt after", review.projectedDebt, healthText(review.projectedDebt === 0n ? null : review.projectedHealthBps, review.canExecute ? "healthy" : "frozen")], token); funding.classList.add("funding-review"); this.body.append(funding);
+      if (!review.canExecute) this.body.append(element("p", "Insufficient health. Reduce the amount.", "notice error"));
+    }
+    const tradeDetails = section("Trade"); if (simpleSpot || review) tradeDetails.append(fields);
+    if (review) {
+      const token = this.asset(review.settlementAsset); const derived = rows([["From account", money(review.requiredInput < review.freeAssets ? review.requiredInput : review.freeAssets, token)], ["Current debt", money(review.currentDebt, token)], ["Required input", money(review.requiredInput, token)]]); derived.classList.add("review-derived"); tradeDetails.append(derived);
+      const creditDetails: [string, string | Node][] = [["Credit limit", money(this.summary.limit, token)], ["Min. health", `${(Number(review.initialHealthBps) / 10000).toFixed(2)}×`], ["Recoverable value", money(review.projectedRecoveryValue, token)]];
+      if (this.summary.account) creditDetails.push(["Credit account", explorer(this.summary.account, this.client.config.chainId, "Credit Account contract")]);
+      creditDetails.push(["Settlement asset", explorer(review.settlementAsset, this.client.config.chainId, "settlement asset")]);
+      if (review.nativeValue) creditDetails.push(["Native value", money(review.nativeValue, this.asset(zeroAddress))]);
+      for (const spend of review.spending ?? []) creditDetails.push(["Token spending", money(spend.amount, this.asset(spend.token))]);
+      if (review.price && review.boundKind !== "min_output" && review.boundKind !== "max_input") creditDetails.push(["Execution price", amountText(review.price.bound, 18)]);
+      this.body.append(this.disclosure("Details", tradeDetails, section("Credit", rows(creditDetails))));
+    } else if (simpleSpot) this.body.append(this.disclosure("Details", tradeDetails));
+    if (!review) { this.footer.append(this.button("Review action", () => this.reviewAction(), true)); return; }
+    const confirm = this.button(market && this.action.capability === "place_order" ? this.action.params.direction === "sell" ? "Confirm sell" : "Confirm buy" : "Confirm action", async () => {
+      if (!this.review) throw new Error("action-review-required");
+      const result = await this.credit!.app.execute(this.validatedAction(), this.review, undefined, { signal: this.operationAbort.signal, onProgress: (checkpoint, outcomes) => this.executionProgress(checkpoint, outcomes) });
+      this.saveRecentAction(result); this.review = undefined; this.detailsOpen = false; this.body.scrollTop = 0; await this.refreshCredit(); this.showStatus(`Action ${result.status}.`);
+    }, true); confirm.disabled = !review.canExecute; this.footer.append(confirm);
   }
 
   private renderActionFields(container: HTMLElement, definition: CapabilityDefinition): void {
@@ -627,123 +801,81 @@ export class TermbookModal {
     const addField = (path: string | undefined, label: string, max?: string) => {
       if (path) fields.push({ argument: { source: "input", path, label, ...(max ? { min: "0", max } : {}) } as CapabilityCall["arguments"][number], type: "uint256" });
     };
-    for (const call of capabilityCalls(definition)) {
-      addField(call.valuePath, "MON value (wei)");
-      addField(call.spendPath, "Token amount (smallest units)");
-    }
-    addField(definition.price?.slippagePath, "Slippage (basis points)", "5000");
-    addField(definition.exposurePath, "Exposure (settlement units)");
+    for (const call of capabilityCalls(definition)) { addField(call.valuePath, "Native value (wei)"); addField(call.spendPath, "Token units"); }
+    addField(definition.price?.slippagePath, "Slippage (basis points)", "5000"); addField(definition.exposurePath, "Exposure (units)");
     const shown = new Set<string>();
     for (const { argument, type } of fields) {
       if (argument.source !== "input" || !argument.path || shown.has(argument.path)) continue;
-      shown.add(argument.path);
-      const path = argument.path;
-      const current = valueAt(this.action!.params, path);
-      const label = element("label", argument.label ?? path.replaceAll("_", " "));
-      const id = `termbook-field-${++this.fieldSeq}`;
-      label.htmlFor = id;
-      const choices = argument.choices;
-      let input: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
-      if (choices) {
-        const select = element("select");
-        const empty = element("option", "Select"); empty.value = ""; select.append(empty);
-        for (const choice of Object.keys(choices)) {
-          const option = element("option", choice); option.value = choice; option.selected = current === choice; select.append(option);
-        }
-        input = select;
-      } else if (type === "tuple" || type?.endsWith("]")) {
-        input = element("textarea");
-        input.value = current === undefined ? "" : stringify(current);
-      } else if (type === "bool") {
-        const select = element("select");
-        for (const [value, text] of [["", "Select"], ["true", "Yes"], ["false", "No"]]) {
-          const option = element("option", text); option.value = value; option.selected = current === (value === "true") && value !== "";
-          select.append(option);
-        }
-        input = select;
-      } else {
-        input = element("input");
-        input.value = current === undefined ? "" : String(current);
-      }
-      input.addEventListener("input", () => {
-        const next = input instanceof HTMLTextAreaElement ? (() => { try { return JSON.parse(input.value) as unknown; } catch { return input.value; } })()
-          : type === "bool" && !choices ? input.value === "true" ? true : input.value === "false" ? false : input.value
-          : input.value;
-        this.action = { ...this.action!, params: setValue(this.action!.params, path, next) };
-        this.review = undefined;
-        const oldReview = container.querySelector(".card");
-        oldReview?.remove();
-      });
-      input.id = id;
-      container.append(label, input);
-      if (argument.min || argument.max) container.append(element("small", `Allowed ${argument.min ?? "0"}–${argument.max ?? "contract limit"}`));
+      shown.add(argument.path); const path = argument.path; const current = valueAt(this.action!.params, path); const label = argument.label ?? path.replaceAll("_", " ");
+      const change = (next: unknown) => { this.action = { ...this.action!, params: setValue(this.action!.params, path, next) }; this.invalidateReview(); };
+      if (argument.choices) container.append(this.selectField(label, dropdown(label, String(current ?? ""), [{ value: "", label: "Select" }, ...Object.keys(argument.choices).map((value) => ({ value, label: value }))], change)));
+      else if (type === "bool") container.append(this.selectField(label, dropdown(label, current === undefined ? "" : String(current), [{ value: "", label: "Select" }, { value: "true", label: "Yes" }, { value: "false", label: "No" }], (value) => change(value === "true" ? true : value === "false" ? false : value))));
+      else if (type === "tuple" || type?.endsWith("]")) {
+        const field = element("div", undefined, "field"); const name = element("label", label, "field-label"); const input = element("textarea"); input.id = `termbook-field-${++this.fieldSeq}`; name.htmlFor = input.id; input.value = current === undefined ? "" : stringify(current);
+        input.addEventListener("input", () => { let value: unknown; try { value = JSON.parse(input.value); } catch { value = input.value; } change(value); }); field.append(name, input); container.append(field);
+      } else container.append(this.input(label, current === undefined ? "" : String(current), change));
     }
   }
 
   private renderStandardFields(container: HTMLElement): void {
-    const action = this.action!;
-    const category = this.client.config.use_case!;
-    const routes = this.client.config.actions!.filter((route) => route.capability === action.capability);
+    const category = this.client.config.use_case!; const capability = this.action!.capability;
+    const routes = this.client.config.actions!.filter((route) => route.capability === capability);
     const paths = routes.flatMap((route) => capabilityCalls(route).flatMap((call) => call.arguments.filter((argument) => argument.source === "input").map((argument) => argument.path!)));
-    const fields = standardActionFields(category, action.capability, action.params).filter((field) => !field.optional
-      || paths.some((path) => path === field.path || path.startsWith(`${field.path}.`)));
-    const change = (path: string, value: unknown, rerender = false) => {
-      this.action = { ...this.action!, params: setValue(this.action!.params, path, value) };
-      this.review = undefined;
-      if (rerender) this.render();
+    const change = (path: string, next: unknown, rerender = false) => {
+      this.action = { ...this.action!, params: setValue(this.action!.params, path, next) }; this.invalidateReview(); if (rerender) this.render();
     };
-    const select = (path: string, choices: string[], selected: unknown, onChange: (value: string) => void) => {
-      const input = element("select");
-      for (const value of ["", ...choices]) {
-        const option = element("option", value || "Select"); option.value = value; option.selected = selected === value; input.append(option);
-      }
-      const id = `termbook-field-${++this.fieldSeq}`;
-      const label = element("label", path.replaceAll("_", " ")); label.htmlFor = id; input.id = id;
-      input.addEventListener("change", () => onChange(input.value));
-      container.append(label, input);
-    };
+    const publishedMarkets = this.client.config.integration_definition?.markets ?? [];
+    const exposed = standardActionFields(category, capability, this.action!.params).map((field) => field.path);
+    for (const key of ["market_id", "direction", "order_type"] as const) {
+      if (!exposed.includes(key)) continue;
+      const values = key === "market_id" ? publishedMarkets.map((market) => market.market_id) : [...new Set(routes.map((route) => route.when?.[key]).filter((value): value is NonNullable<typeof value> => !!value))];
+      if (values.length === 1 && this.action!.params[key] === undefined) this.action = { ...this.action!, params: setValue(this.action!.params, key, values[0]) };
+    }
+    const fields = standardActionFields(category, capability, this.action!.params).filter((field) => !field.optional || paths.some((path) => path === field.path || path.startsWith(`${field.path}.`)));
     for (const field of fields) {
       let path = field.path;
-      if (category === "spot" && path === "amount") {
-        const eligible = routes.filter((route) => ["direction", "order_type"].every((key) => !action.params[key]
-          || !route.when?.[key as "direction" | "order_type"] || route.when[key as "direction" | "order_type"] === action.params[key]));
-        const modes = [...new Set(eligible.map((route) => route.when?.sizing).filter((mode): mode is "spend" | "receive" => !!mode))];
-        const amount = action.params.amount as Record<string, unknown> | undefined;
-        const mode = amount && "receive" in amount ? "receive" : amount && "spend" in amount ? "spend" : "";
-        select("Sizing", modes, mode, (next) => change("amount", next ? { [next]: "" } : {}, true));
-        if (!mode) continue;
-        path = `amount.${mode}`;
+      if (path === "market_id" && publishedMarkets.length) {
+        if (publishedMarkets.length > 1) container.append(this.selectField("Market", dropdown("Market", String(this.action!.params.market_id ?? ""), publishedMarkets.map((market) => ({ value: market.market_id, label: market.market_id })), (value) => change(path, value, true))));
+        continue;
       }
       if (field.choices) {
         const key = path as "direction" | "order_type";
-        const available = field.choices.filter((choice) => routes.some((route) => !route.when?.[key] || route.when[key] === choice));
-        select(path, available, valueAt(action.params, path), (next) => {
-          if (path === "order_type") {
-            const params = { ...this.action!.params }; delete params.slippage_bps; delete params.limit_price; delete params.expires_at;
-            this.action = { ...this.action!, params };
-          }
-          change(path, next, true);
-        });
+        const choices = field.choices.filter((value) => routes.some((route) => !route.when?.[key] || route.when[key] === value));
+        if (choices.length > 1) container.append(this.selectField(path === "direction" ? "Side" : "Order", dropdown(path === "direction" ? "Side" : "Order", String(valueAt(this.action!.params, path) ?? ""), [{ value: "", label: "Select" }, ...choices.map((value) => ({ value, label: value[0]!.toUpperCase() + value.slice(1) }))], (value) => {
+          if (path === "order_type") { const params = { ...this.action!.params }; delete params.slippage_bps; delete params.limit_price; delete params.expires_at; this.action = { ...this.action!, params }; }
+          if (path === "direction" && category === "spot") { const params = { ...this.action!.params }; delete params.amount; this.action = { ...this.action!, params }; }
+          change(path, value, true);
+        })));
         continue;
       }
-      const input = field.type === "json" && path === field.path ? element("textarea") : element("input");
-      const value = valueAt(action.params, path);
-      input.value = value === undefined ? "" : typeof value === "object" ? stringify(value) : String(value);
-      const id = `termbook-field-${++this.fieldSeq}`;
-      const label = element("label", `${path.replaceAll("_", " ")}${field.optional ? " (optional)" : ""}`);
-      label.htmlFor = id; input.id = id;
-      input.addEventListener("input", () => {
-        if (field.optional && input.value === "") {
-          const params = { ...this.action!.params }; delete params[path]; this.action = { ...this.action!, params }; this.review = undefined; return;
-        }
-        let next: unknown = input.value;
-        if (input instanceof HTMLTextAreaElement) { try { next = JSON.parse(input.value); } catch { /* Review rejects incomplete JSON. */ } }
-        else if (path === "expires_at" || path.startsWith("tick_")) next = Number(input.value);
+      if (category === "spot" && path === "amount") {
+        const action = this.action!; const eligible = routes.filter((route) => ["direction", "order_type"].every((key) => !action.params[key] || !route.when?.[key as "direction" | "order_type"] || route.when[key as "direction" | "order_type"] === action.params[key]));
+        const modes = [...new Set(eligible.map((route) => route.when?.sizing).filter((mode): mode is "spend" | "receive" => !!mode))];
+        const amount = this.action!.params.amount as Record<string, unknown> | undefined;
+        const mode = amount && "receive" in amount ? "receive" : amount && "spend" in amount ? "spend" : modes.length === 1 ? modes[0]! : "";
+        if (modes.length > 1) container.append(this.selectField("Amount type", dropdown("Amount type", mode, modes.map((value) => ({ value, label: value === "spend" ? "Spend" : "Receive" })), (value) => change("amount", { [value]: "" }, true))));
+        if (!mode) continue; path = `amount.${mode}`;
+      }
+      const label = ({ "amount.spend": "Spend amount", "amount.receive": "Receive amount", "amount.margin": "Margin", "amount.notional": "Notional", slippage_bps: "Slippage", limit_price: "Limit price", expires_at: "Expiry" } as Record<string, string>)[path] ?? path.replaceAll("_", " ").replaceAll(".", " ");
+      const current = valueAt(this.action!.params, path);
+      if (field.type === "json" && path === field.path) {
+        const wrapper = element("div", undefined, "field"); const name = element("label", label, "field-label"); const input = element("textarea"); input.id = `termbook-field-${++this.fieldSeq}`; name.htmlFor = input.id; input.value = current === undefined ? "" : stringify(current);
+        input.addEventListener("input", () => { let next: unknown; try { next = JSON.parse(input.value); } catch { next = input.value; } change(path, next); }); wrapper.append(name, input); container.append(wrapper); continue;
+      }
+      const market = this.spotMarket(); const buy = this.action!.params.direction !== "sell";
+      const token = category === "spot" && market && path.startsWith("amount.") ? this.asset(path.endsWith("spend") ? buy ? market.quote_asset : market.base_asset : buy ? market.base_asset : market.quote_asset)
+        : category === "perps" && path.startsWith("amount") ? this.settlement : undefined;
+      const decimals = path === "slippage_bps" ? 2 : path === "limit_price" ? 18 : token?.decimals;
+      const text = current === undefined ? "" : decimals !== undefined && /^\d+$/.test(String(current)) ? formatUnits(BigInt(String(current)), decimals) : String(current);
+      const unit = path === "slippage_bps" ? "%" : path === "limit_price" && market ? `${this.asset(market.quote_asset).symbol}/${this.asset(market.base_asset).symbol}` : token?.symbol ?? (field.type === "integer" && path !== "expires_at" && !path.startsWith("tick_") ? "units" : undefined);
+      container.append(this.input(label, text, (value) => {
+        if (field.optional && !value) { const params = { ...this.action!.params }; delete params[path]; this.action = { ...this.action!, params }; this.invalidateReview(); return; }
+        let next: unknown = value;
+        if (decimals !== undefined) { try { next = parseAmount(value, decimals).toString(); } catch { next = value; } }
+        else if (path === "expires_at" || path.startsWith("tick_")) next = Number(value);
         change(path, next);
-      });
-      container.append(label, input);
+      }, unit));
     }
-    container.append(element("small", "Amounts use smallest token units. Limit prices use 18 decimals of quote per base token. Expiry is Unix time in seconds."));
   }
 
   private validatedAction(): AppAction {

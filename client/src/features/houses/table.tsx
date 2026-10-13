@@ -1,3 +1,4 @@
+import { Plus } from "lucide-react";
 import { Identifier } from "@/components/table/identifier";
 import { Sort, type SortState } from "@/components/table/sort";
 import { Status } from "@/components/table/status";
@@ -66,8 +67,9 @@ export function Table({ houses, sort, onSort, onSupply }: Props) {
                 onClick={() => onSupply(house)}
                 aria-label={`Supply to house ${house.house}`}
                 disabled={!canSupply(house)}
-                className="touch-target inline-flex min-h-7 items-center justify-center rounded border border-accent bg-accent px-[10px] py-1 text-xs leading-[18px] whitespace-nowrap text-white hover:bg-[#6666ff] disabled:opacity-35"
+                className="touch-target inline-flex min-h-7 items-center justify-center gap-1 rounded border border-line bg-transparent px-[10px] py-1 text-xs leading-[18px] whitespace-nowrap text-[#a6a6ff] hover:border-accent hover:text-white disabled:opacity-35"
               >
+                <Plus aria-hidden="true" size={13} />
                 Supply
               </button>
             </td>

@@ -61,14 +61,20 @@
     @apply grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-x-6;
   }
   .site-header > :first-child {
-    @apply col-start-1 row-start-1;
+    @apply col-start-1 row-start-1 justify-self-start;
   }
   .site-actions {
     @apply col-start-3 row-start-1 justify-self-end;
   }
   @media (max-width: 740px) {
     .site-header {
-      @apply grid-cols-[minmax(0,1fr)_auto] gap-x-3 pt-3 pb-2;
+      @apply grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-0 pt-2 pb-1;
+    }
+    .site-header > :first-child {
+      @apply min-w-0;
+    }
+    .site-header > :first-child img {
+      max-width: 100%;
     }
     .site-actions {
       @apply col-start-2;
@@ -196,26 +202,44 @@
 }
 
 .network-switch {
-  width: 172px;
+  position: relative;
+  display: inline-flex;
+  width: max-content;
+  min-height: 36px;
+  align-items: center;
   justify-self: center;
 }
-.network-select {
-  height: 36px;
-  min-height: 36px;
-  padding-block: 7px;
-  padding-left: 8px;
+.network-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding-inline: 4px;
   font-size: 13px;
-  color: inherit;
-  background: transparent;
-  border: 0;
-  border-radius: 0;
-  box-shadow: none;
+  white-space: nowrap;
 }
-.network-select:focus-visible {
-  border: 0;
+.network-label svg {
+  flex-shrink: 0;
+  color: var(--color-muted);
+}
+.network-select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  font-size: 16px;
+}
+.network-switch:has(.network-select:focus-visible) {
   outline: 2px solid #8585ff;
   outline-offset: 3px;
-  box-shadow: none;
+}
+html[data-focus-mode="pointer"] .network-switch:has(.network-select:focus) {
+  outline: none;
+}
+@media (max-width: 740px) {
+  .network-label {
+    font-size: 14px;
+  }
 }
 
 html[data-focus-mode="pointer"] :is(button, a, select, [tabindex]):focus {
@@ -227,6 +251,9 @@ html[data-focus-mode="pointer"] select.field:focus {
 }
 
 @media (pointer: coarse) {
+  .network-switch {
+    min-height: 44px;
+  }
   .field {
     font-size: 16px;
     min-height: 44px;

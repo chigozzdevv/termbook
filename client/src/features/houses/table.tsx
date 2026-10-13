@@ -11,9 +11,11 @@ interface Props {
   sort: SortState;
   onSort: (key: string) => void;
   onSupply: (house: House) => void;
+  unavailable?: boolean;
+  empty?: string;
 }
 
-export function Table({ houses, sort, onSort, onSupply }: Props) {
+export function Table({ houses, sort, onSort, onSupply, unavailable, empty }: Props) {
   return (
     <table className="data-table" aria-label="Houses">
       <thead>
@@ -49,24 +51,24 @@ export function Table({ houses, sort, onSort, onSupply }: Props) {
                 >
                   $
                 </span>
-                USDC
+                {house.assetSymbol}
               </span>
             </td>
-            <td className="number">{money(house.availableCash)}</td>
-            <td className="number">{money(house.committedCash)}</td>
-            <td className="number">{money(house.drawnPrincipal)}</td>
-            <td className="number">{money(house.totalAssets)}</td>
+            <td className="number">{money(house.availableCash, house.decimals)}</td>
+            <td className="number">{money(house.committedCash, house.decimals)}</td>
+            <td className="number">{money(house.drawnPrincipal, house.decimals)}</td>
+            <td className="number">{money(house.totalAssets, house.decimals)}</td>
             <td className="number">{sharePrice(house)}</td>
             <td className="text-muted">{depositState(house)}</td>
             <td>
-              <Status value={house.paused ? "paused" : "active"} />
+              <Status value={!house.active ? "inactive" : house.paused ? "paused" : "active"} />
             </td>
             <td className="action-cell">
               <button
                 type="button"
                 onClick={() => onSupply(house)}
                 aria-label={`Supply to house ${house.house}`}
-                disabled={!canSupply(house)}
+                disabled={unavailable || !canSupply(house)}
                 className="touch-target inline-flex min-h-7 items-center justify-center gap-1 rounded border border-line bg-transparent px-[10px] py-1 text-xs leading-[18px] whitespace-nowrap text-[#a6a6ff] hover:border-accent hover:text-white disabled:opacity-35"
               >
                 <Plus aria-hidden="true" size={13} />
@@ -78,7 +80,7 @@ export function Table({ houses, sort, onSort, onSupply }: Props) {
         {!houses.length && (
           <tr>
             <td colSpan={10} className="!p-10 !text-center text-muted">
-              No matching houses.
+              {empty ?? "No matching houses."}
             </td>
           </tr>
         )}

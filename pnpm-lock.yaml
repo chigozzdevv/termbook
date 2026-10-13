@@ -41,6 +41,9 @@ importers:
 
   client:
     dependencies:
+      '@termbook/schema':
+        specifier: workspace:^
+        version: link:../packages/schema
       '@termbook/sdk':
         specifier: workspace:^
         version: link:../packages/sdk

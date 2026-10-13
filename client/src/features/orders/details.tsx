@@ -70,7 +70,7 @@ export function Details({ order }: { order: Order }) {
         <div>
           <dt>{order.kind === "request" ? "Requested limit" : "Credit limit"}</dt>
           <dd>
-            {money(order.limit)} <span>USDC</span>
+            {money(order.limit, order.settlementDecimals)} <span>{order.settlementSymbol}</span>
           </dd>
         </div>
         <div>
@@ -80,7 +80,7 @@ export function Details({ order }: { order: Order }) {
               "—"
             ) : (
               <>
-                {money(order.debt)} <span>USDC</span>
+                {money(order.debt, order.settlementDecimals)} <span>{order.settlementSymbol}</span>
               </>
             )}
           </dd>
@@ -127,7 +127,7 @@ export function Details({ order }: { order: Order }) {
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 hover:text-accent"
                 >
-                  USDC
+                  {order.settlementSymbol}
                 </Link>
                 <CopyButton value={order.settlementAsset} label="lending asset address" />
               </span>

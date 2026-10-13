@@ -3,13 +3,19 @@ import { notFound } from "next/navigation";
 import { ChevronRight } from "lucide-react";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Status } from "@/components/table/status";
-import { orders } from "@/features/orders/mock";
+import { readOrder } from "@/features/markets/data";
+import { ApiError } from "@/lib/api";
+import { Unavailable } from "@/features/markets/unavailable";
 import { Details } from "@/features/orders/details";
 
 export default async function Page({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const order = orders.find((order) => order.id.toLowerCase() === id.toLowerCase());
-  if (!order) notFound();
+  if (!/^0x[a-fA-F0-9]{64}$/.test(id)) notFound();
+  const order = await readOrder(id).catch((error: unknown) => {
+    if (error instanceof ApiError && error.status === 404) notFound();
+    return null;
+  });
+  if (!order) return <Unavailable label="Order" href="/#market" />;
   const title = order.kind === "request" ? "Borrowing request" : "Credit";
   return (
     <main className="gutter order-page">

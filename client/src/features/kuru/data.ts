@@ -1,6 +1,8 @@
 import { z } from "zod";
+import { env } from "@/lib/env";
+import { protocol } from "@/lib/api";
 
-export const apiBase = (process.env.NEXT_PUBLIC_TERMBOOK_API_URL ?? "http://127.0.0.1:3002").replace(/\/$/, "");
+export const apiBase = env.protocolApiUrl;
 const decimal = z.string().regex(/^\d+(?:\.\d{1,18})?$/);
 const address = z.string().regex(/^0x[a-fA-F0-9]{40}$/);
 const level = z.object({ price: decimal, size: decimal });
@@ -21,9 +23,7 @@ export type Trade = z.infer<typeof tradeSchema>;
 export type Level = z.infer<typeof level>;
 
 export async function get(path: string, signal?: AbortSignal): Promise<unknown> {
-  const response = await fetch(`${apiBase}${path}`, { signal: signal ?? AbortSignal.timeout(20_000), cache: "no-store" });
-  if (!response.ok) throw new Error("The Termbook service is unavailable. Try again.");
-  return response.json();
+  return protocol(path, signal);
 }
 
 export function number(value: string | number, digits = 6) {

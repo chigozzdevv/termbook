@@ -1,4 +1,4 @@
-export const snapshot = Date.parse("2026-10-10T12:00:00Z");
+import { formatUnits } from "viem";
 
 export function short(value: string): string {
   return `${value.slice(0, 6)}…${value.slice(-4)}`;
@@ -8,17 +8,19 @@ export function number(value: number): string {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 4 }).format(value);
 }
 
-export function money(value: string): string {
+export function money(value: string, decimals = 6): string {
   return new Intl.NumberFormat("en-US", {
     minimumFractionDigits: 2, maximumFractionDigits: 2,
-  }).format(Number(value) / 1e6);
+  }).format(Number(formatUnits(BigInt(value), decimals)));
 }
 
 export function relativeTime(date: string): string {
-  const seconds = Math.floor((snapshot - Date.parse(date)) / 1000);
+  const seconds = Math.max(0, Math.floor((Date.now() - Date.parse(date)) / 1000));
   if (seconds < 60) return `${seconds} sec ago`;
   if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
-  return `${Math.floor(seconds / 3600)} hr ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} hr ago`;
+  const days = Math.floor(seconds / 86400);
+  return `${days} ${days === 1 ? "day" : "days"} ago`;
 }
 
 export function dateTime(date: string | number): string {

@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { orders } from "@/features/orders/mock";
 import { short } from "@/lib/format";
 import { Details } from "./details";
 import type { House } from "./types";
+import type { Order } from "@/features/orders/types";
 
-export function Page({ house }: { house: House }) {
+export function Page({ house, orders }: { house: House; orders: Order[] }) {
   const router = useRouter();
   return (
     <main className="gutter py-8">

@@ -2,11 +2,9 @@
 
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { houses } from "@/features/houses/mock";
-import { orders } from "@/features/orders/mock";
 import type { View } from "./explorer";
 
-export function Tabs({ view }: { view: View }) {
+export function Tabs({ view, orders, houses }: { view: View; orders?: number; houses?: number }) {
   const router = useRouter();
   const focusOnChange = useRef(false);
   const selected = useRef<HTMLButtonElement | null>(null);
@@ -51,7 +49,7 @@ export function Tabs({ view }: { view: View }) {
         >
           {tab === "orders" ? "Orders" : "Houses"}
           <span className="rounded-[5px] bg-[#25272a] px-[5px] py-[2px] font-mono text-[11px] text-muted">
-            {tab === "orders" ? orders.length : houses.length}
+            {(tab === "orders" ? orders : houses) ?? "—"}
           </span>
         </button>
       ))}

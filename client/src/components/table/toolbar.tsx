@@ -9,7 +9,7 @@ interface Props {
   label: string;
   query: string;
   onQuery: (value: string) => void;
-  count: number;
+  count?: number;
   status: string;
   statuses: string[];
   onStatus: (value: string) => void;
@@ -55,7 +55,7 @@ export function Toolbar({
           aria-live="polite"
           className="min-w-[90px] rounded-md bg-[#26282b] px-[10px] py-1 text-center text-xs leading-[1.2] whitespace-nowrap text-muted"
         >
-          {count} result{count === 1 ? "" : "s"}
+          {count === undefined ? "—" : `${count} result${count === 1 ? "" : "s"}`}
         </span>
       </label>
       {tabs && <div className="market-tabs">{tabs}</div>}

@@ -2,14 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { decodeFunctionData, keccak256, parseAbi } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { monadClient } from "../../src/chain/monad.client.js";
-import { keeperTransaction } from "../../src/chain/keeper.js";
+import { keeperTransaction, reconcileKeeperWallet } from "../../src/chain/keeper.js";
 import { env } from "../../src/config/env.js";
 import { runUpgradeMonitorWorker, upgradeMonitorConfig } from "../../src/integration/upgrade-monitor.worker.js";
 import { proxyImplementationSlots } from "@termbook/schema";
 import { approvedRuntimeReviews } from "../../src/integration/runtime-review.js";
 
 vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: vi.fn() }));
-vi.mock("../../src/chain/keeper.js", () => ({ keeperTransaction: vi.fn() }));
+vi.mock("../../src/chain/keeper.js", () => ({ keeperTransaction: vi.fn(), reconcileKeeperWallet: vi.fn() }));
 vi.mock("../../src/config/env.js", () => ({ env: { monadChainId: 10143, rpcUrl: "http://monad" } }));
 vi.mock("../../src/logging/logger.js", () => ({ logger: { warn: vi.fn(), error: vi.fn() } }));
 vi.mock("../../src/integration/runtime-review.js", () => ({ approvedRuntimeReviews: vi.fn() }));
@@ -20,6 +20,7 @@ const key = `0x${"44".repeat(32)}` as const;
 const signer = privateKeyToAccount(key).address;
 const codeHash = keccak256("0x1234");
 const readContract = vi.fn(), getStorageAt = vi.fn(), getCode = vi.fn(), simulateContract = vi.fn();
+const multicall = vi.fn();
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(approvedRuntimeReviews).mockResolvedValue([]);
@@ -33,15 +34,25 @@ beforeEach(() => {
   getStorageAt.mockImplementation(async ({ slot }: { slot: string }) => slot === proxyImplementationSlots[0]
     ? `0x${"0".repeat(24)}${implementation.slice(2)}` : `0x${"0".repeat(64)}`);
   getCode.mockResolvedValue("0x1234");
+  multicall.mockImplementation(async ({ contracts }: { contracts: { address: string; functionName: string }[] }) => Promise.all(contracts.map((request) => readContract(request))));
   vi.mocked(monadClient).mockReturnValue({ getChainId: async () => 10143,
     getBlock: async ({ blockTag }: { blockTag: string }) => ({ number: blockTag === "finalized" ? 10n : 12n,
       timestamp: blockTag === "finalized" ? 1000n : 1001n, hash: codeHash }),
-    getCode, getStorageAt, readContract, simulateContract } as never);
+    getCode, getStorageAt, readContract, multicall, simulateContract } as never);
   vi.mocked(keeperTransaction).mockResolvedValue("success");
+  vi.mocked(reconcileKeeperWallet).mockResolvedValue("idle");
 });
 afterEach(() => { env.monadChainId = 10143; vi.unstubAllEnvs(); });
 
 describe("testnet upgrade monitor", () => {
+  it("settles an outstanding renewal before preparing another nonce", async () => {
+    vi.mocked(reconcileKeeperWallet).mockResolvedValueOnce("pending").mockResolvedValueOnce("success");
+    expect(await runUpgradeMonitorWorker()).toBe(0);
+    expect(getCode).not.toHaveBeenCalled();
+    expect(keeperTransaction).not.toHaveBeenCalled();
+    expect(await runUpgradeMonitorWorker()).toBe(1);
+    expect(reconcileKeeperWallet).toHaveBeenCalledWith(monadClient(), 10143, signer);
+  });
   it("prioritizes expired guards when only one renewal can be submitted", async () => {
     const expired = `0x${"55".repeat(20)}` as const;
     vi.stubEnv("TESTNET_UPGRADE_GUARDS", JSON.stringify([{ address: guard, codeHash }, { address: expired, codeHash }]));
@@ -70,6 +81,8 @@ describe("testnet upgrade monitor", () => {
     expect(await runUpgradeMonitorWorker()).toBe(1);
     expect(getStorageAt).toHaveBeenCalledWith(expect.objectContaining({ address: proxy, blockNumber: 10n }));
     expect(getStorageAt).toHaveBeenCalledWith(expect.objectContaining({ address: proxy, blockNumber: 12n }));
+    expect(multicall).toHaveBeenCalledWith(expect.objectContaining({ allowFailure: false,
+      contracts: expect.arrayContaining([expect.objectContaining({ address: guard, functionName: "validUntil" })]) }));
     const data = vi.mocked(keeperTransaction).mock.calls[0]![0].data;
     expect(decodeFunctionData({ abi: parseAbi(["function renew(uint64,bytes32,uint64)"]), data }).args).toEqual([10n, codeHash, 1000n]);
   });

@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@termbook/sdk": "workspace:^",
+    "@termbook/schema": "workspace:^",
     "lightweight-charts": "^5.2.1",
     "lucide-react": "^1.54.0",
     "mermaid": "^11.12.3",

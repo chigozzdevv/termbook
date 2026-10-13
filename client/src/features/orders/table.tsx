@@ -11,9 +11,10 @@ interface Props {
   sort: SortState;
   onSort: (key: string) => void;
   onHouse: (address: string) => void;
+  empty?: string;
 }
 
-export function Table({ orders, sort, onSort, onHouse }: Props) {
+export function Table({ orders, sort, onSort, onHouse, empty }: Props) {
   return (
     <table className="data-table orders-table" aria-label="Borrowing requests and credits">
       <thead>
@@ -46,8 +47,8 @@ export function Table({ orders, sort, onSort, onHouse }: Props) {
             <td>
               <Status value={order.status} />
             </td>
-            <td className="number">{money(order.limit)} USDC</td>
-            <td className="number">{order.debt === null ? "—" : `${money(order.debt)} USDC`}</td>
+            <td className="number">{money(order.limit, order.settlementDecimals)} {order.settlementSymbol}</td>
+            <td className="number">{order.debt === null ? "—" : `${money(order.debt, order.settlementDecimals)} ${order.settlementSymbol}`}</td>
             <td className="number">{apr(order)}</td>
             <td className="number">{term(order)}</td>
             <td>
@@ -75,7 +76,7 @@ export function Table({ orders, sort, onSort, onHouse }: Props) {
         {!orders.length && (
           <tr>
             <td colSpan={11} className="!p-10 !text-center text-muted">
-              No matching orders.
+              {empty ?? "No matching orders."}
             </td>
           </tr>
         )}

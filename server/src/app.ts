@@ -17,6 +17,7 @@ import { hashMessage } from "viem";
 import { requestLimiter } from "./http/http-limit.js";
 import { readiness } from "./http/readiness.js";
 import { kuruRoute } from "./kuru/kuru.route.js";
+import { explorerRoute } from "./explorer/explorer.route.js";
 
 export function buildApp() {
   const app = Fastify({ logger: false });
@@ -69,5 +70,6 @@ export function buildApp() {
   recoveryRoute(app);
   catalogRoute(app);
   kuruRoute(app);
+  explorerRoute(app);
   return app;
 }

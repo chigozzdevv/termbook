@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useDialogs } from "@/components/layout/providers";
 import { Toolbar } from "@/components/table/toolbar";
@@ -8,10 +8,10 @@ import type { SortState } from "@/components/table/sort";
 import { Table as OrdersTable } from "@/features/orders/table";
 import { Table as HousesTable } from "@/features/houses/table";
 import { Details as HouseDetails } from "@/features/houses/details";
-import { orders } from "@/features/orders/mock";
-import { houses } from "@/features/houses/mock";
 import { short } from "@/lib/format";
 import { filterHouses, filterOrders } from "./filter";
+import { useRecords } from "./use-records";
+import { Tabs } from "./tabs";
 
 export type View = "orders" | "houses";
 type Filters = {
@@ -40,9 +40,14 @@ const statuses = [
   "expired",
 ];
 
-export function Explorer({ view = "orders", tabs }: { view?: View; tabs?: ReactNode }) {
+export function Explorer({ view = "orders", tabs }: { view?: View; tabs?: boolean }) {
   const router = useRouter();
   const { supply } = useDialogs();
+  const data = useRecords();
+  const { orders, houses } = data;
+  const loading = data.loading[view];
+  const error = data.error[view];
+  const empty = loading ? "Loading records…" : error ? "Data is unavailable. Retrying…" : undefined;
   const [filters, setFilters] = useState<Record<View, Filters>>({
     orders: initialFilters("orders"),
     houses: initialFilters("houses"),
@@ -69,15 +74,15 @@ export function Explorer({ view = "orders", tabs }: { view?: View; tabs?: ReactN
   return (
     <div>
       <Toolbar
-        tabs={tabs}
+        tabs={tabs ? <Tabs view={view} orders={data.totalOrders} houses={data.loading.houses || data.error.houses && !houses.length ? undefined : houses.length} /> : undefined}
         label={view === "houses" ? "Houses" : "borrowing orders"}
         query={query}
         onQuery={(value) => {
           update({ query: value, page: 0, selected: null });
         }}
-        count={count}
+        count={loading || error && !count ? undefined : count}
         status={status}
-        statuses={view === "houses" ? ["active", "paused"] : statuses}
+        statuses={view === "houses" ? ["active", "paused", "inactive"] : statuses}
         onStatus={(value) => {
           update({ status: value, page: 0, selected: null });
         }}
@@ -93,6 +98,8 @@ export function Explorer({ view = "orders", tabs }: { view?: View; tabs?: ReactN
               sort={sort}
               onSort={onSort}
               onSupply={supply}
+              unavailable={!!error}
+              empty={empty}
             />
           ) : (
             <OrdersTable
@@ -100,13 +107,13 @@ export function Explorer({ view = "orders", tabs }: { view?: View; tabs?: ReactN
               sort={sort}
               onSort={onSort}
               onHouse={select}
+              empty={empty}
             />
           )}
         </div>
         <div className="mt-3 flex justify-between gap-3 text-xs text-[#747e83] max-[430px]:flex-wrap">
           <span>
-            {count ? start + 1 : 0}–{Math.min(start + pageSize, count)} of {count}{" "}
-            {view === "houses" ? "Houses" : "Orders"}
+            {loading ? "Loading…" : error || `${count ? start + 1 : 0}–${Math.min(start + pageSize, count)} of ${count} ${view === "houses" ? "Houses" : "Orders"}`}
           </span>
         </div>
         {house && (

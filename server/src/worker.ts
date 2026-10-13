@@ -29,8 +29,10 @@ import { runUpgradeMonitorWorker, upgradeMonitorConfig } from "./integration/upg
 import { priceReferenceConfig, runPriceReferenceWorker } from "./chain/price-reference.worker.js";
 import { pythOracleConfig } from "./chain/pyth.client.js";
 import { runPythOracleWorker } from "./chain/pyth.worker.js";
+import { startIndexAndMonitor } from "./chain/services.js";
 
 async function main(): Promise<void> {
+  if (process.argv.includes("--indexer-monitor")) { await startIndexAndMonitor(); return; }
   assertRuntimeConfig();
   assertEnvioConfig();
   assertSettlementWorkerConfig();

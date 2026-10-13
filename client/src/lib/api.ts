@@ -16,3 +16,10 @@ export async function api(path: string, options: RequestInit = {}): Promise<unkn
   if (!response.ok) throw new ApiError(response.status);
   return response.json();
 }
+
+export async function protocol(path: string, signal?: AbortSignal): Promise<unknown> {
+  const timeout = AbortSignal.timeout(60_000);
+  const response = await fetch(`${env.protocolApiUrl}${path}`, { cache: "no-store", signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
+  if (!response.ok) throw new ApiError(response.status);
+  return response.json();
+}

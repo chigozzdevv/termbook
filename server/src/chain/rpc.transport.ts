@@ -36,12 +36,22 @@ export function pacedHttp(url: string, requestsPerSecond = 8, priority = 0, http
   return (options) => {
     const transport = http(url, httpOptions)(options);
     const request: typeof transport.request = async (parameters, requestOptions) => {
-      await new Promise<void>((resolve, reject) => {
-        if (state.queue.length >= requestsPerSecond * 30) { reject(new Error("rpc-queue-full")); return; }
-        state.queue.push({ queuedAt: Date.now(), priority, order: state.counter++, reject, run: resolve });
-        schedule();
-      });
-      return transport.request(parameters, requestOptions);
+      for (let attempt = 0; ; attempt++) {
+        await new Promise<void>((resolve, reject) => {
+          if (state.queue.length >= requestsPerSecond * 30) { reject(new Error("rpc-queue-full")); return; }
+          state.queue.push({ queuedAt: Date.now(), priority, order: state.counter++, reject, run: resolve });
+          schedule();
+        });
+        try { return await transport.request(parameters, requestOptions); }
+        catch (error) {
+          const rate = error as { code?: number; details?: string; message?: string };
+          const read = /^(eth_call|eth_chainId|eth_blockNumber|eth_get\w+|net_version)$/.test(parameters.method);
+          if (!read || attempt >= 3 || ![-32605, -32007].includes(rate?.code ?? 0)
+            || !/rate limit|request.*limit/i.test(rate.details ?? rate.message ?? "")) throw error;
+          state.next = Math.max(state.next, Date.now() + 1000 * 2 ** attempt);
+          clearTimeout(state.timer); state.timer = undefined; schedule();
+        }
+      }
     };
     return { ...transport, request };
   };

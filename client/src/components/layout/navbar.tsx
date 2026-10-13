@@ -39,7 +39,7 @@ export function Navbar() {
         </Link>
         <Link
           href="/houses"
-          className="touch-target inline-flex min-h-9 items-center justify-center gap-2 rounded-none border-0 bg-accent px-[14px] text-[13px] font-medium whitespace-nowrap text-white hover:bg-[#6666ff] max-[430px]:min-h-11 max-[430px]:gap-[6px] max-[430px]:px-[10px] max-[430px]:text-xs"
+          className="touch-target inline-flex min-h-9 items-center justify-center gap-2 rounded-none border border-[#35383b] bg-transparent px-[14px] text-[13px] font-medium whitespace-nowrap text-[#d7dcde] hover:border-[#53585b] hover:bg-[#222527] hover:text-[#f4f4ef] max-[430px]:min-h-11 max-[430px]:gap-[6px] max-[430px]:px-[10px] max-[430px]:text-xs"
         >
           Supply
           <ArrowUpRight aria-hidden="true" size={14} className="max-[350px]:hidden" />

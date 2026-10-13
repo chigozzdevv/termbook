@@ -14,7 +14,7 @@ const word = (n: string) => `0x${n.repeat(64)}` as `0x${string}`;
 const id = word("a"), intent = word("b"), hash = word("c"), vault = address("2"), token = address("3");
 const creation = { creditId: id, block: "5", blockHash: hash, data: { intentId: intent } };
 const credit = { borrower: address("4"), house: address("5"), vault, collateralVault: address("6"), collateralAsset: address("0"),
-  collateralAmount: 2n * 10n ** 18n, limit: 100_000n, debt: 1n, maturity: 1792000000n, aprBps: 500n, facility: 4, revision: 1n };
+  collateralAmount: 2n * 10n ** 18n, limit: 100_000n, drawn: 50_000n, debt: 1n, maturity: 1792000000n, aprBps: 500n, facility: 4, revision: 1n };
 let now = 1791900000000;
 let getBlock: ReturnType<typeof vi.fn>;
 let multicall: ReturnType<typeof vi.fn>;
@@ -49,7 +49,7 @@ describe("Public explorer", () => {
     const response = await request("/explorer/orders");
     expect(response.statusCode).toBe(200);
     const row = response.json().records[0];
-    expect(row).toMatchObject({ id, intentId: intent, debt: "100003", settlementSymbol: "USDC", settlementDecimals: 6,
+    expect(row).toMatchObject({ id, intentId: intent, debt: "100003", drawn: "50000", settlementSymbol: "USDC", settlementDecimals: 6,
       collateral: { amount: "2000000000000000000", symbol: "MON" } });
     expect(row).not.toHaveProperty("_id");
     expect(multicall.mock.calls.every(([request]) => request.blockNumber === 10n)).toBe(true);

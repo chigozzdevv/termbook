@@ -17,7 +17,7 @@ const registryAbi = parseAbi(["function houses(address) view returns(address vau
 const facilities = ["reserved", "collateral_locking", "collateral_proving", "account_creating", "ready", "closing", "closed", "aborted", "liquidating", "recovery_pending", "liquidated"];
 type Call = { address: Address; abi: Abi; functionName: string; args?: readonly unknown[] };
 type CreditDetails = { borrower: Address; house: Address; vault: Address; collateralVault: Address; collateralAsset: Address;
-  collateralAmount: bigint; limit: bigint; maturity: bigint; aprBps: bigint; facility: number; revision: bigint };
+  collateralAmount: bigint; limit: bigint; drawn: bigint; maturity: bigint; aprBps: bigint; facility: number; revision: bigint };
 const safeNumber = (value: unknown) => { const number = Number(value); if (!Number.isSafeInteger(number) || number < 0) throw new Error("explorer-value-invalid"); return number; };
 const label = (chainId: number) => chains.find((chain) => chain.id === chainId)?.name.replace("Testnet", "testnet") ?? `Chain ${chainId}`;
 const configuredMarkets = () => collateralMarketSchema.array().parse(JSON.parse(env.collateralMarkets));
@@ -83,7 +83,7 @@ async function readOrder(id: string, context: Session): Promise<ExplorerOrder | 
     const [used] = await calls([{ address: core(), abi: termbookCoreAbi, functionName: "intentUsed", args: [id] }], context.at);
     return explorerOrderSchema.parse({ id, intentId: id, kind: "request", creditId: null, borrower: row.borrower, house: null,
       settlementAsset: row.settlementAsset, settlementSymbol: token.symbol, settlementDecimals: token.decimals,
-      limit: row.limit ?? row.actionFunding, debt: null, aprBps: null, maturity: null, facility: null,
+      limit: row.limit ?? row.actionFunding, debt: null, drawn: null, aprBps: null, maturity: null, facility: null,
       status: used ? "used" : Number(row.expiresAt) <= Date.now() / 1000 ? "expired" : row.status,
       collateral: await collateral(context, chainId, sol?.asset.assetBytes ?? String(row.asset), sol?.amount ?? String(row.amount), sol?.chain.reference),
       duration: row.duration, createdAt: new Date(row.createdAt).toISOString(), expiresAt: row.expiresAt, events: [] });
@@ -107,7 +107,7 @@ async function readOrder(id: string, context: Session): Promise<ExplorerOrder | 
   }
   return explorerOrderSchema.parse({ id: creditId, intentId: creation.data.intentId, kind: "credit", creditId,
     borrower: credit.borrower, house: credit.house, settlementAsset: asset,
-    settlementSymbol: token.symbol, settlementDecimals: token.decimals, limit: String(credit.limit), debt: String(debt),
+    settlementSymbol: token.symbol, settlementDecimals: token.decimals, limit: String(credit.limit), debt: String(debt), drawn: String(credit.drawn),
     aprBps: safeNumber(credit.aprBps), maturity: safeNumber(credit.maturity), facility: facilities[credit.facility] ?? "unknown",
     status: facilities[credit.facility] ?? "unknown", collateral: await collateral(context, safeNumber(sourceChain), collateralAsset, String(credit.collateralAmount), genesis),
     duration: safeNumber(credit.maturity > createdBlock.timestamp ? credit.maturity - createdBlock.timestamp : 0n),

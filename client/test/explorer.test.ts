@@ -39,10 +39,18 @@ describe("House statistics", () => {
     committedCash: "2000000", drawnPrincipal: "3000000", availableCash: "6000000", totalAssets: "12000000",
     totalShares: "12000000", sharePrice: "1000000000000000000", ...overrides,
   });
-  it("excludes paused and inactive Houses from available lending while retaining their assets and loans", () => {
+  it("excludes paused and inactive Houses from available lending while retaining their assets and reservations", () => {
     expect(houseStats([house(), house({ paused: true }), house({ active: false })])).toMatchObject([
-      { total: 36000000n, available: 6000000n, reserved: 6000000n, principal: 9000000n },
+      { total: 36000000n, available: 6000000n, reserved: 6000000n, borrowed: 0n },
     ]);
+  });
+  it("counts actual historical draws after repayment and excludes request limits", () => {
+    const orders = [
+      { kind: "credit", settlementAsset: `0x${"4".repeat(40)}`, settlementDecimals: 6, drawn: "2000000", debt: "0", status: "closed", limit: "10000000" },
+      { kind: "credit", settlementAsset: `0x${"4".repeat(40)}`, settlementDecimals: 6, drawn: "3000000", debt: "0", status: "liquidated", limit: "10000000" },
+      { kind: "request", settlementAsset: `0x${"4".repeat(40)}`, settlementDecimals: 6, drawn: null, limit: "50000000" },
+    ] as import("../src/features/orders/types").Order[];
+    expect(houseStats([house({ drawnPrincipal: "0" })], orders)[0].borrowed).toBe(5000000n);
   });
   it("keeps distinct tokens separate and sums token units without floating point loss", () => {
     const result = houseStats([house({ totalAssets: "9007199254740993" }), house({ totalAssets: "1" }),

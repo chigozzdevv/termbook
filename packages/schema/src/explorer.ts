@@ -15,7 +15,7 @@ export const explorerOrderSchema = z.object({
   id: bytes32Schema, intentId: bytes32Schema, kind: z.enum(["request", "credit"]), creditId: bytes32Schema.nullable(),
   borrower: addressSchema, house: addressSchema.nullable(), settlementAsset: addressSchema,
   settlementSymbol: z.string().min(1).max(80), settlementDecimals: precision,
-  limit: units, debt: units.nullable(), aprBps: integer.nullable(), maturity: integer.nullable(),
+  limit: units, debt: units.nullable(), drawn: units.nullable().optional(), aprBps: integer.nullable(), maturity: integer.nullable(),
   facility: z.string().nullable(), status: z.string(),
   collateral: z.object({ symbol: z.string().min(1).max(80), amount: units, decimals: precision, asset: z.string(),
     chain: z.object({ label: z.string(), chainId: integer.optional(), namespace: z.enum(["eip155", "solana"]), reference: z.string().optional() }),

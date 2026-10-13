@@ -116,10 +116,11 @@ export class EvmSourceLockWallet implements SourceLockWallet {
     this.rpc = createPublicClient({ transport: http(config.rpcUrl) });
   }
 
-  private async checkChain(binding: CollateralSetupBinding): Promise<`0x${string}` | undefined> {
+  private async checkChain(binding: CollateralSetupBinding, requireWallet = true): Promise<`0x${string}` | undefined> {
     collateralSetupBindingSchema.parse(binding);
     if (binding.asset.namespace !== "eip155" || binding.sourceVault.namespace !== "eip155" || binding.owner.namespace !== "eip155" || binding.returnRecipient.namespace !== "eip155" || binding.asset.reference !== String(this.config.chainId) || binding.sourceVault.accountBytes.toLowerCase() !== this.config.vault.toLowerCase() || binding.asset.assetBytes.toLowerCase() !== this.config.asset.toLowerCase() || binding.owner.accountBytes.toLowerCase() !== this.config.wallet.address.toLowerCase()) throw new Error("source-wallet-binding-mismatch");
-    if (await this.rpc.getChainId() !== this.config.chainId || !this.config.wallet.getChainId || await this.config.wallet.getChainId() !== this.config.chainId) throw new Error("source-wallet-chain-mismatch");
+    if (await this.rpc.getChainId() !== this.config.chainId || requireWallet
+      && (!this.config.wallet.getChainId || await this.config.wallet.getChainId() !== this.config.chainId)) throw new Error("source-wallet-chain-mismatch");
     let nativeVault: boolean;
     try {
       nativeVault = await this.rpc.readContract({ address: this.config.vault, abi: vaultIdentityAbi, functionName: "isNativeCollateralVault", blockTag: "finalized" });
@@ -166,7 +167,7 @@ export class EvmSourceLockWallet implements SourceLockWallet {
   }
 
   async remoteRecoveryVault(binding: CollateralSetupBinding): Promise<`0x${string}`> {
-    const recoveryVault = await this.checkChain(binding);
+    const recoveryVault = await this.checkChain(binding, false);
     if (!recoveryVault) throw new Error("source-recovery-vault-unavailable");
     return recoveryVault;
   }
@@ -193,7 +194,7 @@ export class EvmSourceLockWallet implements SourceLockWallet {
       || depth !== undefined)) throw new Error("testnet-finality-invalid");
     if (depth !== undefined && (binding.monadChainId !== 10143 || this.config.chainId !== 11155111
       || !Number.isInteger(depth) || depth < 5 || depth > 64)) throw new Error("testnet-confirmations-invalid");
-    const recoveryVault = await this.checkChain(binding);
+    const recoveryVault = await this.checkChain(binding, false);
     const latest = depth === undefined ? undefined : await this.rpc.getBlock({ blockTag: "latest" });
     if (latest && latest.number < BigInt(depth!)) return { state: "submitted", txId };
     const at = latest ? { blockNumber: latest.number - BigInt(depth!) } : { blockTag: safe ?? "finalized" as const };

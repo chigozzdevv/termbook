@@ -50,4 +50,14 @@ describe("viem wallet adapter", () => {
     client.signMessage.mockRejectedValue(new Error("User rejected"));
     await expect(wallet.signMessage!("Sign in")).rejects.toThrow("User rejected");
   });
+
+  it("refuses signing and writes after the selected account changes", async () => {
+    const client = connected();
+    const wallet = await evm_wallet(client as unknown as WalletClient);
+    client.getAddresses.mockResolvedValue([other]);
+    await expect(wallet.signMessage!("Sign in")).rejects.toThrow("wallet-account-mismatch");
+    await expect(wallet.signTypedData({})).rejects.toThrow("wallet-account-mismatch");
+    await expect(wallet.writeContract!({ address: other, account: address, abi: [], functionName: "deposit" })).rejects.toThrow("wallet-account-mismatch");
+    expect(client.signMessage).not.toHaveBeenCalled(); expect(client.signTypedData).not.toHaveBeenCalled(); expect(client.writeContract).not.toHaveBeenCalled();
+  });
 });

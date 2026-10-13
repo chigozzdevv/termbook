@@ -91,9 +91,10 @@ describe("collateral setup", () => {
   it("checks the finalized source commitment before reporting a remote lock", async () => {
     const b = binding();
     const lockId = collateralSetupHash(b);
+    let walletChain = 1;
     const adapter = new EvmSourceLockWallet({
       chainId: 1, rpcUrl: "https://invalid.example",
-      wallet: { address: b.owner.accountBytes, signTypedData: async () => hash("a"), getChainId: async () => 1 },
+      wallet: { address: b.owner.accountBytes, signTypedData: async () => hash("a"), getChainId: async () => walletChain },
       vault: b.sourceVault.accountBytes, asset: b.asset.assetBytes as `0x${string}`, controller: address("d"),
     });
     let commitment = hash("0");
@@ -115,6 +116,10 @@ describe("collateral setup", () => {
     await expect(adapter.observeLock(b, lockId)).rejects.toThrow("source-lock-commitment-mismatch");
     commitment = evmRemoteLockCommitment(b, lockId, address("e"));
     await expect(adapter.observeLock(b, lockId)).resolves.toEqual({ state: "finalized", txId: undefined });
+    walletChain = 143;
+    await expect(adapter.observeLock(b, lockId)).resolves.toEqual({ state: "finalized", txId: undefined });
+    await expect(adapter.preflight(b)).rejects.toThrow("source-wallet-chain-mismatch");
+    walletChain = 1;
     controllerCore = address("f");
     await expect(adapter.preflight(b)).rejects.toThrow("source-controller-mismatch");
     expect(readContract.mock.calls.every(([request]) => request.blockTag === "finalized")).toBe(true);

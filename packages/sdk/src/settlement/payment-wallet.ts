@@ -2,6 +2,7 @@ import { createPublicClient, decodeFunctionData, encodeFunctionData, http, parse
 import type { Wallet } from "../types/client.types.js";
 import type { SettlementRegistration } from "./settlement.js";
 import type { PaymentRoute, PaymentSourceWallet, SourcePaymentSubmission } from "./payment-types.js";
+import { walletProvider, WalletNetwork } from "../wallet/network.js";
 
 const transferAbi = parseAbi(["function transfer(address to,uint256 amount) returns (bool)"]);
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
@@ -16,22 +17,17 @@ export function evmPaymentWallet(wallet: Wallet): PaymentSourceWallet {
     return tx;
   } };
 }
-export async function connectPaymentWallet(route: PaymentRoute, monadChain: number): Promise<PaymentSourceWallet> {
+export async function connectPaymentWallet(route: PaymentRoute, monadChain: number,
+  network = new WalletNetwork(), wallet?: Wallet): Promise<PaymentSourceWallet> {
   if (route.sourceAddressFormat === "solana") {
     const { solanaPaymentWallet } = await import("./solana-payment.js");
     return solanaPaymentWallet(route);
   }
-  const provider = (globalThis as typeof globalThis & { ethereum?: {
+  const provider = wallet ? await walletProvider(wallet) : (globalThis as typeof globalThis & { ethereum?: {
     request(request: { method: string; params?: unknown[] }): Promise<unknown>;
   } }).ethereum;
   if (!provider) throw new Error("source-wallet-required");
-  const switchTo = async (id: number) => {
-    const hex = `0x${id.toString(16)}`;
-    if (await provider.request({ method: "eth_chainId" }) !== hex) {
-      await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: hex }] });
-    }
-    if (await provider.request({ method: "eth_chainId" }) !== hex) throw new Error("source-wallet-chain-mismatch");
-  };
+  const switchTo = (id: number) => network.ensure(provider, id);
   let accounts: unknown;
   try {
     await switchTo(route.sourceChain);
@@ -43,7 +39,7 @@ export async function connectPaymentWallet(route: PaymentRoute, monadChain: numb
     try {
       await switchTo(current.sourceChain);
       const authorized = await provider.request({ method: "eth_accounts" });
-      if (!Array.isArray(authorized) || !authorized.some((value) => typeof value === "string" && same(value, address))) throw new Error("source-wallet-changed");
+      if (!Array.isArray(authorized) || typeof authorized[0] !== "string" || !same(authorized[0], address)) throw new Error("source-wallet-changed");
       const native = current.sourceKind === "native";
       const tx = await provider.request({ method: "eth_sendTransaction", params: [{ from: address,
         to: native ? registration.depositAddress : current.sourceAsset,

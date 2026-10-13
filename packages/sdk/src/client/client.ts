@@ -1,4 +1,4 @@
-import type { ClientConfig, ResolvedClientConfig } from "../types/client.types.js";
+import type { ClientConfig, ResolvedClientConfig, Wallet } from "../types/client.types.js";
 import type { IntentRequest } from "../types/intent.types.js";
 import { Intent } from "../intent/intent.js";
 import { Credit } from "../credit/credit.js";
@@ -17,12 +17,15 @@ import { apiAuthorizationMessage, canonicalJson, assertActionRoutes, assertStand
 import { hashMessage } from "viem";
 import { connectSourceWallet } from "../modal/source-wallet.js";
 import { TermbookModal, type OpenOptions } from "../modal/modal.js";
+import { WalletNetwork } from "../wallet/network.js";
 
 export class TermbookClient {
   private resolvedConfig?: ResolvedClientConfig;
   private resolvedRpc?: RpcClient;
   private initialization?: Promise<void>;
   private readonly input: ClientConfig;
+  private readonly baseWallet: Wallet;
+  readonly network = new WalletNetwork();
   signer: Signer;
   settlement: Settlement;
 
@@ -31,6 +34,20 @@ export class TermbookClient {
     const rpcUrl = config.rpcUrl ?? config.rpc_url;
     const chainId = config.chainId ?? config.chain_id;
     if (!appToken || !config.wallet) throw new Error("client-config-invalid");
+    this.baseWallet = config.wallet;
+    const wallet = this.baseWallet;
+    const guarded: Wallet = { ...wallet,
+      ...(wallet.request ? { request: wallet.request.bind(wallet) } : {}),
+      ...(wallet.waitForTransactionReceipt ? { waitForTransactionReceipt: wallet.waitForTransactionReceipt.bind(wallet) } : {}),
+      signTypedData: async (payload) => { await this.ensureNetwork(); return wallet.signTypedData(payload); },
+      ...(wallet.getChainId ? { getChainId: async () => { await this.ensureNetwork(); return wallet.getChainId!(); } } : {}),
+      ...(wallet.signMessage ? { signMessage: async (message: string) => { await this.ensureNetwork(); return wallet.signMessage!(message); } } : {}),
+      ...(wallet.signDigest ? { signDigest: async (digest: `0x${string}`) => { await this.ensureNetwork(); return wallet.signDigest!(digest); } } : {}),
+      ...(wallet.writeContract ? { writeContract: async (request: Parameters<NonNullable<Wallet["writeContract"]>>[0]) => {
+        await this.ensureNetwork(); return wallet.writeContract!(request);
+      } } : {}),
+    };
+    config = { ...config, wallet: guarded };
     this.input = config;
     if (config.core || rpcUrl || chainId) {
       const core = config.core;
@@ -63,7 +80,8 @@ export class TermbookClient {
   async ready(): Promise<void> {
     if (this.resolvedConfig) return;
     if (!this.initialization) {
-      this.initialization = resolveClientConfig(this.input).then((config) => {
+      this.initialization = resolveClientConfig({ ...this.input, wallet: this.baseWallet }).then((resolved) => {
+        const config = { ...resolved, wallet: this.input.wallet };
         this.resolvedConfig = config;
         this.resolvedRpc = new RpcClient(config);
       }).catch((error: unknown) => {
@@ -103,8 +121,13 @@ export class TermbookClient {
     return new Catalog(this);
   }
 
-  async sourceWallet(market: CollateralMarket): Promise<SourceLockWallet> {
-    return connectSourceWallet(this, market, this.input.sourceWalletResolver);
+  async sourceWallet(market: CollateralMarket, options: { signal?: AbortSignal } = {}): Promise<SourceLockWallet> {
+    return connectSourceWallet(this, market, this.input.sourceWalletResolver, options.signal);
+  }
+
+  async ensureNetwork(): Promise<void> {
+    await this.ready();
+    if (this.baseWallet.request) await this.network.ensure({ request: this.baseWallet.request.bind(this.baseWallet) }, this.config.chainId);
   }
 
   async authenticatedPost<T>(path: string, body: unknown): Promise<T> {

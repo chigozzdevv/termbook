@@ -156,7 +156,7 @@ export async function remotePayment(client: TermbookClient, requested: PaymentIn
     let current = await state();
     if (!checkpoint.sourceTx && checkpoint.stage === "quoted" && current.received === 0n && current.applied === 0n) {
       if (Date.parse(registration.deadline) <= Date.now()) { checkpoint.stage = "complete"; await progress(); throw new PaymentExpiredError(checkpoint); }
-      const wallet = options.sourceWallet ?? (client.config.paymentWalletResolver ? await client.config.paymentWalletResolver(route) : await connectPaymentWallet(route, client.config.chainId));
+      const wallet = options.sourceWallet ?? (client.config.paymentWalletResolver ? await client.config.paymentWalletResolver(route) : await connectPaymentWallet(route, client.config.chainId, client.network, client.config.wallet));
       if (route.sourceAddressFormat === "evm" ? !same(wallet.address, sourceRefundRecipient) : wallet.address !== sourceRefundRecipient) throw new Error("source-wallet-mismatch");
       checkpoint.stage = "funding"; checkpoint.sourceSender = wallet.address; await progress(); interrupted();
       checkpoint.sourceTx = await wallet.fund(registration, route, async (tx, submission) => { checkpoint.sourceTx = tx; checkpoint.sourceSubmission = submission; await progress(); });

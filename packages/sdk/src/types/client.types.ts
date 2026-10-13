@@ -23,6 +23,7 @@ export type Wallet = {
   writeContract?: (request: ContractWriteRequest) => Promise<TxHash>;
   waitForTransactionReceipt?: (hash: TxHash) => Promise<unknown>;
   getChainId?: () => Promise<number>;
+  request?: (request: { method: string; params?: unknown[] }) => Promise<unknown>;
 };
 
 export type ClientConfig = {

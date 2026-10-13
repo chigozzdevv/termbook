@@ -10,7 +10,10 @@ import { useWallet as useConnection } from "@/features/wallet/use-wallet";
 export function useWallet(market?: Market) {
   const { wallets, connection, busy, error: connectionError, connect, switchNetwork, disconnect: disconnectWallet } = useConnection();
   const [session, setSession] = useState<{ sdk: TermbookClient; connection: NonNullable<typeof connection> }>();
-  const client = session?.connection === connection ? session?.sdk : undefined;
+  const provider = connection?.provider;
+  const address = connection?.address;
+  const client = session?.connection.provider === provider && session?.connection.address === address
+    && connection?.chain === 10143 ? session?.sdk : undefined;
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
   const modal = useRef<TermbookModal | null>(null);
@@ -19,11 +22,11 @@ export function useWallet(market?: Market) {
   useEffect(() => () => { modal.current?.close(); }, []);
 
   useEffect(() => {
-    if (!connection || connection.chain !== 10143 || !market?.app_token) return;
+    if (!provider || !address || !market?.app_token) return;
     let active = true;
     const init = async () => {
-      const wallet = await evm_wallet(createWalletClient({ chain: monadTestnet, transport: custom(connection.provider) }));
-      if (wallet.address.toLowerCase() !== connection.address.toLowerCase()) throw new Error("Wallet account changed. Reconnect.");
+      const wallet = await evm_wallet(createWalletClient({ chain: monadTestnet, transport: custom(provider, { retryCount: 0 }) }));
+      if (wallet.address.toLowerCase() !== address.toLowerCase()) throw new Error("Wallet account changed. Reconnect.");
       const sdk = create_termbook({ app_token: market.app_token!, wallet, apiBase });
       await sdk.ready();
       const definition = sdk.config.integration_definition;
@@ -31,11 +34,11 @@ export function useWallet(market?: Market) {
         || sdk.config.versionId?.toLowerCase() !== market.version_id.toLowerCase()
         || definition.markets.length !== 1 || definition.markets[0].market_id !== market.market_id
         || sdk.config.settlementAsset?.toLowerCase() !== market.quote_asset.toLowerCase()) throw new Error("Integration configuration changed. Refresh before trading.");
-      if (active) { setSession({ sdk, connection }); setError(""); }
+      if (active) { setSession({ sdk, connection: { provider, address, chain: 10143 } }); setError(""); }
     };
     void init().catch(() => { if (active) setError("Trading is temporarily unavailable. The integration checks did not pass. Retry connection."); });
     return () => { active = false; setSession(undefined); modal.current?.close(); };
-  }, [connection, market?.app_token, market?.market_id, market?.quote_asset, market?.version_id, revision]);
+  }, [provider, address, market?.app_token, market?.market_id, market?.quote_asset, market?.version_id, revision]);
 
   const disconnect = useCallback(() => { modal.current?.close(); setSession(undefined); disconnectWallet(); setError(""); }, [disconnectWallet]);
   const open = useCallback(async (options: OpenOptions) => {

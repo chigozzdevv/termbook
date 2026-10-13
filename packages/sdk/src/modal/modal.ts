@@ -12,6 +12,7 @@ import type { Credit } from "../credit/credit.js";
 import type { ExecuteResult, ExecutionCheckpoint, ActionOutcome } from "../types/credit.types.js";
 import { HttpClient } from "../transport/http.js";
 import { modalStyle } from "./modal-style.js";
+import { networkName, networkNotice, needsNetworkAddition, type NetworkPrompt } from "../wallet/network.js";
 import { kuruLogo, termbookLogo } from "./modal-brand.js";
 import { element, icon, dropdown, rows, hero, pair, context, section, explorer, compactAddress, money, amountText, parseAmount, healthText, type TokenInfo } from "./modal-ui.js";
 
@@ -61,6 +62,7 @@ export class TermbookModal {
   private readonly keyHandler: (event: KeyboardEvent) => void;
   private readonly resizeObserver?: ResizeObserver;
   private readonly operationAbort = new AbortController();
+  private readonly stopNetwork: () => void;
   private readonly requestedTab?: "account" | "app";
   private tab: "account" | "app";
   private markets: CollateralMarket[] = [];
@@ -96,6 +98,7 @@ export class TermbookModal {
   constructor(client: TermbookClient, options: OpenOptions = {}) {
     if (typeof document === "undefined" || !document.body) throw new Error("modal-dom-unavailable");
     this.client = client;
+    this.stopNetwork = client.network.listen((prompt) => this.requestNetwork(prompt), this.operationAbort.signal);
     this.action = options.action ? { ...options.action, params: { ...options.action.params } } : undefined;
     this.preparedAction = !!options.action;
     this.requestedTab = options.tab;
@@ -154,6 +157,7 @@ export class TermbookModal {
     if (this.closed) return;
     this.closed = true;
     this.operationAbort.abort();
+    this.stopNetwork();
     this.resizeObserver?.disconnect();
     document.removeEventListener("keydown", this.keyHandler);
     this.host.remove();
@@ -175,7 +179,10 @@ export class TermbookModal {
     this.busy = true;
     this.showStatus("Please wait…");
     this.setBusy();
-    try { await action(); } catch (error) { this.showError(error); }
+    try {
+      await this.client.ensureNetwork(); this.operationAbort.signal.throwIfAborted();
+      await action(); this.operationAbort.signal.throwIfAborted(); await this.client.ensureNetwork();
+    } catch (error) { this.showError(error); }
     finally {
       this.busy = false; if (this.status.textContent === "Please wait…") this.showStatus(""); this.render();
       if (!this.closed) {
@@ -186,6 +193,39 @@ export class TermbookModal {
     }
   }
 
+  private requestNetwork(prompt: NetworkPrompt): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const signal = this.operationAbort.signal;
+      const abort = () => reject(signal.reason);
+      if (signal.aborted) { abort(); return; }
+      signal.addEventListener("abort", abort, { once: true });
+      const label = prompt.action === "add" ? "Add network" : "Switch network";
+      const walletRow = this.body.querySelector<HTMLElement>(".wallet-row");
+      if (walletRow) walletRow.hidden = true;
+      this.showStatus(prompt.action === "add" ? `Add ${prompt.name} to your wallet.` : `Switch to ${prompt.name} to continue.`);
+      const button = this.control(label, () => {
+        if (button.disabled || this.closed) return;
+        button.disabled = true; button.textContent = "Confirm in wallet…";
+        this.showStatus(`Approve ${prompt.action === "add" ? "adding" : "the switch to"} ${prompt.name} in your wallet.`);
+        void prompt.approve().then(() => {
+          signal.removeEventListener("abort", abort);
+          if (!this.closed) this.showStatus("");
+          resolve();
+        }).catch((error: unknown) => {
+          if (signal.aborted) return;
+          if (prompt.action === "switch" && needsNetworkAddition(error)) {
+            signal.removeEventListener("abort", abort); reject(error); return;
+          }
+          button.disabled = false; button.textContent = label;
+          this.showStatus(networkNotice(error, prompt));
+          button.focus({ preventScroll: true });
+        });
+      }, "primary");
+      this.footer.replaceChildren(button);
+      button.focus({ preventScroll: true });
+    });
+  }
+
   private setBusy(): void {
     this.panel.setAttribute("aria-busy", String(this.busy));
     if (this.busy) for (const control of Array.from(this.root.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("button:not(.close):not(.disclosure-toggle),input,select,textarea"))) control.disabled = true;
@@ -193,10 +233,13 @@ export class TermbookModal {
 
   private showError(error: unknown): void {
     if (this.closed) return;
+    if (error instanceof Error && error.message === "wallet-network-busy") {
+      this.showStatus("Complete the pending network request in your wallet, then try again."); return;
+    }
     this.status.className = "status error";
     this.status.setAttribute("role", "alert");
     const message = error instanceof Error ? error.message : "Operation failed. Please retry.";
-    this.status.textContent = ({ "close-funding-required": "Repay the remaining debt, then continue closure.", "close-pending": "Closure is still pending. Continue closure to check its progress.", "action-review-stale": "The amounts changed. Review the action again.", "action-health-insufficient": "Insufficient health. Reduce the amount.", "source-wallet-required": "Connect your collateral wallet to continue.", "setup-checkpoint-unavailable": "Setup cannot be resumed on this device.", "offer-expired": "This offer expired. Request new offers." } as Record<string, string>)[message]
+    this.status.textContent = ({ "close-funding-required": "Repay the remaining debt, then continue closure.", "close-pending": "Closure is still pending. Continue closure to check its progress.", "action-review-stale": "The amounts changed. Review the action again.", "action-health-insufficient": "Insufficient health. Reduce the amount.", "source-wallet-required": "Connect your collateral wallet to continue.", "source-wallet-unavailable": "Connect your collateral wallet to continue.", "wallet-account-mismatch": "Your wallet account changed. Reconnect to continue.", "source-wallet-changed": "Your collateral wallet account changed. Reconnect to continue.", "wallet-network-unsupported": "Add the collateral network in your wallet, then try again.", "setup-checkpoint-unavailable": "Setup cannot be resumed on this device.", "offer-expired": "This offer expired. Request new offers." } as Record<string, string>)[message]
       ?? (error instanceof Error && "shortMessage" in error && typeof error.shortMessage === "string" ? error.shortMessage : message);
   }
 
@@ -457,10 +500,10 @@ export class TermbookModal {
     if (!this.market || !this.markets.length) { this.body.append(element("p", "No collateral market is available.", "notice")); this.footer.append(this.button("Retry", () => this.load(), true)); return; }
     const market = this.market;
     const walletRow = element("div", undefined, "wallet-row");
-    walletRow.append(element("span", market.kind === "solana" ? "Solana" : market.chainId === 11155111 ? "Ethereum testnet" : market.chainId === 1 ? "Ethereum" : `Chain ${market.chainId}`));
+    walletRow.append(element("span", market.kind === "solana" ? "Solana" : networkName(market.chainId)));
     const sourceAccount = this.sourceWallet?.account;
     const sourceAddress = sourceAccount ? sourceAccount.namespace === "solana" ? solanaPubkeyBase58(sourceAccount.accountBytes) : sourceAccount.accountBytes : undefined;
-    const connect = this.button(sourceAddress ? compactAddress(sourceAddress) : "Connect wallet", async () => { this.sourceWallet = await this.client.sourceWallet(this.market!); }); connect.className = "wallet-button"; walletRow.append(connect); this.body.append(walletRow);
+    const connect = this.button(sourceAddress ? compactAddress(sourceAddress) : "Connect wallet", async () => { this.sourceWallet = await this.client.sourceWallet(this.market!, { signal: this.operationAbort.signal }); }); connect.className = "wallet-button"; walletRow.append(connect); this.body.append(walletRow);
     this.body.append(this.selectField("Asset", dropdown("Collateral asset", market.id, this.markets.map((item) => ({ value: item.id, label: item.label })), (id) => {
       this.market = this.markets.find((item) => item.id === id); this.sourceWallet = undefined; this.intent = undefined; this.offers = []; this.offer = undefined; this.amountText = ""; this.render();
     })));
@@ -671,7 +714,7 @@ export class TermbookModal {
             && entry.asset.toLowerCase() === asset.assetBytes?.toLowerCase());
         if (!market) throw new Error("setup-market-unavailable");
         this.market = market;
-        this.sourceWallet = await this.client.sourceWallet(market);
+        this.sourceWallet = await this.client.sourceWallet(market, { signal: this.operationAbort.signal });
       }
       this.credit.setup = await this.client.collateral_setup(saved, { sourceWallet: this.sourceWallet,
         onProgress: (checkpoint, binding) => {

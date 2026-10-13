@@ -159,7 +159,6 @@ function useWalletSession() {
     if (!provider) return;
     let active = true;
     const changed = () => {
-      setConnection(undefined);
       if (pending.current) return;
       const current = invalidate();
       void readConnection(provider)
@@ -172,16 +171,19 @@ function useWalletSession() {
           }
         })
         .catch(() => {
-          if (active && current === revision.current)
+          if (active && current === revision.current) {
+            setConnection(undefined);
             setError("Wallet state could not be read. Reconnect to continue.");
+          }
         });
     };
-    provider.on?.("accountsChanged", changed);
+    const accountChanged = () => { setConnection(undefined); changed(); };
+    provider.on?.("accountsChanged", accountChanged);
     provider.on?.("chainChanged", changed);
     provider.on?.("disconnect", disconnect);
     return () => {
       active = false;
-      provider.removeListener?.("accountsChanged", changed);
+      provider.removeListener?.("accountsChanged", accountChanged);
       provider.removeListener?.("chainChanged", changed);
       provider.removeListener?.("disconnect", disconnect);
     };

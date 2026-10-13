@@ -73,6 +73,9 @@ async function main() {
     if (safe) {
       deployment.addresses[10143][`Evm${sourceChain}MessageClient`] = client;
       deployment.addresses[10143][`Evm${sourceChain}Verifier`] = verifier;
+      deployment.proxies[10143][`Evm${sourceChain}MessageClient`] = report.proxies[clientLabel];
+      deployment.proxies[10143][`Evm${sourceChain}Verifier`] = report.proxies[verifierLabel];
+      deployment.configuration[`evm-source-${sourceChain}`].verifier = verifier;
     }
     writeJsonAtomic(path.join(root, "deployments/testnet.json"), deployment);
     writeConfiguration(stage, { network: "testnet", completedAt: report.completedAt,

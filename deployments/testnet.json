@@ -61,8 +61,10 @@
       "AtomicSpotModule": "0x0b626a1a6ef46c4470bc1acde3c6d719ceb050ed",
       "AppHealthReaderFactory": "0x99cc490c6b8c58e7f1cf37ece3e083398cc7d2d8",
       "SpotOrderTracker": "0x2c767ca1a112f66a2a94a39b11c912a73672400d",
-      "Evm84532MessageClient": "0x07b680150f69266d979b245ad61b7f42adf621b0",
-      "Evm84532Verifier": "0xdd9e375f5697b268aef2cf904bc238ed732360cc"
+      "Evm84532MessageClient": "0xd0f5aeca20145de02055729c0e74ee66158b4f30",
+      "Evm84532Verifier": "0xbc3df547c313c49babdc920db4702e3f4ea75fad",
+      "Evm84532SafeClient": "0xd0f5aeca20145de02055729c0e74ee66158b4f30",
+      "Evm84532SafeVerifier": "0xbc3df547c313c49babdc920db4702e3f4ea75fad"
     },
     "84532": {
       "ProtocolGovernance": "0xc6d1ec8c0b410cb089a110685ba19ee9954be37c",
@@ -31279,74 +31281,81 @@
         ]
       },
       "Evm84532MessageClient": {
-        "implementation": "0x31f7c90fe2814021c0dc3c05b9f1ea53d7377ef0",
-        "admin": "0xBD2802417eE64E0CB016BD28B473d9c8ee305fA6",
-        "contractId": "0xc364e9e28e57eb9c1cd01a8212561c0f67d51fbeabfe1a0f76deb9a64fc07258",
-        "implementationCodeHash": "0xb0c14a2703499f48d55bcf6ac232ba2bbd3850c021b10af510ca0a8466bfcacf",
+        "implementation": "0x53442B020316280f80D9A0895017860bB5931742",
+        "implementationCodeHash": "0x275baf968a6a0c6ebfb6344e592c3068a9012af59c3bdb1d49321297e61f79c2",
+        "contractId": "0x25b68829af08321c855214b8e6dac5a6565dae43804af7af31ccb1f6608bbcc7",
         "storageLayout": {
           "storage": [
             {
-              "astId": 140914,
-              "contract": "src/shared/collateral/WormholeEvmMessageClient.sol:WormholeEvmMessageClient",
+              "astId": 466,
+              "contract": "src/shared/collateral/WormholeEvmPolicyClient.sol:WormholeEvmPolicyClient",
               "label": "wormhole",
               "offset": 0,
               "slot": "0",
-              "type": "t_contract(IWormholeCore)138547"
+              "type": "t_contract(IWormholeCore)356"
             },
             {
-              "astId": 140916,
-              "contract": "src/shared/collateral/WormholeEvmMessageClient.sol:WormholeEvmMessageClient",
+              "astId": 468,
+              "contract": "src/shared/collateral/WormholeEvmPolicyClient.sol:WormholeEvmPolicyClient",
               "label": "chainId",
               "offset": 0,
               "slot": "1",
               "type": "t_uint256"
             },
             {
-              "astId": 140918,
-              "contract": "src/shared/collateral/WormholeEvmMessageClient.sol:WormholeEvmMessageClient",
+              "astId": 470,
+              "contract": "src/shared/collateral/WormholeEvmPolicyClient.sol:WormholeEvmPolicyClient",
               "label": "consensusVersion",
               "offset": 0,
               "slot": "2",
               "type": "t_uint256"
             },
             {
-              "astId": 140920,
-              "contract": "src/shared/collateral/WormholeEvmMessageClient.sol:WormholeEvmMessageClient",
+              "astId": 472,
+              "contract": "src/shared/collateral/WormholeEvmPolicyClient.sol:WormholeEvmPolicyClient",
               "label": "bootstrapHash",
               "offset": 0,
               "slot": "3",
               "type": "t_bytes32"
             },
             {
-              "astId": 140922,
-              "contract": "src/shared/collateral/WormholeEvmMessageClient.sol:WormholeEvmMessageClient",
+              "astId": 474,
+              "contract": "src/shared/collateral/WormholeEvmPolicyClient.sol:WormholeEvmPolicyClient",
               "label": "proofMaxAge",
               "offset": 0,
               "slot": "4",
               "type": "t_uint256"
             },
             {
-              "astId": 140924,
-              "contract": "src/shared/collateral/WormholeEvmMessageClient.sol:WormholeEvmMessageClient",
+              "astId": 476,
+              "contract": "src/shared/collateral/WormholeEvmPolicyClient.sol:WormholeEvmPolicyClient",
               "label": "sourceWormholeChain",
               "offset": 0,
               "slot": "5",
               "type": "t_uint16"
             },
             {
-              "astId": 140926,
-              "contract": "src/shared/collateral/WormholeEvmMessageClient.sol:WormholeEvmMessageClient",
+              "astId": 478,
+              "contract": "src/shared/collateral/WormholeEvmPolicyClient.sol:WormholeEvmPolicyClient",
               "label": "sourceEmitter",
               "offset": 0,
               "slot": "6",
               "type": "t_bytes32"
             },
             {
-              "astId": 140928,
-              "contract": "src/shared/collateral/WormholeEvmMessageClient.sol:WormholeEvmMessageClient",
+              "astId": 480,
+              "contract": "src/shared/collateral/WormholeEvmPolicyClient.sol:WormholeEvmPolicyClient",
               "label": "wormholeCodeHash",
               "offset": 0,
               "slot": "7",
+              "type": "t_bytes32"
+            },
+            {
+              "astId": 959,
+              "contract": "src/shared/collateral/WormholeEvmPolicyClient.sol:WormholeEvmPolicyClient",
+              "label": "policyHash",
+              "offset": 0,
+              "slot": "8",
               "type": "t_bytes32"
             }
           ],
@@ -31356,7 +31365,7 @@
               "label": "bytes32",
               "numberOfBytes": "32"
             },
-            "t_contract(IWormholeCore)138547": {
+            "t_contract(IWormholeCore)356": {
               "encoding": "inplace",
               "label": "contract IWormholeCore",
               "numberOfBytes": "20"
@@ -31376,43 +31385,7 @@
         "abi": [
           {
             "type": "constructor",
-            "inputs": [
-              {
-                "name": "wormhole_",
-                "type": "address",
-                "internalType": "address"
-              },
-              {
-                "name": "destinationWormholeChain_",
-                "type": "uint16",
-                "internalType": "uint16"
-              },
-              {
-                "name": "sourceWormholeChain_",
-                "type": "uint16",
-                "internalType": "uint16"
-              },
-              {
-                "name": "sourceEvmChain_",
-                "type": "uint256",
-                "internalType": "uint256"
-              },
-              {
-                "name": "version_",
-                "type": "uint256",
-                "internalType": "uint256"
-              },
-              {
-                "name": "emitter_",
-                "type": "bytes32",
-                "internalType": "bytes32"
-              },
-              {
-                "name": "maxAge_",
-                "type": "uint256",
-                "internalType": "uint256"
-              }
-            ],
+            "inputs": [],
             "stateMutability": "nonpayable"
           },
           {
@@ -31538,6 +31511,34 @@
                 "name": "emitter_",
                 "type": "bytes32",
                 "internalType": "bytes32"
+              },
+              {
+                "name": "maxAge_",
+                "type": "uint256",
+                "internalType": "uint256"
+              }
+            ],
+            "outputs": [],
+            "stateMutability": "nonpayable"
+          },
+          {
+            "type": "function",
+            "name": "initializeSafe",
+            "inputs": [
+              {
+                "name": "wormhole_",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "sourceChain_",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "publisher_",
+                "type": "address",
+                "internalType": "address"
               },
               {
                 "name": "maxAge_",
@@ -31802,14 +31803,1329 @@
             "type": "error",
             "name": "NotInitializing",
             "inputs": []
+          },
+          {
+            "type": "error",
+            "name": "UnsupportedEvmChain",
+            "inputs": []
           }
         ]
       },
       "Evm84532Verifier": {
-        "implementation": "0xff239189de6d375448de31b1e3d439a8b83f213b",
-        "admin": "0x4263C8fC33a8EeFa9D8f93c2CBDF9052f8a6600f",
-        "contractId": "0x738a2f2b4965d6b4b3d8f865aeec2f758766c48c2f0a192f3e7b92bc55bc0c7b",
+        "implementation": "0xbe173fbeef3b53dae0d25b8e27391ea201d564c9",
         "implementationCodeHash": "0x8785edfa6e77a6a1d4f0d87cdb146d89eeae50936601181a842b9baa0a5cb7ad",
+        "contractId": "0x738a2f2b4965d6b4b3d8f865aeec2f758766c48c2f0a192f3e7b92bc55bc0c7b",
+        "storageLayout": {
+          "storage": [
+            {
+              "astId": 110306,
+              "contract": "src/monad/collateral/WormholeEthereumVerifier.sol:WormholeEthereumVerifier",
+              "label": "lightClient",
+              "offset": 0,
+              "slot": "0",
+              "type": "t_address"
+            },
+            {
+              "astId": 110308,
+              "contract": "src/monad/collateral/WormholeEthereumVerifier.sol:WormholeEthereumVerifier",
+              "label": "lightClientCodeHash",
+              "offset": 0,
+              "slot": "1",
+              "type": "t_bytes32"
+            },
+            {
+              "astId": 110310,
+              "contract": "src/monad/collateral/WormholeEthereumVerifier.sol:WormholeEthereumVerifier",
+              "label": "sourceChainId",
+              "offset": 0,
+              "slot": "2",
+              "type": "t_uint256"
+            },
+            {
+              "astId": 110312,
+              "contract": "src/monad/collateral/WormholeEthereumVerifier.sol:WormholeEthereumVerifier",
+              "label": "consensusVersion",
+              "offset": 0,
+              "slot": "3",
+              "type": "t_uint256"
+            },
+            {
+              "astId": 110314,
+              "contract": "src/monad/collateral/WormholeEthereumVerifier.sol:WormholeEthereumVerifier",
+              "label": "bootstrapHash",
+              "offset": 0,
+              "slot": "4",
+              "type": "t_bytes32"
+            },
+            {
+              "astId": 110316,
+              "contract": "src/monad/collateral/WormholeEthereumVerifier.sol:WormholeEthereumVerifier",
+              "label": "proofMaxAge",
+              "offset": 0,
+              "slot": "5",
+              "type": "t_uint256"
+            },
+            {
+              "astId": 46709,
+              "contract": "src/monad/collateral/WormholeEthereumVerifier.sol:WormholeEthereumVerifier",
+              "label": "publisher",
+              "offset": 0,
+              "slot": "6",
+              "type": "t_address"
+            },
+            {
+              "astId": 46711,
+              "contract": "src/monad/collateral/WormholeEthereumVerifier.sol:WormholeEthereumVerifier",
+              "label": "publisherCodeHash",
+              "offset": 0,
+              "slot": "7",
+              "type": "t_bytes32"
+            },
+            {
+              "astId": 46713,
+              "contract": "src/monad/collateral/WormholeEthereumVerifier.sol:WormholeEthereumVerifier",
+              "label": "sourceVault",
+              "offset": 0,
+              "slot": "8",
+              "type": "t_address"
+            },
+            {
+              "astId": 46715,
+              "contract": "src/monad/collateral/WormholeEthereumVerifier.sol:WormholeEthereumVerifier",
+              "label": "sourceController",
+              "offset": 0,
+              "slot": "9",
+              "type": "t_address"
+            },
+            {
+              "astId": 46717,
+              "contract": "src/monad/collateral/WormholeEthereumVerifier.sol:WormholeEthereumVerifier",
+              "label": "sourceVaultCodeHash",
+              "offset": 0,
+              "slot": "10",
+              "type": "t_bytes32"
+            },
+            {
+              "astId": 46719,
+              "contract": "src/monad/collateral/WormholeEthereumVerifier.sol:WormholeEthereumVerifier",
+              "label": "sourceControllerCodeHash",
+              "offset": 0,
+              "slot": "11",
+              "type": "t_bytes32"
+            }
+          ],
+          "types": {
+            "t_address": {
+              "encoding": "inplace",
+              "label": "address",
+              "numberOfBytes": "20"
+            },
+            "t_bytes32": {
+              "encoding": "inplace",
+              "label": "bytes32",
+              "numberOfBytes": "32"
+            },
+            "t_uint256": {
+              "encoding": "inplace",
+              "label": "uint256",
+              "numberOfBytes": "32"
+            }
+          }
+        },
+        "abi": [
+          {
+            "type": "constructor",
+            "inputs": [
+              {
+                "name": "client_",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "publisher_",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "publisherCodeHash_",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "vault_",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "vaultCodeHash_",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "controller_",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "controllerCodeHash_",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ],
+            "stateMutability": "nonpayable"
+          },
+          {
+            "type": "function",
+            "name": "admission",
+            "inputs": [],
+            "outputs": [
+              {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "version",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "bootstrap",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "bootstrapHash",
+            "inputs": [],
+            "outputs": [
+              {
+                "name": "",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "consensusVersion",
+            "inputs": [],
+            "outputs": [
+              {
+                "name": "",
+                "type": "uint256",
+                "internalType": "uint256"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "headerRoot",
+            "inputs": [
+              {
+                "name": "header",
+                "type": "bytes",
+                "internalType": "bytes"
+              }
+            ],
+            "outputs": [
+              {
+                "name": "",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "initialize",
+            "inputs": [
+              {
+                "name": "client_",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "publisher_",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "publisherCodeHash_",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "vault_",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "vaultCodeHash_",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "controller_",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "controllerCodeHash_",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ],
+            "outputs": [],
+            "stateMutability": "nonpayable"
+          },
+          {
+            "type": "function",
+            "name": "lightClient",
+            "inputs": [],
+            "outputs": [
+              {
+                "name": "",
+                "type": "address",
+                "internalType": "address"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "lightClientCodeHash",
+            "inputs": [],
+            "outputs": [
+              {
+                "name": "",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "proofLeaf",
+            "inputs": [
+              {
+                "name": "proof",
+                "type": "bytes",
+                "internalType": "bytes"
+              }
+            ],
+            "outputs": [
+              {
+                "name": "",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "proofMaxAge",
+            "inputs": [],
+            "outputs": [
+              {
+                "name": "",
+                "type": "uint256",
+                "internalType": "uint256"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "publisher",
+            "inputs": [],
+            "outputs": [
+              {
+                "name": "",
+                "type": "address",
+                "internalType": "address"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "publisherCodeHash",
+            "inputs": [],
+            "outputs": [
+              {
+                "name": "",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "sourceChainId",
+            "inputs": [],
+            "outputs": [
+              {
+                "name": "",
+                "type": "uint256",
+                "internalType": "uint256"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "sourceController",
+            "inputs": [],
+            "outputs": [
+              {
+                "name": "",
+                "type": "address",
+                "internalType": "address"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "sourceControllerCodeHash",
+            "inputs": [],
+            "outputs": [
+              {
+                "name": "",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "sourceVault",
+            "inputs": [],
+            "outputs": [
+              {
+                "name": "",
+                "type": "address",
+                "internalType": "address"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "sourceVaultCodeHash",
+            "inputs": [],
+            "outputs": [
+              {
+                "name": "",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "upgradeContractId",
+            "inputs": [],
+            "outputs": [
+              {
+                "name": "",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ],
+            "stateMutability": "pure"
+          },
+          {
+            "type": "function",
+            "name": "verifyAppliedAction",
+            "inputs": [
+              {
+                "name": "vaa",
+                "type": "bytes",
+                "internalType": "bytes"
+              },
+              {
+                "name": "proof",
+                "type": "bytes",
+                "internalType": "bytes"
+              },
+              {
+                "name": "vault",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "actionHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ],
+            "outputs": [
+              {
+                "name": "",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "verifyEvent",
+            "inputs": [
+              {
+                "name": "",
+                "type": "bytes",
+                "internalType": "bytes"
+              },
+              {
+                "name": "",
+                "type": "bytes",
+                "internalType": "bytes"
+              },
+              {
+                "name": "",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ],
+            "outputs": [
+              {
+                "name": "",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ],
+            "stateMutability": "pure"
+          },
+          {
+            "type": "function",
+            "name": "verifyFinality",
+            "inputs": [
+              {
+                "name": "header",
+                "type": "bytes",
+                "internalType": "bytes"
+              }
+            ],
+            "outputs": [
+              {
+                "name": "",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "verifyInclusion",
+            "inputs": [
+              {
+                "name": "proof",
+                "type": "bytes",
+                "internalType": "bytes"
+              },
+              {
+                "name": "root",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ],
+            "outputs": [
+              {
+                "name": "",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "verifyLock",
+            "inputs": [
+              {
+                "name": "vaa",
+                "type": "bytes",
+                "internalType": "bytes"
+              },
+              {
+                "name": "proof",
+                "type": "bytes",
+                "internalType": "bytes"
+              },
+              {
+                "name": "vault",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "lockDigest",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ],
+            "outputs": [
+              {
+                "name": "",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "verifyReceiptInRoot",
+            "inputs": [
+              {
+                "name": "receiptsRoot",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "proof",
+                "type": "bytes",
+                "internalType": "bytes"
+              },
+              {
+                "name": "emitter",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "eventDigest",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "authorization",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ],
+            "outputs": [
+              {
+                "name": "",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "verifyRecoveryClearance",
+            "inputs": [
+              {
+                "name": "vaa",
+                "type": "bytes",
+                "internalType": "bytes"
+              },
+              {
+                "name": "proof",
+                "type": "bytes",
+                "internalType": "bytes"
+              },
+              {
+                "name": "creditId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "recoveryVault",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "seizureHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ],
+            "outputs": [
+              {
+                "name": "",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "verifyRecoveryRefunded",
+            "inputs": [
+              {
+                "name": "vaa",
+                "type": "bytes",
+                "internalType": "bytes"
+              },
+              {
+                "name": "proof",
+                "type": "bytes",
+                "internalType": "bytes"
+              },
+              {
+                "name": "digest",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ],
+            "outputs": [
+              {
+                "name": "",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "verifyUnconsumedAction",
+            "inputs": [
+              {
+                "name": "vaa",
+                "type": "bytes",
+                "internalType": "bytes"
+              },
+              {
+                "name": "proof",
+                "type": "bytes",
+                "internalType": "bytes"
+              },
+              {
+                "name": "controller",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "actionHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "deadline",
+                "type": "uint256",
+                "internalType": "uint256"
+              }
+            ],
+            "outputs": [
+              {
+                "name": "",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "wormholeMode",
+            "inputs": [],
+            "outputs": [
+              {
+                "name": "",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ],
+            "stateMutability": "pure"
+          },
+          {
+            "type": "event",
+            "name": "Initialized",
+            "inputs": [
+              {
+                "name": "version",
+                "type": "uint64",
+                "indexed": false,
+                "internalType": "uint64"
+              }
+            ],
+            "anonymous": false
+          },
+          {
+            "type": "error",
+            "name": "InvalidInitialization",
+            "inputs": []
+          },
+          {
+            "type": "error",
+            "name": "InvalidLightClient",
+            "inputs": []
+          },
+          {
+            "type": "error",
+            "name": "InvalidProof",
+            "inputs": []
+          },
+          {
+            "type": "error",
+            "name": "NotInitializing",
+            "inputs": []
+          },
+          {
+            "type": "error",
+            "name": "UnsupportedEvmChain",
+            "inputs": []
+          }
+        ]
+      },
+      "Evm84532SafeClient": {
+        "implementation": "0x53442B020316280f80D9A0895017860bB5931742",
+        "implementationCodeHash": "0x275baf968a6a0c6ebfb6344e592c3068a9012af59c3bdb1d49321297e61f79c2",
+        "contractId": "0x25b68829af08321c855214b8e6dac5a6565dae43804af7af31ccb1f6608bbcc7",
+        "storageLayout": {
+          "storage": [
+            {
+              "astId": 466,
+              "contract": "src/shared/collateral/WormholeEvmPolicyClient.sol:WormholeEvmPolicyClient",
+              "label": "wormhole",
+              "offset": 0,
+              "slot": "0",
+              "type": "t_contract(IWormholeCore)356"
+            },
+            {
+              "astId": 468,
+              "contract": "src/shared/collateral/WormholeEvmPolicyClient.sol:WormholeEvmPolicyClient",
+              "label": "chainId",
+              "offset": 0,
+              "slot": "1",
+              "type": "t_uint256"
+            },
+            {
+              "astId": 470,
+              "contract": "src/shared/collateral/WormholeEvmPolicyClient.sol:WormholeEvmPolicyClient",
+              "label": "consensusVersion",
+              "offset": 0,
+              "slot": "2",
+              "type": "t_uint256"
+            },
+            {
+              "astId": 472,
+              "contract": "src/shared/collateral/WormholeEvmPolicyClient.sol:WormholeEvmPolicyClient",
+              "label": "bootstrapHash",
+              "offset": 0,
+              "slot": "3",
+              "type": "t_bytes32"
+            },
+            {
+              "astId": 474,
+              "contract": "src/shared/collateral/WormholeEvmPolicyClient.sol:WormholeEvmPolicyClient",
+              "label": "proofMaxAge",
+              "offset": 0,
+              "slot": "4",
+              "type": "t_uint256"
+            },
+            {
+              "astId": 476,
+              "contract": "src/shared/collateral/WormholeEvmPolicyClient.sol:WormholeEvmPolicyClient",
+              "label": "sourceWormholeChain",
+              "offset": 0,
+              "slot": "5",
+              "type": "t_uint16"
+            },
+            {
+              "astId": 478,
+              "contract": "src/shared/collateral/WormholeEvmPolicyClient.sol:WormholeEvmPolicyClient",
+              "label": "sourceEmitter",
+              "offset": 0,
+              "slot": "6",
+              "type": "t_bytes32"
+            },
+            {
+              "astId": 480,
+              "contract": "src/shared/collateral/WormholeEvmPolicyClient.sol:WormholeEvmPolicyClient",
+              "label": "wormholeCodeHash",
+              "offset": 0,
+              "slot": "7",
+              "type": "t_bytes32"
+            },
+            {
+              "astId": 959,
+              "contract": "src/shared/collateral/WormholeEvmPolicyClient.sol:WormholeEvmPolicyClient",
+              "label": "policyHash",
+              "offset": 0,
+              "slot": "8",
+              "type": "t_bytes32"
+            }
+          ],
+          "types": {
+            "t_bytes32": {
+              "encoding": "inplace",
+              "label": "bytes32",
+              "numberOfBytes": "32"
+            },
+            "t_contract(IWormholeCore)356": {
+              "encoding": "inplace",
+              "label": "contract IWormholeCore",
+              "numberOfBytes": "20"
+            },
+            "t_uint16": {
+              "encoding": "inplace",
+              "label": "uint16",
+              "numberOfBytes": "2"
+            },
+            "t_uint256": {
+              "encoding": "inplace",
+              "label": "uint256",
+              "numberOfBytes": "32"
+            }
+          }
+        },
+        "abi": [
+          {
+            "type": "constructor",
+            "inputs": [],
+            "stateMutability": "nonpayable"
+          },
+          {
+            "type": "function",
+            "name": "bootstrapHash",
+            "inputs": [],
+            "outputs": [
+              {
+                "name": "",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "chainId",
+            "inputs": [],
+            "outputs": [
+              {
+                "name": "",
+                "type": "uint256",
+                "internalType": "uint256"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "confirmationPolicyHash",
+            "inputs": [],
+            "outputs": [
+              {
+                "name": "",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "consensusVersion",
+            "inputs": [],
+            "outputs": [
+              {
+                "name": "",
+                "type": "uint256",
+                "internalType": "uint256"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "headerRoot",
+            "inputs": [
+              {
+                "name": "vaa",
+                "type": "bytes",
+                "internalType": "bytes"
+              }
+            ],
+            "outputs": [
+              {
+                "name": "",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "headerTimestamp",
+            "inputs": [
+              {
+                "name": "vaa",
+                "type": "bytes",
+                "internalType": "bytes"
+              }
+            ],
+            "outputs": [
+              {
+                "name": "",
+                "type": "uint256",
+                "internalType": "uint256"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "initialize",
+            "inputs": [
+              {
+                "name": "wormhole_",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "destinationWormholeChain_",
+                "type": "uint16",
+                "internalType": "uint16"
+              },
+              {
+                "name": "sourceWormholeChain_",
+                "type": "uint16",
+                "internalType": "uint16"
+              },
+              {
+                "name": "sourceEvmChain_",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "version_",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "emitter_",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "maxAge_",
+                "type": "uint256",
+                "internalType": "uint256"
+              }
+            ],
+            "outputs": [],
+            "stateMutability": "nonpayable"
+          },
+          {
+            "type": "function",
+            "name": "initializeSafe",
+            "inputs": [
+              {
+                "name": "wormhole_",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "sourceChain_",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "publisher_",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "maxAge_",
+                "type": "uint256",
+                "internalType": "uint256"
+              }
+            ],
+            "outputs": [],
+            "stateMutability": "nonpayable"
+          },
+          {
+            "type": "function",
+            "name": "proofLeaf",
+            "inputs": [
+              {
+                "name": "",
+                "type": "bytes",
+                "internalType": "bytes"
+              }
+            ],
+            "outputs": [
+              {
+                "name": "",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ],
+            "stateMutability": "pure"
+          },
+          {
+            "type": "function",
+            "name": "proofMaxAge",
+            "inputs": [],
+            "outputs": [
+              {
+                "name": "",
+                "type": "uint256",
+                "internalType": "uint256"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "sourceEmitter",
+            "inputs": [],
+            "outputs": [
+              {
+                "name": "",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "sourceWormholeChain",
+            "inputs": [],
+            "outputs": [
+              {
+                "name": "",
+                "type": "uint16",
+                "internalType": "uint16"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "upgradeContractId",
+            "inputs": [],
+            "outputs": [
+              {
+                "name": "",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ],
+            "stateMutability": "pure"
+          },
+          {
+            "type": "function",
+            "name": "verifiedPayload",
+            "inputs": [
+              {
+                "name": "vaa",
+                "type": "bytes",
+                "internalType": "bytes"
+              }
+            ],
+            "outputs": [
+              {
+                "name": "",
+                "type": "bytes",
+                "internalType": "bytes"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "verifyEvent",
+            "inputs": [
+              {
+                "name": "",
+                "type": "bytes",
+                "internalType": "bytes"
+              },
+              {
+                "name": "",
+                "type": "bytes",
+                "internalType": "bytes"
+              },
+              {
+                "name": "",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ],
+            "outputs": [
+              {
+                "name": "",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ],
+            "stateMutability": "pure"
+          },
+          {
+            "type": "function",
+            "name": "verifyFinality",
+            "inputs": [
+              {
+                "name": "vaa",
+                "type": "bytes",
+                "internalType": "bytes"
+              }
+            ],
+            "outputs": [
+              {
+                "name": "",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "verifyInclusion",
+            "inputs": [
+              {
+                "name": "",
+                "type": "bytes",
+                "internalType": "bytes"
+              },
+              {
+                "name": "",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ],
+            "outputs": [
+              {
+                "name": "",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ],
+            "stateMutability": "pure"
+          },
+          {
+            "type": "function",
+            "name": "verifyLock",
+            "inputs": [
+              {
+                "name": "",
+                "type": "bytes",
+                "internalType": "bytes"
+              },
+              {
+                "name": "",
+                "type": "bytes",
+                "internalType": "bytes"
+              },
+              {
+                "name": "",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ],
+            "outputs": [
+              {
+                "name": "",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ],
+            "stateMutability": "pure"
+          },
+          {
+            "type": "function",
+            "name": "wormhole",
+            "inputs": [],
+            "outputs": [
+              {
+                "name": "",
+                "type": "address",
+                "internalType": "contract IWormholeCore"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "wormholeCodeHash",
+            "inputs": [],
+            "outputs": [
+              {
+                "name": "",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "event",
+            "name": "Initialized",
+            "inputs": [
+              {
+                "name": "version",
+                "type": "uint64",
+                "indexed": false,
+                "internalType": "uint64"
+              }
+            ],
+            "anonymous": false
+          },
+          {
+            "type": "error",
+            "name": "InvalidInitialization",
+            "inputs": []
+          },
+          {
+            "type": "error",
+            "name": "InvalidMessage",
+            "inputs": []
+          },
+          {
+            "type": "error",
+            "name": "NotInitializing",
+            "inputs": []
+          },
+          {
+            "type": "error",
+            "name": "UnsupportedEvmChain",
+            "inputs": []
+          }
+        ]
+      },
+      "Evm84532SafeVerifier": {
+        "implementation": "0xbe173fbeef3b53dae0d25b8e27391ea201d564c9",
+        "implementationCodeHash": "0x8785edfa6e77a6a1d4f0d87cdb146d89eeae50936601181a842b9baa0a5cb7ad",
+        "contractId": "0x738a2f2b4965d6b4b3d8f865aeec2f758766c48c2f0a192f3e7b92bc55bc0c7b",
         "storageLayout": {
           "storage": [
             {
@@ -36422,38 +37738,38 @@
         ]
       },
       "WormholeEthereumPublisher": {
-        "implementation": "0xe68e17606461d90efba8cbd3cc7ddf54c4b1bf36",
+        "implementation": "0x9ab805364f9653b71b56089bf263817e049af73a",
         "admin": "0xCaCB95Ba04375FD49563Cc07Ce6ee44624872A0b",
         "contractId": "0x98d84e4430d8e42d94979eb27583c8f528e1bf20f49655133ba1dcfda0df8b8b",
-        "implementationCodeHash": "0xf490863ec0c280aa692a6ab6578aca3b5d30c171e0d88781128b6f3af3f6cc00",
+        "implementationCodeHash": "0xa72cc865b7e3f92705dbf859ad264050345616928e3a70aa69a47897bcf5b9fe",
         "storageLayout": {
           "storage": [
             {
-              "astId": 45476,
+              "astId": 45194,
               "contract": "src/ethereum/collateral/WormholeEthereumPublisher.sol:WormholeEthereumPublisher",
               "label": "vault",
               "offset": 0,
               "slot": "0",
-              "type": "t_contract(CollateralVault)107853"
+              "type": "t_contract(CollateralVault)52314"
             },
             {
-              "astId": 45479,
+              "astId": 45197,
               "contract": "src/ethereum/collateral/WormholeEthereumPublisher.sol:WormholeEthereumPublisher",
               "label": "controller",
               "offset": 0,
               "slot": "1",
-              "type": "t_contract(RemoteCollateralController)43826"
+              "type": "t_contract(RemoteCollateralController)43544"
             },
             {
-              "astId": 45482,
+              "astId": 45200,
               "contract": "src/ethereum/collateral/WormholeEthereumPublisher.sol:WormholeEthereumPublisher",
               "label": "wormhole",
               "offset": 0,
               "slot": "2",
-              "type": "t_contract(IWormholeCore)110280"
+              "type": "t_contract(IWormholeCore)54741"
             },
             {
-              "astId": 45484,
+              "astId": 45202,
               "contract": "src/ethereum/collateral/WormholeEthereumPublisher.sol:WormholeEthereumPublisher",
               "label": "vaultCodeHash",
               "offset": 0,
@@ -36461,7 +37777,7 @@
               "type": "t_bytes32"
             },
             {
-              "astId": 45486,
+              "astId": 45204,
               "contract": "src/ethereum/collateral/WormholeEthereumPublisher.sol:WormholeEthereumPublisher",
               "label": "controllerCodeHash",
               "offset": 0,
@@ -36469,7 +37785,7 @@
               "type": "t_bytes32"
             },
             {
-              "astId": 45488,
+              "astId": 45206,
               "contract": "src/ethereum/collateral/WormholeEthereumPublisher.sol:WormholeEthereumPublisher",
               "label": "wormholeCodeHash",
               "offset": 0,
@@ -36477,7 +37793,7 @@
               "type": "t_bytes32"
             },
             {
-              "astId": 45492,
+              "astId": 45210,
               "contract": "src/ethereum/collateral/WormholeEthereumPublisher.sol:WormholeEthereumPublisher",
               "label": "published",
               "offset": 0,
@@ -36485,7 +37801,7 @@
               "type": "t_mapping(t_bytes32,t_bool)"
             },
             {
-              "astId": 45496,
+              "astId": 45214,
               "contract": "src/ethereum/collateral/WormholeEthereumPublisher.sol:WormholeEthereumPublisher",
               "label": "sequenceOf",
               "offset": 0,
@@ -36493,7 +37809,7 @@
               "type": "t_mapping(t_bytes32,t_uint64)"
             },
             {
-              "astId": 45500,
+              "astId": 45218,
               "contract": "src/ethereum/collateral/WormholeEthereumPublisher.sol:WormholeEthereumPublisher",
               "label": "snapshotPublishedAt",
               "offset": 0,
@@ -36501,7 +37817,7 @@
               "type": "t_mapping(t_bytes32,t_uint256)"
             },
             {
-              "astId": 45502,
+              "astId": 45220,
               "contract": "src/ethereum/collateral/WormholeEthereumPublisher.sol:WormholeEthereumPublisher",
               "label": "confirmationDepth",
               "offset": 0,
@@ -36509,7 +37825,7 @@
               "type": "t_uint16"
             },
             {
-              "astId": 45504,
+              "astId": 45222,
               "contract": "src/ethereum/collateral/WormholeEthereumPublisher.sol:WormholeEthereumPublisher",
               "label": "confirmationPolicyHash",
               "offset": 0,
@@ -36517,12 +37833,20 @@
               "type": "t_bytes32"
             },
             {
-              "astId": 45506,
+              "astId": 45224,
               "contract": "src/ethereum/collateral/WormholeEthereumPublisher.sol:WormholeEthereumPublisher",
               "label": "consistencyConfigCodeHash",
               "offset": 0,
               "slot": "11",
               "type": "t_bytes32"
+            },
+            {
+              "astId": 45226,
+              "contract": "src/ethereum/collateral/WormholeEthereumPublisher.sol:WormholeEthereumPublisher",
+              "label": "snapshotConsistency",
+              "offset": 0,
+              "slot": "12",
+              "type": "t_uint8"
             }
           ],
           "types": {
@@ -36536,17 +37860,17 @@
               "label": "bytes32",
               "numberOfBytes": "32"
             },
-            "t_contract(CollateralVault)107853": {
+            "t_contract(CollateralVault)52314": {
               "encoding": "inplace",
               "label": "contract CollateralVault",
               "numberOfBytes": "20"
             },
-            "t_contract(IWormholeCore)110280": {
+            "t_contract(IWormholeCore)54741": {
               "encoding": "inplace",
               "label": "contract IWormholeCore",
               "numberOfBytes": "20"
             },
-            "t_contract(RemoteCollateralController)43826": {
+            "t_contract(RemoteCollateralController)43544": {
               "encoding": "inplace",
               "label": "contract RemoteCollateralController",
               "numberOfBytes": "20"
@@ -36586,6 +37910,11 @@
               "encoding": "inplace",
               "label": "uint64",
               "numberOfBytes": "8"
+            },
+            "t_uint8": {
+              "encoding": "inplace",
+              "label": "uint8",
+              "numberOfBytes": "1"
             }
           }
         },
@@ -36621,6 +37950,13 @@
                 "internalType": "uint16"
               }
             ],
+            "outputs": [],
+            "stateMutability": "nonpayable"
+          },
+          {
+            "type": "function",
+            "name": "configureTestnetSafe",
+            "inputs": [],
             "outputs": [],
             "stateMutability": "nonpayable"
           },
@@ -36846,6 +38182,19 @@
                 "name": "",
                 "type": "uint64",
                 "internalType": "uint64"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "snapshotConsistency",
+            "inputs": [],
+            "outputs": [
+              {
+                "name": "",
+                "type": "uint8",
+                "internalType": "uint8"
               }
             ],
             "stateMutability": "view"
@@ -41994,8 +43343,8 @@
       "settlementAsset": "0x534b2f3A21130d7a60830c2Df862319e593943A3",
       "monitor": "0x4Bb71Cc4ea4dA4FBa0ce4720843c28Cc6aD0Fc70",
       "trustModel": "testnet RPC monitor; 180-second expiring approval",
-      "bid": "2417400",
-      "ask": "2441800",
+      "bid": "2449900",
+      "ask": "2474700",
       "makerBaseMON": "5",
       "makerQuoteUSDC": "1",
       "guards": {
@@ -42087,7 +43436,7 @@
           "codeHash": "0x645111866eec7decc0ba5894cef472a6497f11a791aec446155d8a71078cc0c2"
         }
       },
-      "liquidityUpdatedAt": "2026-10-12T23:17:07.298Z"
+      "liquidityUpdatedAt": "2026-10-13T01:49:23.109Z"
     },
     "kuru-application": {
       "applicationId": "60a78bce-f7bc-438d-afb5-8fedfa22866f",
@@ -49766,7 +51115,7 @@
       "controller": "0x2ac3642c4bb71433d444f35ec649690f2570a297",
       "recovery": "0x5bb0eb823a4fcb686f6d355f1cc34fbce9e6f7ff",
       "publisher": "0xc7e4f9265ab1c006875ab82b59bac61cbef590b4",
-      "verifier": "0xdd9e375f5697b268aef2cf904bc238ed732360cc",
+      "verifier": "0xbc3df547c313c49babdc920db4702e3f4ea75fad",
       "priceId": "0xda849024365e374808266e520cc8be7967ca9aa0d752e8465d3a4ad9c782c6f2",
       "retainedSourceBps": 8000,
       "recoveryCosts": "50000",
@@ -49843,6 +51192,43 @@
         "Base84532Evm84532Verifier": {
           "address": "0xdd9e375f5697b268aef2cf904bc238ed732360cc",
           "codeHash": "0x8acb19e289e9d79ffe82f77e320a8815b276a86267bca670a0ffb6b402c9f282"
+        }
+      }
+    },
+    "confirmations-84532": {
+      "core": "0x198995faab55a9d5d4dceab56abaaa273c26fad7",
+      "network": "testnet",
+      "completedAt": "2026-10-13T01:43:52.270Z",
+      "sourceChain": 84532,
+      "destinationChain": 10143,
+      "confirmationDepth": 0,
+      "consistency": 201,
+      "finality": "safe",
+      "verifierVersion": 3,
+      "policyHash": "0x351276cb4d3416b38bb545ed90895ce6999881067391c8c5e49676bbc0031df6",
+      "publisher": "0xc7e4f9265ab1c006875ab82b59bac61cbef590b4",
+      "client": "0xd0f5aeca20145de02055729c0e74ee66158b4f30",
+      "verifier": "0xbc3df547c313c49babdc920db4702e3f4ea75fad",
+      "contractPins": {
+        "PublisherConfirmationImplementation": {
+          "address": "0x9ab805364f9653b71b56089bf263817e049af73a",
+          "codeHash": "0xa72cc865b7e3f92705dbf859ad264050345616928e3a70aa69a47897bcf5b9fe"
+        },
+        "Evm84532SafeClientImplementation": {
+          "address": "0x53442B020316280f80D9A0895017860bB5931742",
+          "codeHash": "0x275baf968a6a0c6ebfb6344e592c3068a9012af59c3bdb1d49321297e61f79c2"
+        },
+        "Evm84532SafeClient": {
+          "address": "0xd0f5aeca20145de02055729c0e74ee66158b4f30",
+          "codeHash": "0xebdc2d4ec29aa6c27c103a2089e2a3864e39da42dbf77a6d45ad698f7334f727"
+        },
+        "Evm84532SafeVerifierImplementation": {
+          "address": "0xbe173fbeef3b53dae0d25b8e27391ea201d564c9",
+          "codeHash": "0x8785edfa6e77a6a1d4f0d87cdb146d89eeae50936601181a842b9baa0a5cb7ad"
+        },
+        "Evm84532SafeVerifier": {
+          "address": "0xbc3df547c313c49babdc920db4702e3f4ea75fad",
+          "codeHash": "0x43f602bff470058d3cdcf8d7c1cf74e7a57df373755b717e67fedee1e0b3e98f"
         }
       }
     }

@@ -369,7 +369,7 @@ async function main() {
         if (kuru && !test.execution) {
           const action = orders && test.kind.startsWith("default") ? await kuruPlan(test, { use_case: "spot", capability: "place_order",
             params: { market_id: appSetup.definition.markets[0].market_id, direction: "buy", order_type: "limit",
-              amount: { spend: amounts.draw }, limit_price: await restingPrice("buy") } }, credit, amounts.draw)
+              amount: { spend: base ? 10_000n : amounts.draw }, limit_price: await restingPrice("buy") } }, credit, base ? 10_000n : amounts.draw)
             : await kuruAction(test, "buy", amounts.draw, credit);
           test.action = action.plan; test.execution = action.authorization; test.probe = action.probe; persist();
         }
@@ -402,6 +402,16 @@ async function main() {
         test.drawVerified = { at: new Date().toISOString(), ...JSON.parse(canonicalJson(health)), appPosition: String(position), accountCash: String(cash) };
         test.state = test.kind.startsWith("default") ? "awaiting_default" : test.kind === "active" ? "active_for_admission" : "repayment_pending";
         persist();
+        credit = await coreRead("creditDetails", [test.creditId]);
+      }
+      if (base && test.kind.startsWith("default") && test.drawVerified && !test.roundingRepaid && credit.facility === 4) {
+        const rounding = BigInt(test.drawVerified.debt) - BigInt(test.drawVerified.appValue);
+        if (rounding < 0n || rounding > 1n || now >= credit.maturity) throw new Error("Unexpected resting-order rounding cost");
+        if (rounding > 0n) {
+          await monad.send(`${test.kind}:approve-rounding`, viem.encodeFunctionData({ abi: erc20, functionName: "approve", args: [m.TermbookCore, rounding] }), usdc);
+          await monad.call("TermbookCore", m.TermbookCore, "repay", [test.creditId, rounding], `${test.kind}:repay-rounding`);
+        }
+        test.roundingRepaid = { amount: String(rounding), at: new Date().toISOString() }; persist();
         credit = await coreRead("creditDetails", [test.creditId]);
       }
       if (orders && test.kind === "active" && test.drawVerified && credit.facility === 4) await orderProbes(test);
@@ -503,7 +513,8 @@ async function main() {
   report.observations = observations;
   const lifecycleComplete = observations.some((test) => test.kind === "repayment" && test.completed)
     && (fast || observations.some((test) => test.kind.startsWith("default") && test.drawVerified && test.completed))
-    && (!orders || base || Boolean(report.cases.active?.ordersVerified));
+    && (!orders || base || Boolean(report.cases.active?.ordersVerified))
+    && (!base || observations.every((test) => test.completed || test.state === "aborted_collateral_returned"));
   if (kuru && !base && lifecycleComplete && !report.lifecycle) {
     const recovered = Object.values(report.cases).find((test) => test.kind.startsWith("default") && test.drawVerified);
     const repayment = report.cases.repayment, active = report.cases.active;

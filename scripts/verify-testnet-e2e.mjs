@@ -5,6 +5,7 @@ import process from 'node:process';
 import { log, error } from 'node:console';
 import { root, viem, artifact } from './testnet-runtime.mjs';
 import { pacedHttp } from '../server/dist/chain/rpc.transport.js';
+import { readCoreEvents } from '../server/dist/chain/envio.client.js';
 const fast = process.argv[2] === '--fast';
 const native = process.argv[2] === '--native';
 const base = process.argv[2] === '--base-kuru';
@@ -95,6 +96,8 @@ async function main() {
       collateralReturned: c.collateralReturned, sourceLockedAmount: String(lock[2]), appPosition: String(position), accountReleased,
       repaymentComplete: t.kind === 'repayment' && c.facility === 6 && c.payment === 4 && c.debt === 0n && c.collateralReturned && lock[2] === 0n && position === 0n && pending === 0n && accountReleased,
       recoveryComplete: t.kind.startsWith('default') && c.facility === 10 && c.debt === 0n && c.collateralReturned && lock[2] === 0n && position === 0n && pending === 0n && accountReleased,
+      unusedComplete: !t.drawVerified && [6, 7].includes(c.facility) && c.debt === 0n && c.collateralReturned
+        && lock[2] === 0n && position === 0n && pending === 0n && (c.facility === 7 || accountReleased),
       setupAborted: c.facility === 7, proofAndReturnReceipts: [],
       observedCompletedAt: t.completedAt };
     const draw = recorded.transactions.find((tx) => tx.name === `${t.kind}:borrow-and-deposit`);
@@ -141,19 +144,31 @@ async function main() {
       const topics = events.map((event) => viem.encodeEventTopics({ abi: [event], eventName: event.name })[0]);
       let exited = false;
       let recovered = 0n;
-      for (let from = BigInt(accept.block); from <= finalized[10143].number; from += 100n) {
-        const to = from + 99n > finalized[10143].number ? finalized[10143].number : from + 99n;
-        const logs = await monad.request({ method: 'eth_getLogs', params: [{ address: core, fromBlock: viem.toHex(from), toBlock: viem.toHex(to), topics: [topics, t.creditId] }] });
+      let expectedRecovery, beforeDefault = 0n;
+      for (let from = BigInt(accept.block); from <= finalized[10143].number;) {
+        const batch = await readCoreEvents(monad, from, finalized[10143].number, 'json');
+        if (batch.nextBlock <= from) throw new Error('Recovery event index has not reached the finalized block');
+        const logs = batch.logs.filter((log) => topics.includes(log.topics[0]) && log.topics[1]?.toLowerCase() === t.creditId.toLowerCase());
         for (const step of logs) {
           const decoded = viem.decodeEventLog({ abi: events, topics: step.topics, data: step.data });
           if (decoded.args.creditId !== t.creditId) throw new Error('Recovery event credit mismatch');
           const tx = await receipt(10143, step.transactionHash);
-          if (tx.block !== String(viem.hexToBigInt(step.blockNumber)) || tx.blockHash !== step.blockHash) throw new Error('Recovery event block mismatch');
+          if (tx.block !== String(step.blockNumber) || tx.blockHash !== step.blockHash) throw new Error('Recovery event block mismatch');
           const mined = await monad.getTransactionReceipt({ hash: step.transactionHash });
-          if (!mined.logs.some((entry) => entry.logIndex === Number(viem.hexToBigInt(step.logIndex))
+          if (!mined.logs.some((entry) => entry.logIndex === step.logIndex
             && entry.address.toLowerCase() === core.toLowerCase() && entry.data === step.data && JSON.stringify(entry.topics) === JSON.stringify(step.topics))) throw new Error('Recovery event receipt mismatch');
+          if (expectedRecovery === undefined && decoded.eventName !== 'LiquidationStarted') {
+            if (decoded.eventName !== 'Repaid' || tx.timestamp >= Number(c.maturity)) throw new Error('Recovery event before liquidation');
+            beforeDefault += decoded.args.amount;
+            continue;
+          }
+          if (decoded.eventName === 'LiquidationStarted') {
+            if (expectedRecovery !== undefined) throw new Error('Duplicate liquidation event');
+            expectedRecovery = await monad.readContract({ address: core, abi: artifact('TermbookCore').abi,
+              functionName: 'creditDebt', args: [t.creditId], blockNumber: step.blockNumber });
+          }
           const approved = await monad.readContract({ address: core, abi: artifact('TermbookCore').abi,
-            functionName: 'recoveryKeepers', args: [tx.from], blockNumber: viem.hexToBigInt(step.blockNumber) });
+            functionName: 'recoveryKeepers', args: [tx.from], blockNumber: step.blockNumber });
           if (!approved || tx.from.toLowerCase() === c.borrower.toLowerCase()) throw new Error('Forced recovery authority mismatch');
           if (decoded.eventName === 'AppRecoveryStep') {
             const targets = base ? appSetup.definition.assessment.recovery.map((step) => step.target.toLowerCase()) : [recorded.app.toLowerCase()];
@@ -163,10 +178,15 @@ async function main() {
           if (decoded.eventName === 'RecoveryPayment' || decoded.eventName === 'Repaid') recovered += decoded.args.amount;
           steps.push(tx);
         }
+        from = batch.nextBlock;
       }
-      if (!exited || recovered !== BigInt(t.drawVerified?.debt ?? recorded.drawAmount ?? '1000000')) throw new Error('Independent keeper did not exit and recover the full loan');
+      if (!exited || expectedRecovery === undefined || expectedRecovery <= 0n || recovered !== expectedRecovery
+        || expectedRecovery + beforeDefault !== BigInt(t.drawVerified?.debt ?? recorded.drawAmount ?? '1000000')) {
+        throw new Error('Independent keeper did not exit and recover the full outstanding loan');
+      }
       outcome.forcedRecoveryReceipts = steps;
       outcome.forcedRecoveryAmount = String(recovered);
+      outcome.beforeDefaultRepaid = String(beforeDefault);
     }
     const ownReceipt = async (name) => {
       const tx = recorded.transactions.find((entry) => entry.name === `${t.kind}:${name}`);
@@ -223,6 +243,7 @@ async function main() {
   const fees = {};
   for (const tx of checked.values()) fees[tx.chainId] = (BigInt(fees[tx.chainId] ?? '0') + BigInt(tx.feeWei)).toString();
   const lifecycleComplete = observations.some((t) => t.repaymentComplete) && (fast || observations.some((t) => t.recoveryComplete));
+  const unusedFacilitiesReturned = observations.every((t) => t.drawReceipt || t.unusedComplete);
   const allReceiptsFinalized = [...checked.values()].every((tx) => tx.finalized);
   const house = { address: deployment.addresses[10143].HouseVault };
   for (const name of ['manager', 'freeCash', 'availableCash', 'committedCash', 'drawnPrincipal', 'activeCreditCount', 'totalAssets', 'totalShares']) {
@@ -234,7 +255,8 @@ async function main() {
     feeScope: 'Listed borrower, proof, return and recovery receipts; excludes keeper funding and oracle updates',
     finalizedBlocks: Object.fromEntries(Object.entries(finalized).map(([id, b]) => [id, { number: String(b.number), hash: b.hash }])),
     house, observations, measuredFeesWei: fees, transactions: [...checked.values()],
-    lifecycleComplete, allReceiptsFinalized, completed: lifecycleComplete && allReceiptsFinalized };
+    lifecycleComplete, unusedFacilitiesReturned, allReceiptsFinalized,
+    completed: lifecycleComplete && unusedFacilitiesReturned && allReceiptsFinalized };
   if (report.completed) { clearOperation(publicName); clearOperation(base ? "base-kuru-e2e" : native ? "native-e2e" : fast ? clean ? "fast-clean-e2e" : "fast-e2e" : "live-e2e"); }
   log(JSON.stringify({ verifiedAt: report.verifiedAt, completed: report.completed, observations }));
   if (!report.completed) process.exitCode = 1;

@@ -41994,8 +41994,8 @@
       "settlementAsset": "0x534b2f3A21130d7a60830c2Df862319e593943A3",
       "monitor": "0x4Bb71Cc4ea4dA4FBa0ce4720843c28Cc6aD0Fc70",
       "trustModel": "testnet RPC monitor; 180-second expiring approval",
-      "bid": "2466700",
-      "ask": "2491600",
+      "bid": "2417400",
+      "ask": "2441800",
       "makerBaseMON": "5",
       "makerQuoteUSDC": "1",
       "guards": {
@@ -42087,7 +42087,7 @@
           "codeHash": "0x645111866eec7decc0ba5894cef472a6497f11a791aec446155d8a71078cc0c2"
         }
       },
-      "liquidityUpdatedAt": "2026-10-12T22:31:55.909Z"
+      "liquidityUpdatedAt": "2026-10-12T23:17:07.298Z"
     },
     "kuru-application": {
       "applicationId": "60a78bce-f7bc-438d-afb5-8fedfa22866f",

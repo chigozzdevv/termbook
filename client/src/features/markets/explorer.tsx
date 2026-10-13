@@ -1,12 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useDialogs } from "@/components/layout/providers";
 import { Toolbar } from "@/components/table/toolbar";
 import type { SortState } from "@/components/table/sort";
 import { Table as OrdersTable } from "@/features/orders/table";
 import { Table as HousesTable } from "@/features/houses/table";
-import { Details as OrderDetails, detailTitle } from "@/features/orders/details";
 import { Details as HouseDetails } from "@/features/houses/details";
 import { orders } from "@/features/orders/mock";
 import { houses } from "@/features/houses/mock";
@@ -27,6 +27,7 @@ const statuses = [
 ];
 
 export function Explorer({ view = "orders" }: { view?: View }) {
+  const router = useRouter();
   const { supply } = useDialogs();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
@@ -43,7 +44,6 @@ export function Explorer({ view = "orders" }: { view?: View }) {
   const currentPage = Math.min(page, pages - 1);
   const start = currentPage * pageSize;
   const house = houses.find((house) => house.house === selected);
-  const order = orders.find((order) => order.id === selected);
 
   function select(id: string) {
     setSelected(selected === id ? null : id);
@@ -89,7 +89,6 @@ export function Explorer({ view = "orders" }: { view?: View }) {
               orders={filteredOrders.slice(start, start + pageSize)}
               sort={sort}
               onSort={onSort}
-              onOrder={select}
               onHouse={select}
             />
           )}
@@ -101,14 +100,14 @@ export function Explorer({ view = "orders" }: { view?: View }) {
           </span>
           <span>Mock records · 10 Oct 2026</span>
         </div>
-        {(house || order) && (
+        {house && (
           <section
             aria-live="polite"
             className="mt-5 rounded-2xl border border-line bg-[#151719] p-5"
           >
             <div className="mb-5 flex items-center justify-between gap-4">
               <h2 className="m-0 font-heading text-[28px] leading-[1.15]">
-                {house ? `House ${short(house.house)}` : detailTitle(order!)}
+                House {short(house.house)}
               </h2>
               <button
                 type="button"
@@ -118,11 +117,11 @@ export function Explorer({ view = "orders" }: { view?: View }) {
                 Close
               </button>
             </div>
-            {house ? (
-              <HouseDetails house={house} orders={orders} onOrder={select} />
-            ) : (
-              <OrderDetails order={order!} />
-            )}
+            <HouseDetails
+              house={house}
+              orders={orders}
+              onOrder={(id) => router.push(`/orders/${id}`)}
+            />
           </section>
         )}
       </div>

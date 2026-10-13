@@ -1,21 +1,50 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ChevronRight } from "lucide-react";
+import { CopyButton } from "@/components/ui/copy-button";
+import { Status } from "@/components/table/status";
 import { orders } from "@/features/orders/mock";
-import { Details, detailTitle } from "@/features/orders/details";
+import { Details } from "@/features/orders/details";
 
 export default async function Page({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const order = orders.find((order) => order.id === id);
+  const order = orders.find((order) => order.id.toLowerCase() === id.toLowerCase());
   if (!order) notFound();
+  const title = order.kind === "request" ? "Borrowing request" : "Credit";
   return (
-    <main className="gutter py-8">
-      <Link href="/" className="mb-5 inline-block text-muted underline underline-offset-4">
-        Back to Orders
-      </Link>
-      <section className="rounded-2xl border border-line bg-[#151719] p-5">
-        <h1 className="mb-5 font-heading text-[28px] leading-[1.15]">{detailTitle(order)}</h1>
+    <main className="gutter order-page">
+      <div className="mx-auto max-w-[1160px]">
+        <nav aria-label="Breadcrumb" className="mb-7 flex items-center gap-2 text-xs text-muted">
+          <Link href="/#market" className="hover:text-foreground">
+            Orders
+          </Link>
+          <ChevronRight size={12} aria-hidden="true" />
+          <span aria-current="page">{title}</span>
+        </nav>
+        <header className="mb-7">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <h1 className="m-0 font-heading text-[34px] leading-[1.15] max-[430px]:text-[28px]">
+              {title}
+            </h1>
+            <Status value={order.status} />
+          </div>
+          <div className="flex min-w-0 items-start gap-2 text-muted">
+            <span className="min-w-0 pt-1 font-mono text-xs leading-[1.6] wrap-anywhere">
+              {order.id}
+            </span>
+            <CopyButton
+              value={order.id}
+              label={order.kind === "request" ? "intent ID" : "credit ID"}
+            />
+          </div>
+          <p className="mt-3 mb-0 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
+            <span>Monad testnet</span>
+            <span aria-hidden="true">·</span>
+            <span>Mock record</span>
+          </p>
+        </header>
         <Details order={order} />
-      </section>
+      </div>
     </main>
   );
 }

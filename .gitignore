@@ -3,6 +3,8 @@ dist/
 out/
 cache/
 lib/
+!client/src/lib/
+!client/src/lib/**
 .env
 .env.local
 .testnet/

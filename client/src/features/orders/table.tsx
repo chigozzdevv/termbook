@@ -10,11 +10,10 @@ interface Props {
   orders: Order[];
   sort: SortState;
   onSort: (key: string) => void;
-  onOrder: (id: string) => void;
   onHouse: (address: string) => void;
 }
 
-export function Table({ orders, sort, onSort, onOrder, onHouse }: Props) {
+export function Table({ orders, sort, onSort, onHouse }: Props) {
   return (
     <table className="data-table orders-table" aria-label="Borrowing requests and credits">
       <thead>
@@ -36,7 +35,7 @@ export function Table({ orders, sort, onSort, onOrder, onHouse }: Props) {
         {orders.map((order) => (
           <tr key={order.id}>
             <td>
-              <Identifier value={order.id} label="order" square onClick={() => onOrder(order.id)} />
+              <Identifier value={order.id} label="order" square href={`/orders/${order.id}`} />
             </td>
             <td>
               <span className="inline-flex rounded-2xl border border-[#414547] bg-[#1c1e1f] px-[6px] py-[2px] font-mono text-xs leading-[1.15] text-[#a6adb2]">

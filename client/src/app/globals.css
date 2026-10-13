@@ -105,6 +105,65 @@
   .transaction {
     @apply grid grid-cols-[1fr_1.3fr_auto] items-start gap-4 border-t border-line pt-3 text-xs max-[740px]:grid-cols-1;
   }
+  .order-page {
+    @apply pt-8 pb-14 max-[430px]:pt-6 max-[430px]:pb-8;
+  }
+  .order-metrics {
+    @apply mb-5 grid grid-cols-4 overflow-hidden rounded-[18px] border border-line bg-panel max-[740px]:grid-cols-2;
+  }
+  .order-metrics > div {
+    @apply min-w-0 px-6 py-5 max-[430px]:px-4;
+  }
+  .order-metrics > div + div {
+    @apply border-l border-line;
+  }
+  @media (max-width: 740px) {
+    .order-metrics > div:nth-child(3) {
+      @apply border-l-0;
+    }
+    .order-metrics > div:nth-child(n + 3) {
+      @apply border-t border-line;
+    }
+  }
+  .order-metrics dt {
+    @apply mb-2 text-xs text-muted;
+  }
+  .order-metrics dd {
+    @apply m-0 font-mono text-[24px] tracking-[-.8px] tabular-nums max-[430px]:text-[19px];
+  }
+  .order-metrics dd span {
+    @apply text-xs tracking-normal text-muted;
+  }
+  .order-sections {
+    @apply grid grid-cols-[1.3fr_1fr] items-start gap-5 max-[960px]:grid-cols-1;
+  }
+  .order-section {
+    @apply min-w-0 rounded-[18px] border border-line bg-panel px-6 py-5 max-[430px]:px-4;
+  }
+  .order-section h2 {
+    @apply m-0 text-sm font-medium;
+  }
+  .order-field {
+    @apply grid grid-cols-[110px_minmax(0,1fr)] items-start gap-4 border-b border-line py-[14px] text-xs last:border-b-0 last:pb-0 max-[430px]:grid-cols-1 max-[430px]:gap-2;
+  }
+  .order-field dt {
+    @apply pt-1 text-muted;
+  }
+  .order-field dd {
+    @apply m-0 min-w-0 font-mono leading-[1.6] wrap-anywhere;
+  }
+  .order-transactions {
+    @apply w-full min-w-[470px] border-collapse text-left text-xs;
+  }
+  .order-transactions th {
+    @apply pb-3 font-normal text-muted;
+  }
+  .order-transactions :is(th, td) {
+    @apply pr-5 last:pr-0;
+  }
+  .order-transactions td {
+    @apply border-t border-line py-[10px];
+  }
   .supply-result {
     @apply mt-5 grid grid-cols-[1fr_auto] gap-x-4 gap-y-[10px] border-t border-line pt-[18px] text-[13px];
   }

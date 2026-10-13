@@ -109,12 +109,6 @@ export function Create() {
                 onChange={(event) => setAmount(event.target.value)}
               />
             </label>
-            <dl className="supply-summary mb-6">
-              <dt>Protocol creation fee</dt>
-              <dd>No fee configured</dd>
-              <dt>Network fee</dt>
-              <dd>Estimated at deployment</dd>
-            </dl>
             {error && (
               <p role="alert" className="mb-4 text-xs text-danger">
                 {error}
@@ -139,8 +133,6 @@ export function Create() {
               </dd>
               <dt>Initial liquidity</dt>
               <dd>{amount} USDC</dd>
-              <dt>Protocol creation fee</dt>
-              <dd>No fee configured</dd>
             </dl>
             <p className="mt-6 text-xs leading-[1.6] text-muted">
               A House becomes active after deployment, governance registration, policy configuration

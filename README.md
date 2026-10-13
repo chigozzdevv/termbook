@@ -1238,6 +1238,27 @@ The catalog and SDK use `testnetFinality: "safe"` only for an admitted Base Sepo
 market on Monad testnet. A standalone live probe verified a consistency-201 VAA
 and its guardian signatures before admission.
 
+The subsequent live run completed normal repayment and independent keeper
+recovery with zero debt, empty source locks and released accounts:
+
+| Base Sepolia safe-policy run | Canonical elapsed time |
+| --- | --- |
+| First lock to accepted collateral proof | 2m 42s |
+| First acceptance to borrowing | 3m 28s |
+| Normal source return to Monad confirmation | 3m 4s |
+| Normal acceptance to final closure | 9m 4s |
+| Default eligibility to recovered debt | 1m 43s |
+| Recovery source return to Monad confirmation | 2m 48s |
+
+The recovery loan repaid one USDC unit before default for venue rounding; the
+keeper recovered all 9,999 remaining units. Measurements include RPC and worker
+polling. The second lock also waited behind the first publisher transaction.
+
+`node --env-file=.env scripts/verify-testnet-e2e.mjs --base-kuru --admitted`
+checks canonical safe source state, finalized Monad state, guardian signatures,
+policy bindings, custody and repayment conservation. It reports eventual full
+source finality separately. Omitting `--admitted` retains the full-finality check.
+
 Keep the Ethereum endpoint in `SOURCE_RPC_URL` and configure additional EVM
 collateral endpoints in the root `.env`:
 

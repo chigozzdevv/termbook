@@ -11,7 +11,8 @@ const native = process.argv[2] === '--native';
 const base = process.argv[2] === '--base-kuru';
 const sourceChainId = native ? 10143 : base ? 84532 : 11155111;
 const clean = process.argv[3] === '--clean';
-if (clean && !fast || process.argv.length !== (clean ? 4 : fast || native || base ? 3 : 2)) throw new Error('Use optional --base-kuru, --native or --fast and --clean');
+const admitted = process.argv[3] === '--admitted';
+if (clean && !fast || admitted && !base || process.argv.length !== (clean || admitted ? 4 : fast || native || base ? 3 : 2)) throw new Error('Use optional --base-kuru [--admitted], --native or --fast [--clean]');
 const publicName = base ? 'testnet-base-kuru-e2e' : native ? 'testnet-native-e2e' : fast ? clean ? 'testnet-fast-clean-e2e' : 'testnet-fast-e2e' : 'testnet-e2e';
 
 async function main() {
@@ -27,15 +28,21 @@ async function main() {
   if (await monad.getChainId() !== 10143 || await source.getChainId() !== sourceChainId) throw new Error('E2E network mismatch');
   const finalized = { 10143: await monad.getBlock({ blockTag: 'finalized' }),
     ...(!native ? { [sourceChainId]: await source.getBlock({ blockTag: 'finalized' }) } : {}) };
-  const read = (client, name, address, functionName, args, chainId) => client.readContract({ address, abi: artifact(name).abi, functionName, args, blockNumber: finalized[chainId].number });
+  const read = (client, name, address, functionName, args, chainId) => client.readContract({ address, abi: artifact(name).abi, functionName, args, blockNumber: confirmed[chainId].number });
   const checked = new Map();
   const safeBase = base && recorded.confirmationPolicy === 'Base safe-block test policy';
+  if (admitted && !safeBase) throw new Error('Admitted verification requires the Base safe test policy');
+  const confirmed = { ...finalized, ...(admitted ? { [sourceChainId]: await source.getBlock({ blockTag: 'safe' }) } : {}) };
   async function verifySourceProof(hash, creditId, applied = false, actionHash) {
     const tx = await monad.getTransaction({ hash });
     const decoded = viem.decodeFunctionData({ abi: artifact('TermbookCore').abi, data: tx.input });
     if (tx.to?.toLowerCase() !== core.toLowerCase() || decoded.functionName !== (applied ? 'confirmRemoteReturn' : 'proveCollateral')
       || decoded.args[0] !== creditId || !applied && decoded.args[1] !== BigInt(sourceChainId)) throw new Error('Source proof call mismatch');
     const raw = viem.hexToBytes(decoded.args[applied ? 1 : 2]);
+    const wormhole = await read(monad, 'TermbookCore', core, 'ethereumWormholeCore', [], 10143);
+    const [, signed] = await monad.readContract({ address: wormhole, abi: artifact('IWormholeCore').abi,
+      functionName: 'parseAndVerifyVM', args: [viem.bytesToHex(raw)], blockNumber: tx.blockNumber });
+    if (!signed) throw new Error('Source VAA guardian signatures are invalid');
     const start = 6 + raw[5] * 66;
     if (raw[0] !== 1 || !raw[5] || raw.length !== start + 51 + (base && !safeBase ? 128 : 160)) throw new Error('Source VAA framing mismatch');
     const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
@@ -79,6 +86,7 @@ async function main() {
     const result = { chainId, hash, from: tx.from, to: tx.to, block: String(r.blockNumber), blockHash: r.blockHash,
       timestamp: Number(b.timestamp), minedAt: new Date(Number(b.timestamp) * 1000).toISOString(),
       finalized: r.blockNumber <= finalized[chainId].number, gasUsed: String(r.gasUsed), effectiveGasPrice: String(r.effectiveGasPrice),
+      admitted: r.blockNumber <= confirmed[chainId].number,
       ...(chainId === 84532 ? { l1FeeWei: String(l1Fee), operatorFeeWei: String(operatorFee) } : {}),
       feeWei: String(r.gasUsed * r.effectiveGasPrice + l1Fee + operatorFee) };
     checked.set(key, result);
@@ -247,6 +255,7 @@ async function main() {
   const lifecycleComplete = observations.some((t) => t.repaymentComplete) && (fast || observations.some((t) => t.recoveryComplete));
   const unusedFacilitiesReturned = observations.every((t) => t.drawReceipt || t.unusedComplete);
   const allReceiptsFinalized = [...checked.values()].every((tx) => tx.finalized);
+  const allReceiptsAdmitted = [...checked.values()].every((tx) => tx.admitted);
   const house = { address: deployment.addresses[10143].HouseVault };
   for (const name of ['manager', 'freeCash', 'availableCash', 'committedCash', 'drawnPrincipal', 'activeCreditCount', 'totalAssets', 'totalShares']) {
     const value = await read(monad, 'HouseVault', house.address, name, [], 10143);
@@ -256,11 +265,14 @@ async function main() {
     confirmationPolicy: recorded.confirmationPolicy,
     feeScope: 'Listed borrower, proof, return and recovery receipts; excludes keeper funding and oracle updates',
     finalizedBlocks: Object.fromEntries(Object.entries(finalized).map(([id, b]) => [id, { number: String(b.number), hash: b.hash }])),
+    admittedBlocks: Object.fromEntries(Object.entries(confirmed).map(([id, b]) => [id, { number: String(b.number), hash: b.hash }])),
     house, observations, measuredFeesWei: fees, transactions: [...checked.values()],
-    lifecycleComplete, unusedFacilitiesReturned, allReceiptsFinalized,
-    completed: lifecycleComplete && unusedFacilitiesReturned && allReceiptsFinalized };
+    lifecycleComplete, unusedFacilitiesReturned, allReceiptsFinalized, allReceiptsAdmitted,
+    verificationPolicy: admitted ? 'Admitted Base safe confirmation policy' : 'Eventual full source finality',
+    completed: lifecycleComplete && unusedFacilitiesReturned && (admitted ? allReceiptsAdmitted : allReceiptsFinalized) };
   if (report.completed) { clearOperation(publicName); clearOperation(base ? "base-kuru-e2e" : native ? "native-e2e" : fast ? clean ? "fast-clean-e2e" : "fast-e2e" : "live-e2e"); }
-  log(JSON.stringify({ verifiedAt: report.verifiedAt, completed: report.completed, observations }));
+  log(JSON.stringify({ verifiedAt: report.verifiedAt, completed: report.completed,
+    verificationPolicy: report.verificationPolicy, allReceiptsFinalized, allReceiptsAdmitted, observations }));
   if (!report.completed) process.exitCode = 1;
 }
 main().catch((cause) => { error(cause instanceof Error ? cause.message.split('\n')[0] : 'E2E verification failed'); process.exitCode = 1; });

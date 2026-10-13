@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   connectWallet,
   readConnection,
@@ -9,7 +17,7 @@ import {
   type Provider,
 } from "./connection";
 
-export function useWallet() {
+function useWalletSession() {
   const [wallets, setWallets] = useState<BrowserWallet[]>([]);
   const [provider, setProvider] = useState<Provider>();
   const [connection, setConnection] = useState<Connection>();
@@ -132,4 +140,18 @@ export function useWallet() {
     connect,
     disconnect,
   };
+}
+
+type WalletState = ReturnType<typeof useWalletSession>;
+const Context = createContext<WalletState | null>(null);
+
+export function WalletProvider({ children }: { children: ReactNode }) {
+  const wallet = useWalletSession();
+  return <Context.Provider value={wallet}>{children}</Context.Provider>;
+}
+
+export function useWallet(): WalletState {
+  const wallet = useContext(Context);
+  if (!wallet) throw new Error("Wallet provider is missing.");
+  return wallet;
 }

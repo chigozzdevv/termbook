@@ -1,6 +1,5 @@
-import Link from "next/link";
-import { Plus } from "lucide-react";
 import { Explorer } from "@/features/markets/explorer";
+import { CreateButton } from "@/features/houses/create-button";
 
 export default function Page() {
   return (
@@ -10,13 +9,7 @@ export default function Page() {
           <h1 id="houses-tab" className="mb-2 font-heading text-[36px] leading-[1.1]">
             Houses
           </h1>
-          <Link
-            href="/houses/create"
-            className="touch-target inline-flex min-h-[38px] shrink-0 items-center gap-2 rounded-lg border border-line bg-transparent px-3 py-2 text-[13px] text-[#d7dcde] hover:border-[#53585b] hover:bg-[#222527] hover:text-[#f4f4ef] max-[430px]:text-xs"
-          >
-            <Plus size={15} aria-hidden="true" />
-            Create House
-          </Link>
+          <CreateButton />
         </div>
         <p className="mt-3 text-[13px] text-muted">Supply liquidity to fund app credit on Monad.</p>
       </div>

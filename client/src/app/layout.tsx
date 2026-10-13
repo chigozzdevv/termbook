@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { Chrome } from "@/components/layout/chrome";
 import { Providers } from "@/components/layout/providers";
+import { WalletProvider } from "@/features/wallet/use-wallet";
 import { inter, redaction } from "./fonts";
 import "./globals.css";
 
@@ -16,9 +17,11 @@ export default function Layout({ children }: { children: ReactNode }) {
     <html lang="en" className={`${inter.variable} ${redaction.variable}`}>
       <body>
         <div className="min-w-0 overflow-x-clip bg-background">
-          <Providers>
-            <Chrome>{children}</Chrome>
-          </Providers>
+          <WalletProvider>
+            <Providers>
+              <Chrome>{children}</Chrome>
+            </Providers>
+          </WalletProvider>
         </div>
       </body>
     </html>

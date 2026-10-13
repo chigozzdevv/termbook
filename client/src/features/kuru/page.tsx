@@ -7,7 +7,7 @@ import { ArrowUpRight, Wallet, X } from "lucide-react";
 import { Logo } from "@/components/brand/logo";
 import { Button } from "@/components/ui/button";
 import { Network } from "@/components/layout/network";
-import { Dialog } from "@/components/ui/dialog";
+import { Picker } from "@/features/wallet/picker";
 import { useMarket } from "./use-market";
 import { useWallet } from "./wallet";
 import { useCredit } from "./use-credit";
@@ -55,12 +55,7 @@ export function KuruPage() {
       <Order market={data.market} account={credit.account} connected={!!wallet.connection} ready={!!wallet.client} busy={wallet.busy} stale={stale} failed={!!wallet.error} onConnect={() => setWalletOpen(true)} onOpen={open} />
       <Account rows={credit.rows} account={credit.account} trades={data.trades} connected={!!wallet.connection} ready={!!wallet.client} error={credit.error} onSelect={credit.select} onOpen={open} onRefresh={() => { data.refresh(); credit.refresh(); }} />
     </div>
-    <Dialog id="kuru-wallet" open={walletOpen} onClose={() => setWalletOpen(false)} title="Connect wallet">
-      <p className="mb-5 text-sm text-muted">Connect your Monad wallet. Termbook connects the collateral wallet when you set up credit.</p>
-      <div className="grid gap-3">{wallet.wallets.length ? wallet.wallets.map((row) => <Button variant="secondary" key={row.info.uuid} disabled={wallet.busy} onClick={() => { setWalletOpen(false); void wallet.connect(row); }}>{row.info.name}<ArrowUpRight size={14} /></Button>)
-        : <p className="text-sm text-muted">No browser wallet found. Open this page in a browser with an EVM wallet installed.</p>}</div>
-      {wallet.error && <p className="kuru-error" role="alert">{wallet.error}</p>}
-    </Dialog>
+    <Picker id="kuru-wallet" open={walletOpen} onClose={() => setWalletOpen(false)} />
     </main>
   </>;
 }

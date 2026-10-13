@@ -5,6 +5,7 @@ import {
   type BrowserWallet,
   type Provider,
 } from "../src/features/wallet/connection";
+import { brandFor, imageSource, legacyInfo } from "../src/features/wallet/branding";
 
 const first = "0x1111111111111111111111111111111111111111";
 const second = "0x2222222222222222222222222222222222222222";
@@ -121,4 +122,38 @@ describe("Manager wallet connection", () => {
       await expect(readConnection(wallet.provider)).rejects.toThrow("Invalid wallet account");
     },
   );
+});
+
+describe("Wallet branding", () => {
+  it("accepts embedded provider logos and bundled official assets", () => {
+    const icon =
+      "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%2F%3E";
+    expect(imageSource(icon)).toBe(icon);
+    expect(imageSource("/wallets/metamask.svg")).toBe("/wallets/metamask.svg");
+  });
+
+  it.each([
+    "https://example.com/tracking.svg",
+    "//example.com/icon.png",
+    "javascript:alert(1)",
+    "data:text/html,<script>alert(1)</script>",
+  ])("rejects external or executable icon source %s", (source) => {
+    expect(imageSource(source)).toBeUndefined();
+  });
+
+  it("bounds provider icon size", () => {
+    expect(imageSource(`data:image/png;base64,${"a".repeat(250_000)}`)).toBeUndefined();
+  });
+
+  it("identifies legacy Rabby before its MetaMask compatibility flag", () => {
+    const { wallet } = browser();
+    Object.assign(wallet.provider, { isMetaMask: true, isRabby: true });
+    expect(legacyInfo(wallet.provider).name).toBe("Rabby");
+  });
+
+  it("uses announced identifiers for display aliases", () => {
+    expect(brandFor({ uuid: "test", name: "Rabby Wallet", rdns: "io.rabby" })?.icon).toBe(
+      "/wallets/rabby.svg",
+    );
+  });
 });

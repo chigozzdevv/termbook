@@ -1,14 +1,15 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Connection } from "../src/features/wallet/connection";
+import type { BrowserWallet, Connection } from "../src/features/wallet/connection";
 import { Create } from "../src/features/houses/create";
+import { Picker } from "../src/features/wallet/picker";
 
 let wallet: {
   connection?: Connection;
   busy: boolean;
   error: string;
-  wallets: [];
+  wallets: BrowserWallet[];
   connect: () => Promise<boolean>;
   disconnect: () => void;
 };
@@ -64,5 +65,38 @@ describe("House creation wallet gate", () => {
     const html = renderToStaticMarkup(createElement(Create));
     expect(html).toContain("Connecting…");
     expect(html).not.toContain('aria-label="Initial liquidity"');
+  });
+
+  it("shows missing wallets as branded download links", () => {
+    const html = renderToStaticMarkup(
+      createElement(Picker, { id: "test-wallet", open: true, onClose: vi.fn() }),
+    );
+    expect(html).toContain('aria-label="Get MetaMask"');
+    expect(html).toContain('href="https://metamask.io/download"');
+    expect(html).toContain('src="/wallets/metamask.svg"');
+    expect(html).toContain('src="/wallets/rabby.svg"');
+    expect(html).not.toContain('aria-label="Connect MetaMask"');
+  });
+
+  it("shows detected wallets as connection buttons with logos instead of duplicate installation links", () => {
+    wallet.wallets = [
+      {
+        info: {
+          uuid: "metamask",
+          name: "MetaMask",
+          rdns: "io.metamask",
+          icon: "https://example.com/tracking.png",
+        },
+        provider: connected.provider,
+      },
+    ];
+    const html = renderToStaticMarkup(
+      createElement(Picker, { id: "test-wallet", open: true, onClose: vi.fn() }),
+    );
+    expect(html).toContain('aria-label="Connect MetaMask"');
+    expect(html).toContain("Installed");
+    expect(html).toContain('src="/wallets/metamask.svg"');
+    expect(html).not.toContain("tracking.png");
+    expect(html).not.toContain('aria-label="Get MetaMask"');
   });
 });

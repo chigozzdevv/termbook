@@ -16,6 +16,7 @@ import {
   type Connection,
   type Provider,
 } from "./connection";
+import { legacyInfo } from "./branding";
 
 function useWalletSession() {
   const [wallets, setWallets] = useState<BrowserWallet[]>([]);
@@ -38,7 +39,12 @@ function useWalletSession() {
         typeof wallet.info?.name !== "string"
       )
         return;
-      setWallets((rows) => [...rows.filter((row) => row.info.uuid !== wallet.info.uuid), wallet]);
+      setWallets((rows) => [
+        ...rows.filter(
+          (row) => row.info.uuid !== wallet.info.uuid && row.provider !== wallet.provider,
+        ),
+        wallet,
+      ]);
     }
     window.addEventListener("eip6963:announceProvider", announce);
     window.dispatchEvent(new Event("eip6963:requestProvider"));
@@ -52,10 +58,7 @@ function useWalletSession() {
             setWallets((rows) =>
               rows.some((row) => row.provider === legacy)
                 ? rows
-                : [
-                    ...rows,
-                    { info: { uuid: "injected", name: "Browser wallet" }, provider: legacy },
-                  ],
+                : [...rows, { info: legacyInfo(legacy), provider: legacy }],
             );
         })
         .catch(() => undefined);
@@ -133,7 +136,7 @@ function useWalletSession() {
   }, [provider, disconnect, invalidate]);
 
   return {
-    wallets: wallets.filter((wallet) => wallet.info.uuid !== "injected" || wallets.length === 1),
+    wallets,
     connection,
     busy,
     error,

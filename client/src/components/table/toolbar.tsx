@@ -60,21 +60,25 @@ export function Toolbar({
       </label>
       {tabs && <div className="market-tabs">{tabs}</div>}
       <div
-        className={`flex items-center gap-3 ${tabs ? "market-controls" : "max-[740px]:ml-auto max-[430px]:w-full max-[430px]:flex-wrap max-[430px]:justify-between"}`}
+        className={`flex items-center gap-3 ${tabs ? "market-controls" : "max-[740px]:ml-auto max-[430px]:w-full max-[430px]:justify-between"}`}
       >
-        <Select
-          value={status}
-          onChange={(event) => onStatus(event.target.value)}
-          aria-label="Filter by status"
-          className="h-[38px] max-w-[145px] rounded-[9px] border-line bg-[#181a1c] px-[10px] py-2 pr-9 text-[13px] leading-[1.3] text-[#b2b7ba]"
-        >
-          <option value="all">All statuses</option>
-          {statuses.map((value) => (
-            <option key={value} value={value}>
-              {statusLabel(value)}
-            </option>
-          ))}
-        </Select>
+        <span className="status-filter" data-active={status !== "all"}>
+          <Select
+            value={status}
+            onChange={(event) => onStatus(event.target.value)}
+            aria-label="Filter by status"
+            title={status === "all" ? "All statuses" : statusLabel(status)}
+            className="h-[38px] max-w-[145px] rounded-[9px] border-line bg-[#181a1c] px-[10px] py-2 pr-9 text-[13px] leading-[1.3] text-[#b2b7ba]"
+          >
+            <option value="all">All statuses</option>
+            {statuses.map((value) => (
+              <option key={value} value={value}>
+                {statusLabel(value)}
+              </option>
+            ))}
+          </Select>
+          <Funnel aria-hidden="true" size={17} className="status-filter-icon" />
+        </span>
         <Pagination page={page} pages={pages} onPage={onPage} />
       </div>
     </div>

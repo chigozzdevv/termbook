@@ -16,7 +16,7 @@ export function Pagination({
     { label: "Last page", Icon: ChevronsRight, target: pages - 1, disabled: page >= pages - 1 },
   ];
   return (
-    <div className="flex gap-2" aria-label="Pagination">
+    <div className="flex shrink-0 gap-2 max-[680px]:gap-1" aria-label="Pagination">
       {buttons.map(({ label, Icon, target, disabled }) => (
         <button
           key={label}
@@ -24,7 +24,7 @@ export function Pagination({
           aria-label={label}
           disabled={disabled}
           onClick={() => onPage(target)}
-          className="touch-target grid h-[38px] w-[50px] place-items-center rounded-[10px] border border-line bg-transparent p-0 disabled:opacity-32"
+          className="touch-target grid h-[38px] w-[50px] place-items-center rounded-[10px] border border-line bg-transparent p-0 disabled:opacity-32 max-[680px]:size-11"
         >
           <Icon aria-hidden="true" size={16} />
         </button>

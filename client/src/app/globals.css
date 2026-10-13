@@ -245,6 +245,13 @@
 .market-controls {
   justify-self: end;
 }
+.status-filter {
+  position: relative;
+  flex-shrink: 0;
+}
+.status-filter-icon {
+  display: none;
+}
 @media (max-width: 1199px) {
   .market-toolbar {
     grid-template-columns: minmax(220px, 1fr) auto auto;
@@ -275,8 +282,38 @@
     grid-column: 1;
     grid-row: 3;
     width: 100%;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     justify-content: space-between;
+  }
+  .status-filter select {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    color: transparent;
+    font-size: 16px;
+  }
+  .status-filter option {
+    color: var(--color-foreground);
+    background: var(--color-panel);
+  }
+  .status-filter > span > svg {
+    display: none;
+  }
+  .status-filter-icon {
+    display: block;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    color: var(--color-muted);
+  }
+  .status-filter[data-active="true"] select {
+    border-color: var(--color-accent);
+    background: #5555ff1f;
+  }
+  .status-filter[data-active="true"] .status-filter-icon {
+    color: #a6a6ff;
   }
 }
 

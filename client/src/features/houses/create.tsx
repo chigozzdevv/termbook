@@ -94,52 +94,68 @@ export function Create() {
                 <option value="USDC">USDC · Monad testnet</option>
               </Select>
             </label>
-            <p className="-mt-2 mb-5 text-xs text-muted">
-              The lending asset is fixed for this House.
-            </p>
             <div className="mb-5">
-              <p id="manager-wallet-label" className="mb-2 text-xs text-[#b8bdc0]">
-                Manager wallet
-              </p>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="secondary"
-                  className="min-h-11 min-w-0 flex-1"
-                  aria-label={
-                    wallet.busy
-                      ? "Connecting wallet"
-                      : wallet.connection
-                        ? `Change manager wallet ${wallet.connection.address}`
-                        : "Connect wallet"
-                  }
-                  title={wallet.connection?.address}
-                  aria-describedby="manager-wallet-label"
-                  onClick={() => {
-                    setError("");
-                    setWalletOpen(true);
-                  }}
-                  disabled={wallet.busy}
-                >
-                  <Wallet aria-hidden="true" size={15} />
-                  {wallet.busy ? (
-                    "Connecting…"
-                  ) : wallet.connection ? (
-                    <span className="font-mono">{short(wallet.connection.address)}</span>
-                  ) : (
-                    "Connect wallet"
-                  )}
-                </Button>
-                {wallet.connection && (
-                  <button
-                    type="button"
-                    aria-label="Disconnect manager wallet"
-                    title="Disconnect wallet"
-                    onClick={wallet.disconnect}
-                    className="touch-target grid size-11 shrink-0 place-items-center rounded-lg border border-line text-muted hover:text-foreground"
+              <div
+                role="group"
+                aria-labelledby="manager-wallet-label"
+                className="flex min-h-11 items-center justify-between gap-2"
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  <Wallet
+                    aria-hidden="true"
+                    size={18}
+                    className="shrink-0 text-muted max-[350px]:hidden"
+                  />
+                  <div className="min-w-0">
+                    <p
+                      id="manager-wallet-label"
+                      className="text-[13px] whitespace-nowrap text-[#d7dcde]"
+                    >
+                      Manager wallet
+                    </p>
+                    {wallet.connection && (
+                      <span
+                        title={wallet.connection.address}
+                        className="mt-1 block truncate font-mono text-xs text-muted"
+                      >
+                        {short(wallet.connection.address)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Button
+                    variant={wallet.connection ? "secondary" : "primary"}
+                    className="min-h-10 px-[10px] text-xs"
+                    aria-label={
+                      wallet.busy
+                        ? "Connecting wallet"
+                        : wallet.connection
+                          ? `Change manager wallet ${wallet.connection.address}`
+                          : "Connect wallet"
+                    }
+                    title={wallet.connection?.address}
+                    aria-describedby="manager-wallet-label"
+                    onClick={() => {
+                      setError("");
+                      setWalletOpen(true);
+                    }}
+                    disabled={wallet.busy}
                   >
-                    <X aria-hidden="true" size={16} />
-                  </button>
-                )}
+                    {wallet.busy ? "Connecting…" : wallet.connection ? "Change" : "Connect wallet"}
+                  </Button>
+                  {wallet.connection && (
+                    <button
+                      type="button"
+                      aria-label="Disconnect manager wallet"
+                      title="Disconnect wallet"
+                      onClick={wallet.disconnect}
+                      className="touch-target grid size-11 shrink-0 place-items-center rounded-lg border border-line text-muted hover:text-foreground"
+                    >
+                      <X aria-hidden="true" size={16} />
+                    </button>
+                  )}
+                </div>
               </div>
               {wallet.connection && !manager && (
                 <p role="alert" className="mt-2 text-xs text-danger">

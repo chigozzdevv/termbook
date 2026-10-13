@@ -6,6 +6,7 @@ import {MockEvmWormhole, MockSnapshotController, MockSnapshotVault} from "./worm
 import {WormholeEthereumPublisher} from "../../src/ethereum/collateral/WormholeEthereumPublisher.sol";
 import {WormholeEthereumVerifier} from "../../src/monad/collateral/WormholeEthereumVerifier.sol";
 import {WormholeSepoliaMessageClient} from "../../src/monad/collateral/WormholeSepoliaMessageClient.sol";
+import {WormholeEvmPolicyClient} from "../../src/shared/collateral/WormholeEvmPolicyClient.sol";
 import {TestnetProxy} from "../../src/monad/governance/TestnetProxy.sol";
 import {WormholeConfirmationPolicy as Confirmations} from "../../src/shared/collateral/WormholeConfirmationPolicy.sol";
 
@@ -66,4 +67,35 @@ contract WormholeConfirmationsTest is Test {
         vm.expectRevert(WormholeEthereumPublisher.Invalid.selector); publisher.publishLock(LOCK);
     }
     function testDefaultPublicationRetainsFinality() public { publisher.publishLock(LOCK); assertEq(source.lastConsistency(), 0); assertEq(source.lastPayload().length, 128); }
+
+    function testSafeSnapshotsBindSourcePublisherAndPolicy() public {
+        vm.chainId(84532);
+        source = new MockEvmWormhole(10004);
+        controller = new ConfirmationController(address(this));
+        vault = new MockSnapshotVault(address(controller)); controller.setVault(address(vault)); vault.setLock(LOCK, DIGEST);
+        publisher = new WormholeEthereumPublisher(address(vault), address(controller), address(source));
+        vm.prank(address(123)); vm.expectRevert(WormholeEthereumPublisher.Invalid.selector); publisher.configureTestnetSafe();
+        publisher.configureTestnetSafe();
+        vm.expectRevert(WormholeEthereumPublisher.Invalid.selector); publisher.configureTestnetSafe();
+        publisher.publishLock(LOCK);
+        assertEq(source.lastConsistency(), 201);
+        assertEq(publisher.confirmationPolicyHash(), Confirmations.safeDigest(84532, address(publisher)));
+        vm.chainId(10143);
+        MockEvmWormhole destination = new MockEvmWormhole(10009);
+        WormholeEvmPolicyClient c = WormholeEvmPolicyClient(address(new TestnetProxy(address(new WormholeEvmPolicyClient()),
+            address(this), abi.encodeCall(WormholeEvmPolicyClient.initializeSafe, (address(destination), 84532, address(publisher), 7200)))));
+        WormholeEthereumVerifier verifier = new WormholeEthereumVerifier(address(c), address(publisher), address(publisher).codehash,
+            address(vault), address(vault).codehash, address(controller), address(controller).codehash);
+        bytes memory good = abi.encode(uint16(10004), bytes32(uint256(uint160(address(publisher)))), uint8(201), uint32(block.timestamp), source.lastPayload(), true);
+        assertTrue(verifier.verifyLock(good, "", address(vault), DIGEST));
+        assertFalse(verifier.verifyLock(abi.encode(uint16(10004), bytes32(uint256(uint160(address(publisher)))), uint8(200), uint32(block.timestamp), source.lastPayload(), true), "", address(vault), DIGEST));
+        assertFalse(verifier.verifyLock(abi.encode(uint16(10002), bytes32(uint256(uint160(address(publisher)))), uint8(201), uint32(block.timestamp), source.lastPayload(), true), "", address(vault), DIGEST));
+        assertFalse(verifier.verifyLock(abi.encode(uint16(10004), bytes32(uint256(uint160(address(publisher)))), uint8(201), uint32(block.timestamp), abi.encode(keccak256("Termbook Wormhole Ethereum snapshot v1"), uint8(1), DIGEST, uint256(0), Confirmations.safeDigest(84532, address(123))), true), "", address(vault), DIGEST));
+        vm.chainId(143); assertFalse(c.verifyFinality(good));
+    }
+
+    function testSafePolicyCannotBeEnabledOnMainnetOrSepolia() public {
+        vm.expectRevert(WormholeEthereumPublisher.Invalid.selector); publisher.configureTestnetSafe();
+        vm.chainId(8453); vm.expectRevert(WormholeEthereumPublisher.Invalid.selector); publisher.configureTestnetSafe();
+    }
 }

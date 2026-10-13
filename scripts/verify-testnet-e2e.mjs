@@ -23,12 +23,13 @@ async function main() {
   if (Boolean(recorded.native) !== native || recorded.network !== 'testnet' || recorded.core !== core || recorded.app !== app
     || base && recorded.bundleId !== appSetup.bundleId) throw new Error('E2E deployment mismatch');
   const monad = viem.createPublicClient({ transport: pacedHttp('https://testnet-rpc.monad.xyz', 4) });
-  const source = native ? monad : viem.createPublicClient({ transport: viem.http(base ? 'https://sepolia.base.org' : 'https://ethereum-sepolia-rpc.publicnode.com') });
+  const source = native ? monad : viem.createPublicClient({ transport: viem.http(base ? 'https://base-sepolia-rpc.publicnode.com' : 'https://ethereum-sepolia-rpc.publicnode.com') });
   if (await monad.getChainId() !== 10143 || await source.getChainId() !== sourceChainId) throw new Error('E2E network mismatch');
   const finalized = { 10143: await monad.getBlock({ blockTag: 'finalized' }),
     ...(!native ? { [sourceChainId]: await source.getBlock({ blockTag: 'finalized' }) } : {}) };
   const read = (client, name, address, functionName, args, chainId) => client.readContract({ address, abi: artifact(name).abi, functionName, args, blockNumber: finalized[chainId].number });
   const checked = new Map();
+  const safeBase = base && recorded.confirmationPolicy === 'Base safe-block test policy';
   async function verifySourceProof(hash, creditId, applied = false, actionHash) {
     const tx = await monad.getTransaction({ hash });
     const decoded = viem.decodeFunctionData({ abi: artifact('TermbookCore').abi, data: tx.input });
@@ -36,12 +37,12 @@ async function main() {
       || decoded.args[0] !== creditId || !applied && decoded.args[1] !== BigInt(sourceChainId)) throw new Error('Source proof call mismatch');
     const raw = viem.hexToBytes(decoded.args[applied ? 1 : 2]);
     const start = 6 + raw[5] * 66;
-    if (raw[0] !== 1 || !raw[5] || raw.length !== start + 51 + (base ? 128 : 160)) throw new Error('Source VAA framing mismatch');
+    if (raw[0] !== 1 || !raw[5] || raw.length !== start + 51 + (base && !safeBase ? 128 : 160)) throw new Error('Source VAA framing mismatch');
     const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
     const publisher = deployment.addresses[sourceChainId].WormholeEthereumPublisher;
-    if (view.getUint16(start + 8, false) !== (base ? 10004 : 10002) || raw[start + 50] !== (base ? 0 : 203)
+    if (view.getUint16(start + 8, false) !== (base ? 10004 : 10002) || raw[start + 50] !== (base ? safeBase ? 201 : 0 : 203)
       || viem.bytesToHex(raw.slice(start + 10, start + 42)).toLowerCase() !== viem.padHex(publisher, { size: 32 }).toLowerCase()) throw new Error('Source VAA emitter or consistency mismatch');
-    if (base) {
+    if (base && !safeBase) {
       const [domain, kind, digest, deadline] = viem.decodeAbiParameters(viem.parseAbiParameters('bytes32,uint8,bytes32,uint256'), viem.bytesToHex(raw.slice(start + 51)));
       if (domain !== viem.keccak256(viem.stringToHex('Termbook Wormhole Ethereum snapshot v1'))
         || kind !== (applied ? 2 : 1) || deadline !== 0n || applied && digest !== actionHash) throw new Error('Base VAA snapshot mismatch');
@@ -49,11 +50,12 @@ async function main() {
         publishedAt: new Date(view.getUint32(start, false) * 1000).toISOString() };
     }
     const [domain, kind, digest, deadline, policyHash] = viem.decodeAbiParameters(viem.parseAbiParameters('bytes32,uint8,bytes32,uint256,bytes32'), viem.bytesToHex(raw.slice(start + 51)));
-    const policy = readConfiguration('confirmations');
+    const policy = readConfiguration(safeBase ? 'confirmations-84532' : 'confirmations');
     if (domain !== viem.keccak256(viem.stringToHex('Termbook Wormhole Ethereum snapshot v1'))
       || kind !== (applied ? 2 : 1) || deadline !== 0n || policyHash !== policy.policyHash
-      || applied && digest !== actionHash || policy.confirmationDepth !== 5) throw new Error('Fast VAA confirmation policy mismatch');
-    return { consistency: 203, confirmationDepth: 5, policyHash, sequence: String(view.getBigUint64(start + 42, false)),
+      || applied && digest !== actionHash || policy.confirmationDepth !== (safeBase ? 0 : 5)
+      || safeBase && (policy.sourceChain !== 84532 || policy.consistency !== 201 || policy.finality !== 'safe')) throw new Error('Fast VAA confirmation policy mismatch');
+    return { consistency: safeBase ? 201 : 203, confirmationDepth: policy.confirmationDepth, policyHash, sequence: String(view.getBigUint64(start + 42, false)),
       publishedAt: new Date(view.getUint32(start, false) * 1000).toISOString() };
   }
   async function receipt(chainId, hash) {

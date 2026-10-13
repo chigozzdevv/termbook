@@ -57,12 +57,13 @@ function base(): URL {
 }
 
 export async function fetchWormholeVaaById(input: {
-  chain: number; emitter: Address; sequence: bigint; payload: Hex; consistency?: 0 | 203;
+  chain: number; emitter: Address; sequence: bigint; payload: Hex; consistency?: 0 | 201 | 203;
 }): Promise<VaaProof> {
   const url = base();
   const emitter = padHex(input.emitter, { size: 32 });
   url.pathname = `${url.pathname.replace(/\/$/, "")}/api/v1/vaas/${input.chain}/${emitter.slice(2)}/${input.sequence}`;
   url.search = "";
   if (input.consistency === 203 && input.chain !== 10002) throw new Error("wormhole-confirmation-policy-invalid");
+  if (input.consistency === 201 && input.chain !== 10004) throw new Error("wormhole-confirmation-policy-invalid");
   return request(url, input.chain, emitter, input.payload, input.sequence, input.consistency);
 }

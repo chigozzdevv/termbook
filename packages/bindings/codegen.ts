@@ -35,6 +35,7 @@ const contracts = {
   SolanaVerifier: "solana-verifier",
   WormholeSolanaAccountClient: "wormhole-solana-account-client",
   WormholeEvmMessageClient: "wormhole-evm-message-client",
+  WormholeEvmPolicyClient: "wormhole-evm-policy-client",
   WormholeEthereumPublisher: "wormhole-ethereum-publisher",
   WormholeEthereumVerifier: "wormhole-ethereum-verifier",
   WormholeMonadVerifier: "wormhole-monad-verifier",

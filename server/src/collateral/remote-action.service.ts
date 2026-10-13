@@ -94,7 +94,7 @@ export const remoteActionService = {
     if (BigInt(await source.getChainId()) !== action.sourceChain) throw new Error("source-action-chain-mismatch");
     const receipt = await source.getTransactionReceipt({ hash: input.sourceTxHash as Hex });
     const policy = await ethereumCreditConfirmationPolicy(action.creditId);
-    const sourceFinalized = await ethereumConfirmedBlock(source, policy.depth);
+    const sourceFinalized = await ethereumConfirmedBlock(source, policy.depth, policy.consistency);
     if (receipt.blockNumber > sourceFinalized.number) throw new Error("source-action-not-finalized");
     const sourceBlock = await source.getBlock({ blockNumber: receipt.blockNumber });
     if (sourceBlock.hash.toLowerCase() !== receipt.blockHash.toLowerCase()) {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { ethereumConfirmationPolicy, ethereumConfirmedBlock, sepoliaConfirmationHash } from "../../src/chain/ethereum-confirmations.js";
+import { ethereumConfirmationPolicy, ethereumConfirmedBlock, sepoliaConfirmationHash, safeConfirmationHash } from "../../src/chain/ethereum-confirmations.js";
 import { monadClient } from "../../src/chain/monad.client.js";
 import { env } from "../../src/config/env.js";
 vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: vi.fn() }));
@@ -41,4 +41,14 @@ it("requires full finality for Base Sepolia and rejects Sepolia custom confirmat
   version = 2n;
   await expect(ethereumConfirmationPolicy(verifier, 84532)).rejects.toThrow("ethereum-confirmation-policy-invalid");
   await expect(ethereumConfirmedBlock({ getChainId: async () => 84532 } as never, 5)).rejects.toThrow("ethereum-confirmation-policy-invalid");
+});
+it("accepts Base safe proofs only with the admitted version and chain-bound policy", async () => {
+  version = 3n; hash = safeConfirmationHash(84532, publisher);
+  expect(await ethereumConfirmationPolicy(verifier, 84532)).toMatchObject({ depth: 0, consistency: 201, hash });
+  hash = safeConfirmationHash(8453, publisher);
+  await expect(ethereumConfirmationPolicy(verifier, 84532)).rejects.toThrow("ethereum-confirmation-policy-invalid");
+  const getBlock = vi.fn(async () => ({ number: 99n }));
+  await ethereumConfirmedBlock({ getChainId: async () => 84532, getBlock } as never, 0, 201);
+  expect(getBlock).toHaveBeenCalledWith({ blockTag: "safe" });
+  await expect(ethereumConfirmedBlock({ getChainId: async () => 8453 } as never, 0, 201)).rejects.toThrow("ethereum-confirmation-policy-invalid");
 });

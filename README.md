@@ -1217,8 +1217,26 @@ custody, Wormhole verification, return, top-up, and recovery implementation.
 | Base Sepolia | 84532 | 10004 | Monad testnet, 10143 |
 
 Base WETH uses `0x4200000000000000000000000000000000000006` on both networks.
-Messages require finalized Wormhole attestations. Sepolia's custom confirmation
-policy is unavailable on Base; Base proofs do not inherit its five-block setting.
+Base mainnet requires finalized Wormhole attestations. Base Sepolia uses an
+explicitly admitted `safe` policy (consistency 201, verifier version 3), with the
+source chain, publisher and policy hash bound in every snapshot. Sepolia retains
+its separately admitted five-block policy. Safe confirmations accept source
+reorganization risk before full finality and are restricted to testnet.
+
+The return worker publishes the applied snapshot after canonical mining. It waits
+for the admitted confirmation level before confirming custody on Monad, so the
+return and its snapshot can reach that level together.
+
+To activate the Base Sepolia policy after settling existing test credits:
+
+```sh
+node --env-file=.env scripts/setup-testnet-confirmations.mjs --simulate 84532
+node --env-file=.env scripts/setup-testnet-confirmations.mjs --broadcast 84532
+```
+
+The catalog and SDK use `testnetFinality: "safe"` only for an admitted Base Sepolia
+market on Monad testnet. A standalone live probe verified a consistency-201 VAA
+and its guardian signatures before admission.
 
 Keep the Ethereum endpoint in `SOURCE_RPC_URL` and configure additional EVM
 collateral endpoints in the root `.env`:

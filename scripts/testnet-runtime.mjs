@@ -166,7 +166,7 @@ export async function testnetRuntime(name, simulate) {
         || parsed.username || parsed.password || parsed.pathname !== "/" || parsed.search || parsed.hash) throw new Error("Simulation RPC must be local");
     }
     const url = simulate ? localOverride ?? `http://127.0.0.1:${chainId === 10143 ? 18545 : chainId === 84532 ? 18548 : 18546}`
-      : chainId === 10143 ? "https://testnet-rpc.monad.xyz" : chainId === 84532 ? "https://sepolia.base.org" : "https://ethereum-sepolia-rpc.publicnode.com";
+      : chainId === 10143 ? "https://testnet-rpc.monad.xyz" : chainId === 84532 ? "https://base-sepolia-rpc.publicnode.com" : "https://ethereum-sepolia-rpc.publicnode.com";
     const transport = simulate ? http(url, { timeout: 30_000 }) : pacedHttp(url, 5, 0, { timeout: 30_000 });
     const client = createPublicClient({ transport });
     if (await client.getChainId() !== chainId) throw new Error("Network mismatch");

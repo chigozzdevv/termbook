@@ -9,6 +9,9 @@ library WormholeConfirmationPolicy {
     function digest(address publisher, uint16 depth) internal pure returns (bytes32) {
         return keccak256(abi.encode(keccak256("Termbook Wormhole Sepolia confirmations v1"), uint256(11155111), publisher, configuration(depth)));
     }
+    function safeDigest(uint256 sourceChain, address publisher) internal pure returns (bytes32) {
+        return keccak256(abi.encode(keccak256("Termbook Wormhole EVM safe confirmations v1"), sourceChain, publisher, uint8(201)));
+    }
 }
 
 interface IWormholeConsistencyConfig {

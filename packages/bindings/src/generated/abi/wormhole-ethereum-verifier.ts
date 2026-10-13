@@ -649,5 +649,10 @@ export const wormholeEthereumVerifierAbi = [
     "type": "error",
     "name": "NotInitializing",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "UnsupportedEvmChain",
+    "inputs": []
   }
 ] as const;

@@ -229,7 +229,14 @@ async function main() {
     const registry = await coreRead("verifierRegistry");
     const [verifier, version, active] = await monad.read("VerifierRegistry", registry, "verifiers", [BigInt(sourceChainId)]);
     const depth = await source.read("WormholeEthereumPublisher", s.WormholeEthereumPublisher, "confirmationDepth");
-    if (!active || (fast ? version !== 2n || depth !== 5 : version !== 1n || depth !== 0)) throw new Error("E2E confirmation mode does not match the admitted deployment");
+    const safeBase = base && version === 3n;
+    if (!active || (fast ? version !== 2n || depth !== 5 : safeBase ? depth !== 0 : version !== 1n || depth !== 0)) throw new Error("E2E confirmation mode does not match the admitted deployment");
+    if (safeBase) {
+      const client = await monad.read("WormholeEthereumVerifier", verifier, "lightClient");
+      if (await source.read("WormholeEthereumPublisher", s.WormholeEthereumPublisher, "snapshotConsistency") !== 201
+        || await monad.read("WormholeEvmPolicyClient", client, "confirmationPolicyHash") !== await source.read("WormholeEthereumPublisher", s.WormholeEthereumPublisher, "confirmationPolicyHash")) throw new Error("E2E confirmation policy mismatch");
+      report.safeBase = true; persist();
+    }
     if (fast) {
       const client = await monad.read("WormholeEthereumVerifier", verifier, "lightClient");
       if (await monad.read("WormholeSepoliaMessageClient", client, "confirmationDepth") !== 5
@@ -285,7 +292,7 @@ async function main() {
           [intentId, account.address, account.address, nonce]));
         const lockId = viem.keccak256(viem.encodeAbiParameters(viem.parseAbiParameters("bytes32,string"), [creditId, "source-lock"]));
         const quotedAt = (await monad.client.getBlock()).timestamp;
-        const setupDeadline = quotedAt + (native ? 300n : kind === "default-retry" ? 2700n : base ? 3600n : 1800n);
+        const setupDeadline = quotedAt + (native ? 300n : base && report.safeBase ? 600n : kind === "default-retry" ? 2700n : base ? 3600n : 1800n);
         const quote = { borrower: account.address, owner: account.address, intentId, house: account.address,
           vault: m.HouseVault, sourceChain: BigInt(sourceChainId), collateralVault,
           collateralAsset: weth, collateralAmount: amounts.collateral, returnRecipient: account.address,
@@ -562,7 +569,7 @@ async function main() {
   }
   if (mode !== "--observe") persist();
   writeJsonAtomic(operationFile(publicName), { network: "testnet", startedAt: report.startedAt, observedAt: report.observedAt,
-    confirmationPolicy: native ? "Atomic Monad custody" : fast ? "Sepolia five-confirmation test policy" : "Full source finality",
+    confirmationPolicy: native ? "Atomic Monad custody" : base && report.safeBase ? "Base safe-block test policy" : fast ? "Sepolia five-confirmation test policy" : "Full source finality",
     scope: base ? "Base Sepolia WETH custody, finalized Wormhole proofs, Kuru market buy/sell, USDC repayment, closure and independent resting-order recovery"
       : orders ? "Kuru market and limit buys and sells, cancellation, controlled venue funds, repayment, closure and independent order recovery"
       : kuru ? "Kuru market buys and sells, controlled MON holdings, USDC repayment, closure and independent keeper recovery"

@@ -4,6 +4,7 @@ import { keccak256, type Hex } from "viem";
 vi.mock("../../src/chain/keeper-funding.js", () => ({ assertKeeperFunding: vi.fn(), assertSignedKeeperFunding: vi.fn() }));
 vi.mock("../../src/chain/monad-receipt-proof.js", () => ({ fetchMonadAuthorizationProof: vi.fn() }));
 vi.mock("../../src/chain/source.client.js", () => ({ fetchConsumedActionProof: vi.fn() }));
+vi.mock("../../src/chain/ethereum-wormhole-snapshot.js", () => ({ ethereumWormholeMode: vi.fn(), fetchEthereumSnapshot: vi.fn() }));
 vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: vi.fn() }));
 vi.mock("../../src/chain/ethereum-confirmations.js", () => ({ ethereumCreditConfirmationPolicy: vi.fn(), ethereumConfirmedBlock: vi.fn() }));
 vi.mock("../../src/collateral/remote-action.repo.js", () => ({
@@ -24,6 +25,7 @@ vi.mock("viem", async (importOriginal) => ({
 import { createPublicClient, createWalletClient } from "viem";
 import { fetchMonadAuthorizationProof } from "../../src/chain/monad-receipt-proof.js";
 import { fetchConsumedActionProof } from "../../src/chain/source.client.js";
+import { ethereumWormholeMode, fetchEthereumSnapshot } from "../../src/chain/ethereum-wormhole-snapshot.js";
 import { monadClient } from "../../src/chain/monad.client.js";
 import { ethereumCreditConfirmationPolicy, ethereumConfirmedBlock } from "../../src/chain/ethereum-confirmations.js";
 import { env } from "../../src/config/env.js";
@@ -80,6 +82,7 @@ function fakeSource() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(ethereumWormholeMode).mockResolvedValue(false);
   vi.mocked(ethereumCreditConfirmationPolicy).mockResolvedValue({ depth: 0, hash: `0x${"00".repeat(32)}`, consistency: 0 });
   vi.mocked(ethereumConfirmedBlock).mockImplementation(async (client) => client.getBlock({ blockTag: "finalized" }));
   env.sourceRpcUrl = "https://source.example";
@@ -103,6 +106,50 @@ beforeEach(() => {
 });
 
 describe("remote action relay", () => {
+  it("publishes an applied snapshot after mining while keeping confirmation pending until finality", async () => {
+    const source = fakeSource(), monad = fakeMonad();
+    const blockHash = `0x${"bb".repeat(32)}`;
+    Object.assign(source, { getTransactionReceipt: vi.fn().mockResolvedValue({
+      status: "success", blockNumber: 120n, blockHash,
+    }) });
+    source.getBlock.mockImplementation(async (request: { blockNumber?: bigint }) => ({
+      number: request.blockNumber ?? 100n, timestamp: 1_000_000n, hash: blockHash,
+    }));
+    vi.mocked(createPublicClient).mockReturnValue(source as never);
+    vi.mocked(monadClient).mockReturnValue(monad as never);
+    vi.mocked(ethereumWormholeMode).mockResolvedValue(true);
+    vi.mocked(fetchEthereumSnapshot).mockRejectedValue(new Error("ethereum-wormhole-not-finalized"));
+    vi.mocked(remoteActionRepo.find).mockResolvedValue({
+      actionHash, creditId: action.creditId, kind: action.kind, action: serializeAction(action),
+      authorizationTxHash: `0x${"cc".repeat(32)}`, state: "submitted", txHash: keccak256(rawTx), rawTx,
+    } as never);
+    await handleRemoteActionJob({ kind: "collateral.remote-action", payload: { actionHash } });
+    expect(fetchEthereumSnapshot).toHaveBeenCalledWith({
+      sourceChain: action.sourceChain, verifier, vault: action.sourceVault, controller, kind: 2, digest: actionHash,
+    });
+    expect(remoteActionRepo.state).toHaveBeenCalledWith(actionHash, "mined", keccak256(rawTx), { sourceBlockHash: blockHash });
+    expect(remoteActionRepo.state).not.toHaveBeenCalledWith(actionHash, "source_finalized", expect.anything());
+    expect(remoteActionRepo.prepareConfirmation).not.toHaveBeenCalled();
+  });
+
+  it.each(["reverted", "orphaned"])("does not publish a snapshot for a %s custody transaction", async (failure) => {
+    const source = fakeSource();
+    const blockHash = `0x${"bb".repeat(32)}`;
+    Object.assign(source, { getTransactionReceipt: vi.fn().mockResolvedValue({
+      status: failure === "reverted" ? "reverted" : "success", blockNumber: 120n, blockHash,
+    }) });
+    source.getBlock.mockResolvedValue({ number: 100n, timestamp: 1_000_000n,
+      hash: failure === "orphaned" ? `0x${"cc".repeat(32)}` : blockHash });
+    vi.mocked(createPublicClient).mockReturnValue(source as never);
+    vi.mocked(remoteActionRepo.find).mockResolvedValue({
+      actionHash, creditId: action.creditId, kind: action.kind, action: serializeAction(action),
+      authorizationTxHash: `0x${"cc".repeat(32)}`, state: "submitted", txHash: keccak256(rawTx), rawTx,
+    } as never);
+    await handleRemoteActionJob({ kind: "collateral.remote-action", payload: { actionHash } });
+    expect(fetchEthereumSnapshot).not.toHaveBeenCalled();
+    expect(remoteActionRepo.prepareConfirmation).not.toHaveBeenCalled();
+  });
+
   it("checks applied actions at admitted confirmation depth while retaining finalized custody bindings", async () => {
     const source = fakeSource();
     const read = source.readContract.getMockImplementation()!;
@@ -114,7 +161,7 @@ describe("remote action relay", () => {
       kind: action.kind, action: serializeAction(action), authorizationTxHash: `0x${"cc".repeat(32)}`, state: "pending" } as never);
     await handleRemoteActionJob({ kind: "collateral.remote-action", payload: { actionHash } });
     expect(ethereumCreditConfirmationPolicy).toHaveBeenCalledWith(action.creditId);
-    expect(ethereumConfirmedBlock).toHaveBeenCalledWith(source, 5);
+    expect(ethereumConfirmedBlock).toHaveBeenCalledWith(source, 5, 203);
     const requests = source.readContract.mock.calls.map(([request]) => request as { functionName: string; blockNumber: bigint });
     expect(requests.filter((r) => r.functionName === "consumed")).toEqual([
       expect.objectContaining({ blockNumber: 150n })]);

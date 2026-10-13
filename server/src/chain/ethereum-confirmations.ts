@@ -12,6 +12,10 @@ export function sepoliaConfirmationHash(publisher: Address, depth: number): Hex 
   return keccak256(encodeAbiParameters([{ type: "bytes32" }, { type: "uint256" }, { type: "address" }, { type: "bytes32" }],
     [keccak256(stringToHex("Termbook Wormhole Sepolia confirmations v1")), 11155111n, publisher, config]));
 }
+export function safeConfirmationHash(sourceChain: number | bigint, publisher: Address): Hex {
+  return keccak256(encodeAbiParameters([{ type: "bytes32" }, { type: "uint256" }, { type: "address" }, { type: "uint8" }],
+    [keccak256(stringToHex("Termbook Wormhole EVM safe confirmations v1")), BigInt(sourceChain), publisher, 201]));
+}
 export async function ethereumConfirmationPolicy(verifier: Address, sourceChain: number | bigint = ethereumSourceChain()) {
   if (!isEvmSource(sourceChain)) throw new Error("ethereum-confirmation-policy-invalid");
   if (env.monadChainId === 143) return { depth: 0, hash: `0x${"00".repeat(32)}` as Hex, consistency: 0 as const };
@@ -21,6 +25,12 @@ export async function ethereumConfirmationPolicy(verifier: Address, sourceChain:
     client.readContract({ address, abi, functionName, blockNumber: at });
   const version = await read(verifier, "consensusVersion");
   if (version === 1n) return { depth: 0, hash: `0x${"00".repeat(32)}` as Hex, consistency: 0 as const };
+  if (version === 3n && sourceChain == 84532 && env.monadChainId === 10143) {
+    const [lightClient, publisher] = await Promise.all([read(verifier, "lightClient"), read(verifier, "publisher")]);
+    const hash = await read(lightClient as Address, "confirmationPolicyHash");
+    if (hash !== safeConfirmationHash(sourceChain, publisher as Address)) throw new Error("ethereum-confirmation-policy-invalid");
+    return { depth: 0, hash: hash as Hex, consistency: 201 as const };
+  }
   if (sourceChain != 11155111 || env.monadChainId !== 10143 || version !== 2n) throw new Error("ethereum-confirmation-policy-invalid");
   const [lightClient, publisher] = await Promise.all([read(verifier, "lightClient"), read(verifier, "publisher")]);
   const [depth, hash] = await Promise.all([read(lightClient as Address, "confirmationDepth"), read(lightClient as Address, "confirmationPolicyHash")]);
@@ -43,7 +53,11 @@ export async function ethereumCreditConfirmationPolicy(creditId: Hex) {
   }
   return ethereumConfirmationPolicy(verifier, sourceChain);
 }
-export async function ethereumConfirmedBlock(client: PublicClient, depth: number) {
+export async function ethereumConfirmedBlock(client: PublicClient, depth: number, consistency: 0 | 201 | 203 = 0) {
+  if (consistency === 201) {
+    if (depth !== 0 || await client.getChainId() !== 84532) throw new Error("ethereum-confirmation-policy-invalid");
+    return client.getBlock({ blockTag: "safe" });
+  }
   if (depth === 0) return client.getBlock({ blockTag: "finalized" });
   if (!Number.isInteger(depth) || depth < 5 || depth > 64 || await client.getChainId() !== 11155111) throw new Error("ethereum-confirmation-policy-invalid");
   const latest = await client.getBlock({ blockTag: "latest" });

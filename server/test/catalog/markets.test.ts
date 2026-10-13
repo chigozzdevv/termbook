@@ -5,6 +5,7 @@ import { NATIVE_SOL_ASSET_BYTES } from "@termbook/schema";
 import { env } from "../../src/config/env.js";
 import { PublicKey } from "@solana/web3.js";
 import { toHex } from "viem";
+import { safeConfirmationHash } from "../../src/chain/ethereum-confirmations.js";
 
 vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: vi.fn() }));
 vi.mock("../../src/house/house.service.js", () => ({ houseService: { list: vi.fn(async () => []) } }));
@@ -19,6 +20,25 @@ vi.mock("../../src/config/env.js", () => ({ env: {
 describe("published collateral markets", () => {
   const originalMarkets = env.collateralMarkets;
   afterEach(() => { env.monadChainId = 143; env.collateralMarkets = originalMarkets; vi.unstubAllEnvs(); });
+  it("publishes Base safe custody only when its matching testnet policy is admitted", async () => {
+    const address = `0x${"2".repeat(40)}` as const;
+    env.collateralMarkets = JSON.stringify([{ id: "base", label: "ETH", kind: "evm", decimals: 18,
+      chainId: 84532, rpcUrl: "https://base.example", vault: address, asset: address, controller: address, testnetFinality: "safe" }]);
+    await expect(catalogService.overview()).rejects.toThrow("collateral-market-config-invalid");
+    env.monadChainId = 10143;
+    let version = 3n, hash = safeConfirmationHash(84532, address);
+    vi.mocked(monadClient).mockReturnValue({ getBlock: async () => ({ number: 100n }),
+      readContract: async ({ functionName }: { functionName: string }) => ({
+        sourceCollateralVault: address, sourceRecoveryVault: address, verifierRegistry: address,
+        verifiers: [address, version, true], consensusVersion: version, publisher: address, lightClient: address,
+        confirmationPolicyHash: hash,
+      })[functionName] } as never);
+    expect((await catalogService.overview()).collateralMarkets.map((market) => market.id)).toEqual(["base"]);
+    version = 1n;
+    expect((await catalogService.overview()).collateralMarkets).toEqual([]);
+    version = 3n; hash = safeConfirmationHash(8453, address);
+    await expect(catalogService.overview()).rejects.toThrow("ethereum-confirmation-policy-invalid");
+  });
   it("matches the Solana genesis, program, asset, and recovery vault in Core", async () => {
     const readContract = vi.fn(async () => [`0x${"2".repeat(64)}`, `0x${"3".repeat(64)}`,
       `0x${"4".repeat(64)}`, NATIVE_SOL_ASSET_BYTES, true]);

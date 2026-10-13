@@ -35,6 +35,13 @@ export const wormholeEthereumPublisherAbi = [
   },
   {
     "type": "function",
+    "name": "configureTestnetSafe",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "confirmationDepth",
     "inputs": [],
     "outputs": [
@@ -261,6 +268,19 @@ export const wormholeEthereumPublisherAbi = [
   },
   {
     "type": "function",
+    "name": "snapshotConsistency",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "snapshotKey",
     "inputs": [
       {
@@ -398,6 +418,11 @@ export const wormholeEthereumPublisherAbi = [
   {
     "type": "error",
     "name": "NotInitializing",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "UnsupportedEvmChain",
     "inputs": []
   }
 ] as const;

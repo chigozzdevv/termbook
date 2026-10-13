@@ -168,8 +168,9 @@ describe("collateral setup", () => {
     await expect(unknown.preflight(local)).rejects.toThrow("source-vault-kind-unverified");
   });
 
-  it("uses confirmed Sepolia state only for the admitted testnet confirmation mode", async () => {
-    const chain = { namespace: "eip155" as const, reference: "11155111" };
+  it.each([11155111, 84532])("uses the admitted testnet policy for source %i while retaining finalized custody bindings", async (chainId) => {
+    const safe = chainId === 84532;
+    const chain = { namespace: "eip155" as const, reference: String(chainId) };
     const base = binding();
     const b: CollateralSetupBinding = { ...base, monadChainId: 10143,
       sourceVault: { ...chain, accountBytes: base.sourceVault.accountBytes },
@@ -177,36 +178,39 @@ describe("collateral setup", () => {
       owner: { ...chain, accountBytes: base.owner.accountBytes },
       returnRecipient: { ...chain, accountBytes: base.returnRecipient.accountBytes } };
     const lockId = collateralSetupHash(b);
-    const adapter = new EvmSourceLockWallet({ chainId: 11155111, rpcUrl: "https://invalid.example",
-      wallet: { address: b.owner.accountBytes, signTypedData: async () => hash("a"), getChainId: async () => 11155111 },
-      vault: b.sourceVault.accountBytes, asset: b.asset.assetBytes as `0x${string}`, controller: address("d"), testnetConfirmations: 5 });
+    const adapter = new EvmSourceLockWallet({ chainId, rpcUrl: "https://invalid.example",
+      wallet: { address: b.owner.accountBytes, signTypedData: async () => hash("a"), getChainId: async () => chainId },
+      vault: b.sourceVault.accountBytes, asset: b.asset.assetBytes as `0x${string}`, controller: address("d"),
+      ...(safe ? { testnetFinality: "safe" as const } : { testnetConfirmations: 5 }) });
     let head = 100n;
     const readContract = vi.fn(async (request: { address: string; functionName: string; blockNumber?: bigint; blockTag?: string }) => {
       if (request.functionName === "isNativeCollateralVault") return false;
       if (request.functionName === "asset") return b.asset.assetBytes;
       if (request.functionName === "core" || request.functionName === "controller") return address("d");
-      if (request.functionName === "chainId_") return 11155111n;
+      if (request.functionName === "chainId_") return BigInt(chainId);
       if (request.functionName === "recoveryVault") return address("e");
       if (request.functionName === "monadChain") return 10143n;
       if (request.functionName === "monadCore") return b.core;
-      if (request.functionName === "lockInfo") return [b.creditId, b.owner.accountBytes, b.asset.assetBytes, 11155111n,
+      if (request.functionName === "lockInfo") return [b.creditId, b.owner.accountBytes, b.asset.assetBytes, BigInt(chainId),
         b.amount, b.returnRecipient.accountBytes, BigInt(b.setupDeadline), 2n, true, false, false];
       if (request.functionName === "lockCommitments") return evmRemoteLockCommitment(b, lockId, address("e"));
       throw new Error("unexpected-read");
     });
-    (adapter as unknown as { rpc: unknown }).rpc = { getChainId: async () => 11155111,
+    (adapter as unknown as { rpc: unknown }).rpc = { getChainId: async () => chainId,
       getBlock: async () => ({ number: head }), readContract };
     await expect(adapter.observeLock(b, lockId)).resolves.toEqual({ state: "confirmed", txId: undefined });
     const lockReads = readContract.mock.calls.filter(([r]) => ["lockInfo", "lockCommitments"].includes(r.functionName));
     expect(lockReads).toHaveLength(2);
-    expect(lockReads.every(([r]) => r.blockNumber === 95n && r.blockTag === undefined)).toBe(true);
+    expect(lockReads.every(([r]) => safe ? r.blockTag === "safe" && r.blockNumber === undefined : r.blockNumber === 95n && r.blockTag === undefined)).toBe(true);
     expect(readContract.mock.calls.filter(([r]) => !["lockInfo", "lockCommitments"].includes(r.functionName))
       .every(([r]) => r.blockTag === "finalized")).toBe(true);
-    head = 4n;
-    await expect(adapter.observeLock(b, lockId, hash("f"))).resolves.toEqual({ state: "submitted", txId: hash("f") });
+    if (!safe) {
+      head = 4n;
+      await expect(adapter.observeLock(b, lockId, hash("f"))).resolves.toEqual({ state: "submitted", txId: hash("f") });
+    }
     readContract.mockClear();
     await expect(adapter.observeLock({ ...b, monadChainId: 143 }, collateralSetupHash({ ...b, monadChainId: 143 })))
-      .rejects.toThrow("testnet-confirmations-invalid");
+      .rejects.toThrow(safe ? "testnet-finality-invalid" : "testnet-confirmations-invalid");
     expect(readContract.mock.calls.some(([r]) => r.functionName === "lockInfo")).toBe(false);
   });
 

@@ -30,6 +30,13 @@ afterEach(() => {
 });
 
 describe("EVM Wormhole proof retrieval", () => {
+  it("accepts safe VAAs only when required for Base Sepolia", async () => {
+    env.wormholeScanUrl = "https://scan.example";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ data: { vaa: signedVaa(201, payload, 10004) } }))));
+    expect((await fetchWormholeVaaById({ chain: 10004, emitter, sequence: 7n, payload, consistency: 201 })).header).toBeTruthy();
+    await expect(fetchWormholeVaaById({ chain: 10004, emitter, sequence: 7n, payload })).rejects.toThrow("wormhole-vaa-unavailable");
+    await expect(fetchWormholeVaaById({ chain: 30, emitter, sequence: 7n, payload, consistency: 201 })).rejects.toThrow("wormhole-confirmation-policy-invalid");
+  });
   it("accepts custom confirmation VAAs only when explicitly required on Sepolia", async () => {
     env.wormholeScanUrl = "https://scan.example";
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ data: { vaa: signedVaa(203, payload, 10002) } }))));

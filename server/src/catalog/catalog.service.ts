@@ -26,7 +26,8 @@ function configuredMarkets(): CollateralMarket[] {
   const markets = value.map((row) => collateralMarketSchema.parse(row));
   if (new Set(markets.map((market) => market.id)).size !== markets.length) throw new Error("collateral-market-config-invalid");
   for (const market of markets) {
-    if (market.kind === "evm" && market.testnetConfirmations !== undefined && env.monadChainId !== 10143) throw new Error("collateral-market-config-invalid");
+    if (market.kind === "evm" && (market.testnetConfirmations !== undefined || market.testnetFinality !== undefined)
+      && env.monadChainId !== 10143) throw new Error("collateral-market-config-invalid");
     if (market.kind === "solana" && market.testnetUpgradeAuthority
       && (env.monadChainId !== 10143 || new PublicKey(hexToBytes(market.genesis as `0x${string}`)).toBase58()
         !== "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
@@ -70,11 +71,14 @@ async function admittedMarkets(): Promise<CollateralMarket[]> {
       chain.readContract({ address: env.core as `0x${string}`, abi: coreAbi, functionName: "sourceRecoveryVault",
         args: [BigInt(market.chainId), market.asset as `0x${string}`], blockNumber: block.number }),
     ]);
-    if (market.testnetConfirmations !== undefined) {
+    if (market.testnetConfirmations !== undefined || market.testnetFinality !== undefined) {
       const registry = await chain.readContract({ address: env.core as `0x${string}`, abi: coreAbi, functionName: "verifierRegistry", blockNumber: block.number });
       const [verifier, version, active] = await chain.readContract({ address: registry, abi: verifierRegistryAbi,
         functionName: "verifiers", args: [BigInt(market.chainId)], blockNumber: block.number });
-      if (!active || version !== 2n || (await ethereumConfirmationPolicy(verifier, market.chainId)).depth !== market.testnetConfirmations) return false;
+      if (!active) return false;
+      const policy = await ethereumConfirmationPolicy(verifier, market.chainId);
+      if (market.testnetConfirmations !== undefined && (version !== 2n || policy.depth !== market.testnetConfirmations)) return false;
+      if (market.testnetFinality !== undefined && (version !== 3n || policy.consistency !== 201)) return false;
     }
     return vault.toLowerCase() === market.vault.toLowerCase() && !/^0x0{40}$/i.test(recovery);
   }));

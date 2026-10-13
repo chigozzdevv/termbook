@@ -109,7 +109,7 @@ async function readSourceBinding(source: PublicClient, action: RemoteAction, act
       || recoveryMonadChain !== action.monadChain) throw new Error("remote-action-recovery-vault-mismatch");
   }
   const policy = await ethereumCreditConfirmationPolicy(action.creditId);
-  const confirmed = await ethereumConfirmedBlock(source, policy.depth);
+  const confirmed = await ethereumConfirmedBlock(source, policy.depth, policy.consistency);
   const consumed = await source.readContract({ address: controller, abi: controllerAbi,
     functionName: "consumed", args: [actionHash], blockNumber: confirmed.number });
   return { controller, verifier, consumed, finalized, confirmed };
@@ -134,21 +134,30 @@ async function deliver(source: PublicClient, action: RemoteAction, actionHash: s
     return "pending" as const;
   }
   const policy = await ethereumCreditConfirmationPolicy(action.creditId);
-  const finalized = await ethereumConfirmedBlock(source, policy.depth);
-  if (receipt.blockNumber > finalized.number) {
-    await remoteActionRepo.state(actionHash, "mined", hash, { sourceBlockHash: receipt.blockHash });
-    return "pending" as const;
-  }
+  const finalized = await ethereumConfirmedBlock(source, policy.depth, policy.consistency);
   const canonical = await source.getBlock({ blockNumber: receipt.blockNumber });
   if (!equal(canonical.hash, receipt.blockHash)) {
     await remoteActionRepo.state(actionHash, "submitted", hash);
     return "pending" as const;
   }
   if (receipt.status === "reverted") {
+    if (receipt.blockNumber > finalized.number) return "pending" as const;
     await remoteActionRepo.state(actionHash, "reverted", hash, { failure: "remote-action-transaction-reverted" });
     return "reverted" as const;
   }
   await remoteActionRepo.state(actionHash, "mined", hash, { sourceBlockHash: receipt.blockHash });
+  if (receipt.blockNumber > finalized.number) {
+    const current = await readConfirmationState(action, actionHash as Hex);
+    if (!current.done) {
+      try {
+        // Finalizing the snapshot also finalizes its preceding custody action.
+        await sourceActionProof(action, actionHash as Hex, current.finalized.number, true);
+      } catch (error) {
+        if (!(error instanceof Error) || !["ethereum-wormhole-not-finalized", "wormhole-vaa-unavailable"].includes(error.message)) throw error;
+      }
+    }
+    return "pending" as const;
+  }
   return "confirmed" as const;
 }
 
@@ -212,6 +221,45 @@ async function deliverConfirmation(actionHash: string, hash: Hex, rawTx: Hex) {
   return "confirmed" as const;
 }
 
+async function sourceActionProof(action: RemoteAction, actionHash: Hex, blockNumber: bigint, publicationOnly = false) {
+  const chain = monadClient();
+  const credit = await chain.readContract({
+    address: env.core as Address, abi: termbookCoreAbi, functionName: "creditDetails",
+    args: [action.creditId], blockNumber,
+  });
+  if (!equal(credit.collateralVault, action.sourceVault) || !equal(credit.lockId, action.lockId)
+    || !equal(credit.collateralAsset, action.asset)) throw new Error("remote-action-confirm-credit-mismatch");
+  const registry = await chain.readContract({
+    address: env.core as Address, abi: termbookCoreAbi, functionName: "verifierRegistry", blockNumber,
+  });
+  if (registry === zero) throw new Error("remote-action-confirm-verifier-unavailable");
+  const [verifier, version, active, , codeHash] = await chain.readContract({
+    address: registry, abi: verifierRegistryAbi, functionName: "verifiers", args: [action.sourceChain], blockNumber,
+  });
+  if (!active || verifier === zero || version !== credit.verifierVersion
+    || !equal(codeHash, credit.verifierCodeHash)) throw new Error("remote-action-confirm-verifier-mismatch");
+  const code = await chain.getCode({ address: verifier, blockNumber });
+  if (!code || !equal(keccak256(code), codeHash)) throw new Error("remote-action-confirm-verifier-mismatch");
+  const [vault, controller, controllerCodeHash] = await Promise.all([
+    chain.readContract({ address: verifier, abi: verifierAbi, functionName: "sourceVault", blockNumber }),
+    chain.readContract({ address: verifier, abi: verifierAbi, functionName: "sourceController", blockNumber }),
+    chain.readContract({ address: verifier, abi: verifierAbi, functionName: "sourceControllerCodeHash", blockNumber }),
+  ]);
+  if (!equal(vault, action.sourceVault) || controller === zero || BigInt(controllerCodeHash) === 0n) {
+    throw new Error("remote-action-confirm-controller-mismatch");
+  }
+  const wormhole = await ethereumWormholeMode(verifier);
+  if (publicationOnly && !wormhole) return null;
+  const proof = wormhole
+    ? await fetchEthereumSnapshot({
+      sourceChain: action.sourceChain, verifier, vault: action.sourceVault, controller, kind: 2, digest: actionHash,
+    })
+    : await fetchConsumedActionProof({
+      rpcUrl: evmSourceRpcUrl(action.sourceChain), actionHash, controller, expectedCodeHash: controllerCodeHash,
+    });
+  return { verifier, proof };
+}
+
 async function confirmSourceAction(action: RemoteAction, actionHash: Hex): Promise<void> {
   const account = privateKeyToAccount(env.monadConfirmKeeperKey as Hex);
   const chain = monadClient();
@@ -238,40 +286,9 @@ async function confirmSourceAction(action: RemoteAction, actionHash: Hex): Promi
       await remoteActionRepo.finalizeWithoutConfirmation(actionHash);
       return;
     }
-    const credit = await chain.readContract({
-      address: env.core as Address, abi: termbookCoreAbi, functionName: "creditDetails",
-      args: [action.creditId], blockNumber: current.finalized.number,
-    });
-    if (!equal(credit.collateralVault, action.sourceVault) || !equal(credit.lockId, action.lockId)
-      || !equal(credit.collateralAsset, action.asset)) throw new Error("remote-action-confirm-credit-mismatch");
-    const registry = await chain.readContract({
-      address: env.core as Address, abi: termbookCoreAbi, functionName: "verifierRegistry",
-      blockNumber: current.finalized.number,
-    });
-    if (registry === zero) throw new Error("remote-action-confirm-verifier-unavailable");
-    const [verifier, version, active, , codeHash] = await chain.readContract({
-      address: registry, abi: verifierRegistryAbi, functionName: "verifiers",
-      args: [action.sourceChain], blockNumber: current.finalized.number,
-    });
-    if (!active || verifier === zero || version !== credit.verifierVersion
-      || !equal(codeHash, credit.verifierCodeHash)) throw new Error("remote-action-confirm-verifier-mismatch");
-    const code = await chain.getCode({ address: verifier, blockNumber: current.finalized.number });
-    if (!code || !equal(keccak256(code), codeHash)) throw new Error("remote-action-confirm-verifier-mismatch");
-    const [vault, controller, controllerCodeHash] = await Promise.all([
-      chain.readContract({ address: verifier, abi: verifierAbi, functionName: "sourceVault", blockNumber: current.finalized.number }),
-      chain.readContract({ address: verifier, abi: verifierAbi, functionName: "sourceController", blockNumber: current.finalized.number }),
-      chain.readContract({ address: verifier, abi: verifierAbi, functionName: "sourceControllerCodeHash", blockNumber: current.finalized.number }),
-    ]);
-    if (!equal(vault, action.sourceVault) || controller === zero || BigInt(controllerCodeHash) === 0n) {
-      throw new Error("remote-action-confirm-controller-mismatch");
-    }
-    const proof = (await ethereumWormholeMode(verifier))
-      ? await fetchEthereumSnapshot({
-        sourceChain: action.sourceChain, verifier, vault: action.sourceVault, controller, kind: 2, digest: actionHash,
-      })
-      : await fetchConsumedActionProof({
-        rpcUrl: evmSourceRpcUrl(action.sourceChain), actionHash, controller, expectedCodeHash: controllerCodeHash,
-      });
+    const prepared = await sourceActionProof(action, actionHash, current.finalized.number);
+    if (!prepared) throw new Error("remote-action-confirm-proof-rejected");
+    const { verifier, proof } = prepared;
     const accepted = await chain.readContract({
       address: verifier, abi: verifierAbi, functionName: "verifyAppliedAction",
       args: [proof.header, proof.proof, action.sourceVault, actionHash],

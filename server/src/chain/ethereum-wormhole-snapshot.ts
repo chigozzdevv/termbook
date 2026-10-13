@@ -33,6 +33,7 @@ const publisherAbi = parseAbi([
   "function publishRecoveryRefund(bytes32) payable returns (uint64)",
   "function confirmationDepth() view returns(uint16)",
   "function confirmationPolicyHash() view returns(bytes32)",
+  "function snapshotConsistency() view returns(uint8)",
 ]);
 const wormholeAbi = parseAbi(["function messageFee() view returns (uint256)"]);
 const snapshotDomain = keccak256(stringToHex("Termbook Wormhole Ethereum snapshot v1"));
@@ -85,19 +86,21 @@ export async function fetchEthereumSnapshot(input: {
     || (input.controller && controller.toLowerCase() !== input.controller.toLowerCase())) {
     throw new Error("ethereum-wormhole-publisher-mismatch");
   }
-  if (policy.depth !== 0) {
+  if (policy.consistency !== 0) {
     const [depth, hash] = await Promise.all([
       source.readContract({ address: publisher, abi: publisherAbi, functionName: "confirmationDepth" }),
       source.readContract({ address: publisher, abi: publisherAbi, functionName: "confirmationPolicyHash" }),
     ]);
     if (depth !== policy.depth || hash !== policy.hash) throw new Error("ethereum-confirmation-publisher-mismatch");
+    if (policy.consistency === 201 && await source.readContract({ address: publisher, abi: publisherAbi,
+      functionName: "snapshotConsistency" }) !== 201) throw new Error("ethereum-confirmation-publisher-mismatch");
   }
   const deadline = input.deadline ?? 0n;
   const key = keccak256(encodeAbiParameters(
     [{ type: "uint8" }, { type: "bytes32" }, { type: "uint256" }],
     [input.kind, input.digest, deadline],
   ));
-  let finalized = await ethereumConfirmedBlock(source, policy.depth);
+  let finalized = await ethereumConfirmedBlock(source, policy.depth, policy.consistency);
   const [exists, publishedAt, maxAge] = await Promise.all([
     source.readContract({
       address: publisher, abi: publisherAbi, functionName: "published", args: [key], blockNumber: finalized.number,
@@ -137,10 +140,11 @@ export async function fetchEthereumSnapshot(input: {
       const result = await keeperTransaction({ client: source, rpcUrl, chainId: Number(sourceChain),
         account, operation: `snapshot:${key}:${publishedAt}`, to: publisher,
         data: encodeFunctionData({ abi: publisherAbi, functionName, args }), value: fee,
-        ...(policy.depth ? { testnetConfirmations: policy.depth } : {}) });
+        ...(policy.depth ? { testnetConfirmations: policy.depth } : {}),
+        ...(policy.consistency === 201 ? { testnetFinality: "safe" as const } : {}) });
       if (result === "reverted") throw new Error("ethereum-wormhole-publish-reverted");
       if (result !== "success") throw new Error("ethereum-wormhole-not-finalized");
-      finalized = await ethereumConfirmedBlock(source, policy.depth);
+      finalized = await ethereumConfirmedBlock(source, policy.depth, policy.consistency);
       const confirmed = await source.readContract({
         address: publisher, abi: publisherAbi, functionName: "published", args: [key], blockNumber: finalized.number,
       });
@@ -156,7 +160,7 @@ export async function fetchEthereumSnapshot(input: {
     [{ type: "bytes32" }, { type: "uint8" }, { type: "bytes32" }, { type: "uint256" }],
     [snapshotDomain, input.kind, input.digest, deadline],
   );
-  const payload = policy.depth ? `${basePayload}${policy.hash.slice(2)}` as Hex : basePayload;
+  const payload = policy.consistency !== 0 ? `${basePayload}${policy.hash.slice(2)}` as Hex : basePayload;
   const vaa = await fetchWormholeVaaById({ chain: evmWormholeChain(sourceChain), emitter: publisher, sequence, payload, consistency: policy.consistency });
   return { ...vaa, blockHash: finalized.hash };
 }

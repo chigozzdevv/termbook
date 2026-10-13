@@ -25,6 +25,7 @@ contract WormholeEthereumPublisher is ProxyInitializable {
     uint16 public confirmationDepth;
     bytes32 public confirmationPolicyHash;
     bytes32 public consistencyConfigCodeHash;
+    uint8 public snapshotConsistency;
 
     error Invalid();
 
@@ -72,12 +73,19 @@ contract WormholeEthereumPublisher is ProxyInitializable {
 
     function configureTestnetConfirmations(uint16 depth) external {
         if (block.chainid != 11155111 || msg.sender != controller.governance() || confirmationDepth != 0
-            || depth < 5 || depth > 64 || Confirmations.SEPOLIA_CCL.code.length == 0) revert Invalid();
+            || snapshotConsistency != 0 || depth < 5 || depth > 64 || Confirmations.SEPOLIA_CCL.code.length == 0) revert Invalid();
         confirmationDepth = depth;
         confirmationPolicyHash = Confirmations.digest(address(this), depth);
         consistencyConfigCodeHash = Confirmations.SEPOLIA_CCL.codehash;
         IWormholeConsistencyConfig(Confirmations.SEPOLIA_CCL).configure(Confirmations.configuration(depth));
         if (IWormholeConsistencyConfig(Confirmations.SEPOLIA_CCL).getConfiguration(address(this)) != Confirmations.configuration(depth)) revert Invalid();
+    }
+
+    function configureTestnetSafe() external {
+        if (block.chainid != 84532 || msg.sender != controller.governance() || confirmationDepth != 0
+            || snapshotConsistency != 0 || confirmationPolicyHash != bytes32(0)) revert Invalid();
+        snapshotConsistency = 201;
+        confirmationPolicyHash = Confirmations.safeDigest(block.chainid, address(this));
     }
 
     function publishApplied(bytes32 actionHash) external payable returns (uint64) {
@@ -122,6 +130,11 @@ contract WormholeEthereumPublisher is ProxyInitializable {
                 || IWormholeConsistencyConfig(Confirmations.SEPOLIA_CCL).getConfiguration(address(this)) != Confirmations.configuration(confirmationDepth)) revert Invalid();
             payload = abi.encode(Messages.SNAPSHOT, kind, digest, deadline, confirmationPolicyHash);
             consistency = 203;
+        } else if (snapshotConsistency != 0) {
+            if (block.chainid != 84532 || snapshotConsistency != 201
+                || confirmationPolicyHash != Confirmations.safeDigest(block.chainid, address(this))) revert Invalid();
+            payload = abi.encode(Messages.SNAPSHOT, kind, digest, deadline, confirmationPolicyHash);
+            consistency = snapshotConsistency;
         }
         uint64 sequence = wormhole.publishMessage{value: msg.value}(0, payload, consistency);
         published[key] = true;

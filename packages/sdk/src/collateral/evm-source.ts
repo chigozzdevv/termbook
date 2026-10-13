@@ -101,6 +101,7 @@ export type EvmSourceWalletConfig = {
   nativeVault?: boolean;
   confirmations?: number;
   testnetConfirmations?: number;
+  testnetFinality?: "safe";
 };
 
 export class EvmSourceLockWallet implements SourceLockWallet {
@@ -187,12 +188,15 @@ export class EvmSourceLockWallet implements SourceLockWallet {
   async observeLock(binding: CollateralSetupBinding, lockId: TxHash, txId?: string): Promise<SourceLockObservation> {
     if (collateralSetupHash(binding).toLowerCase() !== lockId.toLowerCase()) throw new Error("source-lock-id-mismatch");
     const depth = this.config.testnetConfirmations;
+    const safe = this.config.testnetFinality;
+    if (safe !== undefined && (safe !== "safe" || binding.monadChainId !== 10143 || this.config.chainId !== 84532
+      || depth !== undefined)) throw new Error("testnet-finality-invalid");
     if (depth !== undefined && (binding.monadChainId !== 10143 || this.config.chainId !== 11155111
       || !Number.isInteger(depth) || depth < 5 || depth > 64)) throw new Error("testnet-confirmations-invalid");
     const recoveryVault = await this.checkChain(binding);
     const latest = depth === undefined ? undefined : await this.rpc.getBlock({ blockTag: "latest" });
     if (latest && latest.number < BigInt(depth!)) return { state: "submitted", txId };
-    const at = latest ? { blockNumber: latest.number - BigInt(depth!) } : { blockTag: "finalized" as const };
+    const at = latest ? { blockNumber: latest.number - BigInt(depth!) } : { blockTag: safe ?? "finalized" as const };
     const info = await this.rpc.readContract({ address: this.config.vault, abi: collateralVaultAbi, functionName: "lockInfo", args: [lockId], ...at });
     if (info[8]) {
       if (info[0].toLowerCase() !== binding.creditId.toLowerCase() || info[1].toLowerCase() !== binding.owner.accountBytes.toLowerCase() || info[2].toLowerCase() !== this.config.asset.toLowerCase() || info[3] !== BigInt(this.config.chainId) || info[4] !== binding.amount || info[5].toLowerCase() !== binding.returnRecipient.accountBytes.toLowerCase() || info[6] !== BigInt(binding.setupDeadline) || info[7] === 0n || info[9] || info[10]) throw new Error("source-lock-binding-mismatch");
@@ -200,7 +204,7 @@ export class EvmSourceLockWallet implements SourceLockWallet {
         const commitment = await this.rpc.readContract({ address: this.config.vault, abi: remoteVaultAbi, functionName: "lockCommitments", args: [lockId], ...at });
         if (!recoveryVault || commitment.toLowerCase() !== evmRemoteLockCommitment(binding, lockId, recoveryVault).toLowerCase()) throw new Error("source-lock-commitment-mismatch");
       }
-      return { state: depth === undefined ? "finalized" : "confirmed", txId };
+      return { state: depth === undefined && safe === undefined ? "finalized" : "confirmed", txId };
     }
     if (!txId) return { state: "missing" };
     if (!/^0x[a-fA-F0-9]{64}$/.test(txId)) throw new Error("source-tx-invalid");

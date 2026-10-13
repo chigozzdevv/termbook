@@ -43,6 +43,18 @@ beforeEach(async () => {
 });
 
 describe("durable keeper transactions", () => {
+  it("persists Base safe finality without accepting it for mainnet or confirmation-count policies", async () => {
+    await expect(keeperTransaction({ ...input, testnetFinality: "safe" })).rejects.toThrow("keeper-confirmation-policy-invalid");
+    const base = { ...input, chainId: 84532, client: { ...input.client as object, getChainId: async () => 84532 } as never, testnetFinality: "safe" as const };
+    await keeperTransaction(base);
+    expect(pending?.testnetFinality).toBe("safe");
+    receipt.mockResolvedValue({ transactionHash: hash, blockNumber: 101n, blockHash, transactionIndex: 0, status: "success" });
+    expect(await keeperTransaction(base)).toBe("pending");
+    receipt.mockResolvedValue({ transactionHash: hash, blockNumber: 100n, blockHash, transactionIndex: 0, status: "success" });
+    expect(await keeperTransaction(base)).toBe("success");
+    expect(block).toHaveBeenCalledWith({ blockTag: "safe" });
+    await expect(keeperTransaction({ ...base, testnetConfirmations: 5 })).rejects.toThrow("keeper-confirmation-policy-invalid");
+  });
   it("persists Sepolia confirmation depth and cannot apply it to a mainnet transaction", async () => {
     await expect(keeperTransaction({ ...input, testnetConfirmations: 5 })).rejects.toThrow("keeper-confirmation-policy-invalid");
     const source = { ...input, chainId: 11155111, client: { ...input.client as object, getChainId: async () => 11155111 } as never, testnetConfirmations: 5 };

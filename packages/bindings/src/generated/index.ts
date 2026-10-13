@@ -28,6 +28,7 @@ export * from "./abi/ethereum-verifier.js";
 export * from "./abi/solana-verifier.js";
 export * from "./abi/wormhole-solana-account-client.js";
 export * from "./abi/wormhole-evm-message-client.js";
+export * from "./abi/wormhole-evm-policy-client.js";
 export * from "./abi/wormhole-ethereum-publisher.js";
 export * from "./abi/wormhole-ethereum-verifier.js";
 export * from "./abi/wormhole-monad-verifier.js";

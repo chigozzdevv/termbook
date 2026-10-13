@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   connectWallet,
   readConnection,
+  preferredWallets,
   type BrowserWallet,
   type Provider,
 } from "../src/features/wallet/connection";
@@ -65,7 +66,11 @@ function browser(
       listeners.get(event)?.delete(handler);
     },
   } as unknown as Provider;
-  const wallet: BrowserWallet = { info: { uuid: "test", name: "Test wallet" }, provider };
+  const wallet: BrowserWallet = {
+    source: "eip6963",
+    info: { uuid: "test", name: "Test wallet" },
+    provider,
+  };
   return { wallet, methods, listeners };
 }
 
@@ -122,6 +127,45 @@ describe("Manager wallet connection", () => {
       await expect(readConnection(wallet.provider)).rejects.toThrow("Invalid wallet account");
     },
   );
+});
+
+describe("Wallet discovery", () => {
+  const legacy = (): BrowserWallet => ({
+    ...browser().wallet,
+    source: "legacy",
+    info: { uuid: "injected", name: "Rabby", rdns: "io.rabby" },
+  });
+  const announced = (): BrowserWallet => ({
+    ...browser().wallet,
+    info: { uuid: "rabby-session", name: "Rabby Wallet", rdns: "io.rabby" },
+  });
+
+  it.each(["legacy-first", "announcement-first"])(
+    "shows one Rabby entry with different provider wrappers: %s",
+    (order) => {
+      const fallback = legacy(),
+        primary = announced();
+      expect(fallback.provider).not.toBe(primary.provider);
+      const wallets = order === "legacy-first" ? [fallback, primary] : [primary, fallback];
+      expect(preferredWallets(wallets)).toEqual([primary]);
+      expect(preferredWallets(wallets)[0].info.name).toBe("Rabby Wallet");
+    },
+  );
+
+  it("retains every announced wallet without an extra legacy entry", () => {
+    const rabby = announced(),
+      metamask = {
+        ...browser().wallet,
+        info: { uuid: "metamask-session", name: "MetaMask", rdns: "io.metamask" },
+      };
+    expect(preferredWallets([legacy(), rabby, metamask])).toEqual([rabby, metamask]);
+  });
+
+  it("uses the legacy provider when no wallet announces itself", () => {
+    const fallback = legacy();
+    expect(preferredWallets([fallback])).toEqual([fallback]);
+    expect(preferredWallets([])).toEqual([]);
+  });
 });
 
 describe("Wallet branding", () => {

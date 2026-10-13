@@ -81,6 +81,7 @@ describe("House creation wallet gate", () => {
   it("shows detected wallets as connection buttons with logos instead of duplicate installation links", () => {
     wallet.wallets = [
       {
+        source: "eip6963",
         info: {
           uuid: "metamask",
           name: "MetaMask",

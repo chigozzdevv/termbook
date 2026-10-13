@@ -12,6 +12,7 @@ import {
 import {
   connectWallet,
   readConnection,
+  preferredWallets,
   type BrowserWallet,
   type Connection,
   type Provider,
@@ -32,7 +33,7 @@ function useWalletSession() {
   useEffect(() => {
     mounted.current = true;
     function announce(event: Event) {
-      const wallet = (event as CustomEvent<BrowserWallet>).detail;
+      const wallet = (event as CustomEvent<Omit<BrowserWallet, "source">>).detail;
       if (
         typeof wallet?.provider?.request !== "function" ||
         typeof wallet.info?.uuid !== "string" ||
@@ -43,7 +44,7 @@ function useWalletSession() {
         ...rows.filter(
           (row) => row.info.uuid !== wallet.info.uuid && row.provider !== wallet.provider,
         ),
-        wallet,
+        { source: "eip6963", info: wallet.info, provider: wallet.provider },
       ]);
     }
     window.addEventListener("eip6963:announceProvider", announce);
@@ -58,7 +59,7 @@ function useWalletSession() {
             setWallets((rows) =>
               rows.some((row) => row.provider === legacy)
                 ? rows
-                : [...rows, { info: legacyInfo(legacy), provider: legacy }],
+                : [...rows, { source: "legacy", info: legacyInfo(legacy), provider: legacy }],
             );
         })
         .catch(() => undefined);
@@ -136,7 +137,7 @@ function useWalletSession() {
   }, [provider, disconnect, invalidate]);
 
   return {
-    wallets,
+    wallets: preferredWallets(wallets),
     connection,
     busy,
     error,

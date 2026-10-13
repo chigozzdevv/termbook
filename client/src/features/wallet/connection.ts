@@ -13,10 +13,16 @@ export type Provider = EIP1193Provider & {
   removeListener?: (event: string, handler: () => void) => void;
 };
 export type BrowserWallet = {
+  source: "eip6963" | "legacy";
   info: { uuid: string; name: string; icon?: string; rdns?: string };
   provider: Provider;
 };
 export type Connection = { provider: Provider; address: `0x${string}`; chain: number };
+
+export function preferredWallets(wallets: BrowserWallet[]): BrowserWallet[] {
+  const announced = wallets.filter((wallet) => wallet.source === "eip6963");
+  return announced.length ? announced : wallets;
+}
 
 export async function readConnection(provider: Provider): Promise<Connection | undefined> {
   let revision = 0;

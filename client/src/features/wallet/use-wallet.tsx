@@ -14,6 +14,7 @@ import {
   readConnection,
   preferredWallets,
   switchWallet,
+  addWallet,
   WalletNetworkError,
   walletErrorMessage,
   type BrowserWallet,
@@ -86,15 +87,20 @@ function useWalletSession() {
       setError("");
       setConnection(undefined);
       setProvider(target);
+      const onSwitch = () => {
+        if (!mounted.current || current !== revision.current)
+          throw new Error("Wallet request canceled.");
+        stage = "switching";
+        setPhase(stage);
+      };
       try {
         const next = wallet
-          ? await connectWallet(wallet, undefined, () => {
-              stage = "switching";
-              if (mounted.current && current === revision.current) setPhase(stage);
-            })
-          : operation === "switching"
-            ? await switchWallet(target)
-            : await readConnection(target);
+          ? await connectWallet(wallet, undefined, onSwitch)
+          : operation === "adding"
+            ? await addWallet(target, undefined, onSwitch)
+            : operation === "switching"
+              ? await switchWallet(target)
+              : await readConnection(target);
         if (!mounted.current || current !== revision.current) return false;
         setConnection(next);
         if (next && next.chain !== 10143)
@@ -122,6 +128,10 @@ function useWalletSession() {
   );
   const switchNetwork = useCallback(
     () => (provider ? perform(provider, "switching") : Promise.resolve(false)),
+    [provider, perform],
+  );
+  const addNetwork = useCallback(
+    () => (provider ? perform(provider, "adding") : Promise.resolve(false)),
     [provider, perform],
   );
   const checkNetwork = useCallback(
@@ -174,6 +184,7 @@ function useWalletSession() {
     error,
     connect,
     switchNetwork,
+    addNetwork,
     checkNetwork,
     disconnect,
   };

@@ -22,7 +22,11 @@ export function Picker({
 }) {
   const wallet = useWallet();
   const wrongNetwork = !!wallet.connection && wallet.connection.chain !== 10143;
-  const needsNetwork = wrongNetwork || wallet.phase === "switching" || wallet.phase === "checking";
+  const needsNetwork =
+    wrongNetwork ||
+    wallet.phase === "adding" ||
+    wallet.phase === "switching" ||
+    wallet.phase === "checking";
   const [connecting, setConnecting] = useState<string>();
   const missing = brands.filter(
     (brand) => !wallet.wallets.some((row) => brandFor(row.info)?.rdns === brand.rdns),
@@ -48,9 +52,13 @@ export function Picker({
     onClose();
     onConnected?.();
   };
-  const updateNetwork = async (check = false) => {
+  const updateNetwork = async (action: "switch" | "add" | "check" = "switch") => {
     const current = ++request.current;
-    const connected = await (check ? wallet.checkNetwork() : wallet.switchNetwork());
+    const connected = await (action === "check"
+      ? wallet.checkNetwork()
+      : action === "add"
+        ? wallet.addNetwork()
+        : wallet.switchNetwork());
     if (current === request.current && connected) finish();
   };
 
@@ -74,13 +82,23 @@ export function Picker({
               <Button disabled={wallet.busy} onClick={() => void updateNetwork()}>
                 {wallet.phase === "switching" ? "Switching…" : "Switch to Monad testnet"}
               </Button>
-              <Button
-                variant="secondary"
-                disabled={wallet.busy}
-                onClick={() => void updateNetwork(true)}
-              >
-                {wallet.phase === "checking" ? "Checking…" : "Check network"}
-              </Button>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  variant="secondary"
+                  disabled={wallet.busy}
+                  aria-label="Add Monad testnet"
+                  onClick={() => void updateNetwork("add")}
+                >
+                  {wallet.phase === "adding" ? "Adding…" : "Add network"}
+                </Button>
+                <Button
+                  variant="secondary"
+                  disabled={wallet.busy}
+                  onClick={() => void updateNetwork("check")}
+                >
+                  {wallet.phase === "checking" ? "Checking…" : "Check network"}
+                </Button>
+              </div>
             </div>
           ) : (
             <Button className="mt-3 w-full" disabled={wallet.busy} onClick={finish}>

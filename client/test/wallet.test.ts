@@ -4,6 +4,7 @@ import {
   readConnection,
   preferredWallets,
   switchWallet,
+  addWallet,
   WalletNetworkError,
   walletErrorMessage,
   type BrowserWallet,
@@ -26,6 +27,8 @@ function browser(
     switchError?: { code: number; message: string };
     addError?: { code: number; message: string };
     loseAccount?: boolean;
+    ignoreAdd?: boolean;
+    autoSwitchOnAdd?: boolean;
   } = {},
 ) {
   let chain = options.chain ?? 10143;
@@ -35,9 +38,11 @@ function browser(
   let changed = false;
   const listeners = new Map<string, Set<() => void>>();
   const methods: string[] = [];
+  const requests: { method: string; params?: unknown }[] = [];
   const provider = {
-    request: async ({ method }: { method: string }) => {
+    request: async ({ method, params }: { method: string; params?: unknown }) => {
       methods.push(method);
+      requests.push({ method, params });
       switch (method) {
         case "eth_requestAccounts":
           return accounts;
@@ -53,7 +58,8 @@ function browser(
           return `0x${chain.toString(16)}`;
         case "wallet_addEthereumChain":
           if (options.addError) throw options.addError;
-          added = true;
+          added = !options.ignoreAdd;
+          if (options.autoSwitchOnAdd) chain = 10143;
           return null;
         case "wallet_switchEthereumChain":
           if (options.switchError) throw options.switchError;
@@ -80,8 +86,96 @@ function browser(
     info: { uuid: "test", name: "Test wallet" },
     provider,
   };
-  return { wallet, methods, listeners };
+  return { wallet, methods, listeners, requests };
 }
+
+describe("Direct network addition", () => {
+  it("adds Monad testnet with the correct metadata and switches without reauthorizing the account", async () => {
+    const { wallet, methods, requests } = browser({ chain: 1, missing: true });
+    const onSwitch = vi.fn();
+    expect(await addWallet(wallet.provider, undefined, onSwitch)).toMatchObject({
+      address: first,
+      chain: 10143,
+    });
+    expect(
+      requests.find((request) => request.method === "wallet_addEthereumChain")?.params,
+    ).toEqual([
+      {
+        chainId: "0x279f",
+        chainName: "Monad Testnet",
+        nativeCurrency: { name: "Testnet MON Token", symbol: "MON", decimals: 18 },
+        rpcUrls: ["https://testnet-rpc.monad.xyz"],
+        blockExplorerUrls: ["https://testnet.monadexplorer.com"],
+      },
+    ]);
+    expect(methods).toEqual([
+      "wallet_addEthereumChain",
+      "eth_chainId",
+      "wallet_switchEthereumChain",
+      "eth_accounts",
+      "eth_chainId",
+    ]);
+    expect(onSwitch).toHaveBeenCalledOnce();
+  });
+
+  it("stops after declined addition and preserves the current account and network", async () => {
+    const { wallet, methods } = browser({
+      chain: 1,
+      addError: { code: 4001, message: "Declined" },
+    });
+    const onSwitch = vi.fn();
+    const error = await addWallet(wallet.provider, undefined, onSwitch).catch(
+      (error: unknown) => error,
+    );
+    expect(error).toMatchObject({ connection: { address: first, chain: 1 } });
+    expect(walletErrorMessage(error, "adding")).toContain("Network addition declined");
+    expect(onSwitch).not.toHaveBeenCalled();
+    expect(methods).not.toContain("wallet_switchEthereumChain");
+  });
+
+  it("does not report success if the wallet accepted adding but never switched", async () => {
+    const { wallet } = browser({ chain: 1, refuseSwitch: true });
+    await expect(addWallet(wallet.provider)).rejects.toMatchObject({
+      connection: { address: first, chain: 1 },
+    });
+  });
+
+  it("verifies wallets that switch automatically after addition without another switch prompt", async () => {
+    const { wallet, methods } = browser({ chain: 1, autoSwitchOnAdd: true });
+    expect((await addWallet(wallet.provider)).chain).toBe(10143);
+    expect(methods).not.toContain("wallet_switchEthereumChain");
+  });
+
+  it("does not repeat addition when a wallet accepts the request but fails to register the network", async () => {
+    const { wallet, methods } = browser({ chain: 1, missing: true, ignoreAdd: true });
+    await expect(addWallet(wallet.provider)).rejects.toMatchObject({
+      connection: { address: first, chain: 1 },
+    });
+    expect(methods.filter((method) => method === "wallet_addEthereumChain")).toHaveLength(1);
+  });
+
+  it("stops before switching if the connection request was canceled during addition", async () => {
+    const { wallet, methods } = browser({ chain: 1 });
+    await expect(
+      addWallet(wallet.provider, undefined, () => {
+        throw new Error("Canceled");
+      }),
+    ).rejects.toBeInstanceOf(WalletNetworkError);
+    expect(methods).not.toContain("wallet_switchEthereumChain");
+  });
+
+  it.each([4200, -32601])(
+    "explains unsupported network addition for provider code %s",
+    async (code) => {
+      const { wallet, methods } = browser({ chain: 1, addError: { code, message: "Unsupported" } });
+      const error = await addWallet(wallet.provider).catch((error: unknown) => error);
+      expect(walletErrorMessage(error, "adding")).toContain(
+        "cannot add this network automatically",
+      );
+      expect(methods).not.toContain("wallet_switchEthereumChain");
+    },
+  );
+});
 
 describe("Manager wallet connection", () => {
   it("requests wallet access and binds its current account without signing or sending transactions", async () => {

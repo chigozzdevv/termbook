@@ -60,22 +60,27 @@ export function walletErrorCode(error: unknown): number | undefined {
   return code;
 }
 
-export type WalletOperation = "connecting" | "switching" | "checking";
+export type WalletOperation = "connecting" | "adding" | "switching" | "checking";
 
 export function walletErrorMessage(error: unknown, operation: WalletOperation): string {
   const switching = operation === "switching";
+  const adding = operation === "adding";
   switch (walletErrorCode(error)) {
     case 4001:
-      return switching
-        ? "Network switch declined. Retry or select Monad testnet in your wallet."
-        : "Wallet connection declined. Choose your wallet to try again.";
+      return adding
+        ? "Network addition declined. Click Add network to try again."
+        : switching
+          ? "Network switch declined. Retry or select Monad testnet in your wallet."
+          : "Wallet connection declined. Choose your wallet to try again.";
     case -32002:
       return "A wallet request is already pending. Open your wallet and complete it, then check the network.";
     case 4200:
     case -32601:
-      return switching
-        ? "Your wallet cannot switch automatically. Select Monad testnet in your wallet, then check the network."
-        : "Your wallet does not support this request. Choose another wallet.";
+      return adding
+        ? "Your wallet cannot add this network automatically. Add Monad testnet in your wallet, then check the network."
+        : switching
+          ? "Your wallet cannot switch automatically. Select Monad testnet in your wallet, then check the network."
+          : "Your wallet does not support this request. Choose another wallet.";
     case 4902:
       return "Monad testnet could not be added. Add it in your wallet or choose another wallet.";
     case 4100:
@@ -84,11 +89,13 @@ export function walletErrorMessage(error: unknown, operation: WalletOperation): 
     case 4901:
       return "Your wallet is disconnected from the network. Open it and reconnect, then try again.";
     default:
-      return switching
-        ? "Network switch did not complete. Select Monad testnet in your wallet, then check the network, or choose another wallet."
-        : operation === "checking"
-          ? "Wallet state could not be read. Open your wallet and try again."
-          : "Wallet connection did not complete. Open your wallet and approve account access, then retry.";
+      return adding
+        ? "Monad testnet could not be added. Open your wallet and approve the network request, or add it manually."
+        : switching
+          ? "Network switch did not complete. Select Monad testnet in your wallet, then check the network, or choose another wallet."
+          : operation === "checking"
+            ? "Wallet state could not be read. Open your wallet and try again."
+            : "Wallet connection did not complete. Open your wallet and approve account access, then retry.";
   }
 }
 
@@ -99,6 +106,13 @@ export class WalletNetworkError extends Error {
   ) {
     super("Switch to Monad Testnet to continue.", { cause });
   }
+}
+
+async function confirmedConnection(provider: Provider, chain: Chain): Promise<Connection> {
+  const connection = await readConnection(provider);
+  if (!connection) throw new Error("No wallet account was selected.");
+  if (connection.chain !== chain.id) throw new Error(`Switch to ${chain.name} to continue.`);
+  return connection;
 }
 
 export async function switchWallet(
@@ -119,10 +133,24 @@ export async function switchWallet(
         await client.switchChain({ id: chain.id });
       }
     }
-    const connection = await readConnection(provider);
-    if (!connection) throw new Error("No wallet account was selected.");
-    if (connection.chain !== chain.id) throw new Error(`Switch to ${chain.name} to continue.`);
-    return connection;
+    return await confirmedConnection(provider, chain);
+  } catch (error) {
+    const connection = await readConnection(provider).catch(() => undefined);
+    throw new WalletNetworkError(error, connection);
+  }
+}
+
+export async function addWallet(
+  provider: Provider,
+  chain: Chain = monadTestnet,
+  onSwitch?: () => void,
+): Promise<Connection> {
+  const client = createWalletClient({ chain, transport: custom(provider, { retryCount: 0 }) });
+  try {
+    await client.addChain({ chain });
+    onSwitch?.();
+    if ((await client.getChainId()) !== chain.id) await client.switchChain({ id: chain.id });
+    return await confirmedConnection(provider, chain);
   } catch (error) {
     const connection = await readConnection(provider).catch(() => undefined);
     throw new WalletNetworkError(error, connection);

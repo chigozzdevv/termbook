@@ -191,18 +191,22 @@ export function Create() {
         <section className="rounded-2xl border border-line bg-panel p-6 text-center max-[430px]:p-4">
           <p className="text-sm text-muted">
             {wallet.busy
-              ? wallet.phase === "switching"
-                ? "Switching to Monad testnet…"
-                : "Connecting your wallet…"
+              ? wallet.phase === "adding"
+                ? "Adding Monad testnet…"
+                : wallet.phase === "switching"
+                  ? "Switching to Monad testnet…"
+                  : "Connecting your wallet…"
               : wallet.connection && wallet.connection.chain !== 10143
                 ? "Switch to Monad testnet to continue."
                 : "Connect your Monad wallet to continue."}
           </p>
           <Button className="mt-5" onClick={() => setWalletOpen(true)} disabled={wallet.busy}>
             {wallet.busy
-              ? wallet.phase === "switching"
-                ? "Switching…"
-                : "Connecting…"
+              ? wallet.phase === "adding"
+                ? "Adding…"
+                : wallet.phase === "switching"
+                  ? "Switching…"
+                  : "Connecting…"
               : wallet.connection
                 ? "Switch network"
                 : "Connect wallet"}

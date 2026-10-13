@@ -14,6 +14,7 @@ let wallet: {
   connect: () => Promise<boolean>;
   disconnect: () => void;
   switchNetwork: () => Promise<boolean>;
+  addNetwork: () => Promise<boolean>;
   checkNetwork: () => Promise<boolean>;
 };
 vi.mock("../src/features/wallet/use-wallet", () => ({ useWallet: () => wallet }));
@@ -33,6 +34,7 @@ describe("House creation wallet gate", () => {
       connect: async () => false,
       disconnect: vi.fn(),
       switchNetwork: async () => false,
+      addNetwork: async () => false,
       checkNetwork: async () => false,
     };
   });
@@ -63,6 +65,7 @@ describe("House creation wallet gate", () => {
     expect(html).toContain("Switch to Monad testnet to continue.");
     expect(html).toContain("Switch to Monad testnet</button>");
     expect(html).toContain("Check network</button>");
+    expect(html).toContain('aria-label="Add Monad testnet"');
     expect(html).not.toContain('aria-label="Initial liquidity"');
   });
 
@@ -73,6 +76,16 @@ describe("House creation wallet gate", () => {
     const html = renderToStaticMarkup(createElement(Create));
     expect(html).toContain("Switching to Monad testnet…");
     expect(html).not.toContain('aria-label="Initial liquidity"');
+  });
+
+  it("shows addition progress without enabling House setup or continuing early", () => {
+    wallet.busy = true;
+    wallet.phase = "adding";
+    const html = renderToStaticMarkup(createElement(Create));
+    expect(html).toContain("Adding Monad testnet…");
+    expect(html).toContain('aria-label="Add Monad testnet"');
+    expect(html).not.toContain('aria-label="Initial liquidity"');
+    expect(html).not.toContain("Continue</button>");
   });
 
   it("allows continuing after a manual switch to the required network", () => {

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { getAddress, isAddress, parseUnits } from "viem";
 import deployment from "../../../../deployments/testnet.json";
@@ -56,14 +57,25 @@ export function Create() {
   }
 
   return (
-    <main className="gutter mx-auto max-w-[820px] py-9 max-[430px]:py-6">
-      <Link href="/houses" className="mb-6 inline-block text-xs text-muted hover:text-foreground">
-        Houses
-      </Link>
-      <h1 className="mb-2 font-heading text-[36px] leading-[1.1]">Create House</h1>
-      <p className="mb-7 text-[13px] text-muted">
-        Prepare your House. Deployment and activation follow review.
-      </p>
+    <main className="gutter mx-auto max-w-[640px] py-9 max-[430px]:py-6">
+      <header className="mb-6 flex items-start gap-3">
+        <Link
+          href="/houses"
+          aria-label="Back to Houses"
+          title="Back to Houses"
+          className="touch-target grid size-10 shrink-0 place-items-center rounded-lg text-muted hover:text-foreground"
+        >
+          <ArrowLeft aria-hidden="true" size={20} />
+        </Link>
+        <div className="min-w-0">
+          <h1 className="mt-1 mb-2 font-heading text-[32px] leading-[1.1] max-[430px]:text-[28px]">
+            Create House
+          </h1>
+          <p className="text-[13px] leading-[1.6] text-muted">
+            Prepare your House. Deployment and activation follow review.
+          </p>
+        </div>
+      </header>
       <section className="rounded-2xl border border-line bg-panel p-6 max-[430px]:p-4">
         {!setup ? (
           <form onSubmit={review} noValidate>

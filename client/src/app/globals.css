@@ -221,6 +221,9 @@
   flex-shrink: 0;
   color: var(--color-muted);
 }
+.network-icon {
+  display: none;
+}
 .network-select {
   position: absolute;
   inset: 0;
@@ -237,8 +240,15 @@ html[data-focus-mode="pointer"] .network-switch:has(.network-select:focus) {
   outline: none;
 }
 @media (max-width: 740px) {
-  .network-label {
-    font-size: 14px;
+  .network-switch {
+    min-width: 44px;
+    justify-content: center;
+  }
+  .network-icon {
+    display: block;
+  }
+  .network-name {
+    display: none;
   }
 }
 

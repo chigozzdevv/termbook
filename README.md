@@ -1264,6 +1264,24 @@ node --env-file=.env scripts/testnet-e2e.mjs --run --base-kuru
 node --env-file=.env scripts/verify-testnet-e2e.mjs --base-kuru
 ```
 
+The 13 October 2026 live run completed:
+
+- A 0.1 test USDC draw, Kuru market buy/sell, repayment, WETH return and account release.
+- A 0.01 test USDC draw into a resting limit order. One USDC unit was repaid before
+  maturity for venue rounding; an approved keeper cancelled the order, withdrew
+  the refund and recovered all 9,999 outstanding units without borrower execution.
+- Return and closure of the unused setup facility. All three source locks ended
+  empty, with zero debt, positions and pending orders, and released accounts.
+
+The verifier checks finalized canonical receipts, both Wormhole proof directions,
+keeper authority and repayment conservation. It uses Envio for event discovery
+and RPC for independent receipt and state checks. Completed operation journals
+are removed after verification.
+
+Base Sepolia custody uses
+[CollateralVault](https://sepolia.basescan.org/address/0xCdd8559FF6d41FFC2c58935708af3d68563EF037).
+Current addresses and upgrade baselines remain in `deployments/testnet.json`.
+
 Aurora repayment and converted collateral recovery need a separately admitted
 value route. Base collateral verification does not depend on an Aurora quote.
 

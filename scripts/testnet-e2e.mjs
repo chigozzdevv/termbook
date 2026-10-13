@@ -595,7 +595,17 @@ async function run() {
   try {
     const deadline = Date.now() + 2 * 60 * 60 * 1000;
     do {
-      const completed = await main();
+      let completed;
+      try { completed = await main(); }
+      catch (cause) {
+        const transport = typeof cause?.walk === "function" ? cause.walk((item) =>
+          ["HttpRequestError", "TimeoutError", "LimitExceededRpcError", "InternalRpcError"].includes(item.name)) : cause;
+        if (!["--run", "--start"].includes(mode)
+          || !["HttpRequestError", "TimeoutError", "LimitExceededRpcError", "InternalRpcError"].includes(transport?.name)
+          || /revert|unauthorized|invalid/i.test(cause.shortMessage ?? cause.message)) throw cause;
+        error(JSON.stringify({ retry: "rpc-transport", errorName: transport.name }));
+        await delay(5000); continue;
+      }
       if (!["--run", "--start"].includes(mode) || completed) return;
       await delay(2000);
     } while (Date.now() < deadline);

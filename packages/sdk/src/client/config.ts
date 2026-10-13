@@ -1,9 +1,10 @@
-import { createPublicClient, http, parseAbi, parseAbiItem, toFunctionSelector } from "viem";
+import { createPublicClient, parseAbi, parseAbiItem, toFunctionSelector } from "viem";
 import { assertActionRoutes, assertStandardDefinition, capabilityCalls, capabilityDefinitionSchema, useCaseSchema,
   pluginDefinitionSchema, canonicalEvidence } from "@termbook/schema";
 import { keccak256, stringToHex } from "viem";
 import { verify_definition } from "../integration/pins.js";
 import type { ClientConfig, ResolvedClientConfig } from "../types/client.types.js";
+import { rpcHttp } from "../transport/http.js";
 
 const tokenPattern = /^tbk_[a-f0-9]{64}$/;
 const addressPattern = /^0x[a-fA-F0-9]{40}$/;
@@ -63,7 +64,7 @@ export async function resolveClientConfig(input: ClientConfig): Promise<Resolved
     throw new Error("sdk-config-invalid");
   }
   const chainId = data["chainId"] as number;
-  const chain = createPublicClient({ transport: http(rpcUrl) });
+  const chain = createPublicClient({ transport: rpcHttp(rpcUrl) });
   const definition = data["integration_definition"] === undefined ? undefined : pluginDefinitionSchema.parse(data["integration_definition"]);
   if (definition) {
     const hash = keccak256(stringToHex(canonicalEvidence(definition)));

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createWalletClient, custom } from "viem";
+import { BaseError, HttpRequestError, TimeoutError, createWalletClient, custom } from "viem";
 import { monadTestnet } from "viem/chains";
 import { evm_wallet, create_termbook, type TermbookClient, type TermbookModal, type OpenOptions } from "@termbook/sdk";
 import { apiBase, type Market } from "./data";
@@ -17,16 +17,17 @@ export function useWallet(market?: Market) {
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
   const modal = useRef<TermbookModal | null>(null);
-  const refresh = useCallback(() => setRevision((n) => n + 1), []);
+  const refresh = useCallback(() => { setError(""); setRevision((n) => n + 1); }, []);
 
   useEffect(() => () => { modal.current?.close(); }, []);
 
   useEffect(() => {
-    if (!provider || !address || !market?.app_token) return;
+    if (!provider || !address || connection?.chain !== 10143 || !market?.app_token) return;
     let active = true;
     const init = async () => {
       const wallet = await evm_wallet(createWalletClient({ chain: monadTestnet, transport: custom(provider, { retryCount: 0 }) }));
       if (wallet.address.toLowerCase() !== address.toLowerCase()) throw new Error("Wallet account changed. Reconnect.");
+      if (active) setError("");
       const sdk = create_termbook({ app_token: market.app_token!, wallet, apiBase });
       await sdk.ready();
       const definition = sdk.config.integration_definition;
@@ -36,9 +37,17 @@ export function useWallet(market?: Market) {
         || sdk.config.settlementAsset?.toLowerCase() !== market.quote_asset.toLowerCase()) throw new Error("Integration configuration changed. Refresh before trading.");
       if (active) { setSession({ sdk, connection: { provider, address, chain: 10143 } }); setError(""); }
     };
-    void init().catch(() => { if (active) setError("Trading is temporarily unavailable. The integration checks did not pass. Retry connection."); });
+    void init().catch((cause: unknown) => {
+      const failure = cause instanceof BaseError ? cause.walk((error) => error instanceof HttpRequestError
+        || error instanceof TimeoutError || error instanceof BaseError && "code" in error && error.code === -32007) : cause;
+      if (active) setError(failure instanceof HttpRequestError || failure instanceof TimeoutError
+        || failure instanceof BaseError && "code" in failure && failure.code === -32007
+        || failure instanceof Error && ["rpc-busy", "app-config-unavailable"].includes(failure.message)
+        ? "Trading services are busy or unreachable. Retry in a moment."
+        : "The trading configuration could not be verified. Retry connection.");
+    });
     return () => { active = false; setSession(undefined); modal.current?.close(); };
-  }, [provider, address, market?.app_token, market?.market_id, market?.quote_asset, market?.version_id, revision]);
+  }, [provider, address, connection?.chain, market?.app_token, market?.market_id, market?.quote_asset, market?.version_id, revision]);
 
   const disconnect = useCallback(() => { modal.current?.close(); setSession(undefined); disconnectWallet(); setError(""); }, [disconnectWallet]);
   const open = useCallback(async (options: OpenOptions) => {

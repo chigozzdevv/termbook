@@ -1,10 +1,33 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createPublicClient } from "viem";
 import { create_termbook } from "../src/client/client.js";
+import { rpcHttp } from "../src/transport/http.js";
 
 vi.mock("viem", async (original) => {
   const actual = await original<typeof import("viem")>();
   return { ...actual, createPublicClient: vi.fn() };
+});
+
+describe("SDK RPC request pacing", () => {
+  it("shares the call budget across clients and counts calls inside batches", async () => {
+    vi.useFakeTimers(); vi.setSystemTime(0);
+    const sent: { time: number; count: number }[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      const requests = JSON.parse(String(init.body));
+      sent.push({ time: Date.now(), count: requests.length });
+      return Response.json(requests.map((item: { id: number }) => ({ jsonrpc: "2.0", id: item.id, result: "0x279f" })));
+    }));
+    const first = rpcHttp("https://rpc.termbook.example/pacing")({} as never);
+    const second = rpcHttp("https://rpc.termbook.example/pacing")({} as never);
+    const result = Promise.all(Array.from({ length: 64 }, (_, index) => (index % 2 ? first : second).request({ method: "eth_chainId" })));
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(await result).toHaveLength(64);
+    expect(sent.reduce((sum, batch) => sum + batch.count, 0)).toBe(64);
+    expect(sent.every((batch) => batch.count <= 8)).toBe(true);
+    for (let index = 1; index < sent.length; index++) {
+      expect(sent[index]!.time - sent[index - 1]!.time).toBeGreaterThanOrEqual(sent[index - 1]!.count * 125);
+    }
+  });
 });
 
 const address = (digit: string) => `0x${digit.repeat(40)}` as `0x${string}`;

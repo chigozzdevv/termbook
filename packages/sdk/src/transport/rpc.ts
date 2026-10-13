@@ -1,4 +1,5 @@
-import { BaseError, ContractFunctionRevertedError, createPublicClient, http, parseAbi, type PublicClient, type TransactionReceipt } from "viem";
+import { BaseError, ContractFunctionRevertedError, createPublicClient, parseAbi, type PublicClient, type TransactionReceipt } from "viem";
+import { rpcHttp } from "./http.js";
 import type { ActivityEvent, ResolvedClientConfig, ContractWriteRequest, TxHash } from "../types/client.types.js";
 import type { HealthView } from "../types/account.types.js";
 import { emptyExecutionPrice, executionCoreAbi, type ExecutionAction, type ExecutionPrice } from "../app/execution.js";
@@ -38,7 +39,7 @@ export class RpcClient {
 
   constructor(config: ResolvedClientConfig) {
     this.config = config;
-    this.client = createPublicClient({ transport: http(config.rpcUrl) });
+    this.client = createPublicClient({ transport: rpcHttp(config.rpcUrl) });
   }
 
   async read<T>(address: `0x${string}`, abi: readonly unknown[], functionName: string, args: readonly unknown[] = [], blockNumber?: bigint): Promise<T> {

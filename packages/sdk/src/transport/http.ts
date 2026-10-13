@@ -1,3 +1,27 @@
+import { http } from "viem";
+
+const rpcBudgets = new Map<string, number>();
+
+export function rpcHttp(url: string) {
+  return http(url, { batch: { batchSize: 8, wait: 20 }, retryCount: 3, retryDelay: 1000,
+    fetchFn: async (input, init) => {
+      const body: unknown = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
+      const count = Array.isArray(body) ? body.length : 1;
+      const now = Date.now(), start = Math.max(now, rpcBudgets.get(url) ?? now), wait = start - now;
+      if (wait > 30_000) throw new Error("rpc-busy");
+      rpcBudgets.set(url, start + count * 125);
+      if (wait) await new Promise<void>((resolve, reject) => {
+        const signal = init?.signal;
+        if (signal?.aborted) { reject(signal.reason); return; }
+        const abort = () => { clearTimeout(timer); reject(signal?.reason); };
+        const timer = setTimeout(() => { signal?.removeEventListener("abort", abort); resolve(); }, wait);
+        signal?.addEventListener("abort", abort, { once: true });
+      });
+      return fetch(input, init);
+    },
+  });
+}
+
 export class HttpClient {
   base: string;
 

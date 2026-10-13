@@ -21,7 +21,7 @@ export function Tabs({ view }: { view: View }) {
   }
 
   return (
-    <div role="tablist" aria-label="Browse Termbook" className="mb-[14px] flex items-center gap-7">
+    <div role="tablist" aria-label="Browse Termbook" className="flex items-center gap-6">
       {(["orders", "houses"] as const).map((tab) => (
         <button
           key={tab}
@@ -47,7 +47,7 @@ export function Tabs({ view }: { view: View }) {
             focusOnChange.current = next !== view;
             change(next);
           }}
-          className={`flex items-center gap-2 border-0 bg-transparent pt-[13px] pb-4 text-[17px] ${view === tab ? "text-foreground" : "text-muted"}`}
+          className={`touch-target flex min-h-[38px] items-center gap-2 border-0 bg-transparent py-1 text-[15px] ${view === tab ? "text-foreground" : "text-muted"}`}
         >
           {tab === "orders" ? "Orders" : "Houses"}
           <span className="rounded-[5px] bg-[#25272a] px-[5px] py-[2px] font-mono text-[11px] text-muted">

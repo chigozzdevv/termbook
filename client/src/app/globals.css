@@ -227,6 +227,59 @@
   }
 }
 
+.market-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.market-toolbar .market-search {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+}
+.market-tabs {
+  justify-self: center;
+}
+.market-controls {
+  justify-self: end;
+}
+@media (max-width: 1199px) {
+  .market-toolbar {
+    grid-template-columns: minmax(220px, 1fr) auto auto;
+  }
+}
+@media (max-width: 980px) {
+  .market-toolbar {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 10px;
+  }
+  .market-search {
+    grid-column: 1 / -1;
+  }
+  .market-tabs {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .market-controls {
+    grid-column: 2;
+    grid-row: 2;
+  }
+}
+@media (max-width: 680px) {
+  .market-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .market-controls {
+    grid-column: 1;
+    grid-row: 3;
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: space-between;
+  }
+}
+
 .network-switch {
   justify-self: center;
 }

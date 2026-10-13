@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useDialogs } from "@/components/layout/providers";
 import { Toolbar } from "@/components/table/toolbar";
@@ -14,6 +14,20 @@ import { short } from "@/lib/format";
 import { filterHouses, filterOrders } from "./filter";
 
 export type View = "orders" | "houses";
+type Filters = {
+  query: string;
+  status: string;
+  sort: SortState;
+  page: number;
+  selected: string | null;
+};
+const initialFilters = (view: View): Filters => ({
+  query: "",
+  status: "all",
+  sort: { key: view === "houses" ? "availableCash" : "createdAt", direction: -1 },
+  page: 0,
+  selected: null,
+});
 const pageSize = 12;
 const statuses = [
   "open",
@@ -26,17 +40,17 @@ const statuses = [
   "expired",
 ];
 
-export function Explorer({ view = "orders", tabbed = false }: { view?: View; tabbed?: boolean }) {
+export function Explorer({ view = "orders", tabs }: { view?: View; tabs?: ReactNode }) {
   const router = useRouter();
   const { supply } = useDialogs();
-  const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("all");
-  const [sort, setSort] = useState<SortState>({
-    key: view === "houses" ? "availableCash" : "createdAt",
-    direction: -1,
+  const [filters, setFilters] = useState<Record<View, Filters>>({
+    orders: initialFilters("orders"),
+    houses: initialFilters("houses"),
   });
-  const [page, setPage] = useState(0);
-  const [selected, setSelected] = useState<string | null>(null);
+  const { query, status, sort, page, selected } = filters[view];
+  function update(values: Partial<Filters>) {
+    setFilters((current) => ({ ...current, [view]: { ...current[view], ...values } }));
+  }
   const filteredOrders = filterOrders(orders, { query, status, sort });
   const filteredHouses = filterHouses(houses, { query, status, sort });
   const count = view === "houses" ? filteredHouses.length : filteredOrders.length;
@@ -46,35 +60,32 @@ export function Explorer({ view = "orders", tabbed = false }: { view?: View; tab
   const house = houses.find((house) => house.house === selected);
 
   function select(id: string) {
-    setSelected(selected === id ? null : id);
+    update({ selected: selected === id ? null : id });
   }
   function onSort(key: string) {
-    setSort({ key, direction: sort.key === key ? (sort.direction === 1 ? -1 : 1) : -1 });
+    update({ sort: { key, direction: sort.key === key ? (sort.direction === 1 ? -1 : 1) : -1 } });
   }
 
   return (
     <div>
-      <div id="records" role={tabbed ? "tabpanel" : "region"} aria-labelledby={`${view}-tab`}>
-        <Toolbar
-          label={view === "houses" ? "Houses" : "borrowing orders"}
-          query={query}
-          onQuery={(value) => {
-            setQuery(value);
-            setPage(0);
-            setSelected(null);
-          }}
-          count={count}
-          status={status}
-          statuses={view === "houses" ? ["active", "paused"] : statuses}
-          onStatus={(value) => {
-            setStatus(value);
-            setPage(0);
-            setSelected(null);
-          }}
-          page={currentPage}
-          pages={pages}
-          onPage={setPage}
-        />
+      <Toolbar
+        tabs={tabs}
+        label={view === "houses" ? "Houses" : "borrowing orders"}
+        query={query}
+        onQuery={(value) => {
+          update({ query: value, page: 0, selected: null });
+        }}
+        count={count}
+        status={status}
+        statuses={view === "houses" ? ["active", "paused"] : statuses}
+        onStatus={(value) => {
+          update({ status: value, page: 0, selected: null });
+        }}
+        page={currentPage}
+        pages={pages}
+        onPage={(page) => update({ page })}
+      />
+      <div id="records" role={tabs ? "tabpanel" : "region"} aria-labelledby={`${view}-tab`}>
         <div className="overflow-x-auto rounded-[18px] border border-line bg-panel">
           {view === "houses" ? (
             <HousesTable
@@ -109,7 +120,7 @@ export function Explorer({ view = "orders", tabbed = false }: { view?: View; tab
               </h2>
               <button
                 type="button"
-                onClick={() => setSelected(null)}
+                onClick={() => update({ selected: null })}
                 className="rounded-lg border border-line bg-transparent px-[10px] py-[7px] text-xs"
               >
                 Close

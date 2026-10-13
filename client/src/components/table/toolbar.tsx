@@ -1,9 +1,11 @@
 import { Funnel } from "lucide-react";
+import type { ReactNode } from "react";
 import { Select } from "@/components/ui/select";
 import { statusLabel } from "@/lib/format";
 import { Pagination } from "./pagination";
 
 interface Props {
+  tabs?: ReactNode;
   label: string;
   query: string;
   onQuery: (value: string) => void;
@@ -17,6 +19,7 @@ interface Props {
 }
 
 export function Toolbar({
+  tabs,
   label,
   query,
   onQuery,
@@ -29,8 +32,16 @@ export function Toolbar({
   onPage,
 }: Props) {
   return (
-    <div className="mb-4 flex flex-wrap items-center justify-between gap-4 max-[430px]:gap-[10px]">
-      <label className="m-0 flex h-[38px] min-w-[220px] max-w-[450px] flex-1 items-center gap-[10px] rounded-[10px] border border-[#35383b] bg-[#1c1e20] px-3 py-1 focus-within:border-[#7070ff] focus-within:ring-2 focus-within:ring-accent/12 max-[740px]:max-w-none max-[430px]:min-w-0 max-[430px]:basis-full">
+    <div
+      className={
+        tabs
+          ? "market-toolbar"
+          : "mb-4 flex flex-wrap items-center justify-between gap-4 max-[430px]:gap-[10px]"
+      }
+    >
+      <label
+        className={`m-0 flex h-[38px] min-w-[220px] max-w-[450px] flex-1 items-center gap-[10px] rounded-[10px] border border-[#35383b] bg-[#1c1e20] px-3 py-1 focus-within:border-[#7070ff] focus-within:ring-2 focus-within:ring-accent/12 max-[740px]:max-w-none max-[430px]:min-w-0 max-[430px]:basis-full ${tabs ? "market-search" : ""}`}
+      >
         <Funnel aria-hidden="true" size={17} className="shrink-0 text-muted" />
         <input
           type="search"
@@ -47,7 +58,10 @@ export function Toolbar({
           {count} result{count === 1 ? "" : "s"}
         </span>
       </label>
-      <div className="flex items-center gap-3 max-[740px]:ml-auto max-[430px]:w-full max-[430px]:flex-wrap max-[430px]:justify-between">
+      {tabs && <div className="market-tabs">{tabs}</div>}
+      <div
+        className={`flex items-center gap-3 ${tabs ? "market-controls" : "max-[740px]:ml-auto max-[430px]:w-full max-[430px]:flex-wrap max-[430px]:justify-between"}`}
+      >
         <Select
           value={status}
           onChange={(event) => onStatus(event.target.value)}

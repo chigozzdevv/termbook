@@ -1,17 +1,20 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { BrowserWallet, Connection } from "../src/features/wallet/connection";
+import type { BrowserWallet, Connection, WalletOperation } from "../src/features/wallet/connection";
 import { Create } from "../src/features/houses/create";
 import { Picker } from "../src/features/wallet/picker";
 
 let wallet: {
   connection?: Connection;
   busy: boolean;
+  phase?: WalletOperation;
   error: string;
   wallets: BrowserWallet[];
   connect: () => Promise<boolean>;
   disconnect: () => void;
+  switchNetwork: () => Promise<boolean>;
+  checkNetwork: () => Promise<boolean>;
 };
 vi.mock("../src/features/wallet/use-wallet", () => ({ useWallet: () => wallet }));
 
@@ -29,6 +32,8 @@ describe("House creation wallet gate", () => {
       wallets: [],
       connect: async () => false,
       disconnect: vi.fn(),
+      switchNetwork: async () => false,
+      checkNetwork: async () => false,
     };
   });
 
@@ -56,7 +61,40 @@ describe("House creation wallet gate", () => {
     wallet.connection = { ...connected, chain: 1 };
     const html = renderToStaticMarkup(createElement(Create));
     expect(html).toContain("Switch to Monad testnet to continue.");
+    expect(html).toContain("Switch to Monad testnet</button>");
+    expect(html).toContain("Check network</button>");
     expect(html).not.toContain('aria-label="Initial liquidity"');
+  });
+
+  it("shows switching progress and keeps House setup locked while switching", () => {
+    wallet.connection = { ...connected, chain: 1 };
+    wallet.busy = true;
+    wallet.phase = "switching";
+    const html = renderToStaticMarkup(createElement(Create));
+    expect(html).toContain("Switching to Monad testnet…");
+    expect(html).not.toContain('aria-label="Initial liquidity"');
+  });
+
+  it("allows continuing after a manual switch to the required network", () => {
+    wallet.connection = connected;
+    const html = renderToStaticMarkup(
+      createElement(Picker, { id: "test-wallet", open: true, onClose: vi.fn() }),
+    );
+    expect(html).toContain("Connected to Monad testnet");
+    expect(html).toContain("Continue</button>");
+    expect(html).not.toContain("Check network</button>");
+  });
+
+  it("keeps switch progress visible while provider events invalidate the previous account", () => {
+    wallet.busy = true;
+    wallet.phase = "switching";
+    const html = renderToStaticMarkup(
+      createElement(Picker, { id: "test-wallet", open: true, onClose: vi.fn() }),
+    );
+    expect(html).toContain("Switch network</h2>");
+    expect(html).toContain("Switching…</button>");
+    expect(html).toContain("Check network</button>");
+    expect(html).not.toContain("Continue</button>");
   });
 
   it("hides the form while a wallet change is being confirmed", () => {

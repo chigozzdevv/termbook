@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowUpRight, Check, ChevronRight, LoaderCircle } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { short } from "@/lib/format";
 import { useWallet } from "./use-wallet";
 import { brandFor, brands, imageSource } from "./branding";
 import { WalletIcon } from "./icon";
@@ -19,6 +21,8 @@ export function Picker({
   onConnected?: () => void;
 }) {
   const wallet = useWallet();
+  const wrongNetwork = !!wallet.connection && wallet.connection.chain !== 10143;
+  const needsNetwork = wrongNetwork || wallet.phase === "switching" || wallet.phase === "checking";
   const [connecting, setConnecting] = useState<string>();
   const missing = brands.filter(
     (brand) => !wallet.wallets.some((row) => brandFor(row.info)?.rdns === brand.rdns),
@@ -40,9 +44,51 @@ export function Picker({
   useEffect(() => {
     if (open) window.dispatchEvent(new Event("eip6963:requestProvider"));
   }, [open]);
+  const finish = () => {
+    onClose();
+    onConnected?.();
+  };
+  const updateNetwork = async (check = false) => {
+    const current = ++request.current;
+    const connected = await (check ? wallet.checkNetwork() : wallet.switchNetwork());
+    if (current === request.current && connected) finish();
+  };
 
   return (
-    <Dialog id={id} open={open} onClose={close} title="Connect wallet">
+    <Dialog
+      id={id}
+      open={open}
+      onClose={close}
+      title={needsNetwork ? "Switch network" : "Connect wallet"}
+    >
+      {(wallet.connection || needsNetwork) && (
+        <div className="mt-5 rounded-xl border border-line p-3">
+          {wallet.connection && (
+            <p className="font-mono text-xs text-muted">{short(wallet.connection.address)}</p>
+          )}
+          <p className="mt-2 text-sm">
+            {needsNetwork ? "Monad testnet is required to continue." : "Connected to Monad testnet"}
+          </p>
+          {needsNetwork ? (
+            <div className="mt-3 grid gap-2">
+              <Button disabled={wallet.busy} onClick={() => void updateNetwork()}>
+                {wallet.phase === "switching" ? "Switching…" : "Switch to Monad testnet"}
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={wallet.busy}
+                onClick={() => void updateNetwork(true)}
+              >
+                {wallet.phase === "checking" ? "Checking…" : "Check network"}
+              </Button>
+            </div>
+          ) : (
+            <Button className="mt-3 w-full" disabled={wallet.busy} onClick={finish}>
+              Continue
+            </Button>
+          )}
+        </div>
+      )}
       <div className="mt-5 grid gap-2">
         {wallet.wallets.length > 0 ? (
           wallet.wallets.map((row) => (
@@ -56,12 +102,14 @@ export function Picker({
               onClick={async () => {
                 const current = ++request.current;
                 setConnecting(row.info.uuid);
-                const connected = await wallet.connect(row);
+                const connected =
+                  wallet.connection?.provider === row.provider
+                    ? await wallet.switchNetwork()
+                    : await wallet.connect(row);
                 if (current !== request.current) return;
                 setConnecting(undefined);
                 if (connected) {
-                  onClose();
-                  onConnected?.();
+                  finish();
                 }
               }}
             >
@@ -69,7 +117,7 @@ export function Picker({
               <span className="min-w-0 flex-1 truncate text-sm font-medium">{row.info.name}</span>
               {wallet.busy && connecting === row.info.uuid ? (
                 <LoaderCircle
-                  aria-label="Connecting"
+                  aria-label={wallet.phase === "switching" ? "Switching network" : "Connecting"}
                   size={18}
                   className="shrink-0 animate-spin text-accent"
                 />

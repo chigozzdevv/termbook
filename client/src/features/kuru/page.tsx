@@ -47,7 +47,7 @@ export function KuruPage() {
       <Link href="/apps" className="kuru-close" aria-label="Close Kuru" title="Close Kuru"><X size={18} /></Link>
     </div>
     {(data.error || wallet.error || uiError) && <div className="kuru-notice" role="status"><p>{uiError || wallet.error || data.error}</p><button type="button" onClick={() => { data.refresh(); wallet.refresh(); credit.refresh(); }}>Retry</button></div>}
-    {wallet.connection && wallet.connection.chain !== 10143 && <div className="kuru-notice" role="status"><p>Switch your wallet to Monad testnet to continue.</p><button type="button" onClick={() => setWalletOpen(true)}>Switch network</button></div>}
+    {wallet.connection && wallet.connection.chain !== 10143 && <div className="kuru-notice" role="status"><p>Switch your wallet to Monad testnet to continue.</p><button type="button" disabled={wallet.busy} onClick={async () => { if (!await wallet.switchNetwork()) setWalletOpen(true); }}>Switch network</button></div>}
     {data.market && data.market.state !== 0 && <div className="kuru-notice" role="status"><p>This market is temporarily paused.</p></div>}
     <div className="kuru-trading-grid"><div className="kuru-market" data-view={view}>
       <div className="kuru-view-toggle" role="group" aria-label="Market view">{(["chart", "book"] as const).map((value) => <button key={value} type="button" aria-pressed={view === value} onClick={() => setView(value)}>{value === "chart" ? "Chart" : "Order book"}</button>)}</div>

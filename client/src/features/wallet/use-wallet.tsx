@@ -13,9 +13,13 @@ import {
   connectWallet,
   readConnection,
   preferredWallets,
+  switchWallet,
+  WalletNetworkError,
+  walletErrorMessage,
   type BrowserWallet,
   type Connection,
   type Provider,
+  type WalletOperation,
 } from "./connection";
 import { legacyInfo } from "./branding";
 
@@ -23,7 +27,8 @@ function useWalletSession() {
   const [wallets, setWallets] = useState<BrowserWallet[]>([]);
   const [provider, setProvider] = useState<Provider>();
   const [connection, setConnection] = useState<Connection>();
-  const [busy, setBusy] = useState(false);
+  const [phase, setPhase] = useState<WalletOperation>();
+  const busy = phase !== undefined;
   const [error, setError] = useState("");
   const mounted = useRef(false);
   const pending = useRef(false);
@@ -71,32 +76,57 @@ function useWalletSession() {
     };
   }, [invalidate]);
 
-  const connect = useCallback(
-    async (wallet: BrowserWallet) => {
+  const perform = useCallback(
+    async (target: Provider, operation: WalletOperation, wallet?: BrowserWallet) => {
       if (pending.current) return false;
       pending.current = true;
       const current = invalidate();
-      setBusy(true);
+      let stage = operation;
+      setPhase(stage);
       setError("");
       setConnection(undefined);
-      setProvider(wallet.provider);
+      setProvider(target);
       try {
-        const next = await connectWallet(wallet);
+        const next = wallet
+          ? await connectWallet(wallet, undefined, () => {
+              stage = "switching";
+              if (mounted.current && current === revision.current) setPhase(stage);
+            })
+          : operation === "switching"
+            ? await switchWallet(target)
+            : await readConnection(target);
         if (!mounted.current || current !== revision.current) return false;
         setConnection(next);
-        return true;
-      } catch {
+        if (next && next.chain !== 10143)
+          setError("Your wallet is still on another network. Switch to Monad testnet to continue.");
+        else if (!next) setError("No wallet account is connected. Reconnect to continue.");
+        return next?.chain === 10143;
+      } catch (error) {
         if (mounted.current && current === revision.current) {
-          setProvider(undefined);
-          setError("Wallet connection was not completed. Connect on Monad testnet to continue.");
+          if (error instanceof WalletNetworkError) setConnection(error.connection);
+          else if (operation === "connecting") setProvider(undefined);
+          setError(walletErrorMessage(error, stage));
         }
         return false;
       } finally {
         pending.current = false;
-        if (mounted.current) setBusy(false);
+        if (mounted.current) setPhase(undefined);
       }
     },
     [invalidate],
+  );
+
+  const connect = useCallback(
+    (wallet: BrowserWallet) => perform(wallet.provider, "connecting", wallet),
+    [perform],
+  );
+  const switchNetwork = useCallback(
+    () => (provider ? perform(provider, "switching") : Promise.resolve(false)),
+    [provider, perform],
+  );
+  const checkNetwork = useCallback(
+    () => (provider ? perform(provider, "checking") : Promise.resolve(false)),
+    [provider, perform],
   );
 
   const disconnect = useCallback(() => {
@@ -140,8 +170,11 @@ function useWalletSession() {
     wallets: preferredWallets(wallets),
     connection,
     busy,
+    phase,
     error,
     connect,
+    switchNetwork,
+    checkNetwork,
     disconnect,
   };
 }

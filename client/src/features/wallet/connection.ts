@@ -49,19 +49,90 @@ export async function readConnection(provider: Provider): Promise<Connection | u
   }
 }
 
-function missingChain(error: unknown): boolean {
+export function walletErrorCode(error: unknown): number | undefined {
   let current = error;
+  let code: number | undefined;
   for (let depth = 0; depth < 10 && current && typeof current === "object"; depth++) {
     const value = current as { code?: number; cause?: unknown };
-    if (value.code === 4902) return true;
+    if (typeof value.code === "number") code = value.code;
     current = value.cause;
   }
-  return false;
+  return code;
+}
+
+export type WalletOperation = "connecting" | "switching" | "checking";
+
+export function walletErrorMessage(error: unknown, operation: WalletOperation): string {
+  const switching = operation === "switching";
+  switch (walletErrorCode(error)) {
+    case 4001:
+      return switching
+        ? "Network switch declined. Retry or select Monad testnet in your wallet."
+        : "Wallet connection declined. Choose your wallet to try again.";
+    case -32002:
+      return "A wallet request is already pending. Open your wallet and complete it, then check the network.";
+    case 4200:
+    case -32601:
+      return switching
+        ? "Your wallet cannot switch automatically. Select Monad testnet in your wallet, then check the network."
+        : "Your wallet does not support this request. Choose another wallet.";
+    case 4902:
+      return "Monad testnet could not be added. Add it in your wallet or choose another wallet.";
+    case 4100:
+      return "Wallet access is not authorized. Reconnect and approve account access.";
+    case 4900:
+    case 4901:
+      return "Your wallet is disconnected from the network. Open it and reconnect, then try again.";
+    default:
+      return switching
+        ? "Network switch did not complete. Select Monad testnet in your wallet, then check the network, or choose another wallet."
+        : operation === "checking"
+          ? "Wallet state could not be read. Open your wallet and try again."
+          : "Wallet connection did not complete. Open your wallet and approve account access, then retry.";
+  }
+}
+
+export class WalletNetworkError extends Error {
+  constructor(
+    cause: unknown,
+    readonly connection?: Connection,
+  ) {
+    super("Switch to Monad Testnet to continue.", { cause });
+  }
+}
+
+export async function switchWallet(
+  provider: Provider,
+  chain: Chain = monadTestnet,
+): Promise<Connection> {
+  const client = createWalletClient({
+    chain,
+    transport: custom(provider, { retryCount: 0 }),
+  });
+  try {
+    if ((await client.getChainId()) !== chain.id) {
+      try {
+        await client.switchChain({ id: chain.id });
+      } catch (error) {
+        if (walletErrorCode(error) !== 4902) throw error;
+        await client.addChain({ chain });
+        await client.switchChain({ id: chain.id });
+      }
+    }
+    const connection = await readConnection(provider);
+    if (!connection) throw new Error("No wallet account was selected.");
+    if (connection.chain !== chain.id) throw new Error(`Switch to ${chain.name} to continue.`);
+    return connection;
+  } catch (error) {
+    const connection = await readConnection(provider).catch(() => undefined);
+    throw new WalletNetworkError(error, connection);
+  }
 }
 
 export async function connectWallet(
   wallet: BrowserWallet,
   chain: Chain = monadTestnet,
+  onSwitch?: () => void,
 ): Promise<Connection> {
   const client = createWalletClient({
     chain,
@@ -69,17 +140,11 @@ export async function connectWallet(
   });
   const accounts = await client.requestAddresses();
   if (!accounts.length) throw new Error("No wallet account was selected.");
-  if ((await client.getChainId()) !== chain.id) {
-    try {
-      await client.switchChain({ id: chain.id });
-    } catch (error) {
-      if (!missingChain(error)) throw error;
-      await client.addChain({ chain });
-      await client.switchChain({ id: chain.id });
-    }
-  }
   const connection = await readConnection(wallet.provider);
   if (!connection) throw new Error("No wallet account was selected.");
-  if (connection.chain !== chain.id) throw new Error(`Switch to ${chain.name} to continue.`);
+  if (connection.chain !== chain.id) {
+    onSwitch?.();
+    return switchWallet(wallet.provider, chain);
+  }
   return connection;
 }

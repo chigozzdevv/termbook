@@ -1,8 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   connectWallet,
   readConnection,
   preferredWallets,
+  switchWallet,
+  WalletNetworkError,
+  walletErrorMessage,
   type BrowserWallet,
   type Provider,
 } from "../src/features/wallet/connection";
@@ -20,6 +23,9 @@ function browser(
     changeAccount?: boolean;
     changeDuringRead?: boolean;
     accounts?: string[];
+    switchError?: { code: number; message: string };
+    addError?: { code: number; message: string };
+    loseAccount?: boolean;
   } = {},
 ) {
   let chain = options.chain ?? 10143;
@@ -46,13 +52,16 @@ function browser(
           }
           return `0x${chain.toString(16)}`;
         case "wallet_addEthereumChain":
+          if (options.addError) throw options.addError;
           added = true;
           return null;
         case "wallet_switchEthereumChain":
+          if (options.switchError) throw options.switchError;
           if (options.reject) throw { code: 4001, message: "User rejected." };
           if (!added) throw { code: 4902, message: "Chain not added." };
           if (!options.refuseSwitch) chain = 10143;
           if (options.changeAccount) accounts = [second];
+          if (options.loseAccount) accounts = [];
           return null;
         default:
           throw new Error(`Unexpected wallet method: ${method}`);
@@ -78,7 +87,14 @@ describe("Manager wallet connection", () => {
   it("requests wallet access and binds its current account without signing or sending transactions", async () => {
     const { wallet, methods } = browser();
     expect(await connectWallet(wallet)).toMatchObject({ address: first, chain: 10143 });
-    expect(methods).toEqual(["eth_requestAccounts", "eth_chainId", "eth_accounts", "eth_chainId"]);
+    expect(methods).toEqual(["eth_requestAccounts", "eth_accounts", "eth_chainId"]);
+  });
+
+  it.each([1, 10143])("reports a switch phase only when needed on chain %s", async (chain) => {
+    const { wallet } = browser({ chain });
+    const onSwitch = vi.fn();
+    await connectWallet(wallet, undefined, onSwitch);
+    expect(onSwitch).toHaveBeenCalledTimes(chain === 10143 ? 0 : 1);
   });
 
   it("adds Monad testnet only when the wallet reports an unknown network", async () => {
@@ -93,8 +109,51 @@ describe("Manager wallet connection", () => {
 
   it("preserves a rejected network switch without trying to add the chain", async () => {
     const { wallet, methods } = browser({ chain: 1, reject: true });
-    await expect(connectWallet(wallet)).rejects.toThrow();
+    await expect(connectWallet(wallet)).rejects.toMatchObject({
+      connection: { address: first, chain: 1 },
+    });
     expect(methods).not.toContain("wallet_addEthereumChain");
+  });
+
+  it("retries switching an authorized wallet without requesting account access again", async () => {
+    const options = { chain: 1, reject: true };
+    const { wallet, methods } = browser(options);
+    await expect(connectWallet(wallet)).rejects.toBeInstanceOf(WalletNetworkError);
+    options.reject = false;
+    expect(await switchWallet(wallet.provider)).toMatchObject({ address: first, chain: 10143 });
+    expect(methods.filter((method) => method === "eth_requestAccounts")).toHaveLength(1);
+    expect(methods).not.toContain("eth_sendTransaction");
+    expect(methods).not.toContain("personal_sign");
+  });
+
+  it("keeps the account connected when adding the missing network is declined", async () => {
+    const { wallet } = browser({
+      chain: 1,
+      missing: true,
+      addError: { code: 4001, message: "No" },
+    });
+    const error = await connectWallet(wallet).catch((error: unknown) => error);
+    expect(error).toMatchObject({ connection: { address: first, chain: 1 } });
+    expect(walletErrorMessage(error, "switching")).toContain("Network switch declined");
+  });
+
+  it.each([-32002, 4200, -32601])("does not add a network for provider error %s", async (code) => {
+    const { wallet, methods } = browser({
+      chain: 1,
+      switchError: { code, message: "Request failed" },
+    });
+    const error = await connectWallet(wallet).catch((error: unknown) => error);
+    expect(error).toBeInstanceOf(WalletNetworkError);
+    expect(error).toMatchObject({ connection: { address: first, chain: 1 } });
+    expect(methods).not.toContain("wallet_addEthereumChain");
+    expect(walletErrorMessage(error, "switching")).toContain(
+      code === -32002 ? "pending" : "cannot switch automatically",
+    );
+  });
+
+  it("does not retain an account that disappears during the switch", async () => {
+    const { wallet } = browser({ chain: 1, loseAccount: true });
+    await expect(connectWallet(wallet)).rejects.toMatchObject({ connection: undefined });
   });
 
   it("rejects a wallet that remains on the wrong chain after switching", async () => {
@@ -127,6 +186,35 @@ describe("Manager wallet connection", () => {
       await expect(readConnection(wallet.provider)).rejects.toThrow("Invalid wallet account");
     },
   );
+});
+
+describe("Wallet failure messages", () => {
+  it("reads the underlying provider code through RPC wrappers", () => {
+    expect(walletErrorMessage({ code: -1, cause: { code: -32002 } }, "switching")).toContain(
+      "pending",
+    );
+  });
+
+  it.each([4100, 4900, 4901])(
+    "explains provider error %s without leaking the raw payload",
+    (code) => {
+      const message = walletErrorMessage(
+        { code, message: "https://private-rpc.example/secret" },
+        "switching",
+      );
+      expect(message).toContain(code === 4100 ? "not authorized" : "disconnected");
+      expect(message).not.toContain("secret");
+    },
+  );
+
+  it("offers manual switching and checking for an unclassified failure", () => {
+    expect(walletErrorMessage(new Error("private debug data"), "switching")).toContain(
+      "check the network",
+    );
+    expect(walletErrorMessage(new Error("private debug data"), "switching")).not.toContain(
+      "private debug data",
+    );
+  });
 });
 
 describe("Wallet discovery", () => {

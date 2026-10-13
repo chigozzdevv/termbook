@@ -8,7 +8,7 @@ import { apiBase, type Market } from "./data";
 import { useWallet as useConnection } from "@/features/wallet/use-wallet";
 
 export function useWallet(market?: Market) {
-  const { wallets, connection, busy, error: connectionError, connect, disconnect: disconnectWallet } = useConnection();
+  const { wallets, connection, busy, error: connectionError, connect, switchNetwork, checkNetwork, disconnect: disconnectWallet } = useConnection();
   const [session, setSession] = useState<{ sdk: TermbookClient; connection: NonNullable<typeof connection> }>();
   const client = session?.connection === connection ? session?.sdk : undefined;
   const [error, setError] = useState("");
@@ -44,5 +44,5 @@ export function useWallet(market?: Market) {
     modal.current = client.open(options);
     await modal.current.ready;
   }, [client]);
-  return { wallets, connection, client, busy, error: connectionError || error, connect, disconnect, open, refresh };
+  return { wallets, connection, client, busy, error: connectionError || error, connect, switchNetwork, checkNetwork, disconnect, open, refresh };
 }

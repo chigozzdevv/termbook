@@ -12,7 +12,7 @@ export default function Page() {
           </h1>
           <Link
             href="/houses/create"
-            className="touch-target inline-flex min-h-[38px] shrink-0 items-center gap-2 rounded-lg bg-accent px-3 py-2 text-[13px] text-white hover:bg-[#6666ff] max-[430px]:text-xs"
+            className="touch-target inline-flex min-h-[38px] shrink-0 items-center gap-2 rounded-lg border border-line bg-transparent px-3 py-2 text-[13px] text-[#d7dcde] hover:border-[#53585b] hover:bg-[#222527] hover:text-[#f4f4ef] max-[430px]:text-xs"
           >
             <Plus size={15} aria-hidden="true" />
             Create House

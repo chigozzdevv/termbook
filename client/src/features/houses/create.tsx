@@ -1,32 +1,38 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Wallet, X } from "lucide-react";
 import { useState, type FormEvent } from "react";
-import { getAddress, isAddress, parseUnits } from "viem";
+import { parseUnits } from "viem";
 import deployment from "../../../../deployments/testnet.json";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { CopyButton } from "@/components/ui/copy-button";
+import { Dialog } from "@/components/ui/dialog";
 import { short } from "@/lib/format";
 import { schema as amountSchema } from "@/features/supply/schema";
+import { useWallet } from "@/features/wallet/use-wallet";
+import type { Connection } from "@/features/wallet/connection";
 
 type Setup = { chain_id: number; asset: string; manager: string; initial_liquidity: string };
 
 export function Create() {
-  const [manager, setManager] = useState("");
+  const wallet = useWallet();
+  const [walletOpen, setWalletOpen] = useState(false);
   const [amount, setAmount] = useState("");
-  const [setup, setSetup] = useState<Setup | null>(null);
+  const [reviewed, setReviewed] = useState<{ setup: Setup; connection: Connection } | null>(null);
   const [error, setError] = useState("");
   const [downloaded, setDownloaded] = useState(false);
+  const manager =
+    !wallet.busy && wallet.connection?.chain === 10143 ? wallet.connection : undefined;
+  const setup = manager && reviewed?.connection === manager ? reviewed.setup : null;
 
   function review(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
-    const managerAddress = manager.trim();
-    if (!isAddress(managerAddress) || /^0x0{40}$/i.test(managerAddress)) {
-      setError("Enter a valid manager wallet address.");
+    if (!manager) {
+      setError("Connect your manager wallet on Monad testnet.");
       return;
     }
     const values = amountSchema.safeParse({ asset: "USDC", amount });
@@ -35,11 +41,14 @@ export function Create() {
       return;
     }
     setDownloaded(false);
-    setSetup({
-      chain_id: 10143,
-      asset: deployment.tokens["10143"].USDC,
-      manager: getAddress(managerAddress),
-      initial_liquidity: parseUnits(values.data.amount, 6).toString(),
+    setReviewed({
+      connection: manager,
+      setup: {
+        chain_id: 10143,
+        asset: deployment.tokens["10143"].USDC,
+        manager: manager.address,
+        initial_liquidity: parseUnits(values.data.amount, 6).toString(),
+      },
     });
   }
 
@@ -88,16 +97,59 @@ export function Create() {
             <p className="-mt-2 mb-5 text-xs text-muted">
               The lending asset is fixed for this House.
             </p>
-            <label className="field-label">
-              Manager wallet
-              <Input
-                aria-label="Manager wallet"
-                placeholder="0x…"
-                autoComplete="off"
-                value={manager}
-                onChange={(event) => setManager(event.target.value)}
-              />
-            </label>
+            <div className="mb-5">
+              <p id="manager-wallet-label" className="mb-2 text-xs text-[#b8bdc0]">
+                Manager wallet
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="secondary"
+                  className="min-h-11 min-w-0 flex-1"
+                  aria-label={
+                    wallet.busy
+                      ? "Connecting wallet"
+                      : wallet.connection
+                        ? `Change manager wallet ${wallet.connection.address}`
+                        : "Connect wallet"
+                  }
+                  title={wallet.connection?.address}
+                  aria-describedby="manager-wallet-label"
+                  onClick={() => {
+                    setError("");
+                    setWalletOpen(true);
+                  }}
+                  disabled={wallet.busy}
+                >
+                  <Wallet aria-hidden="true" size={15} />
+                  {wallet.busy ? (
+                    "Connecting…"
+                  ) : wallet.connection ? (
+                    <span className="font-mono">{short(wallet.connection.address)}</span>
+                  ) : (
+                    "Connect wallet"
+                  )}
+                </Button>
+                {wallet.connection && (
+                  <button
+                    type="button"
+                    aria-label="Disconnect manager wallet"
+                    title="Disconnect wallet"
+                    onClick={wallet.disconnect}
+                    className="touch-target grid size-11 shrink-0 place-items-center rounded-lg border border-line text-muted hover:text-foreground"
+                  >
+                    <X aria-hidden="true" size={16} />
+                  </button>
+                )}
+              </div>
+              {wallet.connection && !manager && (
+                <p role="alert" className="mt-2 text-xs text-danger">
+                  Switch to Monad testnet.{" "}
+                  <button type="button" className="underline" onClick={() => setWalletOpen(true)}>
+                    Connect again
+                  </button>
+                </p>
+              )}
+            </div>
             <label className="field-label">
               Initial liquidity
               <Input
@@ -109,12 +161,12 @@ export function Create() {
                 onChange={(event) => setAmount(event.target.value)}
               />
             </label>
-            {error && (
+            {(error || wallet.error) && (
               <p role="alert" className="mb-4 text-xs text-danger">
-                {error}
+                {error || wallet.error}
               </p>
             )}
-            <Button type="submit" className="w-full">
+            <Button type="submit" className="w-full" disabled={!manager}>
               Review setup
             </Button>
           </form>
@@ -141,7 +193,7 @@ export function Create() {
             <Button className="mt-5 w-full" onClick={download}>
               Download setup
             </Button>
-            <Button variant="secondary" className="mt-2 w-full" onClick={() => setSetup(null)}>
+            <Button variant="secondary" className="mt-2 w-full" onClick={() => setReviewed(null)}>
               Edit setup
             </Button>
             {downloaded && (
@@ -152,6 +204,38 @@ export function Create() {
           </>
         )}
       </section>
+      <Dialog
+        id="house-wallet"
+        open={walletOpen}
+        onClose={() => setWalletOpen(false)}
+        title="Connect wallet"
+      >
+        <div className="mt-5 grid gap-3">
+          {wallet.wallets.length ? (
+            wallet.wallets.map((row) => (
+              <Button
+                variant="secondary"
+                key={row.info.uuid}
+                disabled={wallet.busy}
+                onClick={async () => {
+                  if (await wallet.connect(row)) setWalletOpen(false);
+                }}
+              >
+                {row.info.name}
+              </Button>
+            ))
+          ) : (
+            <p className="text-sm leading-[1.6] text-muted">
+              No browser wallet found. Open this page in a browser with an EVM wallet installed.
+            </p>
+          )}
+        </div>
+        {wallet.error && (
+          <p role="alert" className="mt-4 text-xs text-danger">
+            {wallet.error}
+          </p>
+        )}
+      </Dialog>
     </main>
   );
 }

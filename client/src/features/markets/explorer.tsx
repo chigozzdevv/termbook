@@ -8,6 +8,7 @@ import type { SortState } from "@/components/table/sort";
 import { Table as OrdersTable } from "@/features/orders/table";
 import { Table as HousesTable } from "@/features/houses/table";
 import { Details as HouseDetails } from "@/features/houses/details";
+import { Stats as HouseStats } from "@/features/houses/stats";
 import { short } from "@/lib/format";
 import { filterHouses, filterOrders } from "./filter";
 import { useRecords } from "./use-records";
@@ -40,7 +41,7 @@ const statuses = [
   "expired",
 ];
 
-export function Explorer({ view = "orders", tabs }: { view?: View; tabs?: boolean }) {
+export function Explorer({ view = "orders", tabs, stats }: { view?: View; tabs?: boolean; stats?: boolean }) {
   const router = useRouter();
   const { supply } = useDialogs();
   const data = useRecords();
@@ -73,6 +74,8 @@ export function Explorer({ view = "orders", tabs }: { view?: View; tabs?: boolea
 
   return (
     <div>
+      {stats && view === "houses" && <HouseStats houses={houses} orders={orders} loading={loading}
+        unavailable={!!error} creditsUnavailable={data.loading.orders || !!data.error.orders} />}
       <Toolbar
         tabs={tabs ? <Tabs view={view} orders={data.totalOrders} houses={data.loading.houses || data.error.houses && !houses.length ? undefined : houses.length} /> : undefined}
         label={view === "houses" ? "Houses" : "borrowing orders"}

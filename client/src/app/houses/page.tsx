@@ -13,7 +13,7 @@ export default function Page() {
         </div>
         <p className="mt-3 text-[13px] text-muted">Supply liquidity to fund app credit on Monad.</p>
       </div>
-      <Explorer view="houses" />
+      <Explorer view="houses" stats />
     </main>
   );
 }

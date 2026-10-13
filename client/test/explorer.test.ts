@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readHouses, readOrders } from "../src/features/markets/data";
 import { relativeTime } from "../src/lib/format";
+import { houseStats } from "../src/features/houses/stats";
+import type { House } from "../src/features/houses/types";
 
 const fetcher = vi.fn();
 beforeEach(() => vi.stubGlobal("fetch", fetcher));
@@ -26,5 +28,27 @@ describe("Live explorer loading", () => {
     vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-13T12:00:00Z"));
     expect(relativeTime("2026-10-13T11:58:00Z")).toBe("2 min ago");
     expect(relativeTime("2026-10-13T12:00:03Z")).toBe("0 sec ago");
+  });
+});
+
+describe("House statistics", () => {
+  const house = (overrides: Partial<House> = {}): House => ({
+    house: `0x${"1".repeat(40)}`, vault: `0x${"2".repeat(40)}`, manager: `0x${"3".repeat(40)}`,
+    asset: `0x${"4".repeat(40)}`, assetSymbol: "USDC", decimals: 6, active: true, paused: false,
+    depositsOpen: true, unresolvedCreditImpairment: "0", freeCash: "7000000", queuedWithdrawalAssets: "1000000",
+    committedCash: "2000000", drawnPrincipal: "3000000", availableCash: "6000000", totalAssets: "12000000",
+    totalShares: "12000000", sharePrice: "1000000000000000000", ...overrides,
+  });
+  it("excludes paused and inactive Houses from available lending while retaining their assets and loans", () => {
+    expect(houseStats([house(), house({ paused: true }), house({ active: false })])).toMatchObject([
+      { total: 36000000n, available: 6000000n, reserved: 6000000n, principal: 9000000n },
+    ]);
+  });
+  it("keeps distinct tokens separate and sums token units without floating point loss", () => {
+    const result = houseStats([house({ totalAssets: "9007199254740993" }), house({ totalAssets: "1" }),
+      house({ asset: `0x${"5".repeat(40)}`, decimals: 18, totalAssets: "1000000000000000000" })]);
+    expect(result).toHaveLength(2);
+    expect(result[0].total).toBe(9007199254740994n);
+    expect(result[1].total).toBe(1000000000000000000n);
   });
 });

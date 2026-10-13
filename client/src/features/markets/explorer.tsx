@@ -98,7 +98,6 @@ export function Explorer({ view = "orders" }: { view?: View }) {
             {count ? start + 1 : 0}–{Math.min(start + pageSize, count)} of {count}{" "}
             {view === "houses" ? "Houses" : "Orders"}
           </span>
-          <span>Mock records · 10 Oct 2026</span>
         </div>
         {house && (
           <section

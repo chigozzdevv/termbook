@@ -4,16 +4,18 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ArrowUpRight, LayoutGrid } from "lucide-react";
 import { Logo } from "@/components/brand/logo";
+import { Network } from "./network";
 
 export function Navbar() {
   const path = usePathname();
   const apps = path.startsWith("/apps") || path.startsWith("/app/");
   return (
-    <header className="gutter m-0 flex min-h-[72px] items-center gap-9 border-b border-[#25282a] bg-background max-[740px]:min-h-[66px] max-[740px]:gap-6 max-[520px]:gap-[18px] max-[430px]:min-h-16 max-[430px]:gap-3 max-[350px]:gap-[10px]">
+    <header className="gutter site-header m-0 min-h-[72px] border-b border-[#25282a] bg-background">
       <Logo />
+      <Network />
       <nav
         aria-label="Main navigation"
-        className="ml-auto flex items-center gap-6 max-[740px]:gap-3 max-[350px]:gap-2"
+        className="site-actions flex items-center gap-6 max-[740px]:gap-3 max-[350px]:gap-2"
       >
         <Link
           href="/docs"

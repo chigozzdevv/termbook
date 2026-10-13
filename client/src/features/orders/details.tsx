@@ -52,6 +52,11 @@ function Address({
 }
 
 export function Details({ order }: { order: Order }) {
+  const assetHref =
+    order.collateral.chain.namespace === "eip155" &&
+    !["SOL", "MON"].includes(order.collateral.symbol)
+      ? explorer.asset(order.collateral.asset, order.collateral.chain.chainId)
+      : undefined;
   const transactions = new Map<string, { block: number; events: string[] }>();
   for (const event of order.events) {
     const transaction = transactions.get(event.transactionHash) ?? {
@@ -167,69 +172,78 @@ export function Details({ order }: { order: Order }) {
           <dl className="m-0">
             <Field label="Source chain">{order.collateral.chain.label}</Field>
             <Field label="Asset">{order.collateral.symbol}</Field>
-            <Field label="Asset ID">
-              <Address value={order.collateral.asset} label="collateral asset ID" />
-            </Field>
+            {assetHref && (
+              <Field label="Token address">
+                <Address
+                  value={order.collateral.asset}
+                  label="collateral token address"
+                  href={assetHref}
+                  external
+                />
+              </Field>
+            )}
           </dl>
         </section>
       </div>
-      <section className="order-section mt-5" aria-labelledby="transactions-title">
-        <div className="flex items-center gap-2">
-          <h2 id="transactions-title">Transactions</h2>
-          <span className="rounded bg-background px-[6px] py-[2px] font-mono text-[11px] text-muted">
-            {transactions.size}
-          </span>
-        </div>
-        {transactions.size ? (
-          <div className="mt-5 overflow-x-auto">
-            <table className="order-transactions" aria-label="Order transactions">
-              <thead>
-                <tr>
-                  <th>Activity</th>
-                  <th>Transaction</th>
-                  <th>Block</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Array.from(transactions, ([hash, transaction]) => (
-                  <tr key={hash}>
-                    <td>{transaction.events.join(" · ")}</td>
-                    <td>
-                      <span className="inline-flex items-center gap-1">
+      {(order.kind === "credit" || transactions.size > 0) && (
+        <section className="order-section mt-5" aria-labelledby="transactions-title">
+          <div className="flex items-center gap-2">
+            <h2 id="transactions-title">Transactions</h2>
+            <span className="rounded bg-background px-[6px] py-[2px] font-mono text-[11px] text-muted">
+              {transactions.size}
+            </span>
+          </div>
+          {transactions.size ? (
+            <div className="mt-5 overflow-x-auto">
+              <table className="order-transactions" aria-label="Order transactions">
+                <thead>
+                  <tr>
+                    <th>Activity</th>
+                    <th>Transaction</th>
+                    <th>Block</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Array.from(transactions, ([hash, transaction]) => (
+                    <tr key={hash}>
+                      <td>{transaction.events.join(" · ")}</td>
+                      <td>
+                        <span className="inline-flex items-center gap-1">
+                          <Link
+                            href={explorer.transaction(hash)}
+                            title={hash}
+                            aria-label={`View transaction ${hash}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 font-mono text-xs hover:text-accent"
+                          >
+                            {short(hash)}
+                            <ArrowUpRight size={12} aria-hidden="true" />
+                          </Link>
+                          <CopyButton value={hash} label="transaction hash" />
+                        </span>
+                      </td>
+                      <td>
                         <Link
-                          href={explorer.transaction(hash)}
-                          title={hash}
-                          aria-label={`View transaction ${hash}`}
+                          href={explorer.block(transaction.block)}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 font-mono text-xs hover:text-accent"
+                          className="inline-flex items-center gap-1 font-mono text-xs text-muted hover:text-foreground"
                         >
-                          {short(hash)}
+                          {transaction.block.toLocaleString("en-US")}
                           <ArrowUpRight size={12} aria-hidden="true" />
                         </Link>
-                        <CopyButton value={hash} label="transaction hash" />
-                      </span>
-                    </td>
-                    <td>
-                      <Link
-                        href={explorer.block(transaction.block)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 font-mono text-xs text-muted hover:text-foreground"
-                      >
-                        {transaction.block.toLocaleString("en-US")}
-                        <ArrowUpRight size={12} aria-hidden="true" />
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p className="mt-5 mb-1 text-[13px] text-muted">No onchain transactions yet.</p>
-        )}
-      </section>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="mt-5 mb-1 text-[13px] text-muted">No onchain transactions yet.</p>
+          )}
+        </section>
+      )}
     </>
   );
 }

@@ -28,7 +28,7 @@ export function Preview({ values, house }: { values: SupplyValues; house: House 
       <dd>{sharePrice(house)} USDC</dd>
       {values.asset === "WETH" && (
         <>
-          <dt>Mock quote</dt>
+          <dt>Est. conversion rate</dt>
           <dd>2,500 USDC / WETH</dd>
         </>
       )}

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, ArrowUpRight, ChevronDown, CodeXml, List, Menu, Moon, Search, Sun, X } from "lucide-react";
 import { Logo } from "@/components/brand/logo";
+import { Network } from "@/components/layout/network";
 import { docHref, searchDocs, type SearchEntry } from "./model";
 import { useDocsTheme } from "./theme";
 
@@ -121,6 +122,7 @@ export function Shell({ children, pages, search }: Props) {
       <button aria-label="Open documentation navigation" onClick={() => setMenuOpen(true)}><Menu size={21} /></button>
       <Logo /><button aria-label="Search documentation" onClick={openSearch}><Search size={20} /></button>
     </header>
+    <div className="docs-networkbar"><Network /></div>
     <div className="docs-body">
       {children}
       <aside className="docs-toc" aria-label="On this page">

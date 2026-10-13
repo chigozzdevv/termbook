@@ -57,6 +57,26 @@
 }
 
 @layer components {
+  .site-header {
+    @apply grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-x-6;
+  }
+  .site-header > :first-child {
+    @apply col-start-1 row-start-1;
+  }
+  .site-actions {
+    @apply col-start-3 row-start-1 justify-self-end;
+  }
+  @media (max-width: 740px) {
+    .site-header {
+      @apply grid-cols-[minmax(0,1fr)_auto] gap-x-3 pt-3 pb-2;
+    }
+    .site-actions {
+      @apply col-start-2;
+    }
+    .site-header .network-switch {
+      @apply col-span-full col-start-1 row-start-2;
+    }
+  }
   .gutter {
     @apply px-14 max-[740px]:px-8 max-[430px]:px-6;
   }
@@ -173,6 +193,29 @@
   .supply-result dd {
     @apply m-0 text-left font-mono leading-[1.4] wrap-anywhere;
   }
+}
+
+.network-switch {
+  width: 172px;
+  justify-self: center;
+}
+.network-select {
+  height: 36px;
+  min-height: 36px;
+  padding-block: 7px;
+  padding-left: 8px;
+  font-size: 13px;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.network-select:focus-visible {
+  border: 0;
+  outline: 2px solid #8585ff;
+  outline-offset: 3px;
+  box-shadow: none;
 }
 
 html[data-focus-mode="pointer"] :is(button, a, select, [tabindex]):focus {

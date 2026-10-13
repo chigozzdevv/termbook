@@ -37,11 +37,6 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
               label={order.kind === "request" ? "intent ID" : "credit ID"}
             />
           </div>
-          <p className="mt-3 mb-0 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
-            <span>Monad testnet</span>
-            <span aria-hidden="true">·</span>
-            <span>Mock record</span>
-          </p>
         </header>
         <Details order={order} />
       </div>

@@ -6,7 +6,7 @@ import { useState } from "react";
 import { ArrowUpRight, Wallet, X } from "lucide-react";
 import { Logo } from "@/components/brand/logo";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/select";
+import { Network } from "@/components/layout/network";
 import { Dialog } from "@/components/ui/dialog";
 import { useMarket } from "./use-market";
 import { useWallet } from "./wallet";
@@ -33,12 +33,9 @@ export function KuruPage() {
   };
   const stale = !!data.error || !data.market;
   return <>
-    <header className="kuru-topbar gutter">
+    <header className="kuru-topbar site-header gutter">
       <div className="kuru-brand"><Logo /><div className="kuru-identity"><Image src="/apps/kuru.svg" alt="" width={20} height={36} className="h-auto w-4" /><span>Kuru</span></div></div>
-      <Select aria-label="Network" defaultValue="10143" wrapperClassName="kuru-network" className="kuru-network-select">
-        <option value="10143">Monad testnet</option>
-        <option value="143" disabled>Monad mainnet</option>
-      </Select>
+      <Network />
       <div className="kuru-wallet">
         {wallet.connection ? <><Button variant="secondary" onClick={() => wallet.client ? void open({ tab: "account", creditId: credit.account?.id }) : wallet.refresh()} disabled={wallet.busy}><Wallet size={14} />{short(wallet.connection.address)}</Button><button type="button" className="kuru-disconnect" aria-label="Disconnect wallet" onClick={wallet.disconnect}><X size={14} /></button></>
           : <Button onClick={() => setWalletOpen(true)} disabled={wallet.busy}><Wallet size={14} />{wallet.busy ? "Connecting…" : "Connect wallet"}</Button>}

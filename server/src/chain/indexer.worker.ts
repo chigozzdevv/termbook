@@ -95,7 +95,8 @@ export async function runIndexerWorker(start: bigint = indexerStart()): Promise<
       }));
     }
     if (leaseLost) throw new Error("indexer-lease-lost");
-    await indexerRepo.advance(key, cursor.lease, nextBlock, boundary.hash);
+    await indexerRepo.advance(key, cursor.lease, nextBlock, boundary.hash,
+      ...(logs.length ? [`${boundary.hash}:${logs.length}`] : []));
     return logs.length;
   } finally {
     clearInterval(heartbeat);

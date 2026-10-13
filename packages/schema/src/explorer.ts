@@ -4,7 +4,9 @@ import { addressSchema, bytes32Schema } from "./auth.js";
 const units = z.string().regex(/^\d+$/);
 const precision = z.number().int().min(0).max(36);
 const integer = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+export const explorerSnapshotSchema = z.object({ generation: z.uuid(), block: units, updatedAt: z.iso.datetime() });
 export const explorerHouseSchema = z.object({
+  snapshot: explorerSnapshotSchema.optional(),
   house: addressSchema, vault: addressSchema, manager: addressSchema, asset: addressSchema,
   active: z.boolean(), paused: z.boolean(), depositsOpen: z.boolean(),
   unresolvedCreditImpairment: units, freeCash: units, queuedWithdrawalAssets: units,
@@ -12,6 +14,7 @@ export const explorerHouseSchema = z.object({
   totalAssets: units, totalShares: units, sharePrice: units, assetSymbol: z.string().min(1).max(80), decimals: precision,
 });
 export const explorerOrderSchema = z.object({
+  snapshot: explorerSnapshotSchema.optional(),
   id: bytes32Schema, intentId: bytes32Schema, kind: z.enum(["request", "credit"]), creditId: bytes32Schema.nullable(),
   borrower: addressSchema, house: addressSchema.nullable(), settlementAsset: addressSchema,
   settlementSymbol: z.string().min(1).max(80), settlementDecimals: precision,
@@ -25,6 +28,7 @@ export const explorerOrderSchema = z.object({
     transactionHash: bytes32Schema, logIndex: integer, args: z.object({ creditId: bytes32Schema }) })),
 });
 export const explorerPageSchema = z.object({
+  snapshot: explorerSnapshotSchema.optional(),
   records: z.array(explorerOrderSchema).max(50), total: integer, next: bytes32Schema.nullable(), block: units,
 });
 export type ExplorerHouse = z.infer<typeof explorerHouseSchema>;

@@ -18,6 +18,7 @@ import { requestLimiter } from "./http/http-limit.js";
 import { readiness } from "./http/readiness.js";
 import { kuruRoute } from "./kuru/kuru.route.js";
 import { explorerRoute } from "./explorer/explorer.route.js";
+import { rpcRoute } from "./chain/rpc.route.js";
 
 export function buildApp() {
   const app = Fastify({ logger: false });
@@ -38,6 +39,7 @@ export function buildApp() {
     if (req.method === "OPTIONS") return reply.status(204).send();
   });
   app.addHook("preHandler", async (req, reply) => {
+    if (req.method === "POST" && req.routeOptions.url === "/rpc") return;
     if (req.method === "GET" || req.method === "HEAD" || req.url === "/health" || req.url === "/auth/nonce") return;
     const wallet = req.headers["x-termbook-wallet"];
     const signature = req.headers["x-termbook-signature"];
@@ -71,5 +73,6 @@ export function buildApp() {
   catalogRoute(app);
   kuruRoute(app);
   explorerRoute(app);
+  rpcRoute(app);
   return app;
 }

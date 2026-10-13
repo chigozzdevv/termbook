@@ -70,12 +70,26 @@ the checkpoint unchanged; without a token, the bounded RPC indexer is used.
 Create a token in the [Envio dashboard](https://envio.dev/app/api-tokens).
 The client explorer reads `/explorer/orders`, `/explorer/orders/:id`,
 `/explorer/houses` and `/explorer/houses/:address`. Requests come from MongoDB;
-credit discovery and transaction history use the finalized Envio index. Balances,
-debt and House status are read at a finalized Monad block.
+credit discovery and transaction history use the finalized Envio index. A background
+worker reads balances, debt and House status at the completed index checkpoint and
+atomically publishes a MongoDB snapshot. Explorer requests return saved data without
+RPC calls. Failed refreshes retain the last verified snapshot, and the tables show
+its block timestamp. Pagination stays within one snapshot generation.
+Committed Core events trigger a refresh; balances also refresh on a 30-second schedule.
+Settled credits reuse their verified records
+until a credit event or Core upgrade changes them. Financial operations use live
+checks. Set `PUBLIC_RPC_URL` to `<PUBLIC_API_BASE>/rpc` to use the read-only relay
+backed by `RPC_URL`, keeping the provider key off the browser. The relay limits
+methods, gas, batches and log ranges. `RPC_REQUESTS_PER_SECOND` defaults to two
+per process. BlockVision requests also share a Redis compute-unit budget across
+the API, worker and keeper transaction preparation. `RPC_COMPUTE_UNITS_PER_SECOND`
+defaults to 300; set it to the account’s actual allowance. Redis is required for
+this shared budget. Set `RPC_BUDGET_REDIS_URL` to the Docker Redis URL for the
+limiter independently of the job queue’s `REDIS_URL`.
 `NEXT_PUBLIC_TERMBOOK_API_URL` selects the API origin and defaults to `http://127.0.0.1:3002`.
 For local browsing and integration checks, run
 `node --env-file=.env server/dist/worker.js --indexer-monitor`.
-This starts indexing and the testnet upgrade monitor. Monitor renewals spend test
+This starts indexing, table snapshot refreshes and the testnet upgrade monitor. Monitor renewals spend test
 MON and keep the three-minute dependency leases current. The full worker is
 required for live collateral proofs, credit risk, execution and recovery.
 An empty `REDIS_URL` uses the durable MongoDB queue. The local API uses port 3002. `/health` checks the API;

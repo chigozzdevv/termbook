@@ -38,10 +38,10 @@ describe("RPC request pacing", () => {
     await ordinary.request({ method: "eth_chainId" });
     const scan = ordinary.request({ method: "eth_blockNumber" });
     const leases = Array.from({ length: 26 }, () => critical.request({ method: "eth_chainId" }));
-    await vi.advanceTimersByTimeAsync(25_000);
+    await vi.advanceTimersByTimeAsync(5_000);
     await scan;
-    expect(request.mock.calls[25]?.[0]).toMatchObject({ method: "eth_blockNumber" });
-    await vi.advanceTimersByTimeAsync(2_000);
+    expect(request.mock.calls[5]?.[0]).toMatchObject({ method: "eth_blockNumber" });
+    await vi.advanceTimersByTimeAsync(22_000);
     await Promise.all(leases);
   });
   it("does not block a different chain endpoint", async () => {
@@ -83,6 +83,16 @@ describe("RPC request pacing", () => {
     const result = client.request({ method: "eth_call", params: [] }).catch((value: unknown) => value);
     await vi.advanceTimersByTimeAsync(125);
     expect(await result).toBe(other);
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+  it("paces HTTP 429 retries through the same budget", async () => {
+    request.mockRejectedValueOnce(Object.assign(new Error("Too many requests"), { status: 429 }));
+    const client = pacedHttp("https://rpc.test/http-limit")({} as never);
+    const result = client.request({ method: "eth_call", params: [] });
+    await vi.advanceTimersByTimeAsync(999);
+    expect(request).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await result).toBe("0x1");
     expect(request).toHaveBeenCalledTimes(2);
   });
 });

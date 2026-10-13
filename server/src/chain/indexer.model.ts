@@ -5,6 +5,7 @@ const cursorSchema = new mongoose.Schema({
   nextBlock: { type: String, required: true },
   lastBlockHash: String,
   indexedAt: Date,
+  eventRevision: String,
   lease: String,
   leaseExpiresAt: Date,
   integrityFailure: String,

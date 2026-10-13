@@ -30,6 +30,8 @@ import { priceReferenceConfig, runPriceReferenceWorker } from "./chain/price-ref
 import { pythOracleConfig } from "./chain/pyth.client.js";
 import { runPythOracleWorker } from "./chain/pyth.worker.js";
 import { startIndexAndMonitor } from "./chain/services.js";
+import { runExplorerWorker } from "./explorer/explorer.worker.js";
+import { closeRpcBudget } from "./chain/rpc.budget.js";
 
 async function main(): Promise<void> {
   if (process.argv.includes("--indexer-monitor")) { await startIndexAndMonitor(); return; }
@@ -62,6 +64,7 @@ async function main(): Promise<void> {
       runRecoveryRelayWorker(),
       runRecoveryRefundWorker(),
       runOracleWorker(),
+      runExplorerWorker(),
     ]);
     const counts = results.map((result, index) => {
       if (result.status === "fulfilled") return result.value;
@@ -139,6 +142,7 @@ async function main(): Promise<void> {
     await Promise.all([active, indexerActive, riskActive, keeperActive, actionActive, solanaActive, upgradeActive, priceActive]);
     await stopWorkers();
     await closeRedis();
+    await closeRpcBudget();
     await mongoose.disconnect();
     process.exit(0);
   };

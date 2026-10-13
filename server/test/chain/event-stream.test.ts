@@ -3,7 +3,7 @@ import { streamEvents } from "../../src/chain/monad.client.js";
 
 const chain = vi.hoisted(() => ({ getBlock: vi.fn(), getLogs: vi.fn() }));
 vi.mock("viem", async (original) => ({ ...await original<typeof import("viem")>(),
-  createPublicClient: () => chain }));
+  createPublicClient: () => ({ ...chain, extend: () => chain }) }));
 afterEach(() => vi.resetAllMocks());
 
 async function collect(from: bigint, step: bigint) {

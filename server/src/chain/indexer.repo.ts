@@ -25,9 +25,9 @@ export const indexerRepo = {
   async record(id: string, event: Record<string, unknown>): Promise<void> {
     await CoreEventModel.updateOne({ _id: id }, { $setOnInsert: event }, { upsert: true });
   },
-  async advance(key: string, lease: string, nextBlock: bigint, lastBlockHash: string): Promise<void> {
+  async advance(key: string, lease: string, nextBlock: bigint, lastBlockHash: string, eventRevision?: string): Promise<void> {
     const result = await IndexCursorModel.updateOne({ _id: key, lease, leaseExpiresAt: { $gt: new Date() } },
-      { $set: { nextBlock: nextBlock.toString(), lastBlockHash, indexedAt: new Date() } });
+      { $set: { nextBlock: nextBlock.toString(), lastBlockHash, indexedAt: new Date(), ...(eventRevision ? { eventRevision } : {}) } });
     if (result.modifiedCount !== 1) throw new Error("indexer-lease-lost");
   },
   async integrityFailure(key: string, lease: string): Promise<void> {

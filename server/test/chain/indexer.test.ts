@@ -85,7 +85,7 @@ describe("durable finalized Core index", () => {
   it("checkpoints only after canonical events, credit state, and durable refresh jobs", async () => {
     expect(await runIndexerWorker(1n)).toBe(1);
     expect(calls).toEqual(["record", "refresh", "queue", "advance"]);
-    expect(indexerRepo.advance).toHaveBeenCalledWith(expect.any(String), "lease", 3n, word("b"));
+    expect(indexerRepo.advance).toHaveBeenCalledWith(expect.any(String), "lease", 3n, word("b"), `${word("b")}:1`);
     expect(creditService.refresh).toHaveBeenCalledWith(creditId);
   });
 

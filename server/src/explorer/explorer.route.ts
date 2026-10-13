@@ -17,8 +17,8 @@ export function explorerRoute(app: FastifyInstance): void {
       return reply.status(503).send({ error: "explorer-unavailable" });
     });
     routes.get("/explorer/orders", async (req) => {
-      const query = z.object({ cursor: bytes32Schema.optional() }).parse(req.query);
-      return explorerService.orders(query.cursor?.toLowerCase());
+      const query = z.object({ cursor: bytes32Schema.optional(), snapshot: z.uuid().optional() }).parse(req.query);
+      return explorerService.orders(query.cursor?.toLowerCase(), query.snapshot);
     });
     routes.get<{ Params: { id: string } }>("/explorer/orders/:id", async (req, reply) => {
       const row = await explorerService.order(bytes32Schema.parse(req.params.id).toLowerCase());

@@ -5,6 +5,8 @@ import { assertEnvioConfig } from "./envio.client.js";
 import { indexerStart, runIndexerWorker } from "./indexer.worker.js";
 import { runUpgradeMonitorWorker, upgradeMonitorConfig } from "../integration/upgrade-monitor.worker.js";
 import { logger } from "../logging/logger.js";
+import { runExplorerWorker } from "../explorer/explorer.worker.js";
+import { closeRpcBudget } from "./rpc.budget.js";
 
 export async function startIndexAndMonitor(): Promise<void> {
   assertEnvioConfig(); indexerStart(); upgradeMonitorConfig();
@@ -28,10 +30,11 @@ export async function startIndexAndMonitor(): Promise<void> {
   const stop = () => {
     stopping = true;
     for (const timer of timers) clearTimeout(timer);
-    void Promise.allSettled([...active]).then(async () => { await closeRedis(); await mongoose.disconnect(); });
+    void Promise.allSettled([...active]).then(async () => { await closeRedis(); await closeRpcBudget(); await mongoose.disconnect(); });
   };
   process.once("SIGINT", stop); process.once("SIGTERM", stop);
   schedule(runIndexerWorker, "indexer");
   schedule(runUpgradeMonitorWorker, "upgrade-monitor");
+  schedule(runExplorerWorker, "explorer");
   logger.info("indexer-and-upgrade-monitor-started");
 }

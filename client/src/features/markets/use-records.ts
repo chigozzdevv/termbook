@@ -11,23 +11,26 @@ export function useRecords() {
   const [totalOrders, setTotalOrders] = useState<number>();
   const [loading, setLoading] = useState({ orders: true, houses: true });
   const [error, setError] = useState({ orders: "", houses: "" });
+  const [updatedAt, setUpdatedAt] = useState<{ orders?: string; houses?: string }>({});
   useEffect(() => {
     const abort = new AbortController();
     let active = true;
     let timer: ReturnType<typeof setTimeout>;
     async function refresh() {
       await Promise.all([
-        readOrders(abort.signal).then((data) => { if (active) { setOrders(data.records); setTotalOrders(data.total); setError((prior) => ({ ...prior, orders: "" })); } })
+        readOrders(abort.signal).then((data) => { if (active) { setOrders(data.records); setTotalOrders(data.total);
+          setUpdatedAt((prior) => ({ ...prior, orders: data.snapshot?.updatedAt })); setError((prior) => ({ ...prior, orders: "" })); } })
           .catch(() => { if (active) setError((prior) => ({ ...prior, orders: "Orders could not be refreshed." })); })
           .finally(() => { if (active) setLoading((prior) => ({ ...prior, orders: false })); }),
-        readHouses(abort.signal).then((data) => { if (active) { setHouses(data); setError((prior) => ({ ...prior, houses: "" })); } })
+        readHouses(abort.signal).then((data) => { if (active) { setHouses(data);
+          setUpdatedAt((prior) => ({ ...prior, houses: data[0]?.snapshot?.updatedAt })); setError((prior) => ({ ...prior, houses: "" })); } })
           .catch(() => { if (active) setError((prior) => ({ ...prior, houses: "House balances could not be refreshed." })); })
           .finally(() => { if (active) setLoading((prior) => ({ ...prior, houses: false })); }),
       ]);
-      if (active) timer = setTimeout(refresh, 30_000);
+      if (active) timer = setTimeout(refresh, 10_000);
     }
     void refresh();
     return () => { active = false; abort.abort(); clearTimeout(timer); };
   }, []);
-  return { orders, houses, totalOrders, loading, error };
+  return { orders, houses, totalOrders, loading, error, updatedAt };
 }

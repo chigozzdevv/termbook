@@ -9,6 +9,13 @@ beforeEach(() => vi.stubGlobal("fetch", fetcher));
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); fetcher.mockReset(); });
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 describe("Live explorer loading", () => {
+  const snapshot = { generation: "00000000-0000-4000-8000-000000000001", block: "10", updatedAt: "2026-10-13T12:00:00Z" };
+  const order = { id: `0x${"1".repeat(64)}`, intentId: `0x${"1".repeat(64)}`, kind: "request", creditId: null,
+    borrower: `0x${"1".repeat(40)}`, house: null, settlementAsset: `0x${"2".repeat(40)}`, settlementSymbol: "USDC",
+    settlementDecimals: 6, limit: "1", debt: null, aprBps: null, maturity: null, facility: null, status: "open",
+    collateral: { symbol: "MON", amount: "1", decimals: 18, asset: `0x${"0".repeat(40)}`,
+      chain: { label: "Monad testnet", namespace: "eip155", chainId: 10143 } },
+    duration: 3600, createdAt: "2026-10-13T12:00:00Z", expiresAt: 1791900000, events: [] };
   it("returns empty real data without substituting client records", async () => {
     fetcher.mockResolvedValue(response({ records: [], total: 0, next: null, block: "10" }));
     expect(await readOrders()).toEqual({ records: [], total: 0 });
@@ -28,6 +35,18 @@ describe("Live explorer loading", () => {
     vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-13T12:00:00Z"));
     expect(relativeTime("2026-10-13T11:58:00Z")).toBe("2 min ago");
     expect(relativeTime("2026-10-13T12:00:03Z")).toBe("0 sec ago");
+  });
+  it("pins all pages to one database snapshot", async () => {
+    fetcher.mockResolvedValueOnce(response({ records: [order], total: 2, next: order.id, block: "10", snapshot }))
+      .mockResolvedValueOnce(response({ records: [{ ...order, id: `0x${"2".repeat(64)}` }], total: 2, next: null, block: "10", snapshot }));
+    expect((await readOrders()).records).toHaveLength(2);
+    expect(fetcher.mock.calls[1][0]).toContain(`snapshot=${snapshot.generation}`);
+  });
+  it("rejects mixed generations rather than showing a partially refreshed table", async () => {
+    fetcher.mockResolvedValueOnce(response({ records: [order], total: 2, next: order.id, block: "10", snapshot }))
+      .mockResolvedValueOnce(response({ records: [], total: 2, next: null, block: "11",
+        snapshot: { ...snapshot, generation: "00000000-0000-4000-8000-000000000002" } }));
+    await expect(readOrders()).rejects.toThrow("Explorer snapshot changed");
   });
 });
 

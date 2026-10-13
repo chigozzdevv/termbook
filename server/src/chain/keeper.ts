@@ -1,8 +1,10 @@
 import { assertKeeperFunding, assertSignedKeeperFunding } from "./keeper-funding.js";
 import { createHash } from "node:crypto";
-import { createWalletClient, http, keccak256, TransactionReceiptNotFoundError,
+import { createWalletClient, keccak256, TransactionReceiptNotFoundError,
   type Address, type Hex, type LocalAccount, type PublicClient } from "viem";
 import { keeperRepo, type PendingTransaction } from "./keeper.repo.js";
+import { pacedHttp } from "./rpc.transport.js";
+import { env } from "../config/env.js";
 
 export type KeeperResult = "success" | "reverted" | "pending" | "busy";
 
@@ -27,7 +29,7 @@ export async function keeperTransaction(input: {
     let pending = claim.pending;
     if (!pending) {
       const nonce = await client.getTransactionCount({ address: account.address, blockTag: "pending" });
-      const wallet = createWalletClient({ account, transport: http(input.rpcUrl) });
+      const wallet = createWalletClient({ account, transport: pacedHttp(input.rpcUrl, env.rpcRequestsPerSecond, 2) });
       const request = await wallet.prepareTransactionRequest({ account, chain: null,
         chainId, to: input.to, data: input.data, nonce, value: input.value ?? 0n });
       await assertKeeperFunding(client, account.address, request);

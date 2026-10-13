@@ -6,6 +6,7 @@ export const env = {
   mongoUrl: process.env["MONGO_URL"] ?? "mongodb://127.0.0.1:27017/termbook",
   redisUrl: process.env["REDIS_URL"] ?? "",
   rpcUrl: process.env["RPC_URL"] ?? "http://127.0.0.1:8545",
+  rpcRequestsPerSecond: Number(process.env["RPC_REQUESTS_PER_SECOND"] ?? 2),
   envioApiToken: process.env["ENVIO_API_TOKEN"] ?? "",
   envioUrl: process.env["ENVIO_HYPERSYNC_URL"] ?? "",
   sourceRpcUrl: process.env["SOURCE_RPC_URL"] ?? "",
@@ -37,6 +38,7 @@ export const env = {
 };
 
 export function assertRuntimeConfig(): void {
+  if (!Number.isSafeInteger(env.rpcRequestsPerSecond) || env.rpcRequestsPerSecond < 1 || env.rpcRequestsPerSecond > 1000) throw new Error("rpc-rate-invalid");
   if (env.localAppOrigins.length && (env.monadChainId !== 10143 || process.env["NODE_ENV"] === "production"
     || env.adminWallets.length === 0 || env.localAppOrigins.some((origin) => {
       try {

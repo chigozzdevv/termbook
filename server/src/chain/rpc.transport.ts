@@ -1,4 +1,5 @@
 import { http, type Transport } from "viem";
+import { reserveRpcBudget } from "./rpc.budget.js";
 
 type Pending = { queuedAt: number; priority: number; order: number; run(): void; reject(error: Error): void };
 type Schedule = { next: number; counter: number; queue: Pending[]; timer?: ReturnType<typeof setTimeout> };
@@ -19,7 +20,7 @@ export function pacedHttp(url: string, requestsPerSecond = 8, priority = 0, http
       item.reject(new Error("rpc-queue-full")); return false;
     });
     state.queue.sort((a, b) => {
-      const rank = (item: Pending) => now - item.queuedAt >= 25_000 ? 3 : item.priority;
+      const rank = (item: Pending) => now - item.queuedAt >= 5_000 ? 3 : item.priority;
       return rank(b) - rank(a) || a.queuedAt - b.queuedAt || a.order - b.order;
     });
     const next = state.queue.shift();
@@ -34,7 +35,7 @@ export function pacedHttp(url: string, requestsPerSecond = 8, priority = 0, http
     else state.timer = setTimeout(dispatch, state.next - Date.now());
   };
   return (options) => {
-    const transport = http(url, httpOptions)(options);
+    const transport = http(url, { ...httpOptions, retryCount: 0 })(options);
     const request: typeof transport.request = async (parameters, requestOptions) => {
       for (let attempt = 0; ; attempt++) {
         await new Promise<void>((resolve, reject) => {
@@ -42,12 +43,14 @@ export function pacedHttp(url: string, requestsPerSecond = 8, priority = 0, http
           state.queue.push({ queuedAt: Date.now(), priority, order: state.counter++, reject, run: resolve });
           schedule();
         });
+        await reserveRpcBudget(url, parameters.method, parameters.params);
         try { return await transport.request(parameters, requestOptions); }
         catch (error) {
-          const rate = error as { code?: number; details?: string; message?: string };
+          const rate = error as { code?: number; status?: number; details?: string; message?: string };
           const read = /^(eth_call|eth_chainId|eth_blockNumber|eth_get\w+|net_version)$/.test(parameters.method);
-          if (!read || attempt >= 3 || ![-32605, -32007].includes(rate?.code ?? 0)
-            || !/rate limit|request.*limit/i.test(rate.details ?? rate.message ?? "")) throw error;
+          const retry = rate?.status === 429 || (rate?.status ?? 0) >= 500
+            || [-32605, -32007].includes(rate?.code ?? 0) && /rate limit|request.*limit/i.test(rate.details ?? rate.message ?? "");
+          if (!read || attempt >= 3 || !retry) throw error;
           state.next = Math.max(state.next, Date.now() + 1000 * 2 ** attempt);
           clearTimeout(state.timer); state.timer = undefined; schedule();
         }

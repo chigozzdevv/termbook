@@ -17,6 +17,7 @@ import {
   addWallet,
   WalletNetworkError,
   walletErrorMessage,
+  walletErrorCode,
   type BrowserWallet,
   type Connection,
   type Provider,
@@ -31,6 +32,8 @@ function useWalletSession() {
   const [phase, setPhase] = useState<WalletOperation>();
   const busy = phase !== undefined;
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [needsAdd, setNeedsAdd] = useState(false);
   const mounted = useRef(false);
   const pending = useRef(false);
   const revision = useRef(0);
@@ -85,6 +88,8 @@ function useWalletSession() {
       let stage = operation;
       setPhase(stage);
       setError("");
+      setNotice("");
+      setNeedsAdd(false);
       setConnection(undefined);
       setProvider(target);
       const onSwitch = () => {
@@ -98,9 +103,7 @@ function useWalletSession() {
           ? await connectWallet(wallet, undefined, onSwitch)
           : operation === "adding"
             ? await addWallet(target, undefined, onSwitch)
-            : operation === "switching"
-              ? await switchWallet(target)
-              : await readConnection(target);
+            : await switchWallet(target);
         if (!mounted.current || current !== revision.current) return false;
         setConnection(next);
         if (next && next.chain !== 10143)
@@ -109,9 +112,17 @@ function useWalletSession() {
         return next?.chain === 10143;
       } catch (error) {
         if (mounted.current && current === revision.current) {
-          if (error instanceof WalletNetworkError) setConnection(error.connection);
-          else if (operation === "connecting") setProvider(undefined);
-          setError(walletErrorMessage(error, stage));
+          if (error instanceof WalletNetworkError) {
+            setConnection(error.connection);
+            setNeedsAdd(
+              stage === "adding" ||
+                ![4001, -32002, 4100, 4900, 4901].includes(walletErrorCode(error) ?? 0),
+            );
+            setNotice(walletErrorMessage(error, stage));
+          } else {
+            if (operation === "connecting") setProvider(undefined);
+            setError(walletErrorMessage(error, stage));
+          }
         }
         return false;
       } finally {
@@ -134,16 +145,14 @@ function useWalletSession() {
     () => (provider ? perform(provider, "adding") : Promise.resolve(false)),
     [provider, perform],
   );
-  const checkNetwork = useCallback(
-    () => (provider ? perform(provider, "checking") : Promise.resolve(false)),
-    [provider, perform],
-  );
 
   const disconnect = useCallback(() => {
     invalidate();
     setProvider(undefined);
     setConnection(undefined);
     setError("");
+    setNotice("");
+    setNeedsAdd(false);
   }, [invalidate]);
 
   useEffect(() => {
@@ -158,6 +167,8 @@ function useWalletSession() {
           if (active && current === revision.current) {
             setConnection(next);
             setError("");
+            setNotice("");
+            setNeedsAdd(false);
           }
         })
         .catch(() => {
@@ -182,10 +193,11 @@ function useWalletSession() {
     busy,
     phase,
     error,
+    notice,
+    needsAdd,
     connect,
     switchNetwork,
     addNetwork,
-    checkNetwork,
     disconnect,
   };
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, Wallet, X } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { parseUnits } from "viem";
 import deployment from "../../../../deployments/testnet.json";
@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Picker } from "@/features/wallet/picker";
+import { Account } from "@/features/wallet/account";
 import { short } from "@/lib/format";
 import { schema as amountSchema } from "@/features/supply/schema";
 import { useWallet } from "@/features/wallet/use-wallet";
@@ -88,34 +89,11 @@ export function Create() {
               aria-label="Connected manager wallet"
               className="flex min-w-0 items-center gap-2 max-[430px]:ml-[52px]"
             >
-              <span
-                title={wallet.connection.address}
-                className="inline-flex items-center gap-1 font-mono text-xs text-muted"
-              >
-                <Wallet aria-hidden="true" size={14} />
-                {short(wallet.connection.address)}
-              </span>
-              <Button
-                variant="secondary"
-                className="min-h-9 px-2 py-1 text-xs"
-                onClick={() => setWalletOpen(true)}
+              <Account
+                address={wallet.connection.address}
                 disabled={wallet.busy}
-                aria-label="Change manager wallet"
-              >
-                Change
-              </Button>
-              <button
-                type="button"
-                onClick={() => {
-                  wallet.disconnect();
-                  setWalletOpen(true);
-                }}
-                aria-label="Disconnect manager wallet"
-                title="Disconnect wallet"
-                className="touch-target grid size-9 shrink-0 place-items-center rounded-lg text-muted hover:text-foreground"
-              >
-                <X aria-hidden="true" size={16} />
-              </button>
+                onDisconnect={wallet.disconnect}
+              />
             </div>
           )}
         </div>
@@ -208,12 +186,17 @@ export function Create() {
                   ? "Switching…"
                   : "Connecting…"
               : wallet.connection
-                ? "Switch network"
+                ? wallet.needsAdd
+                  ? "Add network"
+                  : "Switch network"
                 : "Connect wallet"}
           </Button>
-          {wallet.error && (
-            <p role="alert" className="mt-4 text-xs text-danger">
-              {wallet.error}
+          {(wallet.error || wallet.notice) && (
+            <p
+              role={wallet.error ? "alert" : "status"}
+              className={`mt-4 text-xs ${wallet.error ? "text-danger" : "text-muted"}`}
+            >
+              {wallet.error || wallet.notice}
             </p>
           )}
         </section>

@@ -241,7 +241,7 @@ describe("Manager wallet connection", () => {
     expect(error).toMatchObject({ connection: { address: first, chain: 1 } });
     expect(methods).not.toContain("wallet_addEthereumChain");
     expect(walletErrorMessage(error, "switching")).toContain(
-      code === -32002 ? "pending" : "cannot switch automatically",
+      code === -32002 ? "pending" : "Click Add network",
     );
   });
 
@@ -301,9 +301,9 @@ describe("Wallet failure messages", () => {
     },
   );
 
-  it("offers manual switching and checking for an unclassified failure", () => {
+  it("offers direct network addition for an unclassified switching failure", () => {
     expect(walletErrorMessage(new Error("private debug data"), "switching")).toContain(
-      "check the network",
+      "Click Add network",
     );
     expect(walletErrorMessage(new Error("private debug data"), "switching")).not.toContain(
       "private debug data",

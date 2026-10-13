@@ -8,6 +8,7 @@ import { Logo } from "@/components/brand/logo";
 import { Button } from "@/components/ui/button";
 import { Network } from "@/components/layout/network";
 import { Picker } from "@/features/wallet/picker";
+import { Account as WalletAccount } from "@/features/wallet/account";
 import { useMarket } from "./use-market";
 import { useWallet } from "./wallet";
 import { useCredit } from "./use-credit";
@@ -15,7 +16,7 @@ import { Chart } from "./chart";
 import { Book } from "./book";
 import { Order } from "./order";
 import { Account } from "./account";
-import { explorer, number, short } from "./data";
+import { explorer, number } from "./data";
 
 export function KuruPage() {
   const data = useMarket();
@@ -37,7 +38,7 @@ export function KuruPage() {
       <div className="kuru-brand"><Logo mobileMark /><div className="kuru-identity"><Image src="/apps/kuru.svg" alt="" width={20} height={36} className="h-auto w-4" /><span>Kuru</span></div></div>
       <Network />
       <div className="kuru-wallet">
-        {wallet.connection ? <><Button variant="secondary" aria-label={`Open account ${wallet.connection.address}`} title={wallet.connection.address} onClick={() => wallet.client ? void open({ tab: "account", creditId: credit.account?.id }) : wallet.refresh()} disabled={wallet.busy}><Wallet size={14} /><span className="kuru-wallet-address">{short(wallet.connection.address)}</span></Button><button type="button" className="kuru-disconnect" aria-label="Disconnect wallet" onClick={wallet.disconnect}><X size={14} /></button></>
+        {wallet.connection ? <WalletAccount address={wallet.connection.address} addressClassName="kuru-wallet-address" disabled={wallet.busy} onDisconnect={wallet.disconnect} onAccount={wallet.client ? () => void open({ tab: "account", creditId: credit.account?.id }) : undefined} />
           : <Button aria-label={wallet.busy ? "Connecting wallet" : "Connect wallet"} onClick={() => setWalletOpen(true)} disabled={wallet.busy}><Wallet size={14} />{wallet.busy ? "Connecting…" : <>Connect<span className="kuru-wallet-word">wallet</span></>}</Button>}
       </div>
     </header>

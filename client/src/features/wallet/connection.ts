@@ -60,7 +60,7 @@ export function walletErrorCode(error: unknown): number | undefined {
   return code;
 }
 
-export type WalletOperation = "connecting" | "adding" | "switching" | "checking";
+export type WalletOperation = "connecting" | "adding" | "switching";
 
 export function walletErrorMessage(error: unknown, operation: WalletOperation): string {
   const switching = operation === "switching";
@@ -70,16 +70,16 @@ export function walletErrorMessage(error: unknown, operation: WalletOperation): 
       return adding
         ? "Network addition declined. Click Add network to try again."
         : switching
-          ? "Network switch declined. Retry or select Monad testnet in your wallet."
+          ? "Network switch declined. Try again."
           : "Wallet connection declined. Choose your wallet to try again.";
     case -32002:
-      return "A wallet request is already pending. Open your wallet and complete it, then check the network.";
+      return "A wallet request is already pending. Complete it in your wallet, then try again.";
     case 4200:
     case -32601:
       return adding
-        ? "Your wallet cannot add this network automatically. Add Monad testnet in your wallet, then check the network."
+        ? "Your wallet cannot add this network automatically. Add Monad testnet in your wallet, then retry."
         : switching
-          ? "Your wallet cannot switch automatically. Select Monad testnet in your wallet, then check the network."
+          ? "Click Add network to connect to Monad testnet."
           : "Your wallet does not support this request. Choose another wallet.";
     case 4902:
       return "Monad testnet could not be added. Add it in your wallet or choose another wallet.";
@@ -92,10 +92,8 @@ export function walletErrorMessage(error: unknown, operation: WalletOperation): 
       return adding
         ? "Monad testnet could not be added. Open your wallet and approve the network request, or add it manually."
         : switching
-          ? "Network switch did not complete. Select Monad testnet in your wallet, then check the network, or choose another wallet."
-          : operation === "checking"
-            ? "Wallet state could not be read. Open your wallet and try again."
-            : "Wallet connection did not complete. Open your wallet and approve account access, then retry.";
+          ? "Click Add network to connect to Monad testnet."
+          : "Wallet connection did not complete. Open your wallet and approve account access, then retry.";
   }
 }
 

@@ -1,4 +1,3 @@
-import { Plus } from "lucide-react";
 import { Identifier } from "@/components/table/identifier";
 import { Sort, type SortState } from "@/components/table/sort";
 import { Status } from "@/components/table/status";
@@ -10,11 +9,10 @@ interface Props {
   houses: House[];
   sort: SortState;
   onSort: (key: string) => void;
-  onHouse: (address: string) => void;
   onSupply: (house: House) => void;
 }
 
-export function Table({ houses, sort, onSort, onHouse, onSupply }: Props) {
+export function Table({ houses, sort, onSort, onSupply }: Props) {
   return (
     <table className="data-table" aria-label="Houses">
       <thead>
@@ -39,7 +37,7 @@ export function Table({ houses, sort, onSort, onHouse, onSupply }: Props) {
                 value={house.house}
                 label="house"
                 square
-                onClick={() => onHouse(house.house)}
+                href={`/houses/${house.house}`}
               />
             </td>
             <td>
@@ -68,9 +66,8 @@ export function Table({ houses, sort, onSort, onHouse, onSupply }: Props) {
                 onClick={() => onSupply(house)}
                 aria-label={`Supply to house ${house.house}`}
                 disabled={!canSupply(house)}
-                className="touch-target inline-flex h-6 items-center gap-[5px] rounded-md border border-[#46404f] bg-[#231f2c] px-2 py-[2px] text-xs leading-[18px] whitespace-nowrap text-[#d8ceee] disabled:opacity-35"
+                className="touch-target inline-flex min-h-7 items-center justify-center rounded border border-accent bg-accent px-[10px] py-1 text-xs leading-[18px] whitespace-nowrap text-white hover:bg-[#6666ff] disabled:opacity-35"
               >
-                <Plus aria-hidden="true" size={13} />
                 Supply
               </button>
             </td>

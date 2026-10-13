@@ -54,7 +54,7 @@ export function Explorer({ view = "orders" }: { view?: View }) {
 
   return (
     <div>
-      <div id="records" role="tabpanel" aria-labelledby={`${view}-tab`}>
+      <div id="records" role="region" aria-labelledby={`${view}-tab`}>
         <Toolbar
           label={view === "houses" ? "Houses" : "borrowing orders"}
           query={query}
@@ -81,7 +81,6 @@ export function Explorer({ view = "orders" }: { view?: View }) {
               houses={filteredHouses.slice(start, start + pageSize)}
               sort={sort}
               onSort={onSort}
-              onHouse={select}
               onSupply={supply}
             />
           ) : (

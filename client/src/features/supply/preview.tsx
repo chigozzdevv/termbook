@@ -1,12 +1,16 @@
-import { money, number } from "@/lib/format";
+import { formatUnits, parseUnits } from "viem";
 import { sharePrice } from "@/features/houses/state";
 import type { House } from "@/features/houses/types";
-import type { SupplyValues } from "./schema";
+import { schema, type SupplyValues } from "./schema";
 
-export function quote(values: SupplyValues, house: House) {
-  const received = Math.floor(values.amount * (values.asset === "WETH" ? 2500 : 1) * 1e6);
-  if (!Number.isSafeInteger(received) || received <= 0) throw new Error("Enter a valid amount.");
-  const shares = (BigInt(received) * 10n ** 18n) / BigInt(house.sharePrice);
+export function quote(input: { asset: "USDC"; amount: string | number }, house: House) {
+  const values = schema.parse(input);
+  const received = parseUnits(values.amount, house.decimals);
+  if (house.decimals !== 6 || BigInt(house.sharePrice) <= 0n)
+    throw new Error("House quote unavailable.");
+  const shares =
+    house.totalShares === "0" ? received : (received * 10n ** 18n) / BigInt(house.sharePrice);
+  if (shares === 0n) throw new Error("Amount is too small for this House.");
   return { received: String(received), shares, minimum: (shares * 9950n) / 10000n };
 }
 
@@ -14,24 +18,16 @@ export function Preview({ values, house }: { values: SupplyValues; house: House 
   const result = quote(values, house);
   return (
     <dl className="supply-result">
-      <dt>You pay</dt>
+      <dt>You supply</dt>
       <dd>
-        {number(values.amount)} {values.asset}
+        {values.amount} {values.asset}
       </dd>
-      <dt>House receives</dt>
-      <dd>{money(result.received)} USDC</dd>
       <dt>Est. shares</dt>
-      <dd>{number(Number(result.shares) / 1e6)}</dd>
-      <dt>Minimum shares</dt>
-      <dd>{number(Number(result.minimum) / 1e6)}</dd>
+      <dd>{formatUnits(result.shares, house.decimals)}</dd>
+      <dt>Min. shares</dt>
+      <dd>{formatUnits(result.minimum, house.decimals)}</dd>
       <dt>Share price</dt>
       <dd>{sharePrice(house)} USDC</dd>
-      {values.asset === "WETH" && (
-        <>
-          <dt>Est. conversion rate</dt>
-          <dd>2,500 USDC / WETH</dd>
-        </>
-      )}
     </dl>
   );
 }

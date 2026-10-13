@@ -2,7 +2,7 @@ import type { ButtonHTMLAttributes } from "react";
 
 const variants = {
   primary: "border-accent bg-accent text-white hover:bg-[#6666ff]",
-  supply: "border-[#544773] bg-[#302640] text-[#e5dcff]",
+  supply: "border-accent bg-accent text-white hover:bg-[#6666ff]",
   secondary: "border-line bg-transparent text-[#b8bdc0] hover:border-[#687074]",
 };
 

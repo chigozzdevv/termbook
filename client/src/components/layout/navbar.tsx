@@ -38,7 +38,7 @@ export function Navbar() {
           <span className="max-[740px]:hidden">Apps</span>
         </Link>
         <Link
-          href="/?view=houses#market"
+          href="/houses"
           className="touch-target inline-flex min-h-9 items-center justify-center gap-2 rounded-none border-0 bg-accent px-[14px] text-[13px] font-medium whitespace-nowrap text-white hover:bg-[#6666ff] max-[430px]:min-h-11 max-[430px]:gap-[6px] max-[430px]:px-[10px] max-[430px]:text-xs"
         >
           Supply

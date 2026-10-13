@@ -207,6 +207,24 @@
   .supply-result dd {
     @apply m-0 text-left font-mono leading-[1.4] wrap-anywhere;
   }
+  .supply-amount {
+    @apply rounded-xl border border-line bg-background p-4 focus-within:border-[#7070ff];
+  }
+  .supply-summary {
+    @apply mt-5 grid grid-cols-[1fr_auto] gap-x-4 gap-y-3 text-xs;
+  }
+  .supply-summary dt {
+    @apply text-muted;
+  }
+  .supply-summary dd {
+    @apply m-0 text-right font-mono wrap-anywhere;
+  }
+  .supply-dialog .supply-result {
+    @apply rounded-lg border border-line bg-background p-4;
+  }
+  .supply-dialog .supply-result dd {
+    @apply text-right;
+  }
 }
 
 .network-switch {

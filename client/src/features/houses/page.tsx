@@ -12,7 +12,7 @@ export function Page({ house }: { house: House }) {
   return (
     <main className="gutter py-8">
       <Link
-        href="/?view=houses"
+        href="/houses"
         className="mb-5 inline-block text-muted underline underline-offset-4"
       >
         Back to Houses

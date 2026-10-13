@@ -62,12 +62,17 @@ describe("Market records", () => {
     expect(depositState({ ...base, unresolvedCreditImpairment: "1" })).toBe("Restricted");
   });
 
-  it("uses the approved WETH mock quote and minimum shares", () => {
-    expect(quote({ asset: "WETH", amount: 0.2 }, houses[0])).toEqual({
+  it("calculates USDC shares and minimum shares", () => {
+    expect(quote({ asset: "USDC", amount: "500" }, houses[0])).toEqual({
       received: "500000000",
       shares: 500000000n,
       minimum: 497500000n,
     });
+  });
+
+  it("preserves USDC base units and rejects excess precision", () => {
+    expect(quote({ asset: "USDC", amount: "0.000001" }, houses[0]).shares).toBe(1n);
+    expect(() => quote({ asset: "USDC", amount: "0.0000001" }, houses[0])).toThrow();
   });
 
   it.each([1e30, Number.POSITIVE_INFINITY, 0, 1e-20])(

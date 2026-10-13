@@ -51231,6 +51231,300 @@
           "codeHash": "0x43f602bff470058d3cdcf8d7c1cf74e7a57df373755b717e67fedee1e0b3e98f"
         }
       }
+    },
+    "house-funding": {
+      "core": "0x198995faab55a9d5d4dceab56abaaa273c26fad7",
+      "completedAt": "2026-10-13T19:43:09.054Z",
+      "sourceChain": "stellar-testnet",
+      "sourceWallet": "GA4JNI66AIMC367UI6GXTXRCEXLMZ2W2D6UHTMOBR3VZMLT4TVZ2BBZQ",
+      "sourceTransaction": "091d16d4e3823fd36ee50a2017dbc3d4f42299080813eb9d3f9ece9bb56cd5d1",
+      "destinationChain": 10143,
+      "recipient": "0x4DbAba93dfdEEAb43CE5Bdc3335aA6E2DDa44920",
+      "amountUSDC": "80000",
+      "feeUSDC": "0",
+      "mintTransaction": "0xa3978de4c0f434595dabb2fcacef33ef5f84b10a37a9a2e56ab5240ebdb27cbe"
+    },
+    "houses": {
+      "core": "0x198995faab55a9d5d4dceab56abaaa273c26fad7",
+      "identity": "891ad2409d93917bab37f8e0e242a456fbaa1fb6:0x198995faab55a9d5d4dceab56abaaa273c26fad7:false",
+      "addresses": {
+        "house-01:vault": "0xaee6a9191696ce583381c4efba25da6cf631476c",
+        "house-02:vault": "0x9a2efc65510e045ebf3a06fd06d8bf59fd738fc3",
+        "house-03:vault": "0xc53f2e1d259596b29d75baf4b2aaf4d104273f7e",
+        "house-04:vault": "0x974e9e88af7f6a038ea57bcfe317d7cf7cb4a461",
+        "house-05:vault": "0xb781a334f4769e66d25cdfef49bf50c580c1e999",
+        "house-06:vault": "0x6e6392e112b5f87bd21cc6f7bb7980efc16e878f",
+        "house-07:vault": "0x947477784e6c023a50f11f82743d1c1845e24331",
+        "house-08:vault": "0xb3b5c90bc2ef149b6a02dad9a441753537088302",
+        "house-09:vault": "0xae451cfc6d1a2d8ecc60379b01c87600b71f4724",
+        "house-10:vault": "0xa339c73e36c5a1e474b986815760afb91179d495"
+      },
+      "planHash": "0x1da6a8fc38046d2467992b2d0be91a42fe7973100105a864e29e780c85d8efe1",
+      "houses": [
+        {
+          "id": "house-01",
+          "manager": "0x2934e0DFc4deDee1F8e223674eFF089182EA2FAC",
+          "vault": "0xaee6a9191696ce583381c4efba25da6cf631476c",
+          "asset": "0x534b2f3A21130d7a60830c2Df862319e593943A3",
+          "initialLiquidity": "12000000000",
+          "initialLp": "0x4DbAba93dfdEEAb43CE5Bdc3335aA6E2DDa44920",
+          "policyVersion": 1,
+          "maxLimit": "500000000",
+          "aprBps": 600,
+          "minTermSeconds": 900,
+          "maxTermSeconds": 604800,
+          "riskBandsBps": [
+            12500,
+            12000,
+            11750,
+            11500,
+            11000
+          ],
+          "implementation": "0x502E2f47489f1880F6B0D8E5A458d17907903119",
+          "admin": "0x232F16D4623b59383Be9D96255b35Efc9f08EB0C"
+        },
+        {
+          "id": "house-02",
+          "manager": "0x6d7730C7Fc02Ba1728877874bd5d8eF425b45C97",
+          "vault": "0x9a2efc65510e045ebf3a06fd06d8bf59fd738fc3",
+          "asset": "0x534b2f3A21130d7a60830c2Df862319e593943A3",
+          "initialLiquidity": "12000000000",
+          "initialLp": "0x4DbAba93dfdEEAb43CE5Bdc3335aA6E2DDa44920",
+          "policyVersion": 1,
+          "maxLimit": "500000000",
+          "aprBps": 600,
+          "minTermSeconds": 900,
+          "maxTermSeconds": 604800,
+          "riskBandsBps": [
+            12500,
+            12000,
+            11750,
+            11500,
+            11000
+          ],
+          "implementation": "0x502E2f47489f1880F6B0D8E5A458d17907903119",
+          "admin": "0xDafBAe94d3A5a2878bB733ae108E244B5558722A"
+        },
+        {
+          "id": "house-03",
+          "manager": "0x166B1E30521845bDBC3D9C9cF92168CAC3f8deCb",
+          "vault": "0xc53f2e1d259596b29d75baf4b2aaf4d104273f7e",
+          "asset": "0x534b2f3A21130d7a60830c2Df862319e593943A3",
+          "initialLiquidity": "12000000000",
+          "initialLp": "0x4DbAba93dfdEEAb43CE5Bdc3335aA6E2DDa44920",
+          "policyVersion": 1,
+          "maxLimit": "500000000",
+          "aprBps": 600,
+          "minTermSeconds": 900,
+          "maxTermSeconds": 604800,
+          "riskBandsBps": [
+            12500,
+            12000,
+            11750,
+            11500,
+            11000
+          ],
+          "implementation": "0x502E2f47489f1880F6B0D8E5A458d17907903119",
+          "admin": "0x44761DbB5a2Dd169Bd982Fc3AD959954C0EF51dA"
+        },
+        {
+          "id": "house-04",
+          "manager": "0x17E09235Cd699f9786871AccE63075B86A78fF75",
+          "vault": "0x974e9e88af7f6a038ea57bcfe317d7cf7cb4a461",
+          "asset": "0x534b2f3A21130d7a60830c2Df862319e593943A3",
+          "initialLiquidity": "6000000000",
+          "initialLp": "0x4DbAba93dfdEEAb43CE5Bdc3335aA6E2DDa44920",
+          "policyVersion": 1,
+          "maxLimit": "200000000",
+          "aprBps": 400,
+          "minTermSeconds": 900,
+          "maxTermSeconds": 259200,
+          "riskBandsBps": [
+            12500,
+            12000,
+            11750,
+            11500,
+            11000
+          ],
+          "implementation": "0x502E2f47489f1880F6B0D8E5A458d17907903119",
+          "admin": "0x011b8b9A44d93A2183EFdFB4FFA6f1c214701578"
+        },
+        {
+          "id": "house-05",
+          "manager": "0xD53e094E1479DaC24C7f8cE99603CA765cbE39b6",
+          "vault": "0xb781a334f4769e66d25cdfef49bf50c580c1e999",
+          "asset": "0x534b2f3A21130d7a60830c2Df862319e593943A3",
+          "initialLiquidity": "6000000000",
+          "initialLp": "0x4DbAba93dfdEEAb43CE5Bdc3335aA6E2DDa44920",
+          "policyVersion": 1,
+          "maxLimit": "200000000",
+          "aprBps": 400,
+          "minTermSeconds": 900,
+          "maxTermSeconds": 259200,
+          "riskBandsBps": [
+            12500,
+            12000,
+            11750,
+            11500,
+            11000
+          ],
+          "implementation": "0x502E2f47489f1880F6B0D8E5A458d17907903119",
+          "admin": "0xd681D344EE2Be8f21A4f80D4990a938CE6B1ED9F"
+        },
+        {
+          "id": "house-06",
+          "manager": "0xc636734833E707b0d8Dc5647A1C6450601Da991f",
+          "vault": "0x6e6392e112b5f87bd21cc6f7bb7980efc16e878f",
+          "asset": "0x534b2f3A21130d7a60830c2Df862319e593943A3",
+          "initialLiquidity": "8000000000",
+          "initialLp": "0x4DbAba93dfdEEAb43CE5Bdc3335aA6E2DDa44920",
+          "policyVersion": 1,
+          "maxLimit": "1000000000",
+          "aprBps": 800,
+          "minTermSeconds": 900,
+          "maxTermSeconds": 1209600,
+          "riskBandsBps": [
+            14000,
+            13000,
+            12500,
+            12000,
+            11500
+          ],
+          "implementation": "0x502E2f47489f1880F6B0D8E5A458d17907903119",
+          "admin": "0xbd0e532C7b8eB149d3661c7b340af9AB2292eDA8"
+        },
+        {
+          "id": "house-07",
+          "manager": "0xac7CD6c496929af220ca575A321202B89ca38E33",
+          "vault": "0x947477784e6c023a50f11f82743d1c1845e24331",
+          "asset": "0x534b2f3A21130d7a60830c2Df862319e593943A3",
+          "initialLiquidity": "8000000000",
+          "initialLp": "0x4DbAba93dfdEEAb43CE5Bdc3335aA6E2DDa44920",
+          "policyVersion": 1,
+          "maxLimit": "1000000000",
+          "aprBps": 800,
+          "minTermSeconds": 900,
+          "maxTermSeconds": 1209600,
+          "riskBandsBps": [
+            14000,
+            13000,
+            12500,
+            12000,
+            11500
+          ],
+          "implementation": "0x502E2f47489f1880F6B0D8E5A458d17907903119",
+          "admin": "0xD10638b20E372B85c581B0b77cCD8E91fc7386E1"
+        },
+        {
+          "id": "house-08",
+          "manager": "0xb5DBDDC4f1118C3a1108660fB16ACb3E98983788",
+          "vault": "0xb3b5c90bc2ef149b6a02dad9a441753537088302",
+          "asset": "0x534b2f3A21130d7a60830c2Df862319e593943A3",
+          "initialLiquidity": "4500000000",
+          "initialLp": "0x4DbAba93dfdEEAb43CE5Bdc3335aA6E2DDa44920",
+          "policyVersion": 1,
+          "maxLimit": "250000000",
+          "aprBps": 500,
+          "minTermSeconds": 900,
+          "maxTermSeconds": 604800,
+          "riskBandsBps": [
+            15000,
+            14000,
+            13500,
+            12500,
+            12000
+          ],
+          "implementation": "0x502E2f47489f1880F6B0D8E5A458d17907903119",
+          "admin": "0x4e845CD9B80368B23a8bD0c59C32F2d2EBfd701B"
+        },
+        {
+          "id": "house-09",
+          "manager": "0xA3b21970238cF42540fa924327E8d1273e993838",
+          "vault": "0xae451cfc6d1a2d8ecc60379b01c87600b71f4724",
+          "asset": "0x534b2f3A21130d7a60830c2Df862319e593943A3",
+          "initialLiquidity": "4500000000",
+          "initialLp": "0x4DbAba93dfdEEAb43CE5Bdc3335aA6E2DDa44920",
+          "policyVersion": 1,
+          "maxLimit": "250000000",
+          "aprBps": 500,
+          "minTermSeconds": 900,
+          "maxTermSeconds": 604800,
+          "riskBandsBps": [
+            15000,
+            14000,
+            13500,
+            12500,
+            12000
+          ],
+          "implementation": "0x502E2f47489f1880F6B0D8E5A458d17907903119",
+          "admin": "0x27c529614c7b7DA22fA932100968975b4a95e5f3"
+        },
+        {
+          "id": "house-10",
+          "manager": "0x5a554dEA635B7E211cc5A89F078b6E6431415D0C",
+          "vault": "0xa339c73e36c5a1e474b986815760afb91179d495",
+          "asset": "0x534b2f3A21130d7a60830c2Df862319e593943A3",
+          "initialLiquidity": "2000000000",
+          "initialLp": "0x4DbAba93dfdEEAb43CE5Bdc3335aA6E2DDa44920",
+          "policyVersion": 1,
+          "maxLimit": "5000000",
+          "aprBps": 600,
+          "minTermSeconds": 900,
+          "maxTermSeconds": 900,
+          "riskBandsBps": [
+            12500,
+            12000,
+            11750,
+            11500,
+            11000
+          ],
+          "implementation": "0x502E2f47489f1880F6B0D8E5A458d17907903119",
+          "admin": "0xC241f8E8c2f67FBd33fB578Be61D21a4Aa541212"
+        }
+      ],
+      "completedAt": "2026-10-13T19:53:53.828Z",
+      "contractPins": {
+        "house-01:vault": {
+          "address": "0xaee6a9191696ce583381c4efba25da6cf631476c",
+          "codeHash": "0xe6642becb66ad49b8b83dadcd964d0b3039bf1fc181491e87b9511a9f43aac73"
+        },
+        "house-02:vault": {
+          "address": "0x9a2efc65510e045ebf3a06fd06d8bf59fd738fc3",
+          "codeHash": "0x3f1c11d30b25d2d7563da52ffacb6d2ffaa8a44f3c24941ef6d0b85785dd40ac"
+        },
+        "house-03:vault": {
+          "address": "0xc53f2e1d259596b29d75baf4b2aaf4d104273f7e",
+          "codeHash": "0x979915c68ec0c0bb4e70695602770fbdd5edca03fe67ab8b9f127735bdf81d56"
+        },
+        "house-04:vault": {
+          "address": "0x974e9e88af7f6a038ea57bcfe317d7cf7cb4a461",
+          "codeHash": "0x5041c63b1a94390b6b5a803fb1b71aa630d3c1cbec9757c17cd3947ba49d1ed9"
+        },
+        "house-05:vault": {
+          "address": "0xb781a334f4769e66d25cdfef49bf50c580c1e999",
+          "codeHash": "0xb818c0108a8154b2008659e807b5a86bd9715d282105bd5b16a45afe85e82f0d"
+        },
+        "house-06:vault": {
+          "address": "0x6e6392e112b5f87bd21cc6f7bb7980efc16e878f",
+          "codeHash": "0xa7399a5e3d540e67ee906fda1c4e52a27ca3aeab31cd2ea39e8649edd1e70b4e"
+        },
+        "house-07:vault": {
+          "address": "0x947477784e6c023a50f11f82743d1c1845e24331",
+          "codeHash": "0x607204f44ac22aa909857e7100351aa97a3e3c5a98752b3a00bad50a102cf64d"
+        },
+        "house-08:vault": {
+          "address": "0xb3b5c90bc2ef149b6a02dad9a441753537088302",
+          "codeHash": "0x30e772ebf3be988b737aeb75dcc2885ec871c51352c723843a32f8b4cc4f5285"
+        },
+        "house-09:vault": {
+          "address": "0xae451cfc6d1a2d8ecc60379b01c87600b71f4724",
+          "codeHash": "0x3e3a6a6f4d1d218e1f75f389f6a17138a16986bc0e112fb8b05815c719b281d3"
+        },
+        "house-10:vault": {
+          "address": "0xa339c73e36c5a1e474b986815760afb91179d495",
+          "codeHash": "0x616255c96d60bf448470133392639be88770a32bb39fb1d96f135a1c267f2244"
+        }
+      }
     }
   },
   "deploymentBlocks": {

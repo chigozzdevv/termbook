@@ -156,8 +156,11 @@ export async function testnetRuntime(name, simulate) {
   if (report.identity !== identity) throw new Error("Runtime journal belongs to another deployment");
   const persist = () => writeJsonAtomic(file, report);
   const contexts = new Map();
-  async function context(chainId) {
-    if (contexts.has(chainId)) return contexts.get(chainId);
+  async function context(chainId, signer = account) {
+    const sender = typeof signer === "string" ? signer : signer.address;
+    if (!viem.isAddress(sender) || (!simulate && typeof signer?.signTransaction !== "function")) throw new Error("Invalid runtime signer");
+    const contextKey = `${chainId}:${sender.toLowerCase()}`;
+    if (contexts.has(contextKey)) return contexts.get(contextKey);
     if (![10143, 11155111, 84532].includes(chainId)) throw new Error("Unsupported testnet");
     const localOverride = simulate ? process.env[chainId === 10143 ? "TERMBOOK_SIMULATION_MONAD_RPC" : "TERMBOOK_SIMULATION_SOURCE_RPC"] : undefined;
     if (localOverride) {
@@ -170,16 +173,19 @@ export async function testnetRuntime(name, simulate) {
     const transport = simulate ? http(url, { timeout: 30_000 }) : pacedHttp(url, 5, 0, { timeout: 30_000 });
     const client = createPublicClient({ transport });
     if (await client.getChainId() !== chainId) throw new Error("Network mismatch");
-    const wallet = createWalletClient({ account, transport });
+    const wallet = createWalletClient({ account: signer, transport });
     if (simulate) {
-      await client.request({ method: "anvil_impersonateAccount", params: [deployment.deployer] });
-      await client.request({ method: "anvil_setBalance", params: [deployment.deployer, "0x204fce5e3e25026110000000"] });
+      await client.request({ method: "anvil_impersonateAccount", params: [sender] });
+      if (sender.toLowerCase() === deployment.deployer.toLowerCase()) {
+        await client.request({ method: "anvil_setBalance", params: [sender, "0x204fce5e3e25026110000000"] });
+      }
     }
     async function send(label, data, to, value = 0n, blockNumber) {
       const inputHash = keccak256(data);
       const balanceReserve = chainId === 84532 ? 100_000_000_000_000n : 10_000_000_000_000_000n;
       let entry = report.transactions.find((tx) => tx.chainId === chainId && tx.name === label);
       if (entry && (entry.inputHash !== inputHash || entry.to !== to || entry.value !== value.toString())) throw new Error(`Transaction changed: ${label}`);
+      if (entry && (entry.sender ?? deployment.deployer).toLowerCase() !== sender.toLowerCase()) throw new Error(`Transaction signer changed: ${label}`);
       if (entry?.status === "success") {
         const receipt = await canonicalReceipt(client, entry.hash);
         if (!receipt) throw new Error(`Receipt is not sealed: ${label}`);
@@ -193,15 +199,15 @@ export async function testnetRuntime(name, simulate) {
       if (entry?.status === "reverted") throw new Error(`Transaction reverted: ${label}`);
       if (simulate && entry && !entry.hash) throw new Error("Interrupted simulation requires journal reconciliation");
       if (!entry) {
-        const estimate = await client.estimateGas({ account: deployment.deployer, data, to, value, blockNumber });
+        const estimate = await client.estimateGas({ account: sender, data, to, value, blockNumber });
         const gas = estimate + estimate / 50n + 10_000n;
         if (chainId === 10143 && gas > 30_000_000n) throw new Error("Transaction exceeds Monad gas limit");
         let gasPrice = await client.getGasPrice();
         if (chainId === 10143 && gasPrice < 100_000_000_000n) gasPrice = 100_000_000_000n;
         if (chainId === 11155111) gasPrice += gasPrice / 4n;
-        if (await client.getBalance({ address: deployment.deployer }) < gas * gasPrice + value + balanceReserve) throw new Error("Insufficient testnet gas");
-        const nonce = await client.getTransactionCount({ address: deployment.deployer, blockTag: "pending" });
-        entry = { chainId, name: label, inputHash, to, value: value.toString(), nonce, gasLimit: gas.toString(), gasPrice: gasPrice.toString(), status: "prepared" };
+        if (await client.getBalance({ address: sender }) < gas * gasPrice + value + balanceReserve) throw new Error("Insufficient testnet gas");
+        const nonce = await client.getTransactionCount({ address: sender, blockTag: "pending" });
+        entry = { chainId, name: label, sender, inputHash, to, value: value.toString(), nonce, gasLimit: gas.toString(), gasPrice: gasPrice.toString(), status: "prepared" };
         if (!simulate) {
           entry.rawTransaction = await wallet.signTransaction({ chain: null, chainId, data, to, value, gas, gasPrice, nonce, type: "legacy" });
           entry.hash = keccak256(entry.rawTransaction);
@@ -223,14 +229,14 @@ export async function testnetRuntime(name, simulate) {
       };
       let mined = await receipts();
       if (!mined && !simulate && entry.status === "pending") {
-        if (await client.getTransactionCount({ address: deployment.deployer }) > entry.nonce) throw new Error("Nonce consumed; reconcile the journal");
+        if (await client.getTransactionCount({ address: sender }) > entry.nonce) throw new Error("Nonce consumed; reconcile the journal");
         const current = await client.getGasPrice();
         if (current > BigInt(entry.gasPrice)) {
           if ((entry.replacements?.length ?? 0) >= 3) throw new Error("Fee replacement limit reached");
           const minimum = BigInt(entry.gasPrice) * 5n / 4n + 1n;
           const price = current * 5n / 4n > minimum ? current * 5n / 4n : minimum;
           const gas = BigInt(entry.gasLimit);
-          if (await client.getBalance({ address: deployment.deployer }) < gas * price + value + balanceReserve) throw new Error("Insufficient replacement gas");
+          if (await client.getBalance({ address: sender }) < gas * price + value + balanceReserve) throw new Error("Insufficient replacement gas");
           const raw = await wallet.signTransaction({ chain: null, chainId, data, to, value, gas, gasPrice: price, nonce: entry.nonce, type: "legacy" });
           entry.replacements ??= [];
           entry.replacements.push({ hash: entry.hash, gasPrice: entry.gasPrice });
@@ -298,7 +304,7 @@ export async function testnetRuntime(name, simulate) {
     const logUrl = chainId === 10143 && process.env["TERMBOOK_CREDIT_RPC_URL"];
     const logClient = logUrl ? createPublicClient({ transport: http(logUrl, { timeout: 30_000 }) }) : client;
     const result = { client, logClient, read, call, deploy, govern, governData, send };
-    contexts.set(chainId, result);
+    contexts.set(contextKey, result);
     return result;
   }
   return { deployment, report, persist, context, account };

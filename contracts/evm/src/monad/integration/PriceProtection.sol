@@ -135,7 +135,15 @@ contract PriceProtection is ProxyInitializable {
         houseSlippage[creditId] = maxSlippage;
         bundleSealed[bundle] = true;
     }
-    function referenceVersion() external pure returns (uint256) { return 1; }
+    function referenceVersion() external pure returns (uint256) { return 2; }
+    function currentPriceReference(bytes32 bundle, bytes32 capability, bytes32 market)
+        external view returns (uint256 price, uint256 updatedAt, uint80 round, uint256 observedAt) {
+        bytes32 id = key(bundle, capability, market);
+        Rule memory value = rules[id];
+        _requireOracle(id, bundle, value);
+        (price, updatedAt,) = OracleRegistry(value.oracle).read(value.feedId);
+        return (price, updatedAt, 0, block.timestamp);
+    }
     function recordPrice(bytes32 bundle, bytes32 capability, bytes32 market) external {
         bytes32 id = key(bundle, capability, market);
         Rule memory value = rules[id];
@@ -182,25 +190,30 @@ contract PriceProtection is ProxyInitializable {
             || (oracleDependencyRegistries[id] != address(0)
                 && !IntegrationRegistry(oracleDependencyRegistries[id]).dependencyValid(bundle, value.oracle))
             || quote.slippageBps > value.maxSlippageBps || quote.slippageBps > houseSlippage[creditId]
-            || quote.authorizedAt > block.timestamp || block.timestamp - quote.authorizedAt > value.maxAuthorizationAge
+            || quote.authorizedAt > block.timestamp
+            || (quote.roundId != 0 && block.timestamp - quote.authorizedAt > value.maxAuthorizationAge)
             || quote.updatedAt > quote.authorizedAt || action.calls.length <= value.callIndex) revert Invalid();
         OracleRegistry registry = OracleRegistry(value.oracle);
+        (uint256 current,,) = registry.read(value.feedId);
         uint256 refPrice;
         uint256 updated;
         Reference memory recorded = references[id][quote.roundId];
-        if (recorded.recordedAt != 0 && recorded.recordedAt <= quote.authorizedAt
+        if (quote.roundId == 0) {
+            if (quote.referencePrice == 0 || quote.updatedAt == 0 || quote.authorizedAt == 0) revert Invalid();
+            refPrice = quote.referencePrice; updated = quote.updatedAt;
+        } else if (recorded.recordedAt != 0 && recorded.recordedAt <= quote.authorizedAt
             && block.timestamp - recorded.observedAt <= uint256(value.maxAuthorizationAge) * 2) {
             refPrice = recorded.value; updated = recorded.updatedAt;
         } else {
             (refPrice, updated,) = registry.readRound(value.feedId, quote.roundId);
         }
-        (uint256 current,,) = registry.read(value.feedId);
         if (refPrice != quote.referencePrice || updated != quote.updatedAt) revert Stale();
         _requireDeviation(refPrice, current, value.maxDeviationBps);
         ExecutionTypes.Call calldata call_ = action.calls[value.callIndex];
         if (call_.target != value.target || bytes4(call_.data) != value.selector
             || _word(call_.data, value.priceWord) != quote.bound) revert Invalid();
         AmountRule memory amount = amountRules[id];
+        uint16 currentSlippage = value.maxSlippageBps < houseSlippage[creditId] ? value.maxSlippageBps : houseSlippage[creditId];
         if (amount.active) {
             if (_decimals(amount.inputAsset) != amount.inputDecimals || _decimals(amount.outputAsset) != amount.outputDecimals) revert Invalid();
             uint256 specified = _word(call_.data, amount.amountWord);
@@ -210,10 +223,19 @@ contract PriceProtection is ProxyInitializable {
             if (quote.isMax != amount.maxInput || quote.bound != deriveAmountBound(refPrice,
                 specified, quote.slippageBps, amount.inputDecimals,
                 amount.outputDecimals, amount.inverse, amount.maxInput)) revert Invalid();
+            if (quote.roundId == 0) {
+                uint256 currentBound = deriveAmountBound(current, specified, currentSlippage, amount.inputDecimals,
+                    amount.outputDecimals, amount.inverse, amount.maxInput);
+                if (quote.isMax ? quote.bound > currentBound : quote.bound < currentBound) revert Stale();
+            }
         } else {
             uint256 approved = deriveBound(refPrice, quote.slippageBps, quote.isMax, value.priceDecimals);
             if (quote.bound == 0 || (quote.isMax ? quote.bound > approved : quote.bound < approved)
                 || _word(call_.data, value.directionWord) != (quote.isMax ? value.maximumDirection : value.minimumDirection)) revert Invalid();
+            if (quote.roundId == 0) {
+                uint256 currentBound = deriveBound(current, currentSlippage, quote.isMax, value.priceDecimals);
+                if (quote.isMax ? quote.bound > currentBound : quote.bound < currentBound) revert Stale();
+            }
         }
     }
     function validFunding(ExecutionTypes.Action calldata action, address settlementAsset) external pure returns (bool) {

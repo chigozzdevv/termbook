@@ -40,6 +40,14 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("execution price checkpoints", () => {
+  it("stops checkpoint transactions when execution enforces the current price", async () => {
+    const original = readContract.getMockImplementation()!;
+    readContract.mockImplementation(async (request) => request.functionName === "referenceVersion" ? 2n : original(request));
+    expect(await runPriceReferenceWorker()).toBe(0);
+    expect(simulateContract).not.toHaveBeenCalled();
+    expect(keeperTransaction).not.toHaveBeenCalled();
+    expect(readContract.mock.calls.some(([request]) => request.functionName === "priceReference")).toBe(false);
+  });
   it("can stop automatic checkpoints without removing the oracle keeper configuration", async () => {
     vi.stubEnv("PRICE_REFERENCE_ENABLED", "false");
     expect(await runPriceReferenceWorker()).toBe(0);

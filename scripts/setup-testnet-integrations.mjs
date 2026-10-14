@@ -9,12 +9,14 @@ import { root, viem, artifact, testnetRuntime, writeJsonAtomic } from "./testnet
 import { validateUpgradeArtifact, upgradeArtifactLoader } from "./upgrade-validation.mjs";
 import { executionKey } from "../packages/schema/dist/index.js";
 
-const simulate = process.argv[2] === "--simulate";
+const simulateLive = process.argv[2] === "--simulate-live";
+const simulate = process.argv[2] === "--simulate" || simulateLive;
 const refreshSpot = process.argv[3] === "--refresh-spot";
 const refreshOrders = process.argv[3] === "--refresh-orders";
 const refreshReaders = process.argv[3] === "--refresh-readers";
 const refreshPrices = process.argv[3] === "--refresh-prices";
-if (!["--simulate", "--broadcast"].includes(process.argv[2]) || process.argv.length !== (refreshSpot || refreshPrices || refreshOrders || refreshReaders ? 4 : 3)) {
+if (!["--simulate", "--simulate-live", "--broadcast"].includes(process.argv[2]) || simulateLive && !refreshPrices
+  || process.argv.length !== (refreshSpot || refreshPrices || refreshOrders || refreshReaders ? 4 : 3)) {
   throw new Error("Use --simulate or --broadcast, optionally with --refresh-spot, --refresh-prices, --refresh-orders or --refresh-readers");
 }
 const ordersOnly = refreshOrders || refreshReaders;
@@ -26,6 +28,47 @@ const equal = (actual, expected, label) => {
   if (canonical(actual).toLowerCase() !== canonical(expected).toLowerCase()) throw new Error(`Verification failed: ${label}`);
 };
 const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+
+async function simulatePriceProtection() {
+  const { deployment, context } = await testnetRuntime("price-protection-preflight", false);
+  const monad = await context(10143), m = deployment.addresses[10143], baseline = deployment.proxies[10143].PriceProtection;
+  const candidate = implementationArtifact("PriceProtection"), build = viem.keccak256(candidate.bytecode.object);
+  validateUpgradeArtifact(baseline, candidate);
+  equal(await monad.read("TestnetProxy", m.PriceProtection, "proxyImplementation"), baseline.implementation, "live implementation");
+  equal(viem.keccak256(await monad.client.getCode({ address: baseline.implementation })), baseline.implementationCodeHash, "live implementation code");
+  equal(await monad.read("ProtocolGovernance", m.ProtocolGovernance, "governance"), deployment.deployer, "governance owner");
+  equal(await monad.read("ProtocolGovernance", m.ProtocolGovernance, "timelock"), 0n, "testnet delay");
+  const block = await monad.client.getBlock({ blockTag: "latest" });
+  const nonce = await monad.client.getTransactionCount({ address: deployment.deployer, blockTag: "pending" });
+  const implementation = viem.getContractAddress({ from: deployment.deployer, nonce: BigInt(nonce) });
+  const codeHash = viem.keccak256(candidate.deployedBytecode.object);
+  const data = viem.encodeFunctionData({ abi: artifact("UpgradeController").abi, functionName: "upgrade",
+    args: [m.PriceProtection, implementation, codeHash, "0x"] });
+  const salt = viem.keccak256(data);
+  const id = await monad.read("ProtocolGovernance", m.ProtocolGovernance, "actionId", [m.UpgradeController, 0n, data, salt]);
+  const queued = artifact("ProtocolGovernance").storageLayout.storage.find((field) => field.label === "queuedAt");
+  if (!queued) throw new Error("Governance storage layout unavailable");
+  const slot = viem.keccak256(viem.encodeAbiParameters([{ type: "bytes32" }, { type: "uint256" }], [id, BigInt(queued.slot)]));
+  const stateOverride = [{ address: implementation, code: candidate.deployedBytecode.object },
+    { address: m.ProtocolGovernance, stateDiff: [{ slot, value: viem.toHex(block.timestamp, { size: 32 }) }] }];
+  await monad.client.simulateContract({ address: m.ProtocolGovernance, abi: artifact("ProtocolGovernance").abi,
+    functionName: "execute", args: [m.UpgradeController, 0n, data, salt], account: deployment.deployer, stateOverride });
+  equal(await monad.client.readContract({ address: m.PriceProtection, abi: candidate.abi, functionName: "referenceVersion",
+    stateOverride: [{ address: baseline.implementation, code: candidate.deployedBytecode.object }] }), 2n, "candidate format");
+  const transactions = [];
+  const estimate = async (name, to, data_, overrides) => {
+    const gas = await monad.client.estimateGas({ account: deployment.deployer, to, data: data_, ...(overrides ? { stateOverride: overrides } : {}) });
+    transactions.push({ name, gasLimit: String(gas + gas / 50n + 10_000n) });
+  };
+  await estimate("PriceProtectionCheckpointImplementation", undefined, viem.encodeDeployData({ abi: candidate.abi, bytecode: candidate.bytecode.object, args: [viem.zeroAddress] }));
+  await estimate(`queue:${id}`, m.ProtocolGovernance, viem.encodeFunctionData({ abi: artifact("ProtocolGovernance").abi,
+    functionName: "queue", args: [m.UpgradeController, 0n, data, salt] }));
+  await estimate(`execute:${id}`, m.ProtocolGovernance, viem.encodeFunctionData({ abi: artifact("ProtocolGovernance").abi,
+    functionName: "execute", args: [m.UpgradeController, 0n, data, salt] }), stateOverride);
+  writeJsonAtomic(operationFile("price-protection-update-simulation"), { sourceCommit, build, baseline, transactions,
+    simulated: true, method: "live RPC state overrides", completedAt: new Date().toISOString() });
+  log(JSON.stringify({ simulated: true, method: "live RPC state overrides", storageCompatible: true, transactions }));
+}
 
 async function refreshPriceProtection() {
   const name = "PriceProtection", operation = "price-protection-update";
@@ -79,7 +122,7 @@ async function refreshPriceProtection() {
   report.proxy = { ...baseline, implementation, implementationCodeHash: codeHash, storageLayout: candidate.storageLayout, abi: candidate.abi }; persist();
   await monad.govern("UpgradeController", m.UpgradeController, "upgrade", [m[name], implementation, codeHash, "0x"]);
   equal(await monad.read("TestnetProxy", m[name], "proxyImplementation"), implementation, "upgraded proxy");
-  equal(await monad.read(name, m[name], "referenceVersion"), 1n, "reference format");
+  equal(await monad.read(name, m[name], "referenceVersion"), 2n, "reference format");
   equal(await state(), report.before, "preserved price bindings");
   report.completedAt ??= new Date().toISOString(); persist();
   if (!simulate) {
@@ -347,7 +390,7 @@ try {
     }
     lock = fs.openSync(lockFile, "wx", 0o600); fs.writeFileSync(lock, String(process.pid));
   }
-  if (refreshPrices) await refreshPriceProtection(); else if (refreshSpot) await refreshSpotModule(); else await main();
+  if (simulateLive) await simulatePriceProtection(); else if (refreshPrices) await refreshPriceProtection(); else if (refreshSpot) await refreshSpotModule(); else await main();
 } catch (cause) {
   error(cause instanceof Error ? cause.message.split("\n")[0] : "Shared integration upgrade failed"); process.exitCode = 1;
 } finally {

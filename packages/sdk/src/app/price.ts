@@ -8,6 +8,7 @@ const coreAbi = parseAbi(["function priceProtection() view returns (address)"]);
 const protectionAbi = parseAbi([
   "error Stale()",
   "function referenceVersion() pure returns (uint256)",
+  "function currentPriceReference(bytes32,bytes32,bytes32) view returns (uint256 value,uint256 updatedAt,uint80 roundId,uint256 observedAt)",
   "function priceReference(bytes32,bytes32,bytes32) view returns (uint256 value,uint256 updatedAt,uint80 roundId,uint256 observedAt)",
   "function rule(bytes32,bytes32,bytes32) view returns ((address oracle,bytes32 feedId,address target,bytes4 selector,uint8 callIndex,uint8 priceDecimals,uint16 priceWord,uint16 directionWord,uint16 maxSlippageBps,uint16 maxDeviationBps,uint32 maxAuthorizationAge,uint256 maximumDirection,uint256 minimumDirection))",
   "function houseSlippage(bytes32) view returns (uint16)",
@@ -94,8 +95,12 @@ export async function executionPrice(client: TermbookClient, creditId: `0x${stri
     const absent = error instanceof BaseError ? error.walk((cause) => cause instanceof ContractFunctionZeroDataError) : undefined;
     if (!(absent instanceof ContractFunctionZeroDataError)) throw error;
   }
-  if (referenceVersion !== 0n && referenceVersion !== 1n) throw new Error("action-price-version-unsupported");
+  if (referenceVersion !== 0n && referenceVersion !== 1n && referenceVersion !== 2n) throw new Error("action-price-version-unsupported");
   const readReference = async (): Promise<readonly bigint[]> => {
+    if (referenceVersion === 2n) {
+      return client.rpc.read<readonly bigint[]>(protection, protectionAbi, "currentPriceReference",
+        [bundle, keccak256(stringToHex(executionKey(definition))), market]);
+    }
     if (referenceVersion === 1n) {
       try {
         return await client.rpc.read<readonly bigint[]>(protection, protectionAbi, "priceReference",
@@ -116,7 +121,7 @@ export async function executionPrice(client: TermbookClient, creditId: `0x${stri
     readReference(),
     client.rpc.client.getBlock({ blockTag: "latest" }),
   ]);
-  return { roundId: value[2]!, referencePrice: value[0]!, updatedAt: value[1]!, authorizedAt: block.timestamp,
+  return { roundId: value[2]!, referencePrice: value[0]!, updatedAt: value[1]!, authorizedAt: referenceVersion === 2n ? value[3]! : block.timestamp,
     bound: derive(value[0]!), slippageBps, isMax };
 }
 

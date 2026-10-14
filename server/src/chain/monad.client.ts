@@ -11,7 +11,14 @@ export function monadClient(priority = 0): PublicClient {
   if (!client) {
     const raw = createPublicClient({ transport: pacedHttp(env.rpcUrl, env.rpcRequestsPerSecond, priority, undefined,
       env.rpcFallbackUrl ? { url: env.rpcFallbackUrl, chainId: env.monadChainId } : undefined) });
-    client = raw.extend(() => ({ multicall: (input: Parameters<typeof raw.multicall>[0]) => raw.multicall({ ...input, batchSize: 32 }) })) as PublicClient;
+    client = raw.extend(() => ({ multicall: async (input: Parameters<typeof raw.multicall>[0]) => {
+      const result: unknown[] = [];
+      // Viem measures batchSize in calldata bytes.
+      for (let offset = 0; offset < input.contracts.length; offset += 32) {
+        result.push(...await raw.multicall({ ...input, contracts: input.contracts.slice(offset, offset + 32) as never, batchSize: 1024 }));
+      }
+      return result;
+    } })) as PublicClient;
     clients.set(priority, client);
   }
   return client;

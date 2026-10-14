@@ -57,12 +57,14 @@ export async function runPriceReferenceWorker(): Promise<number> {
   }
   if (!rules.size) return 0;
   if (rules.size > 256) throw new Error("price-reference-capacity-exceeded");
-  await runPythOracleWorker();
   const client = monadClient(1);
   if (await client.getChainId() !== env.monadChainId) throw new Error("price-reference-chain-mismatch");
   const block = await client.getBlock({ blockTag: "latest" });
   const protection = await client.readContract({ address: env.core as Hex, abi: coreAbi, functionName: "priceProtection", blockNumber: block.number });
-  if (await client.readContract({ address: protection, abi: protectionAbi, functionName: "referenceVersion", blockNumber: block.number }) !== 1n) throw new Error("price-reference-version-unsupported");
+  const version = await client.readContract({ address: protection, abi: protectionAbi, functionName: "referenceVersion", blockNumber: block.number });
+  if (version === 2n) return 0;
+  if (version !== 1n) throw new Error("price-reference-version-unsupported");
+  await runPythOracleWorker();
   let recorded = 0;
   for (const rule of rules.values()) {
     try {

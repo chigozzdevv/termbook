@@ -1,24 +1,29 @@
-import { afterEach, expect, it, vi } from "vitest";
-import { decodeFunctionData, encodeAbiParameters, parseAbi } from "viem";
+import { describe, expect, it, vi } from "vitest";
+import { custom, decodeFunctionData, encodeFunctionResult, multicall3Abi, parseAbi } from "viem";
 import { monadClient } from "../../src/chain/monad.client.js";
 
-vi.mock("../../src/config/env.js", () => ({ env: { rpcUrl: "https://rpc.test/batches", rpcRequestsPerSecond: 1000 } }));
-afterEach(() => vi.unstubAllGlobals());
-it("bounds actual Multicall3 batches while preserving every contract result", async () => {
-  const sizes: number[] = [];
-  const abi = parseAbi(["function aggregate3((address target,bool allowFailure,bytes callData)[] calls) payable returns ((bool success,bytes returnData)[])"]);
-  vi.stubGlobal("fetch", vi.fn(async (_url, options) => {
-    const body = JSON.parse(options.body);
-    const data = decodeFunctionData({ abi, data: body.params[0].data });
-    sizes.push(data.args[0].length);
-    const result = encodeAbiParameters([{ type: "tuple[]", components: [{ name: "success", type: "bool" }, { name: "returnData", type: "bytes" }] }],
-      [data.args[0].map(() => ({ success: true, returnData: encodeAbiParameters([{ type: "uint8" }], [6]) }))]);
-    return new Response(JSON.stringify({ jsonrpc: "2.0", id: body.id, result }), { headers: { "content-type": "application/json" } });
-  }));
-  const client = monadClient();
-  const contracts = Array.from({ length: 11 }, () => ({ address: `0x${"1".repeat(40)}` as `0x${string}`,
-    abi: parseAbi(["function decimals() view returns(uint8)"]), functionName: "decimals" }));
-  const result = await client.multicall({ contracts, allowFailure: false, multicallAddress: "0xcA11bde05977b3631167028862bE2a173976CA11" });
-  expect(result).toEqual(Array(11).fill(6));
-  expect(sizes).toEqual([8, 3]);
+vi.mock("../../src/config/env.js", () => ({ env: { rpcUrl: "http://monad", rpcRequestsPerSecond: 4, monadChainId: 10143 } }));
+const batches: number[] = [];
+vi.mock("../../src/chain/rpc.transport.js", () => ({ pacedHttp: () => custom({ request: async ({ method, params }) => {
+  if (method !== "eth_call") throw new Error("unexpected-rpc-call");
+  const [request] = params as [{ data: `0x${string}` }];
+  const decoded = decodeFunctionData({ abi: multicall3Abi, data: request.data });
+  const calls = decoded.args![0] as readonly { callData: `0x${string}` }[];
+  batches.push(calls.length);
+  return encodeFunctionResult({ abi: multicall3Abi, functionName: "aggregate3", result: calls.map((call) => ({
+    success: true, returnData: encodeFunctionResult({ abi: parseAbi(["function value(uint256) view returns(uint256)"]),
+      functionName: "value", result: decodeFunctionData({ abi: parseAbi(["function value(uint256) view returns(uint256)"]), data: call.callData }).args![0] }),
+  })) });
+} }) }));
+
+describe("Monad read batching", () => {
+  it("groups contract reads instead of issuing one RPC call per argument-bearing read", async () => {
+    const address = `0x${"11".repeat(20)}` as const;
+    const values = await monadClient().multicall({ multicallAddress: address, allowFailure: false, blockNumber: 100n,
+      contracts: Array.from({ length: 65 }, (_, i) => ({ address, abi: parseAbi(["function value(uint256) view returns(uint256)"]),
+        functionName: "value", args: [BigInt(i)] })),
+    });
+    expect(values).toEqual(Array.from({ length: 65 }, (_, i) => BigInt(i)));
+    expect(batches).toEqual([28, 4, 28, 4, 1]);
+  });
 });

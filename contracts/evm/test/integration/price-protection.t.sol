@@ -80,6 +80,50 @@ contract PriceProtectionTest is Test {
         quote = PriceProtection.Quote(round, refPrice, updated, block.timestamp,
             protection.deriveBound(refPrice, 50, isMax, 8), 50, isMax);
     }
+    function testCurrentReferenceNeedsNoCheckpointAndSurvivesRoundUpdatesAndDelay() public {
+        feed.setHistory(false);
+        (uint256 price, uint256 at, uint80 round, uint256 observed) = protection.currentPriceReference(bundle, capability, market);
+        assertEq(round, 0); assertEq(observed, block.timestamp);
+        PriceProtection.Quote memory quote = PriceProtection.Quote(round, price, at, observed,
+            protection.deriveBound(price, 50, true, 8), 50, true);
+        vm.warp(10_000); feed.update(2001e8);
+        protection.validate(credit, bundle, _action(true, quote.bound), quote);
+    }
+    function testCurrentReferenceRejectsFabricatedPricesBeyondTheHouseSlippageCap() public {
+        PriceProtection.Quote memory quote = _quote(true); quote.roundId = 0;
+        quote.referencePrice = 2010e18;
+        quote.bound = protection.deriveBound(quote.referencePrice, 50, true, 8);
+        vm.expectRevert(PriceProtection.Stale.selector);
+        protection.validate(credit, bundle, _action(true, quote.bound), quote);
+        quote = _quote(false); quote.roundId = 0; quote.referencePrice = 1990e18;
+        quote.bound = protection.deriveBound(quote.referencePrice, 50, false, 8);
+        vm.expectRevert(PriceProtection.Stale.selector);
+        protection.validate(credit, bundle, _action(false, quote.bound), quote);
+    }
+    function testCurrentReferenceStillRejectsStalePricesAndRevokedGuards() public {
+        PriceProtection.Quote memory quote = _quote(true); quote.roundId = 0;
+        vm.warp(1301);
+        vm.expectRevert(OracleRegistry.StaleFeed.selector);
+        protection.validate(credit, bundle, _action(true, quote.bound), quote);
+        vm.warp(1000); feed.setPermission(false);
+        vm.expectRevert(OracleRegistry.InvalidFeed.selector);
+        protection.validate(credit, bundle, _action(true, quote.bound), quote);
+    }
+    function testCurrentAmountReferenceEnforcesMinimumOutput() public { _currentAmountReference(false); }
+    function testCurrentAmountReferenceEnforcesMaximumInput() public { _currentAmountReference(true); }
+    function _currentAmountReference(bool maxInput) internal {
+            (ExecutionTypes.Action memory action, PriceProtection.Quote memory quote,) = _spot(maxInput);
+            bytes32 spotBundle = keccak256(abi.encode("spot", maxInput));
+            quote.roundId = 0;
+            protection.validate(keccak256("spot credit"), spotBundle, action, quote);
+            quote.referencePrice = maxInput ? 2010e18 : 1990e18;
+            quote.bound = protection.deriveAmountBound(quote.referencePrice, 1 ether, 50,
+                maxInput ? 6 : 18, maxInput ? 18 : 6, maxInput, maxInput);
+            action.calls[0].data = abi.encodeCall(feed.trade, (1 ether, quote.bound));
+            if (maxInput) action.calls[0].spendAmount = quote.bound;
+            vm.expectRevert(PriceProtection.Stale.selector);
+            protection.validate(keccak256("spot credit"), spotBundle, action, quote);
+    }
     function testRecordedLivePriceSurvivesAnUnderlyingRoundChange() public {
         feed.setHistory(false);
         protection.recordPrice(bundle, capability, market);

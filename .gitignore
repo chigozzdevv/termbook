@@ -8,6 +8,8 @@ lib/
 !client/src/lib/**
 .env
 .env.local
+deploy/*.env
+deploy/private/
 .testnet/
 .data/
 *.log

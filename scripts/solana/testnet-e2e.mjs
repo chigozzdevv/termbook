@@ -1,13 +1,13 @@
-import { operationFile, operationLock, readConfiguration } from "./testnet-state.mjs";
+import { operationFile, operationLock, readConfiguration } from "../testnet/state.mjs";
 import fs from "node:fs";
 import process from "node:process";
 import { log, error } from "node:console";
 import { setTimeout as delay } from "node:timers/promises";
 import { Buffer } from "node:buffer";
-import { canonicalJson, apiAuthorizationMessage, NATIVE_SOL_ASSET_BYTES } from "../packages/schema/dist/index.js";
-import { collateralSetupHash, SolanaSourceLockWallet, solanaAlias, solanaPubkeyBytes, decodeSolanaLockRecord } from "../packages/sdk/dist/index.js";
-import { viem, artifact, testnetRuntime, writeJsonAtomic } from "./testnet-runtime.mjs";
-import { PublicKey, solanaConnection, solanaPayer, journaledSolanaWallet, publicSolanaTransactions } from "./testnet-solana-runtime.mjs";
+import { canonicalJson, apiAuthorizationMessage, NATIVE_SOL_ASSET_BYTES } from "../../packages/schema/dist/index.js";
+import { collateralSetupHash, SolanaSourceLockWallet, solanaAlias, solanaPubkeyBytes, decodeSolanaLockRecord } from "../../packages/sdk/dist/index.js";
+import { viem, artifact, testnetRuntime, writeJsonAtomic } from "../testnet/runtime.mjs";
+import { PublicKey, solanaConnection, solanaPayer, journaledSolanaWallet, publicSolanaTransactions } from "./testnet-runtime.mjs";
 
 const mode = process.argv[2];
 const { fetch } = globalThis;

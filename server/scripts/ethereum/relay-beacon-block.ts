@@ -1,9 +1,9 @@
 import "dotenv/config";
 import { createWalletClient, http, parseAbi, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { env } from "../src/config/env.js";
-import { monadClient } from "../src/chain/monad.client.js";
-import { fetchFinalizedBeaconBlock } from "../src/chain/ethereum-beacon-proof.js";
+import { env } from "../../src/config/env.js";
+import { monadClient } from "../../src/chain/monad.client.js";
+import { fetchFinalizedBeaconBlock } from "../../src/chain/ethereum-beacon-proof.js";
 
 const [slotText, checkpointRoot] = process.argv.slice(2);
 const beaconApiUrl = process.env["ETHEREUM_BEACON_API_URL"];
@@ -13,7 +13,7 @@ const keeperKey = process.env["ETHEREUM_BEACON_KEEPER_KEY"];
 if (!/^[1-9][0-9]*$/.test(slotText ?? "") || !/^0x[0-9a-fA-F]{64}$/.test(checkpointRoot ?? "")
   || !beaconApiUrl || !proofUrl || !/^0x[0-9a-fA-F]{40}$/.test(beaconClient ?? "")
   || !/^0x[0-9a-fA-F]{64}$/.test(keeperKey ?? "")) {
-  throw new Error("Usage: ETHEREUM_BEACON_API_URL=... ETHEREUM_BEACON_PROOF_URL=... ETHEREUM_LIGHT_CLIENT_ADDRESS=... ETHEREUM_BEACON_KEEPER_KEY=... node --import tsx server/scripts/relay-ethereum-beacon-block.ts <slot> <checkpoint-root>");
+  throw new Error("Usage: ETHEREUM_BEACON_API_URL=... ETHEREUM_BEACON_PROOF_URL=... ETHEREUM_LIGHT_CLIENT_ADDRESS=... ETHEREUM_BEACON_KEEPER_KEY=... node --import tsx server/scripts/ethereum/relay-beacon-block.ts <slot> <checkpoint-root>");
 }
 if (env.monadChainId !== 143) throw new Error("ethereum-beacon-monad-chain-mismatch");
 const chain = monadClient();

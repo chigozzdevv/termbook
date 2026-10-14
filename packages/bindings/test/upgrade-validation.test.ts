@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateUpgradeArtifact, withEnumMembers } from "../../../scripts/upgrade-validation.mjs";
+import { validateUpgradeArtifact, withEnumMembers } from "../../../scripts/deploy/upgrade-validation.mjs";
 
 function fixture() {
   return { abi: [{ type: "function", name: "balance", inputs: [], outputs: [{ type: "uint256" }], stateMutability: "view" }],

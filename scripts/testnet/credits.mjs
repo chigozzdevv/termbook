@@ -1,4 +1,5 @@
-import { artifact, viem } from "./testnet-runtime.mjs";
+import process from "node:process";
+import { artifact, viem } from "./runtime.mjs";
 
 export async function loadCredits(deployment, network) {
   const client = network.client ?? network.publicClient;
@@ -28,7 +29,7 @@ export async function loadCredits(deployment, network) {
   const created = [];
   if (logClient === client && process.env.ENVIO_API_TOKEN) {
     const [{ readCoreEvents }, { env }] = await Promise.all([
-      import("../server/dist/chain/envio.client.js"), import("../server/dist/config/env.js"),
+      import("../../server/dist/chain/envio.client.js"), import("../../server/dist/config/env.js"),
     ]);
     if (env.monadChainId !== 10143 || env.core.toLowerCase() !== core.toLowerCase()) throw new Error("Credit archive configuration mismatch");
     let cursor = BigInt(start);

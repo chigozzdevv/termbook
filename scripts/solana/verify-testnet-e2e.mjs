@@ -1,11 +1,11 @@
-import { operationFile, readConfiguration, clearOperation } from "./testnet-state.mjs";
+import { operationFile, readConfiguration, clearOperation } from "../testnet/state.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import { log, error } from "node:console";
 import process from "node:process";
-import { root, viem, artifact } from "./testnet-runtime.mjs";
-import { PublicKey, solanaConnection } from "./testnet-solana-runtime.mjs";
-import { decodeSolanaLockRecord } from "../packages/sdk/dist/index.js";
+import { root, viem, artifact } from "../testnet/runtime.mjs";
+import { PublicKey, solanaConnection } from "./testnet-runtime.mjs";
+import { decodeSolanaLockRecord } from "../../packages/sdk/dist/index.js";
 const clean = process.argv[2] === "--clean";
 if (process.argv.length !== (clean ? 3 : 2)) throw new Error("Use optional --clean");
 

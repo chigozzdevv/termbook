@@ -1,4 +1,4 @@
-import { operationFile, configuration, clearOperation } from "./testnet-state.mjs";
+import { operationFile, configuration, clearOperation } from "../testnet/state.mjs";
 import fs from "node:fs";
 import process from "node:process";
 import { Buffer } from "node:buffer";
@@ -10,9 +10,9 @@ import { createRequire } from "node:module";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { upgradeArtifactLoader } from "./upgrade-validation.mjs";
-import { writeJsonAtomic } from "./testnet-runtime.mjs";
+import { writeJsonAtomic } from "../testnet/runtime.mjs";
 
-const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const require = createRequire(path.join(root, "packages/sdk/package.json"));
 const { createPublicClient, createWalletClient, http, encodeDeployData, encodeFunctionData,
   getContractAddress, keccak256, padHex, zeroAddress, formatEther } = require("viem");
@@ -25,7 +25,7 @@ if (process.argv.slice(2).some((argument) => !["--broadcast", "--simulate", "--a
 if (broadcast === simulate) throw new Error("Use --simulate or --broadcast");
 const directory = path.join(root, ".testnet");
 const existingManifest = path.join(root, "deployments/testnet.json");
-if (broadcast && !activate && fs.existsSync(existingManifest)) throw new Error("Testnet is already deployed; use upgrade-testnet.mjs to update contracts");
+if (broadcast && !activate && fs.existsSync(existingManifest)) throw new Error("Testnet is already deployed; use scripts/deploy/upgrade-testnet.mjs to update contracts");
 fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
 const reportFile = operationFile(`${simulate ? "simulation" : "deployment"}-upgradeable`);
 const report = fs.existsSync(reportFile) ? JSON.parse(fs.readFileSync(reportFile, "utf8"))

@@ -5,8 +5,8 @@ import { URL } from "node:url";
 import { createRequire } from "node:module";
 import { setTimeout as delay } from "node:timers/promises";
 
-import { root, writeJsonAtomic, operationFile, canonicalReceipt } from "./testnet-state.mjs";
-import { pacedHttp } from "../server/dist/chain/rpc.transport.js";
+import { root, writeJsonAtomic, operationFile, canonicalReceipt } from "./state.mjs";
+import { pacedHttp } from "../../server/dist/chain/rpc.transport.js";
 export { root, writeJsonAtomic, canonicalReceipt };
 const require = createRequire(path.join(root, "packages/sdk/package.json"));
 export const viem = require("viem");

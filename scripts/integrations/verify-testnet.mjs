@@ -2,10 +2,10 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { log, error } from "node:console";
-import { root, viem, artifact } from "./testnet-runtime.mjs";
-import { readConfiguration, writeJsonAtomic, operationFile, clearOperation } from "./testnet-state.mjs";
+import { root, viem, artifact } from "../testnet/runtime.mjs";
+import { readConfiguration, writeJsonAtomic, operationFile, clearOperation } from "../testnet/state.mjs";
 import { setTimeout as delay } from "node:timers/promises";
-import { pacedHttp } from "../server/dist/chain/rpc.transport.js";
+import { pacedHttp } from "../../server/dist/chain/rpc.transport.js";
 
 const priceSource = process.argv[2] === "--publish-price-source";
 const healthSource = process.argv[2] === "--publish-health-source";

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { warmForkStorage, warmIntegrationConfiguration, canonicalReceipt, artifact, viem } from "../../../scripts/testnet-runtime.mjs";
+import { warmForkStorage, warmIntegrationConfiguration, canonicalReceipt, artifact, viem } from "../../../scripts/testnet/runtime.mjs";
 
 vi.mock("node:timers/promises", () => ({ setTimeout: vi.fn(async () => undefined) }));
 

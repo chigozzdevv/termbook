@@ -1,5 +1,6 @@
 #!/bin/sh
 set -e
+cd "$(dirname "$0")/../.."
 bad=$(find packages server -name "*.ts" | while read -r f; do
   base=$(basename "$f" .ts)
   base=${base%.test}

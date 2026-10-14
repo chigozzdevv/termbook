@@ -154,7 +154,7 @@ export class DeploymentFixture extends Fixture {
         }
       }
     }
-    const runtimePath = new URL("../../../scripts/testnet-runtime.mjs", import.meta.url).href;
+    const runtimePath = new URL("../../../scripts/testnet/runtime.mjs", import.meta.url).href;
     const { warmForkStorage } = await import(runtimePath);
     await warmForkStorage(this.chain, slots, (completed: number, total: number) => {
       if (completed % 256 === 0 || completed === total) process.stdout.write(`Loaded ${completed}/${total} facility storage slots\n`);
@@ -193,7 +193,7 @@ export class DeploymentFixture extends Fixture {
     if (!Number.isSafeInteger(node.forkConfig?.forkBlockNumber)) throw new Error("validation-fork-source-required");
     const block = await this.chain.getBlock({ blockNumber: BigInt(node.forkConfig!.forkBlockNumber!) });
     this.sourceBlock = { number: String(block.number), hash: block.hash };
-    const runtimePath = new URL("../../../scripts/testnet-runtime.mjs", import.meta.url).href;
+    const runtimePath = new URL("../../../scripts/testnet/runtime.mjs", import.meta.url).href;
     const { warmReadProgram } = await import(runtimePath);
     const definition = this.deployment.configuration["kuru-integration"].definition;
     const programs = definition.assessment ? use_case_configuration(definition).programs : [atomic_configuration(definition).quote_program];

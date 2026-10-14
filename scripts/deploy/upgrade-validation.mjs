@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { assertStorageUpgradeSafe } from "@openzeppelin/upgrades-core";
 
-const require = createRequire(new URL("../packages/sdk/package.json", import.meta.url));
+const require = createRequire(new URL("../../packages/sdk/package.json", import.meta.url));
 const { toFunctionSelector, toEventSelector } = require("viem");
 const reserved = new Set([toFunctionSelector("proxyImplementation()"), toFunctionSelector("proxyAdmin()"), toFunctionSelector("upgradeToAndCall(address,bytes)")]);
 

@@ -1,11 +1,11 @@
-import { alreadyConfigured, writeConfiguration, writeJsonAtomic, clearOperation, operationFile } from "./testnet-state.mjs";
+import { alreadyConfigured, writeConfiguration, writeJsonAtomic, clearOperation, operationFile } from "./state.mjs";
 import process from "node:process";
 import fs from "node:fs";
 import path from "node:path";
 import { log, error } from "node:console";
 import { execFileSync } from "node:child_process";
-import { root, viem, testnetRuntime } from "./testnet-runtime.mjs";
-import { reuseGuard } from "./testnet-guards.mjs";
+import { root, viem, testnetRuntime } from "./runtime.mjs";
+import { reuseGuard } from "./guards.mjs";
 
 const simulate = process.argv.includes("--simulate");
 const native = process.argv.includes("--native");
@@ -94,7 +94,7 @@ async function setupHealthFreshness() {
   const runtime = await testnetRuntime(operation, simulate);
   const { deployment, report, persist } = runtime;
   const network = await runtime.context(10143), m = deployment.addresses[10143];
-  const { artifact } = await import("./testnet-runtime.mjs");
+  const { artifact } = await import("./runtime.mjs");
   const readerHash = viem.keccak256(artifact("CollateralHealthReader").deployedBytecode.object);
   const age = 300n;
   const previous = deployment.configuration[operation];
@@ -188,11 +188,11 @@ async function setupHealthFreshness() {
 
 async function setupFreshPrices() {
   if (!simulate && alreadyConfigured("fresh-prices")) { clearOperation("fresh-prices"); log(JSON.stringify({ configured: true, step: "fresh-prices" })); return; }
-  const { preparePythUpdates, pythAbi, pythEndpoint } = await import("../server/dist/chain/pyth.client.js");
+  const { preparePythUpdates, pythAbi, pythEndpoint } = await import("../../server/dist/chain/pyth.client.js");
   const runtime = await testnetRuntime("fresh-prices", simulate);
   const { deployment, report, persist } = runtime;
   const network = await runtime.context(10143), m = deployment.addresses[10143];
-  const { artifact } = await import("./testnet-runtime.mjs");
+  const { artifact } = await import("./runtime.mjs");
   if (viem.keccak256(await network.client.getCode({ address: await network.read("TestnetProxy", m.OracleRegistry, "proxyImplementation") }))
     !== viem.keccak256(artifact("OracleRegistry").deployedBytecode.object)) throw new Error("Upgrade OracleRegistry before migrating feeds");
   const pyth = deployment.configuration.native?.pyth;
@@ -266,7 +266,7 @@ async function setupFreshPrices() {
     deployment.configuration["fresh-prices"] = { core: m.TermbookCore, completedAt: report.completedAt, addresses: report.addresses,
       maxAgeSeconds: 300, refreshAgeSeconds: 60, provider: pyth, providerCodeHash: source.codeHash, priceIds: items,
       previousFeeds: report.expectedFeeds, prices };
-    const { writeJsonAtomic } = await import("./testnet-state.mjs");
+    const { writeJsonAtomic } = await import("./state.mjs");
     writeJsonAtomic(path.join(root, "deployments/testnet.json"), deployment);
     const file = path.join(root, ".env");
     let env = fs.readFileSync(file, "utf8");

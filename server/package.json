@@ -8,8 +8,8 @@
     "typecheck:scripts": "tsc -p tsconfig.scripts.json",
     "start": "node dist/server.js",
     "dev": "tsx src/server.ts",
-    "verify:solana-program": "node --import tsx scripts/verify-solana-program.ts",
-    "relay:ethereum-beacon-block": "node --import tsx scripts/relay-ethereum-beacon-block.ts",
+    "verify:solana-program": "node --import tsx scripts/solana/verify-program.ts",
+    "relay:ethereum-beacon-block": "node --import tsx scripts/ethereum/relay-beacon-block.ts",
     "test:kuru": "cd .. && tsx server/test/kuru/run-acceptance.ts",
     "test:kuru-fixture": "cd .. && tsx server/test/kuru/read-fixture.ts"
   },

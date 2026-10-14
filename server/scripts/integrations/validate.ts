@@ -8,7 +8,7 @@ import { IntegrationValidationRunner, integrationForkReview, create_evidence_env
   type ValidationCheckpoint, type Wallet, type RecordedValidation, type plugin as Plugin } from '@termbook/sdk';
 
 const configPath = process.argv[2];
-if (!configPath) throw new Error('Usage: node --import tsx server/scripts/validate-integration.ts config.json');
+if (!configPath) throw new Error('Usage: node --import tsx server/scripts/integrations/validate.ts config.json');
 const admit = process.argv[3] === '--admit', approve = process.argv[4] === '--approve';
 if (process.argv.length !== (approve ? 5 : admit ? 4 : 3) || approve && !admit) throw new Error('Use config.json, optionally with --admit and --approve');
 const config = JSON.parse(await readFile(resolve(configPath), 'utf8')) as {
@@ -82,7 +82,7 @@ if (admit) {
       fork_review_signature: report.suite.mode === 'fork' ? await wallet.signTypedData(integrationForkReview(reviewed)) : undefined });
   }
   if (registration.status === 'active') {
-    const envPath = resolve(dirname(fileURLToPath(import.meta.url)), '../../.env');
+    const envPath = resolve(dirname(fileURLToPath(import.meta.url)), '../../../.env');
     const env = await readFile(envPath, 'utf8').catch((error) => {
       if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return '';
       throw error;

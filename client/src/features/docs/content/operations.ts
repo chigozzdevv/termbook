@@ -211,8 +211,21 @@ cd contracts/solana && cargo test --offline`, "shell"),
       p("EVM proxy upgrades preserve the proxy address and storage. Implementation code changes require storage-layout checks and authorized governance execution. Deploying a new implementation is not the same as replacing a proxy and its address."),
       p("The Solana program uses its configured upgrade authority. Upgrading its executable can preserve the program ID; authority and account compatibility still need verification. Testnet single-key governance does not establish production multisig controls.")),
     section("commands", "Deployment tooling",
-      code("Inspect current bindings", `node scripts/verify-testnet-integrations.mjs`, "shell"),
-      p("scripts/deploy-testnet.mjs creates a fresh deployment and refuses to overwrite an existing manifest. scripts/upgrade-testnet.mjs handles the existing upgrade path. Setup runners support simulation before broadcast. Use the existing deployment manifest rather than inventing another address file.")),
+      code("Inspect current bindings", `node scripts/integrations/verify-testnet.mjs`, "shell"),
+      p("scripts/deploy/testnet.mjs creates a fresh deployment and refuses to overwrite an existing manifest. scripts/deploy/upgrade-testnet.mjs handles the existing upgrade path. Setup runners support simulation before broadcast. Use the existing deployment manifest rather than inventing another address file.")),
+    section("hosting", "Host the services",
+      p("deploy/Dockerfile builds the API, worker and client. deploy/compose.yaml runs them with MongoDB and Redis. Paths and release settings come from a private Compose environment file; contract deployment remains a separate operation."),
+      code("Prepare deployment settings", `cp deploy/.env.example deploy/.env`, "shell"),
+      p("Set TERMBOOK_RELEASE to a unique release tag and PUBLIC_API_BASE to your public API origin. This URL is embedded when the client is built; rebuild the client when it changes. Set the runtime, manifest, data and signer paths to existing files and directories. Relative paths resolve from deploy/."),
+      p("Start the runtime environment from server/.env.example and add the current deployment addresses, RPCs and worker settings. Inside Docker, use the service names for persistence:"),
+      code("Private runtime environment · persistence", `MONGO_URL=mongodb://mongo:27017/termbook?replicaSet=rs0&directConnection=true
+REDIS_URL=redis://redis:6379
+RPC_BUDGET_REDIS_URL=redis://redis:6379`, "shell"),
+      p("For an existing database, preserve its database name. Set PUBLIC_API_BASE and PUBLIC_RPC_URL to externally reachable URLs. Keep signer files outside Git and point their configuration to the mounted paths: /run/secrets/testnet-operator.json and /run/secrets/solana-source-keeper.json. API and worker run as UID 1000; that user must be able to read the mounted files and write the data directory. Mounts refuse to create missing host paths."),
+      code("Build and start · repository root", `docker compose --env-file deploy/.env -f deploy/compose.yaml config --quiet
+docker compose --env-file deploy/.env -f deploy/compose.yaml build api client
+docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --no-build`, "shell"),
+      p("The API and client bind to loopback on the configured host ports. Put your HTTPS proxy in front of those ports. Cloudflare Tunnel is optional: set TERMBOOK_TUNNEL_TOKEN_FILE and add --profile tunnel before up. Uploaded backend and client images can instead be pulled with the same release tag and started with --no-build.")),
     section("live", "After execution",
       list(["Verify receipts, runtime identities, initialized proxy state and storage compatibility.", "Verify sources and updated dependencies against the exact implementation bytecode.", "Confirm feeds, House policies, liquidity, account factory and keeper permissions.", "Restart services with current public configuration and check /ready.", "Run deployment-bound borrowing, repayment, closure and borrower-independent recovery."], true),
       note("Client data", "Market and House views read the protocol API. Set NEXT_PUBLIC_TERMBOOK_API_URL in client/.env.local to select the API used by the client.")),

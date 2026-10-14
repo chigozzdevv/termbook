@@ -6,7 +6,7 @@ import { setTimeout } from "node:timers";
 import { URL } from "node:url";
 import { createRequire } from "node:module";
 const { Connection, Keypair, PublicKey, SystemProgram, SYSVAR_CLOCK_PUBKEY, SYSVAR_RENT_PUBKEY,
-  TransactionInstruction, TransactionMessage, VersionedTransaction } = createRequire(new URL("../packages/sdk/package.json", import.meta.url))("@solana/web3.js");
+  TransactionInstruction, TransactionMessage, VersionedTransaction } = createRequire(new URL("../../packages/sdk/package.json", import.meta.url))("@solana/web3.js");
 
 const url = new URL(process.argv[2] ?? "http://127.0.0.1:8899");
 if (!["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)) throw new Error("runtime-check-requires-local-validator");

@@ -6,7 +6,7 @@ import { log } from "node:console";
 
 const [shardValue, countValue] = process.argv.slice(2);
 if (process.argv.length !== 4 || !/^\d+$/.test(shardValue ?? "") || !/^\d+$/.test(countValue ?? "")) {
-  throw new Error("Use node scripts/test-contracts-ci.mjs <shard> <count>");
+  throw new Error("Use node scripts/checks/contracts-ci.mjs <shard> <count>");
 }
 const shard = Number(shardValue), count = Number(countValue);
 if (!Number.isSafeInteger(shard) || !Number.isSafeInteger(count) || count < 1 || count > 16 || shard >= count) {

@@ -242,3 +242,17 @@ pnpm dev:client
 Open [localhost:4178](http://127.0.0.1:4178). [Health](http://127.0.0.1:3002/health) checks the API; [readiness](http://127.0.0.1:3002/ready) checks finalized indexing and risk scans.
 
 For deployment and upgrades, follow the [deployment guide](https://termbook.xyz/docs/operators/deployment).
+
+### Host the services
+
+The reusable Docker setup lives in `deploy/`. Copy its configuration template, set your image tag, public API URL and private file paths, then build and start the services:
+
+```sh
+cp deploy/.env.example deploy/.env
+docker compose --env-file deploy/.env -f deploy/compose.yaml build api client
+docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --no-build
+```
+
+Prepare the runtime environment, manifest, signer files and writable data directory before starting. The [hosting instructions](https://termbook.xyz/docs/operators/deployment#hosting) explain database URLs, file permissions and optional HTTPS routing.
+
+Scripts are grouped by function: `scripts/deploy/`, `testnet/`, `integrations/`, `kuru/`, `solana/` and `checks/`. General build, test and setup commands remain in `scripts/`.

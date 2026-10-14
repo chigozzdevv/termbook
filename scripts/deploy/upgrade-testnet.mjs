@@ -1,4 +1,4 @@
-import { operations, operationFile, writeJsonAtomic, canonicalReceipt } from "./testnet-state.mjs";
+import { operations, operationFile, writeJsonAtomic, canonicalReceipt } from "../testnet/state.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -8,7 +8,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { validateUpgradeArtifact, upgradeArtifactLoader } from "./upgrade-validation.mjs";
 
-const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const require = createRequire(path.join(root, "packages/sdk/package.json"));
 const { createPublicClient, createWalletClient, http, encodeDeployData, encodeFunctionData,
   getContractAddress, keccak256, zeroAddress } = require("viem");
@@ -18,7 +18,7 @@ const chainId = Number(chainText);
 if (![10143, 11155111, 84532].includes(chainId) || !/^[A-Za-z][A-Za-z0-9]*$/.test(label ?? "")
   || !/^[A-Za-z][A-Za-z0-9]*$/.test(artifactName ?? "") || !["--prepare", "--broadcast"].includes(mode)
   || !/^0x(?:[0-9a-f]{2})*$/i.test(initialization) || process.argv.length > 7) {
-  throw new Error("Usage: node scripts/upgrade-testnet.mjs <10143|11155111|84532> <deployment-name> <artifact-name> <--prepare|--broadcast> [initialization-hex]");
+  throw new Error("Usage: node scripts/deploy/upgrade-testnet.mjs <10143|11155111|84532> <deployment-name> <artifact-name> <--prepare|--broadcast> [initialization-hex]");
 }
 const artifact = upgradeArtifactLoader(path.join(root, "contracts/evm/out"));
 const manifestFile = path.join(root, "deployments/testnet.json");

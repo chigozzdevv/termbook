@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { reuseGuard } from "../../../scripts/testnet-guards.mjs";
-import { viem } from "../../../scripts/testnet-runtime.mjs";
+import { reuseGuard } from "../../../scripts/testnet/guards.mjs";
+import { viem } from "../../../scripts/testnet/runtime.mjs";
 const { keccak256 } = viem;
 
 const address = "0xguard", dependency = "0xtoken", implementation = "0ximplementation", getter = "0x12345678";

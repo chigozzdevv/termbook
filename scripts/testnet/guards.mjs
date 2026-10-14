@@ -1,4 +1,4 @@
-import { viem } from "./testnet-runtime.mjs";
+import { viem } from "./runtime.mjs";
 
 export async function reuseGuard(runtime, network, recordName, label, contract, dependency, implementation, getter, libraries = []) {
   const previous = runtime.deployment.configuration?.[recordName];

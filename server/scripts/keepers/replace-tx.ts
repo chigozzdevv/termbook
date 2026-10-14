@@ -2,9 +2,9 @@ import "dotenv/config";
 import { readFile } from "node:fs/promises";
 import mongoose from "mongoose";
 import { createPublicClient, http, type Hex } from "viem";
-import { connectDb } from "../src/database/database.client.js";
-import { replaceKeeperTransaction } from "../src/chain/keeper-replacement.js";
-import { env } from "../src/config/env.js";
+import { connectDb } from "../../src/database/database.client.js";
+import { replaceKeeperTransaction } from "../../src/chain/keeper-replacement.js";
+import { env } from "../../src/config/env.js";
 
 async function main() {
   const [chain, wallet, file] = process.argv.slice(2);

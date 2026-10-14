@@ -1,11 +1,11 @@
-import { operationFile, readConfiguration, clearOperation } from "./testnet-state.mjs";
+import { operationFile, readConfiguration, clearOperation } from "./state.mjs";
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { log, error } from 'node:console';
-import { root, viem, artifact } from './testnet-runtime.mjs';
-import { pacedHttp } from '../server/dist/chain/rpc.transport.js';
-import { readCoreEvents } from '../server/dist/chain/envio.client.js';
+import { root, viem, artifact } from './runtime.mjs';
+import { pacedHttp } from '../../server/dist/chain/rpc.transport.js';
+import { readCoreEvents } from '../../server/dist/chain/envio.client.js';
 const fast = process.argv[2] === '--fast';
 const native = process.argv[2] === '--native';
 const base = process.argv[2] === '--base-kuru';

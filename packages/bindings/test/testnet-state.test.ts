@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { alreadyConfigured, configuration } from "../../../scripts/testnet-state.mjs";
+import { alreadyConfigured, configuration } from "../../../scripts/testnet/state.mjs";
 
 afterEach(() => vi.restoreAllMocks());
 

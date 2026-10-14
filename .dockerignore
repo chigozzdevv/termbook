@@ -1,0 +1,16 @@
+.git
+**/node_modules
+**/dist
+**/.next
+**/*.tsbuildinfo
+**/.env
+**/.env.*
+**/*.env
+.testnet
+.data
+output
+deploy/private
+contracts
+coverage
+**/*.log
+.DS_Store

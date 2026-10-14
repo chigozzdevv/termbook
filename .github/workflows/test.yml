@@ -57,8 +57,8 @@ jobs:
             contracts/evm/cache
             contracts/evm/out
           key: ${{ runner.os }}-foundry-v1.5.1-shard-${{ matrix.shard }}-${{ hashFiles('contracts/evm/src/**/*.sol', 'contracts/evm/test/**/*.sol', 'contracts/evm/foundry.toml', 'contracts/evm/remappings.txt', 'pnpm-lock.yaml', 'lib/forge-std/**/*.sol') }}
-      - run: node scripts/test-contracts-ci.mjs ${{ matrix.shard }} 4
-      - run: sh scripts/check-contracts.sh
+      - run: node scripts/checks/contracts-ci.mjs ${{ matrix.shard }} 4
+      - run: sh scripts/checks/contracts.sh
   solana:
     runs-on: ubuntu-latest
     steps:

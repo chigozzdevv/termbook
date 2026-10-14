@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { ed25519 } from "@noble/curves/ed25519";
 import { keccak256, type Hex } from "viem";
-import { solanaBase58Bytes } from "../src/collateral/solana-proof.js";
+import { solanaBase58Bytes } from "../../src/collateral/solana-proof.js";
 
 const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 const loader = "BPFLoaderUpgradeab1e11111111111111111111111";
@@ -19,7 +19,7 @@ const networkGenesis = monadChainId === "10143" ? "EtWTRABZaYq6iMfeYKouRu166VU2x
 
 if (!rpcUrl || !programId || !/^0x[0-9a-fA-F]{64}$/.test(expectedGenesis ?? "")
   || !/^0x[0-9a-fA-F]{64}$/.test(expectedHash ?? "")) {
-  throw new Error("Usage: tsx server/scripts/verify-solana-program.ts <rpc-url> <program-id> <genesis-hex> <program-data-hash> [143|10143] [--testnet-upgrade-authority <public-key>]");
+  throw new Error("Usage: tsx server/scripts/solana/verify-program.ts <rpc-url> <program-id> <genesis-hex> <program-data-hash> [143|10143] [--testnet-upgrade-authority <public-key>]");
 }
 
 function encode58(bytes: Uint8Array): string {

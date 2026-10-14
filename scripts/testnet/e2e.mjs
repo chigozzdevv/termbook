@@ -1,12 +1,12 @@
-import { operationFile, operationLock, readConfiguration, clearOperation } from "./testnet-state.mjs";
+import { operationFile, operationLock, readConfiguration, clearOperation } from "./state.mjs";
 import fs from "node:fs";
 import process from "node:process";
 import { log, error } from "node:console";
 import { setTimeout as delay } from "node:timers/promises";
-import { canonicalJson, apiAuthorizationMessage, selectCapability, executionKey } from "../packages/schema/dist/index.js";
-import { viem, artifact, testnetRuntime, writeJsonAtomic } from "./testnet-runtime.mjs";
-import { closeRpcBudget } from "../server/dist/chain/rpc.budget.js";
-import { isRpcUnavailable } from "../server/dist/chain/rpc.transport.js";
+import { canonicalJson, apiAuthorizationMessage, selectCapability, executionKey } from "../../packages/schema/dist/index.js";
+import { viem, artifact, testnetRuntime, writeJsonAtomic } from "./runtime.mjs";
+import { closeRpcBudget } from "../../server/dist/chain/rpc.budget.js";
+import { isRpcUnavailable } from "../../server/dist/chain/rpc.transport.js";
 
 const mode = process.argv[2];
 const fast = process.argv[3] === "--fast";
@@ -45,7 +45,7 @@ async function main() {
   const appSetup = readConfiguration(kuru ? "kuru-integration" : "app");
   if (!appSetup || appSetup.core.toLowerCase() !== m.TermbookCore.toLowerCase()) throw new Error("Configure the current integration first");
   const app = kuru ? appSetup.definition.contracts.reader : appSetup.addresses.ReferenceAssetApp;
-  const sdk = kuru ? await import("../packages/sdk/dist/index.js") : undefined;
+  const sdk = kuru ? await import("../../packages/sdk/dist/index.js") : undefined;
   if (kuru) {
     if (Boolean(appSetup.definition.assessment?.orders) !== orders) throw new Error("Use --kuru-orders for the tracked-order integration, or --kuru for the atomic integration");
     if (report.bundleId && report.bundleId !== appSetup.bundleId) throw new Error("Live test journal belongs to another integration version");

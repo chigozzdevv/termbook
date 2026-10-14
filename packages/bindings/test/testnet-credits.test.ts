@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { loadCredits } from "../../../scripts/testnet-credits.mjs";
+import { loadCredits } from "../../../scripts/testnet/credits.mjs";
 
 const archive = vi.hoisted(() => ({
   read: vi.fn(), env: { monadChainId: 10143, core: "core" },
 }));
 vi.mock("../../../server/dist/chain/envio.client.js", () => ({ readCoreEvents: archive.read }));
 vi.mock("../../../server/dist/config/env.js", () => ({ env: archive.env }));
-vi.mock("../../../scripts/testnet-runtime.mjs", () => ({
+vi.mock("../../../scripts/testnet/runtime.mjs", () => ({
   artifact: () => ({ abi: [{ type: "event", name: "CreditCreated" }] }),
   viem: { toEventSelector: () => `0x${"1".repeat(64)}`, decodeEventLog: ({ data }: { data: string }) => ({ args: { creditId: data } }) },
 }));

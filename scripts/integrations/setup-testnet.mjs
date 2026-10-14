@@ -1,13 +1,13 @@
-import { loadCredits } from "./testnet-credits.mjs";
-import { alreadyConfigured, writeConfiguration, clearOperation, operationFile } from "./testnet-state.mjs";
+import { loadCredits } from "../testnet/credits.mjs";
+import { alreadyConfigured, writeConfiguration, clearOperation, operationFile } from "../testnet/state.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { log, error } from "node:console";
 import { execFileSync } from "node:child_process";
-import { root, viem, artifact, testnetRuntime, writeJsonAtomic } from "./testnet-runtime.mjs";
-import { validateUpgradeArtifact, upgradeArtifactLoader } from "./upgrade-validation.mjs";
-import { executionKey } from "../packages/schema/dist/index.js";
+import { root, viem, artifact, testnetRuntime, writeJsonAtomic } from "../testnet/runtime.mjs";
+import { validateUpgradeArtifact, upgradeArtifactLoader } from "../deploy/upgrade-validation.mjs";
+import { executionKey } from "../../packages/schema/dist/index.js";
 
 const simulateLive = process.argv[2] === "--simulate-live";
 const simulate = process.argv[2] === "--simulate" || simulateLive;

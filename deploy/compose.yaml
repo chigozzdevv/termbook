@@ -1,0 +1,156 @@
+name: ${COMPOSE_PROJECT_NAME:-termbook}
+
+x-app: &app
+  restart: unless-stopped
+  init: true
+  env_file:
+    - ${TERMBOOK_RUNTIME_ENV:?runtime environment file required}
+  environment:
+    PORT: "3002"
+  volumes:
+    - type: bind
+      source: ${TERMBOOK_DATA_DIR:?operation data directory required}
+      target: /app/.data
+      bind: {create_host_path: false}
+    - type: bind
+      source: ${TERMBOOK_SOLANA_KEY_FILE:?Solana keeper key file required}
+      target: /run/secrets/solana-source-keeper.json
+      read_only: true
+      bind: {create_host_path: false}
+    - type: bind
+      source: ${TERMBOOK_MANIFEST:?deployment manifest required}
+      target: /app/deployments/testnet.json
+      read_only: true
+      bind: {create_host_path: false}
+  networks: [edge, storage]
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+services:
+  mongo:
+    image: mongo:8.0
+    command: [mongod, --replSet, rs0, --bind_ip_all]
+    restart: unless-stopped
+    mem_limit: 768m
+    cpus: 1.0
+    volumes:
+      - mongo:/data/db
+    networks: [storage]
+    healthcheck:
+      test: [CMD, mongosh, --quiet, --eval, "quit(db.adminCommand({ping: 1}).ok ? 0 : 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    logging:
+      options: {max-size: 10m, max-file: "3"}
+
+  mongo-init:
+    image: mongo:8.0
+    depends_on:
+      mongo: {condition: service_healthy}
+    restart: "no"
+    networks: [storage]
+    entrypoint: [mongosh, --host, mongo:27017, --quiet, --eval]
+    command:
+      - "try { rs.status(); } catch (error) { if (error.codeName !== 'NotYetInitialized') throw error; rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'mongo:27017'}]}); }"
+
+  redis:
+    image: redis:7-alpine
+    command: [redis-server, --maxmemory, 96mb, --maxmemory-policy, noeviction]
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.25
+    networks: [storage]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    logging:
+      options: {max-size: 10m, max-file: "3"}
+
+  api:
+    <<: *app
+    image: ${TERMBOOK_BACKEND_IMAGE:-termbook-backend}:${TERMBOOK_RELEASE:?release required}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      target: backend
+    mem_limit: 1g
+    cpus: 1.5
+    ports: ["127.0.0.1:${TERMBOOK_API_PORT:-3002}:3002"]
+    depends_on:
+      mongo-init: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3002/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 30s
+
+  worker:
+    <<: *app
+    image: ${TERMBOOK_BACKEND_IMAGE:-termbook-backend}:${TERMBOOK_RELEASE:?release required}
+    command: [node, server/dist/worker.js]
+    stop_grace_period: 120s
+    secrets: [testnet-operator]
+    mem_limit: 1g
+    cpus: 1.0
+    depends_on:
+      mongo-init: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+
+  client:
+    image: ${TERMBOOK_CLIENT_IMAGE:-termbook-client}:${TERMBOOK_RELEASE:?release required}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      target: client
+      args:
+        PUBLIC_API_BASE: ${PUBLIC_API_BASE:?public API URL required at build time}
+    restart: unless-stopped
+    init: true
+    environment:
+      NODE_OPTIONS: --max-old-space-size=512
+    mem_limit: 768m
+    cpus: 0.75
+    ports: ["127.0.0.1:${TERMBOOK_CLIENT_PORT:-4178}:4178"]
+    networks: [edge]
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:4178/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 30s
+    logging:
+      options: {max-size: 10m, max-file: "3"}
+
+  tunnel:
+    image: cloudflare/cloudflared@sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07
+    profiles: [tunnel]
+    command: [tunnel, --no-autoupdate, run, --token-file, /run/secrets/tunnel-token]
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.5
+    networks: [edge]
+    secrets: [tunnel-token]
+    logging:
+      options: {max-size: 10m, max-file: "3"}
+
+networks:
+  edge:
+  storage:
+    internal: true
+
+volumes:
+  mongo:
+
+secrets:
+  testnet-operator:
+    file: ${TERMBOOK_OPERATOR_KEY_FILE:?operator key file required}
+  tunnel-token:
+    file: ${TERMBOOK_TUNNEL_TOKEN_FILE:-./private/tunnel-token}

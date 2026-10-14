@@ -3,9 +3,9 @@ import path from "node:path";
 import process from "node:process";
 import { log, error } from "node:console";
 import { createRequire } from "node:module";
-import { root, viem, testnetRuntime } from "./testnet-runtime.mjs";
-import { writeConfiguration, clearOperation, operationFile } from "./testnet-state.mjs";
-import { proxyImplementationSlots, proxyBeaconSlot, resolveProxyImplementation } from "../packages/schema/dist/index.js";
+import { root, viem, testnetRuntime } from "../testnet/runtime.mjs";
+import { writeConfiguration, clearOperation, operationFile } from "../testnet/state.mjs";
+import { proxyImplementationSlots, proxyBeaconSlot, resolveProxyImplementation } from "../../packages/schema/dist/index.js";
 
 const simulate = process.argv.includes("--simulate");
 const configure = process.argv.includes("--configure");
@@ -121,15 +121,15 @@ async function main() {
     await network.send("refresh-maker-ask", viem.encodeFunctionData({ abi: marketAbi, functionName: "addSellOrder", args: [Number(report.ask), BigInt(report.size), true] }), market);
     report.completedAt ??= new Date().toISOString(); persist();
     if (!simulate) { installed.bid = report.bid; installed.ask = report.ask; installed.liquidityUpdatedAt = report.completedAt;
-      const { writeJsonAtomic } = await import("./testnet-state.mjs");
+      const { writeJsonAtomic } = await import("../testnet/state.mjs");
       writeJsonAtomic(path.join(root, "deployments/testnet.json"), deployment); clearOperation(operation); }
     log(JSON.stringify({ simulated: simulate, market, bid: report.bid, ask: report.ask,
       costMON: viem.formatEther(report.transactions.reduce((sum, tx) => sum + BigInt(tx.gasUsed) * BigInt(tx.effectiveGasPrice), 0n)) }));
     return;
   }
   if (reviewRuntime) {
-    const { runtimeReviewData, runtimeReviewSummary } = await import("../packages/sdk/dist/index.js");
-    const { runtimeReviewSchema } = await import("../packages/schema/dist/index.js");
+    const { runtimeReviewData, runtimeReviewSummary } = await import("../../packages/sdk/dist/index.js");
+    const { runtimeReviewSchema } = await import("../../packages/schema/dist/index.js");
     const market = deployment.configuration["kuru-market"];
     const pin = market?.dependencies.find((p) => p.address.toLowerCase() === market.market.toLowerCase());
     if (!pin?.implementation || !pin.guard || market.core.toLowerCase() !== m.TermbookCore.toLowerCase()) throw new Error("Kuru monitor and deployment binding required");
@@ -187,8 +187,8 @@ async function main() {
       || (await network.read("AppHealthReaderFactory", m.AppHealthReaderFactory, "collateralReader")).toLowerCase() !== m.CollateralHealthReader.toLowerCase()) {
       throw new Error("Kuru health factory binding changed");
     }
-    const { create_kuru } = await import("../server/dist/kuru/integration.js");
-    const { prepare_atomic_spot, prepare_use_case, use_case_configuration, package_integration, atomic_configuration } = await import("../packages/sdk/dist/index.js");
+    const { create_kuru } = await import("../../server/dist/kuru/integration.js");
+    const { prepare_atomic_spot, prepare_use_case, use_case_configuration, package_integration, atomic_configuration } = await import("../../packages/sdk/dist/index.js");
     const market = deployment.configuration["kuru-market"];
     if (!market || market.core.toLowerCase() !== m.TermbookCore.toLowerCase()
       || !market.oracleGuard || market.dependencies.length !== 6 || market.dependencies.some((p) => !market.guards[p.address])) throw new Error("Complete the Kuru dependency and Oracle guards first");
@@ -391,4 +391,4 @@ main().catch((cause) => {
   if (cause && typeof cause === "object" && Array.isArray(cause.failures)) error(JSON.stringify({ error: cause.message, sources: cause.failures }));
   else error(cause instanceof Error ? cause.message.split("\n")[0] : "Kuru setup failed");
   process.exitCode = 1;
-}).finally(async () => { const { closeRpcBudget } = await import("../server/dist/chain/rpc.budget.js"); await closeRpcBudget(); });
+}).finally(async () => { const { closeRpcBudget } = await import("../../server/dist/chain/rpc.budget.js"); await closeRpcBudget(); });

@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import process from "node:process";
 
-export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 export const manifestFile = path.join(root, "deployments/testnet.json");
 export const operations = path.join(root, ".data/operations");
 

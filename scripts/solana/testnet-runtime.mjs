@@ -2,10 +2,10 @@ import fs from "node:fs";
 import { Buffer } from "node:buffer";
 import { URL } from "node:url";
 import { createRequire } from "node:module";
-import { SolanaRpcWallet } from "../packages/sdk/dist/index.js";
-import { root } from "./testnet-runtime.mjs";
+import { SolanaRpcWallet } from "../../packages/sdk/dist/index.js";
+import { root } from "../testnet/runtime.mjs";
 
-const require = createRequire(new URL("../packages/sdk/package.json", import.meta.url));
+const require = createRequire(new URL("../../packages/sdk/package.json", import.meta.url));
 export const { Connection, Keypair, PublicKey, SystemProgram, VersionedTransaction } = require("@solana/web3.js");
 export const solanaConnection = () => new Connection("https://api.devnet.solana.com", "finalized");
 export const solanaPayer = () => Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(`${root}/.testnet/solana.json`))));

@@ -1,8 +1,9 @@
 #!/bin/sh
 set -eu
+cd "$(dirname "$0")/../.."
 
 usage() {
-  echo "usage: scripts/deploy.sh {protocol|routing|source|source-wormhole|ethereum-beacon-client|ethereum-verifier|ethereum-wormhole-verifier|native-collateral|collateral-health-reader|app-health-reader|app-exit-verifier|retention-verifier|solana-wormhole}" >&2
+  echo "usage: scripts/deploy/contracts.sh {protocol|routing|source|source-wormhole|ethereum-beacon-client|ethereum-verifier|ethereum-wormhole-verifier|native-collateral|collateral-health-reader|app-health-reader|app-exit-verifier|retention-verifier|solana-wormhole}" >&2
   exit 2
 }
 
@@ -156,7 +157,7 @@ if [ "$1" = solana-wormhole ]; then
   same "$WORMHOLE_CORE_ADDRESS" "$monad_wormhole_core" || fail "canonical Monad Wormhole Core required"
   [ "$(cast to-dec "$(cast call "$WORMHOLE_CORE_ADDRESS" 'chainId()(uint16)' --rpc-url "$RPC_URL")")" = "$monad_wormhole_id" ] || fail "Monad Wormhole Core mismatch"
   solana_program_base58=$(node --input-type=module -e 'import { solanaPubkeyBase58 } from "@termbook/sdk"; process.stdout.write(solanaPubkeyBase58(process.env.SOLANA_PROGRAM_ID));')
-  solana_check=$(node --import tsx server/scripts/verify-solana-program.ts "$SOLANA_RPC_URL" "$solana_program_base58" "$SOLANA_GENESIS" "$SOLANA_PROGRAM_DATA_HASH" "$MONAD_CHAIN_ID")
+  solana_check=$(node --import tsx server/scripts/solana/verify-program.ts "$SOLANA_RPC_URL" "$solana_program_base58" "$SOLANA_GENESIS" "$SOLANA_PROGRAM_DATA_HASH" "$MONAD_CHAIN_ID")
   node --input-type=module -e 'const report = JSON.parse(process.argv[1]); if (report.emitterHex.toLowerCase() !== process.env.SOLANA_EMITTER.toLowerCase()) throw new Error("solana-emitter-mismatch");' "$solana_check"
 fi
 

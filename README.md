@@ -256,3 +256,17 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --no-build
 Prepare the runtime environment, manifest, signer files and writable data directory before starting. The [hosting instructions](https://termbook.xyz/docs/operators/deployment#hosting) explain database URLs, file permissions and optional HTTPS routing.
 
 Scripts are grouped by function: `scripts/deploy/`, `testnet/`, `integrations/`, `kuru/`, `solana/` and `checks/`. General build, test and setup commands remain in `scripts/`.
+
+### CI on a VPS
+
+`deploy/ci/` and `scripts/ci/` configure a dedicated rootless GitHub Actions runner. It uses fresh containers and workspaces for each job, with a private runner registration volume, a 2-CPU limit and a 6-GiB memory limit. No application keys, application volumes or host Docker socket are mounted.
+
+Prepare it on an Ubuntu server with the official runner version and SHA-256 checksum:
+
+```sh
+RUNNER_VERSION=official_version RUNNER_SHA256=official_checksum sh scripts/ci/setup.sh prepare
+```
+
+Pass a short-lived GitHub runner registration token to `sh scripts/ci/setup.sh register` over stdin. It registers and starts the runner service; the token is not saved as a personal access token on the server.
+
+Once the runner is online, set the repository variable `TERMBOOK_CI_VPS=true`. Main-branch pushes and manual runs then use the VPS. Pull-request checks stay on GitHub-hosted machines. A pre-job guard independently rejects other events, branches and workflows on the VPS runner. Unset the variable and start a new run to use GitHub-hosted machines again.

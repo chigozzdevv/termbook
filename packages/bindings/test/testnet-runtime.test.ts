@@ -1,5 +1,7 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { warmForkStorage, warmIntegrationConfiguration, canonicalReceipt, artifact, viem } from "../../../scripts/testnet/runtime.mjs";
+import fs from "node:fs";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { spotOrderTrackerAbi } from "../src/generated/abi/spot-order-tracker.js";
+import { warmForkStorage, warmIntegrationConfiguration, canonicalReceipt, viem } from "../../../scripts/testnet/runtime.mjs";
 
 vi.mock("node:timers/promises", () => ({ setTimeout: vi.fn(async () => undefined) }));
 
@@ -10,7 +12,7 @@ const response = (values: unknown) => ({ ok: true, json: async () => values });
 function client() {
   return { request: vi.fn(async ({ method }: { method: string }) => method === "anvil_nodeInfo" ? { forkConfig: fork } : undefined) };
 }
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe("deployment receipts", () => {
   const hash = `0x${"1".repeat(64)}`;
@@ -78,7 +80,10 @@ describe("fork storage prefetch", () => {
 
 describe("shared configuration prefetch", () => {
   const bundle = `0x${"11".repeat(32)}`;
-  const data = viem.encodeFunctionData({ abi: artifact("SpotOrderTracker").abi, functionName: "configure", args: [bundle, []] });
+  const data = viem.encodeFunctionData({ abi: spotOrderTrackerAbi, functionName: "configure", args: [bundle, []] });
+  beforeEach(() => {
+    vi.spyOn(fs, "readFileSync").mockReturnValueOnce(JSON.stringify({ abi: spotOrderTrackerAbi }));
+  });
   it("leaves populated local configuration untouched", async () => {
     const chain = { ...client(), readContract: vi.fn(async () => bundle) };
     await warmIntegrationConfiguration(chain, "SpotOrderTracker", target, data);

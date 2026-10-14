@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -14,9 +15,17 @@ concurrency:
 
 jobs:
   typescript:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.TERMBOOK_CI_VPS == 'true' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && fromJSON('["self-hosted", "linux", "x64", "termbook-ci"]') || 'ubuntu-latest' }}
+    timeout-minutes: 45
+    env:
+      VITEST_MIN_THREADS: 1
+      VITEST_MAX_THREADS: 2
+      VITEST_MIN_FORKS: 1
+      VITEST_MAX_FORKS: 2
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@v4
         with:
           version: 10.0.0
@@ -30,7 +39,7 @@ jobs:
       - run: pnpm lint
       - run: pnpm test
   evm:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.TERMBOOK_CI_VPS == 'true' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && fromJSON('["self-hosted", "linux", "x64", "termbook-ci"]') || 'ubuntu-latest' }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -40,6 +49,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          persist-credentials: false
       - uses: pnpm/action-setup@v4
         with:
           version: 10.0.0
@@ -60,9 +70,14 @@ jobs:
       - run: node scripts/checks/contracts-ci.mjs ${{ matrix.shard }} 4
       - run: sh scripts/checks/contracts.sh
   solana:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.TERMBOOK_CI_VPS == 'true' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && fromJSON('["self-hosted", "linux", "x64", "termbook-ci"]') || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    env:
+      CARGO_BUILD_JOBS: 2
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --manifest-path contracts/solana/Cargo.toml --locked
       - run: cargo test --manifest-path contracts/solana/Cargo.toml --features testnet-upgrades --locked

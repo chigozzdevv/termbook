@@ -1,0 +1,30 @@
+[Unit]
+Description=Termbook GitHub Actions runner
+After=network-online.target user@@CI_UID@.service
+Wants=network-online.target user@@CI_UID@.service
+StartLimitIntervalSec=0
+
+[Service]
+User=termbook-ci
+Group=termbook-ci
+WorkingDirectory=/var/lib/termbook-ci
+Slice=user-@CI_UID@.slice
+Delegate=yes
+Environment=HOME=/var/lib/termbook-ci
+Environment=XDG_RUNTIME_DIR=/run/user/@CI_UID@
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/@CI_UID@/bus
+EnvironmentFile=/etc/termbook-ci/runner.env
+ExecStartPre=-/usr/bin/podman --cgroup-manager=systemd rm --force termbook-ci
+ExecStart=/usr/bin/podman --cgroup-manager=systemd run --rm --name termbook-ci --init --userns=keep-id:uid=1000,gid=1000 --user=1000:1000 --cap-drop=ALL --security-opt=no-new-privileges --read-only --network=slirp4netns:allow_host_loopback=false --dns=1.1.1.1 --cpus=2 --memory=6g --pids-limit=2048 --volume=termbook-ci-state:/runner --volume=/work --volume=/home/node --tmpfs=/tmp:rw,size=512m --tmpfs=/var/tmp:rw,size=64m ${CI_IMAGE}
+ExecStop=/usr/bin/podman --cgroup-manager=systemd stop --time 90 termbook-ci
+Restart=always
+RestartSec=5
+TimeoutStopSec=120
+KillMode=control-group
+UMask=0077
+Nice=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -14,6 +14,7 @@ export async function evm_wallet(client: WalletClient): Promise<Wallet> {
     ...(client.request ? { request: (request: { method: string; params?: unknown[] }) => client.request(request as never) } : {}),
     getChainId: () => client.getChainId(),
     signMessage: async (message) => { await checkAccount(); return client.signMessage({ account: address, message }); },
+    signDigest: async (digest) => { await checkAccount(); return client.signMessage({ account: address, message: { raw: digest } }); },
     signTypedData: async (payload) => {
       await checkAccount();
       return client.signTypedData({ ...(payload as Parameters<typeof client.signTypedData>[0]), account: address });

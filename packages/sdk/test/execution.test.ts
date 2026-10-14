@@ -3,6 +3,8 @@ import { encodeAbiParameters, encodeFunctionData, keccak256, padHex, stringToHex
 import { executionCoreAbi } from "../src/app/execution.js";
 import { CreditApp } from "../src/app/app.js";
 import type { TermbookClient } from "../src/client/client.js";
+import * as pins from "../src/integration/pins.js";
+import { standardDefinition } from "./use-case.fixture.js";
 
 const address = (digit: string) => `0x${digit.repeat(40)}` as const;
 const word = (digit: string) => `0x${digit.repeat(64)}` as const;
@@ -54,6 +56,27 @@ function fixture(pending = true) {
 }
 
 describe("managed SDK execution", () => {
+  it("skips repeated testnet source audits but retains permission and health enforcement", async () => {
+    const { client, rpc, app, action } = fixture(false);
+    client.config.chainId = 10143;
+    client.config.integration_definition = standardDefinition();
+    const verify = vi.spyOn(pins, "verify_definition").mockRejectedValue(new Error("source-audit"));
+    try {
+      await expect(app.review(action)).resolves.toMatchObject({ canExecute: true });
+      expect(verify).not.toHaveBeenCalled();
+      expect(rpc.currentHealth).toHaveBeenCalled();
+      expect(rpc.previewPlan).toHaveBeenCalled();
+      rpc.previewPlan.mockResolvedValue({ initialBps: 15_000n, healthBps: 10_000n, debt: 105n, recoveryValue: 105n });
+      await expect(app.execute(action)).rejects.toThrow("action-health-insufficient");
+      expect(rpc.coreWrite).not.toHaveBeenCalled();
+      const read = rpc.read.getMockImplementation()!;
+      rpc.read.mockImplementation(async (address, abi, name) => name === "validateValueCall" ? false as never : read(address, abi, name));
+      await expect(app.review(action)).rejects.toThrow("capability-denied");
+      client.config.chainId = 143;
+      await expect(app.review(action)).rejects.toThrow("source-audit");
+      expect(verify).toHaveBeenCalledTimes(1);
+    } finally { verify.mockRestore(); }
+  });
   it("keeps place_order unprefixed and validates its use case before reading or signing", async () => {
     const { client, rpc, app, action } = fixture(false);
     client.config.use_case = "perps";

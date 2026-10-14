@@ -9,6 +9,7 @@ import { readProxyImplementation } from "../chain/proxy.js";
 import { approvedRuntimeReviews } from "./runtime-review.js";
 import { runtimeReviewSummary } from "@termbook/sdk";
 import { pacedHttp } from "../chain/rpc.transport.js";
+import { setTimeout as delay } from "node:timers/promises";
 
 const abi = parseAbi([
   "function proxy() view returns(address)", "function implementation() view returns(address)",
@@ -19,6 +20,10 @@ const abi = parseAbi([
 ]);
 
 export function upgradeMonitorConfig() {
+  if (process.env["TESTNET_UPGRADE_MONITOR_ENABLED"] === "false") {
+    if (env.monadChainId !== 10143) throw new Error("upgrade-monitor-config-invalid");
+    return null;
+  }
   const raw = process.env["TESTNET_UPGRADE_GUARDS"];
   const key = process.env["UPGRADE_MONITOR_KEY"];
   if (!raw && !key) return null;
@@ -105,7 +110,12 @@ export async function runUpgradeMonitorWorker(): Promise<number> {
           to: guard.address, data });
         if (changed) logger.error("upgrade-monitor-dependency-changed", { guard: guard.address, proxy });
         if (result === "success") submitted++;
-        if (result === "pending" || result === "busy") break;
+        if (result === "busy") break;
+        if (result === "pending") {
+          await delay(1000);
+          if (await reconcileKeeperWallet(client, 10143, config.account.address) !== "success") break;
+          submitted++;
+        }
       } catch (cause) {
         const failure = cause as { code?: number; cause?: { code?: number } };
         logger.warn("upgrade-monitor-unavailable", { guard: guard.address, phase, errorName: cause instanceof Error ? cause.name : "unknown",

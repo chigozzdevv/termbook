@@ -1,11 +1,13 @@
 import type { FastifyInstance } from "fastify";
 import { HttpError } from "./http.errors.js";
 import { ZodError } from "zod";
+import { isRpcUnavailable } from "../chain/rpc.transport.js";
 
 export function registerErrors(app: FastifyInstance): void {
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof HttpError) return reply.status(err.status).send({ error: err.message });
     if (err instanceof ZodError) return reply.status(400).send({ error: "validation-failed", issues: err.issues });
+    if (isRpcUnavailable(err)) return reply.status(503).send({ error: "chain-unavailable" });
     const message = err instanceof Error ? err.message : "internal";
     if (message === "auth-rate-limited") return reply.status(429).send({ error: message });
     if (message.endsWith("-conflict")) return reply.status(409).send({ error: message });

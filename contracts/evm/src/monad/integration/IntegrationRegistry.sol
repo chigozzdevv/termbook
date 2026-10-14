@@ -5,6 +5,7 @@ import {ProxyInitializable} from "../../shared/ProxyInitializable.sol";
 
 import {IAppCallValidator} from "./IAppCallValidator.sol";
 import {IAppDeploymentGuard} from "./IAppDeploymentGuard.sol";
+import {TestnetUpgradeGuard} from "./TestnetUpgradeGuard.sol";
 import {CodeInspection} from "../../shared/CodeInspection.sol";
 
 contract IntegrationRegistry is ProxyInitializable {
@@ -58,6 +59,8 @@ contract IntegrationRegistry is ProxyInitializable {
     mapping(bytes32 => mapping(address => mapping(bytes4 => CallPolicy))) public callPolicies;
     mapping(bytes32 => mapping(address => mapping(bytes4 => RecoveryCallPolicy))) public recoveryCallPolicies;
     address public reviewer;
+    struct TestnetGuardApproval { address implementation; bytes32 codeHash; }
+    mapping(bytes32 => mapping(address => TestnetGuardApproval)) public testnetGuardApprovals;
     error Unauthorized();
     error Invalid();
     error Frozen();
@@ -72,6 +75,7 @@ contract IntegrationRegistry is ProxyInitializable {
     event RecoveryCallDisabled(bytes32 indexed id, address indexed target, bytes4 selector);
     event DependencyPinned(bytes32 indexed id, address indexed dependency, bytes32 codeHash);
     event DependencyGuardSet(bytes32 indexed id, address indexed dependency, address guard);
+    event TestnetGuardLeaseDisabled(bytes32 indexed id, address indexed dependency, bool disabled);
     event NativeValueRegistered(bytes32 indexed id, address indexed target, bytes4 selector, bool recovery, uint256 maxValue, uint8 amountArg);
 
     constructor(address reviewer_) {
@@ -153,11 +157,35 @@ contract IntegrationRegistry is ProxyInitializable {
         return true;
     }
 
+    function setTestnetGuardLeaseDisabled(bytes32 id, address dependency, bool disabled) external {
+        if (block.chainid != 10143 || msg.sender != reviewer) revert Unauthorized();
+        Dependency memory pin = dependencies[id][dependency];
+        if (versions[id].frozen || pin.guard == address(0) || pin.guard.codehash != pin.guardCodeHash
+            || dependency.codehash != pin.codeHash) revert Invalid();
+        if (disabled) {
+            TestnetUpgradeGuard guard = TestnetUpgradeGuard(pin.guard);
+            address implementation = guard.implementation();
+            if (guard.proxy() != dependency || guard.governance() != reviewer || guard.revoked()
+                || guard.proxyCodeHash() != pin.codeHash || implementation.code.length == 0
+                || implementation.codehash != guard.implementationCodeHash()) revert Invalid();
+            testnetGuardApprovals[id][dependency] = TestnetGuardApproval(implementation, implementation.codehash);
+        } else {
+            delete testnetGuardApprovals[id][dependency];
+        }
+        emit TestnetGuardLeaseDisabled(id, dependency, disabled);
+    }
+
     function dependencyValid(bytes32 id, address dependency) public view returns (bool) {
         Dependency memory pin = dependencies[id][dependency];
         if (pin.codeHash == bytes32(0) || dependency.code.length == 0 || dependency.codehash != pin.codeHash) return false;
         if (pin.guard == address(0)) return !pin.requiresGuard;
         if (pin.guard.codehash != pin.guardCodeHash) return false;
+        TestnetGuardApproval memory approval = testnetGuardApprovals[id][dependency];
+        if (block.chainid == 10143 && approval.implementation != address(0)) {
+            if (approval.implementation.codehash != approval.codeHash) return false;
+            try TestnetUpgradeGuard(pin.guard).revoked() returns (bool revoked) { return !revoked; }
+            catch { return false; }
+        }
         try IAppDeploymentGuard(pin.guard).valid(dependency) returns (bool valid) { return valid; }
         catch { return false; }
     }

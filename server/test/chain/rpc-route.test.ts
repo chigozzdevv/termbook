@@ -14,6 +14,12 @@ async function rpc(body: unknown, full = false) {
 }
 const request = (method: string, params: unknown[] = [], id = 1) => ({ jsonrpc: "2.0", method, params, id });
 describe("Public read-only RPC", () => {
+  it("gives execution previews the Monad transaction gas budget", async () => {
+    const to = `0x${"1".repeat(40)}`;
+    await rpc(request("eth_call", [{ to, data: "0x" }, "latest"]));
+    expect(read).toHaveBeenCalledWith({ method: "eth_call", params: [{ to, data: "0x", gas: "0x1c9c380" }, "latest"] });
+    expect((await rpc(request("eth_call", [{ to, gas: "0x1c9c381" }, "latest"]))).json().error.code).toBe(-32602);
+  });
   it("supports SDK reads without requiring a wallet signature", async () => {
     const response = await rpc(request("eth_chainId"), true);
     expect(response.statusCode).toBe(200); expect(response.json()).toMatchObject({ id: 1, result: "0x279f" });

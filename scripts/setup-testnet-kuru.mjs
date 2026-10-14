@@ -11,9 +11,10 @@ const simulate = process.argv.includes("--simulate");
 const configure = process.argv.includes("--configure");
 const reviewRuntime = process.argv.includes("--review-runtime");
 const liquidity = process.argv.includes("--liquidity");
-if ([configure, reviewRuntime, liquidity].filter(Boolean).length > 1 || simulate === process.argv.includes("--broadcast") || process.argv.length !== (configure || reviewRuntime || liquidity ? 4 : 3)
-  || process.argv.slice(2).some((a) => !["--simulate", "--broadcast", "--configure", "--review-runtime", "--liquidity"].includes(a))) throw new Error("Use --simulate or --broadcast, optionally with --configure, --review-runtime or --liquidity");
-const operation = liquidity ? "kuru-liquidity" : configure ? "kuru-integration" : reviewRuntime ? "kuru-runtime-review" : "kuru-setup";
+const disableMonitor = process.argv.includes("--disable-monitor");
+if ([configure, reviewRuntime, liquidity, disableMonitor].filter(Boolean).length > 1 || simulate === process.argv.includes("--broadcast") || process.argv.length !== (configure || reviewRuntime || liquidity || disableMonitor ? 4 : 3)
+  || process.argv.slice(2).some((a) => !["--simulate", "--broadcast", "--configure", "--review-runtime", "--liquidity", "--disable-monitor"].includes(a))) throw new Error("Use --simulate or --broadcast, optionally with --configure, --review-runtime, --liquidity or --disable-monitor");
+const operation = disableMonitor ? "kuru-disable-monitor" : liquidity ? "kuru-liquidity" : configure ? "kuru-integration" : reviewRuntime ? "kuru-runtime-review" : "kuru-setup";
 const factory = "0x7EFbE105Ca7415dE98F96622173458ac1c054630";
 const factoryAbi = viem.parseAbi([
   "function deployProxy(uint8,address,address,uint96,uint32,uint32,uint96,uint96,uint256,uint256,uint96) returns(address)",
@@ -41,6 +42,36 @@ async function main() {
   const setup = deployment.configuration.native;
   if (!setup || setup.core.toLowerCase() !== m.TermbookCore.toLowerCase()) throw new Error("Admit native MON prices first");
   const usdc = deployment.tokens[10143].USDC;
+  if (disableMonitor) {
+    const market = deployment.configuration["kuru-market"], integration = deployment.configuration["kuru-integration"];
+    if (!market || !integration || market.core.toLowerCase() !== m.TermbookCore.toLowerCase()
+      || integration.core.toLowerCase() !== m.TermbookCore.toLowerCase()) throw new Error("Current Kuru integration required");
+    for (const pin of market.dependencies) {
+      const [layout, code] = await Promise.all([
+        network.client.getStorageAt({ address: pin.address, slot: pin.implementationSlot }),
+        network.client.getCode({ address: pin.implementation }),
+      ]);
+      if (!layout || `0x${layout.slice(-40)}`.toLowerCase() !== pin.implementation.toLowerCase()
+        || !code || viem.keccak256(code) !== pin.implementationCodeHash) throw new Error("Kuru implementation changed");
+      const approval = await network.read("IntegrationRegistry", m.IntegrationRegistry, "testnetGuardApprovals", [integration.bundleId, pin.address]);
+      if (approval[0] === viem.zeroAddress) await network.govern("IntegrationRegistry", m.IntegrationRegistry,
+        "setTestnetGuardLeaseDisabled", [integration.bundleId, pin.address, true]);
+      const installed = await network.read("IntegrationRegistry", m.IntegrationRegistry, "testnetGuardApprovals", [integration.bundleId, pin.address]);
+      if (installed[0].toLowerCase() !== pin.implementation.toLowerCase() || installed[1] !== pin.implementationCodeHash)
+        throw new Error("Testnet guard approval mismatch");
+    }
+    if (!await network.read("IntegrationRegistry", m.IntegrationRegistry, "isActive", [integration.bundleId])) throw new Error("Kuru integration remains inactive");
+    if (!simulate) {
+      writeConfiguration("kuru-market", { ...market, monitorEnabled: false,
+        trustModel: "testnet operator-approved implementations; automatic upgrade monitoring disabled" });
+      const file = path.join(root, ".env");
+      const body = fs.readFileSync(file, "utf8").replace(/^TESTNET_UPGRADE_MONITOR_ENABLED=.*\n?/gm, "");
+      fs.writeFileSync(file, `${body}${body.endsWith("\n") ? "" : "\n"}TESTNET_UPGRADE_MONITOR_ENABLED=false\n`, { mode: 0o600 });
+      clearOperation(operation);
+    }
+    log(JSON.stringify({ simulated: simulate, monitorEnabled: false, active: true, bundleId: integration.bundleId }));
+    return;
+  }
   if (liquidity) {
     const installed = deployment.configuration["kuru-market"];
     if (!installed || installed.core.toLowerCase() !== m.TermbookCore.toLowerCase()) throw new Error("Current Kuru market required");
@@ -360,4 +391,4 @@ main().catch((cause) => {
   if (cause && typeof cause === "object" && Array.isArray(cause.failures)) error(JSON.stringify({ error: cause.message, sources: cause.failures }));
   else error(cause instanceof Error ? cause.message.split("\n")[0] : "Kuru setup failed");
   process.exitCode = 1;
-});
+}).finally(async () => { const { closeRpcBudget } = await import("../server/dist/chain/rpc.budget.js"); await closeRpcBudget(); });

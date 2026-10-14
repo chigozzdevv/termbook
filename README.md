@@ -92,14 +92,25 @@ finality, custody and implementation checks. Transaction broadcasts use the
 primary endpoint and the durable keeper journal.
 
 For approved testnet packages, connection setup checks current registry and health
-activation; the SDK verifies the chain, version and allowed calls. Full admission
-checks still run for borrowing requests, publication, and mainnet configuration.
+activation; the SDK verifies the chain, version and allowed calls. Borrowing checks
+the requested action and its live price rules. Trading still checks permissions,
+account funds and simulated post-action health. Testnet requests reuse the admitted
+package instead of repeating source audits; publication and mainnet retain full checks.
+Run `node --env-file=.env scripts/testnet-e2e.mjs --start --kuru-demo` to exercise
+SDK connection, borrowing requests, Kuru buy/sell, repayment and native MON return.
+The runner resumes its transaction journal; it does not replace the admission suite.
 Set `UPGRADE_MONITOR_RPC_URL` to isolate renewal reads and broadcasts from the
 API provider budget; the monitor verifies Monad testnet before using it.
+For testnet demos, `node --env-file=.env scripts/setup-testnet-kuru.mjs --broadcast --disable-monitor`
+disables the six Kuru guard leases through governance and sets
+`TESTNET_UPGRADE_MONITOR_ENABLED=false`. This requires the updated IntegrationRegistry.
+Automatic proxy upgrade detection is disabled in this mode; pinned bytecode,
+revocations, trade permissions, collateral, prices and health checks remain enforced.
+The registry exception is scoped to the approved dependencies on chain 10143 and cannot operate on mainnet.
 `NEXT_PUBLIC_TERMBOOK_API_URL` selects the API origin and defaults to `http://127.0.0.1:3002`.
 For local browsing and integration checks, run
 `node --env-file=.env server/dist/worker.js --indexer-monitor`.
-This starts indexing, table snapshot refreshes and the testnet upgrade monitor. Monitor renewals spend test
+This starts indexing, table snapshot refreshes and the testnet upgrade monitor when enabled. Monitor renewals spend test
 MON and keep the three-minute dependency leases current. The full worker is
 required for live collateral proofs, credit risk, execution and recovery.
 An empty `REDIS_URL` uses the durable MongoDB queue. The local API uses port 3002. `/health` checks the API;
@@ -358,6 +369,8 @@ change. Its key and pinned guard list are configured as `UPGRADE_MONITOR_KEY`
 and `TESTNET_UPGRADE_GUARDS` in the root `.env`. These guards reject deployment
 and authorization outside Monad testnet (10143). An upgrade between monitor
 checks remains a trust window; this configuration is not production admission.
+The current demo disables lease expiry for these six dependencies through the
+testnet-only registry approval described above, with the renewal worker stopped.
 
 Circle USDC, all five Kuru proxies, and the factory, margin-account, AMM-vault
 and forwarder implementations now have published Sourcify runtime matches. The
@@ -415,8 +428,9 @@ the root `.env`; `deployments/testnet.json` records its public admission identit
 The validation loans from that admission are closed, with no outstanding debt
 and their collateral returned. Client work, service hosting and Aurora sandbox
 routes remain deferred.
-For local use, run the worker command above with funded monitor and oracle
-keepers; execution checkpoints and monitor approvals expire when it stops.
+For local use, run the worker command above with a funded oracle keeper;
+execution price checkpoints expire when it stops. A funded monitor keeper is
+also required when guard leases are enabled.
 Configuration also installs a generic code-hash guard for the immutable MON
 ratio feed. The proposed 90,000-second Kuru health window was not activated.
 The public test market targets five MON per maker side. External trades can

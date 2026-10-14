@@ -11,6 +11,7 @@ import { keccak256, stringToHex, toFunctionSelector } from "viem";
 import { canonicalEvidence, capabilityDependencies, pluginDefinitionSchema } from "@termbook/schema";
 import { standardDefinition } from "../../../packages/sdk/test/use-case.fixture.js";
 import { env } from "../../src/config/env.js";
+import * as priceModule from "../../src/integration/integration.price.js";
 
 vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: vi.fn() }));
 vi.mock("../../src/integration/integration.repo.js", () => ({ integrationRepo: {
@@ -132,7 +133,7 @@ describe("integration app token", () => {
     return { row, chain };
   }
 
-  it("uses current activation checks for testnet connection while keeping operation admission intact", async () => {
+  it("uses current activation checks for testnet connection while keeping publication admission intact", async () => {
     const { chain } = connectionFixture();
     const token = `tbk_${"a".repeat(64)}`;
     await expect(integrationService.resolve(token, false, "connection")).resolves.toMatchObject({ chainId: 10143, use_case: "spot" });
@@ -143,6 +144,30 @@ describe("integration app token", () => {
     vi.mocked(verifyIntegrationSourcePins).mockResolvedValue(false);
     await expect(integrationService.resolve(token)).rejects.toThrow("integration-not-found");
     expect(verifyIntegrationSourcePins).toHaveBeenCalled();
+  });
+
+  it("checks the requested testnet action and current prices without repeating source audits", async () => {
+    const { row, chain } = connectionFixture();
+    const prices = vi.spyOn(priceModule, "admittedPrices").mockResolvedValue(true);
+    const action = { use_case: "spot" as const, capability: "place_order", params: {
+      market_id: "TOKEN-USDC", direction: "buy", order_type: "market", amount: { spend: "100" }, slippage_bps: 50,
+    } };
+    try {
+      await expect(integrationService.resolve(`tbk_${"a".repeat(64)}`, false, "operation", action))
+        .resolves.toMatchObject({ chainId: 10143 });
+      expect(verifyIntegrationSourcePins).not.toHaveBeenCalled();
+      expect(prices).toHaveBeenCalledWith(row.versionId, [row.actions[0]], 100n, "spot", row.settlementAsset);
+      expect(vi.mocked(chain.readContract).mock.calls.map(([r]) => r.functionName))
+        .toEqual(expect.arrayContaining(["isActive", "isReaderActive", "isCallAllowed"]));
+      prices.mockResolvedValue(false);
+      await expect(integrationService.resolve(`tbk_${"a".repeat(64)}`, false, "operation", action))
+        .rejects.toThrow("integration-not-found");
+      prices.mockResolvedValue(true);
+      const original = vi.mocked(chain.readContract).getMockImplementation()!;
+      vi.mocked(chain.readContract).mockImplementation(async (r) => r.functionName === "isCallAllowed" ? false as never : original(r));
+      await expect(integrationService.resolve(`tbk_${"a".repeat(64)}`, false, "operation", action))
+        .rejects.toThrow("integration-not-found");
+    } finally { prices.mockRestore(); }
   });
 
   it("rejects inactive testnet connections and retains full mainnet validation", async () => {

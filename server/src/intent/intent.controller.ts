@@ -13,7 +13,7 @@ export const intentController = {
     if (!user || user.wallet.toLowerCase() !== input.borrower.toLowerCase()) throw new Error("permission-denied");
     const appToken = req.headers["x-termbook-app-token"];
     if (typeof appToken !== "string") throw new Error("integration-not-found");
-    const integration = await integrationService.resolve(appToken, true);
+    const integration = await integrationService.resolve(appToken, true, "operation", input.action);
     if (input.action) { assertActionUseCase(input.action, integration.use_case); assertStandardAction(input.action, integration.use_case); }
     const definition = input.action && selectCapability(integration.actions, input.action);
     if (input.action) input.action.use_case = integration.use_case;

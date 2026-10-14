@@ -5,18 +5,21 @@ import { log, error } from "node:console";
 import { setTimeout as delay } from "node:timers/promises";
 import { canonicalJson, apiAuthorizationMessage, selectCapability, executionKey } from "../packages/schema/dist/index.js";
 import { viem, artifact, testnetRuntime, writeJsonAtomic } from "./testnet-runtime.mjs";
+import { closeRpcBudget } from "../server/dist/chain/rpc.budget.js";
+import { isRpcUnavailable } from "../server/dist/chain/rpc.transport.js";
 
 const mode = process.argv[2];
 const fast = process.argv[3] === "--fast";
 const clean = process.argv[4] === "--clean";
 const base = process.argv[3] === "--base-kuru";
-const orders = process.argv[3] === "--kuru-orders" || base;
+const demo = process.argv[3] === "--kuru-demo";
+const orders = process.argv[3] === "--kuru-orders" || base || demo;
 const kuru = process.argv[3] === "--kuru" || orders;
 const native = !base && (process.argv[3] === "--native" || kuru);
 if (!["--begin", "--start", "--retry-default", "--advance", "--run", "--observe", "--close-unused"].includes(mode) || clean && !fast
-  || process.argv.length !== (clean ? 5 : fast || native || base ? 4 : 3)) throw new Error("Use --begin, --start, --retry-default, --advance, --run, --observe or --close-unused with optional --base-kuru, --kuru-orders, --kuru, --native, or --fast and --clean");
-const journalName = base ? "base-kuru-e2e" : orders ? "kuru-orders-e2e" : kuru ? "kuru-e2e" : native ? "native-e2e" : fast ? clean ? "fast-clean-e2e" : "fast-e2e" : "live-e2e";
-const publicName = base ? "testnet-base-kuru-e2e" : orders ? "testnet-kuru-orders-e2e" : kuru ? "testnet-kuru-e2e" : native ? "testnet-native-e2e" : fast ? clean ? "testnet-fast-clean-e2e" : "testnet-fast-e2e" : "testnet-e2e";
+  || process.argv.length !== (clean ? 5 : fast || native || base ? 4 : 3)) throw new Error("Use --begin, --start, --retry-default, --advance, --run, --observe or --close-unused with optional --base-kuru, --kuru-demo, --kuru-orders, --kuru, --native, or --fast and --clean");
+const journalName = demo ? "kuru-demo-e2e" : base ? "base-kuru-e2e" : orders ? "kuru-orders-e2e" : kuru ? "kuru-e2e" : native ? "native-e2e" : fast ? clean ? "fast-clean-e2e" : "fast-e2e" : "live-e2e";
+const publicName = demo ? "testnet-kuru-demo-e2e" : base ? "testnet-base-kuru-e2e" : orders ? "testnet-kuru-orders-e2e" : kuru ? "testnet-kuru-e2e" : native ? "testnet-native-e2e" : fast ? clean ? "testnet-fast-clean-e2e" : "testnet-fast-e2e" : "testnet-e2e";
 const api = "http://127.0.0.1:3002";
 const erc20 = viem.parseAbi(["function approve(address,uint256) returns(bool)", "function balanceOf(address) view returns(uint256)"]);
 const wethAbi = viem.parseAbi(["function deposit() payable"]);
@@ -49,12 +52,119 @@ async function main() {
     report.bundleId = appSetup.bundleId;
   }
   const coreRead = (name, args = []) => monad.read("TermbookCore", m.TermbookCore, name, args);
+  if (demo && mode === "--start" && !report.begun && report.cases?.repayment) {
+    const prior = report.cases.repayment;
+    const credit = await coreRead("creditDetails", [prior.creditId]);
+    if (credit.facility < 4 && credit.setupDeadline < (await monad.client.getBlock()).timestamp) {
+      if (credit.debt !== 0n || credit.account !== viem.zeroAddress || prior.lockTx) throw new Error("Close the incomplete collateral setup before retrying");
+      await monad.call("TermbookCore", m.TermbookCore, "abort", [prior.creditId], "repayment:abort-expired-setup");
+      report.previousAttempts ??= [];
+      report.previousAttempts.push({ cases: report.cases, transactions: report.transactions, intentId: report.intentId });
+      report.transactions = []; report.cases = {}; delete report.intentId; persist();
+    }
+  }
+  let sdkClient, sdkStep;
+  async function demoClient() {
+    if (sdkClient) return sdkClient;
+    if (!process.env.TERMBOOK_KURU_APP_TOKEN) throw new Error("Kuru app token is required");
+    sdkClient = sdk.create_termbook({ app_token: process.env.TERMBOOK_KURU_APP_TOKEN, apiBase: api, wallet: {
+      address: account.address, getChainId: () => monad.client.getChainId(),
+      signTypedData: (payload) => account.signTypedData(payload),
+      signMessage: (message) => account.signMessage({ message }),
+      signDigest: (digest) => account.signMessage({ message: { raw: digest } }),
+      writeContract: async ({ address, abi, functionName, args, value }) => {
+        if (!sdkStep || functionName !== "executePlan") throw new Error("Unexpected SDK demo write");
+        const tx = await monad.send(sdkStep.label, viem.encodeFunctionData({ abi, functionName, args }), address, value ?? 0n);
+        sdkStep.checkpoint = { chainId: 10143, core: m.TermbookCore, creditId: args[0], tx: tx.hash,
+          capability: sdkStep.action.capability, executionKey: executionKey(selectCapability(appSetup.definition.actions, sdkStep.action)), stage: "submitted" };
+        persist(); return tx.hash;
+      },
+      waitForTransactionReceipt: (hash) => monad.client.waitForTransactionReceipt({ hash }),
+    } });
+    const started = Date.now();
+    await sdkClient.ready();
+    log(JSON.stringify({ step: "sdk-connected", milliseconds: Date.now() - started }));
+    return sdkClient;
+  }
+  function demoAction(direction, amount) {
+    return { use_case: "spot", capability: "place_order", params: { market_id: appSetup.definition.markets[0].market_id,
+      direction, order_type: "market", amount: { spend: String(amount) }, slippage_bps: 100 } };
+  }
+  async function demoExecute(test, key, action) {
+    test.sdkSteps ??= {};
+    sdkStep = test.sdkSteps[key] ??= { label: `${test.kind}:sdk-${key}`, action };
+    if (sdkStep.result) return sdkStep.result;
+    persist();
+    const client = await demoClient(), started = Date.now();
+    let prepared = report.transactions.find((tx) => tx.name === sdkStep.label);
+    if (prepared?.status === "prepared") {
+      const block = await monad.client.getBlock({ blockTag: "finalized" });
+      const receipt = await monad.client.getTransactionReceipt({ hash: prepared.hash }).catch(() => null);
+      if (!receipt && await monad.client.getTransactionCount({ address: account.address, blockNumber: block.number }) > prepared.nonce) {
+        prepared.status = "superseded"; persist();
+      }
+    }
+    if (prepared?.status === "reverted" || prepared?.status === "superseded") {
+      const signed = viem.parseTransaction(prepared.rawTransaction);
+      const decoded = viem.decodeFunctionData({ abi: artifact("TermbookCore").abi, data: signed.data });
+      const credit = await coreRead("creditDetails", [test.creditId]);
+      sdkStep.failedTransactions ??= [];
+      if (decoded.functionName !== "executePlan" || credit.nonce + 1n !== decoded.args[2].nonce
+        || sdkStep.failedTransactions.length >= 2) throw new Error("Reverted SDK execution requires reconciliation");
+      sdkStep.failedTransactions.push(prepared.hash);
+      sdkStep.label = `${test.kind}:sdk-${key}:retry:${sdkStep.failedTransactions.length}`;
+      delete sdkStep.checkpoint; prepared = undefined; persist();
+    }
+    if (prepared && !sdkStep.checkpoint) {
+      const signed = viem.parseTransaction(prepared.rawTransaction);
+      let tx;
+      try { tx = await monad.send(sdkStep.label, signed.data, signed.to, signed.value ?? 0n); }
+      catch (error) { if (prepared.status === "reverted") return demoExecute(test, key, action); throw error; }
+      sdkStep.checkpoint = { chainId: 10143, core: m.TermbookCore, creditId: test.creditId, tx: tx.hash,
+        capability: sdkStep.action.capability, executionKey: executionKey(selectCapability(appSetup.definition.actions, sdkStep.action)), stage: "submitted" };
+      persist();
+    }
+    await currentGuards();
+    if (!sdkStep.checkpoint) {
+      const selected = selectCapability(appSetup.definition.actions, sdkStep.action);
+      if (selected.price) {
+        const protection = await coreRead("priceProtection");
+        const args = [appSetup.bundleId, viem.keccak256(viem.stringToHex(executionKey(selected))),
+          viem.keccak256(viem.stringToHex(sdkStep.action.params.market_id))];
+        try { await monad.read("PriceProtection", protection, "priceReference", args); }
+        catch (error) {
+          const reverted = error.walk?.((cause) => cause.name === "ContractFunctionRevertedError");
+          if (reverted?.data?.errorName !== "Stale") throw error;
+          await monad.call("PriceProtection", protection, "recordPrice", args, `${test.kind}:sdk-${key}:price:${await monad.client.getBlockNumber()}`);
+        }
+      }
+    }
+    const result = await client.credit(test.creditId).app.execute(sdkStep.action, undefined, undefined, {
+      checkpoint: sdkStep.checkpoint, timeoutMs: 120_000, pollIntervalMs: 1000,
+      onProgress(checkpoint) { sdkStep.checkpoint = checkpoint; persist(); },
+    });
+    if (result.status !== "settled") throw new Error("SDK execution is not settled");
+    sdkStep.result = JSON.parse(canonicalJson(result)); sdkStep.milliseconds = Date.now() - started; persist();
+    log(JSON.stringify({ step: key, milliseconds: sdkStep.milliseconds, tx: result.tx }));
+    return sdkStep.result;
+  }
   async function currentGuards() {
+    const guards = Object.entries(deployment.configuration["kuru-market"].guards);
+    const approvals = await monad.client.multicall({ multicallAddress: "0xcA11bde05977b3631167028862bE2a173976CA11", allowFailure: true,
+      contracts: guards.map(([dependency]) => ({ address: m.IntegrationRegistry, abi: artifact("IntegrationRegistry").abi,
+        functionName: "testnetGuardApprovals", args: [appSetup.bundleId, dependency] })) });
+    const monitored = guards.filter((_, i) => approvals[i].status !== "success" || approvals[i].result[0] === viem.zeroAddress);
     const deadline = Date.now() + 180_000;
     for (;;) {
       const block = await monad.client.getBlock();
-      const leases = await Promise.all(Object.values(deployment.configuration["kuru-market"].guards).map((guard) =>
-        monad.read("TestnetUpgradeGuard", guard.address, "validUntil")));
+      if (!monitored.length) {
+        if (!await monad.read("IntegrationRegistry", m.IntegrationRegistry, "dependenciesValid", [appSetup.bundleId])) throw new Error("Kuru dependency checks failed");
+        return block.timestamp + 900n;
+      }
+      const leases = await monad.client.multicall({ batchSize: 32, multicallAddress: "0xcA11bde05977b3631167028862bE2a173976CA11",
+        allowFailure: false, contracts: monitored.map(([, guard]) => ({
+          address: guard.address, abi: artifact("TestnetUpgradeGuard").abi, functionName: "validUntil",
+        })) });
       if (leases.every((lease) => lease >= block.timestamp + 30n)
         && await monad.read("IntegrationRegistry", m.IntegrationRegistry, "dependenciesValid", [appSetup.bundleId])) return leases.reduce((minimum, lease) => lease < minimum ? lease : minimum) - 10n;
       if (Date.now() >= deadline) throw new Error("Kuru dependency guards are not sufficiently current");
@@ -199,7 +309,7 @@ async function main() {
   const now = (await monad.client.getBlock()).timestamp;
   if (!m.AccountHealthSource || (await coreRead("healthSource")).toLowerCase() !== m.AccountHealthSource.toLowerCase()) throw new Error("Authenticated health source is required");
   if (kuru && mode !== "--observe") {
-    await sdk.verify_definition(monad.client, appSetup.definition);
+    if (!demo) await sdk.verify_definition(monad.client, appSetup.definition);
     await currentGuards();
   }
   if (!kuru && !await monad.read("IntegrationRegistry", m.IntegrationRegistry, "isActive", [appSetup.bundleId])) throw new Error("Test application is inactive");
@@ -283,16 +393,23 @@ async function main() {
         throw new Error("Return the unused default facility before retrying");
       }
     }
-    for (const kind of mode === "--retry-default" ? ["default-retry"] : fast ? ["repayment"] : base ? ["repayment", "default"] : kuru ? ["repayment", "default", "active"] : ["repayment", "default"]) {
+    for (const kind of mode === "--retry-default" ? ["default-retry"] : fast || demo ? ["repayment"] : base ? ["repayment", "default"] : kuru ? ["repayment", "default", "active"] : ["repayment", "default"]) {
       let test = report.cases[kind];
       if (!test) {
         const nonce = BigInt(Date.now());
-        const intentId = viem.keccak256(viem.stringToHex(`Termbook live E2E:${kind}:${report.startedAt}`));
+        if (demo && !report.intentId) {
+          const client = await demoClient(), started = Date.now();
+          const intent = await client.authenticatedPost("/intents", { borrower: account.address, chainId: sourceChainId,
+            asset: weth, amount: String(amounts.collateral), duration: 43_200, limit: String(amounts.limit), action: demoAction("buy", amounts.draw) });
+          report.intentId = intent.intentId; report.intentMilliseconds = Date.now() - started; persist();
+          log(JSON.stringify({ step: "borrowing-request", milliseconds: report.intentMilliseconds, intentId: report.intentId }));
+        }
+        const intentId = demo ? report.intentId : viem.keccak256(viem.stringToHex(`Termbook live E2E:${kind}:${report.startedAt}`));
         const creditId = viem.keccak256(viem.encodeAbiParameters(viem.parseAbiParameters("bytes32,address,address,uint256"),
           [intentId, account.address, account.address, nonce]));
         const lockId = viem.keccak256(viem.encodeAbiParameters(viem.parseAbiParameters("bytes32,string"), [creditId, "source-lock"]));
         const quotedAt = (await monad.client.getBlock()).timestamp;
-        const setupDeadline = quotedAt + (native ? 300n : base && report.safeBase ? 600n : kind === "default-retry" ? 2700n : base ? 3600n : 1800n);
+        const setupDeadline = quotedAt + (demo ? 900n : native ? 300n : base && report.safeBase ? 600n : kind === "default-retry" ? 2700n : base ? 3600n : 1800n);
         const quote = { borrower: account.address, owner: account.address, intentId, house: account.address,
           vault: m.HouseVault, sourceChain: BigInt(sourceChainId), collateralVault,
           collateralAsset: weth, collateralAmount: amounts.collateral, returnRecipient: account.address,
@@ -353,6 +470,10 @@ async function main() {
         credit = await coreRead("creditDetails", [test.creditId]);
       }
       if (credit.facility === 4 && !test.drawVerified) {
+        if (demo) {
+          const result = await demoExecute(test, "buy", demoAction("buy", amounts.draw));
+          test.execution = { drawAmount: result.draw };
+        } else {
         const drawLabel = `${test.kind}:borrow-and-deposit`;
         const attempts = report.transactions.filter((tx) => tx.name === drawLabel || tx.name.startsWith(`${drawLabel}:retry:`));
         const failed = attempts.at(-1);
@@ -396,6 +517,7 @@ async function main() {
         const executed = await monad.call("TermbookCore", m.TermbookCore, "executePlan", [test.creditId, test.action, test.execution],
           failed?.status === "reverted" ? `${drawLabel}:retry:${attempts.length}` : failed?.name ?? drawLabel);
         if (kuru) { test.probe.tx_hash = executed.hash; persist(); }
+        }
         const [health, position, cash] = await Promise.all([
           coreRead("previewHealth", [test.creditId]), readPosition(test),
           monad.client.readContract({ address: usdc, abi: erc20, functionName: "balanceOf", args: [test.account] }),
@@ -424,6 +546,13 @@ async function main() {
       if (orders && test.kind === "active" && test.drawVerified && credit.facility === 4) await orderProbes(test);
       if (test.kind === "repayment" && test.drawVerified && credit.facility === 4) {
         if (kuru) {
+          if (demo) {
+            for (let step = 0; step < 16 && await monad.client.getBalance({ address: test.account }) > 0n; step++) {
+              if (test.sdkSteps?.[`sell-${step}`]?.result) continue;
+              const balance = await monad.client.getBalance({ address: test.account });
+              await demoExecute(test, `sell-${step}`, demoAction("sell", balance < sellMaximum ? balance : sellMaximum));
+            }
+          } else {
           test.sells ??= {};
           for (let step = 0; step < 16 && await monad.client.getBalance({ address: test.account }) > 0n; step++) {
             const label = step === 0 ? "repayment:sell" : `repayment:sell:${step}`;
@@ -440,6 +569,7 @@ async function main() {
             }
             const sold = await monad.call("TermbookCore", m.TermbookCore, "executePlan", [test.creditId, sale.plan, sale.authorization], label);
             sale.probe.tx_hash = sold.hash; persist();
+          }
           }
           if (await monad.client.getBalance({ address: test.account }) > 0n) throw new Error("Kuru sell step limit reached");
           await monad.call("TermbookCore", m.TermbookCore, "repayAvailableCash", [test.creditId], "repayment:repay-cash");
@@ -519,10 +649,10 @@ async function main() {
   report.observedAt = new Date().toISOString();
   report.observations = observations;
   const lifecycleComplete = observations.some((test) => test.kind === "repayment" && test.completed)
-    && (fast || observations.some((test) => test.kind.startsWith("default") && test.drawVerified && test.completed))
-    && (!orders || base || Boolean(report.cases.active?.ordersVerified))
+    && (fast || demo || observations.some((test) => test.kind.startsWith("default") && test.drawVerified && test.completed))
+    && (!orders || base || demo || Boolean(report.cases.active?.ordersVerified))
     && (!base || observations.every((test) => test.completed || test.state === "aborted_collateral_returned"));
-  if (kuru && !base && lifecycleComplete && !report.lifecycle) {
+  if (kuru && !base && !demo && lifecycleComplete && !report.lifecycle) {
     const recovered = Object.values(report.cases).find((test) => test.kind.startsWith("default") && test.drawVerified);
     const repayment = report.cases.repayment, active = report.cases.active;
     if (!recovered?.probe?.tx_hash || !repayment?.sell?.probe?.tx_hash || !active?.drawVerified) throw new Error("Kuru lifecycle probes are incomplete");
@@ -570,7 +700,8 @@ async function main() {
   if (mode !== "--observe") persist();
   writeJsonAtomic(operationFile(publicName), { network: "testnet", startedAt: report.startedAt, observedAt: report.observedAt,
     confirmationPolicy: native ? "Atomic Monad custody" : base && report.safeBase ? "Base safe-block test policy" : fast ? "Sepolia five-confirmation test policy" : "Full source finality",
-    scope: base ? "Base Sepolia WETH custody, finalized Wormhole proofs, Kuru market buy/sell, USDC repayment, closure and independent resting-order recovery"
+    scope: demo ? "SDK connection, authenticated borrowing request, native MON custody, SDK Kuru buy/sell, USDC repayment and closure"
+      : base ? "Base Sepolia WETH custody, finalized Wormhole proofs, Kuru market buy/sell, USDC repayment, closure and independent resting-order recovery"
       : orders ? "Kuru market and limit buys and sells, cancellation, controlled venue funds, repayment, closure and independent order recovery"
       : kuru ? "Kuru market buys and sells, controlled MON holdings, USDC repayment, closure and independent keeper recovery"
       : native ? "Native MON custody, USDC borrowing, API credit tracking and independent reference app recovery"
@@ -608,7 +739,7 @@ async function run() {
         const transport = typeof cause?.walk === "function" ? cause.walk((item) =>
           ["HttpRequestError", "TimeoutError", "LimitExceededRpcError", "InternalRpcError"].includes(item.name)) : cause;
         if (!["--run", "--start"].includes(mode)
-          || !["HttpRequestError", "TimeoutError", "LimitExceededRpcError", "InternalRpcError"].includes(transport?.name)
+          || !isRpcUnavailable(cause) && !["HttpRequestError", "TimeoutError", "LimitExceededRpcError", "InternalRpcError"].includes(transport?.name)
           || /revert|unauthorized|invalid/i.test(cause.shortMessage ?? cause.message)) throw cause;
         error(JSON.stringify({ retry: "rpc-transport", errorName: transport.name }));
         await delay(5000); continue;
@@ -623,7 +754,11 @@ async function run() {
 }
 run().catch((cause) => {
   const reverted = typeof cause?.walk === "function" ? cause.walk((item) => item.name === "ContractFunctionRevertedError") : undefined;
+  const causes = [];
+  for (let item = cause; item && causes.length < 8; item = item.cause) causes.push({ name: item.name, code: item.code, status: item.status,
+    reason: item.message?.match(/rate limit|request limit|compute units|timeout|insufficient funds|execution reverted|invalid params/i)?.[0] });
   error(JSON.stringify({ message: cause instanceof Error ? cause.message.split("\n")[0] : "Live testnet E2E failed",
+    causes,
     ...(reverted ? { contractError: reverted.data?.errorName, selector: reverted.raw?.slice(0, 10) } : {}) }));
   process.exitCode = 1;
-});
+}).finally(closeRpcBudget);

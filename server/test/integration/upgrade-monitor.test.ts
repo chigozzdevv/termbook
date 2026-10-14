@@ -11,6 +11,7 @@ import { approvedRuntimeReviews } from "../../src/integration/runtime-review.js"
 vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: vi.fn() }));
 vi.mock("viem", async (original) => ({ ...await original<typeof import("viem")>(), createPublicClient: vi.fn() }));
 vi.mock("../../src/chain/keeper.js", () => ({ keeperTransaction: vi.fn(), reconcileKeeperWallet: vi.fn() }));
+vi.mock("node:timers/promises", () => ({ setTimeout: vi.fn(async () => undefined) }));
 vi.mock("../../src/config/env.js", () => ({ env: { monadChainId: 10143, rpcUrl: "http://monad" } }));
 vi.mock("../../src/logging/logger.js", () => ({ logger: { warn: vi.fn(), error: vi.fn() } }));
 vi.mock("../../src/integration/runtime-review.js", () => ({ approvedRuntimeReviews: vi.fn() }));
@@ -47,6 +48,24 @@ beforeEach(() => {
 afterEach(() => { env.monadChainId = 10143; vi.unstubAllEnvs(); });
 
 describe("testnet upgrade monitor", () => {
+  it("can be disabled on testnet without making RPC calls", async () => {
+    vi.stubEnv("TESTNET_UPGRADE_MONITOR_ENABLED", "false");
+    expect(upgradeMonitorConfig()).toBeNull();
+    expect(await runUpgradeMonitorWorker()).toBe(0);
+    expect(monadClient).not.toHaveBeenCalled();
+    expect(keeperTransaction).not.toHaveBeenCalled();
+    env.monadChainId = 143;
+    expect(() => upgradeMonitorConfig()).toThrow("upgrade-monitor-config-invalid");
+  });
+  it("continues to the next guard after confirming a journaled renewal", async () => {
+    const second = `0x${"55".repeat(20)}` as const;
+    vi.stubEnv("TESTNET_UPGRADE_GUARDS", JSON.stringify([{ address: guard, codeHash }, { address: second, codeHash }]));
+    vi.mocked(keeperTransaction).mockResolvedValue("pending");
+    vi.mocked(reconcileKeeperWallet).mockResolvedValueOnce("idle").mockResolvedValue("success");
+    expect(await runUpgradeMonitorWorker()).toBe(2);
+    expect(vi.mocked(keeperTransaction).mock.calls.map(([input]) => input.to)).toEqual([guard, second]);
+    expect(reconcileKeeperWallet).toHaveBeenCalledTimes(3);
+  });
   it("uses the dedicated endpoint for both checks and renewal submission", async () => {
     vi.stubEnv("UPGRADE_MONITOR_RPC_URL", "https://monitor.test");
     vi.mocked(createPublicClient).mockReturnValue(monadClient() as never);

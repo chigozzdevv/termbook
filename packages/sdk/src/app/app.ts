@@ -38,7 +38,8 @@ export class CreditApp {
 
   private async prepare(action: TermAction, previousPrice?: ExecutionPrice) {
     await this.client.ready();
-    if (this.client.config.integration_definition) await verify_definition(this.client.rpc.client, this.client.config.integration_definition);
+    if (this.client.config.chainId !== 10143 && this.client.config.integration_definition)
+      await verify_definition(this.client.rpc.client, this.client.config.integration_definition);
     assertActionUseCase(action, this.client.config.use_case);
     assertStandardAction(action, this.client.config.use_case);
     if (this.client.config.use_case) action = { ...action, use_case: this.client.config.use_case };

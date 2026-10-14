@@ -9,8 +9,9 @@ const address = z.string().regex(/^0x[\da-fA-F]{40}$/), hash = z.string().regex(
 const hex = z.string().regex(/^0x[\da-fA-F]*$/).max(32768);
 const quantity = z.string().regex(/^0x[\da-fA-F]{1,64}$/);
 const block = z.union([quantity, z.enum(["latest", "pending", "earliest", "safe", "finalized"])]);
+const callGasLimit = 30_000_000n;
 const call = z.object({ to: address, from: address.optional(), data: hex.optional(), gas: quantity.optional(), value: quantity.optional() }).strict()
-  .refine((value) => value.gas === undefined || /^0x[\da-fA-F]{1,64}$/.test(value.gas) && BigInt(value.gas) <= 10_000_000n);
+  .refine((value) => value.gas === undefined || /^0x[\da-fA-F]{1,64}$/.test(value.gas) && BigInt(value.gas) <= callGasLimit);
 const logs = z.object({ address: z.union([address, z.array(address).min(1).max(20)]), blockHash: hash.optional(),
   fromBlock: block.optional(), toBlock: block.optional(),
   topics: z.array(z.union([hash, z.array(hash).max(20), z.null()])).max(4).optional() }).strict().refine((filter) => {
@@ -43,7 +44,7 @@ export function rpcRoute(app: FastifyInstance) {
         error: { code: schema ? -32602 : -32601, message: schema ? "Invalid params" : "Method not supported" } };
       try {
         const values = params.data as unknown[];
-        if (request.method === "eth_call") values[0] = { ...values[0] as object, gas: (values[0] as { gas?: string }).gas ?? "0x989680" };
+        if (request.method === "eth_call") values[0] = { ...values[0] as object, gas: (values[0] as { gas?: string }).gas ?? `0x${callGasLimit.toString(16)}` };
         const result = await monadClient().request({ method: request.method, params: values } as never);
         return { jsonrpc: "2.0", id: request.id, result };
       } catch (error) {

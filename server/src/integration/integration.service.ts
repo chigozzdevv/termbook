@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { keccak256, parseAbi, parseAbiItem, toFunctionSelector } from "viem";
-import { assertActionRoutes, assertStandardDefinition, capabilityCalls, capabilityDependencies, useCaseSchema, pluginDefinitionSchema, canonicalEvidence, type CapabilityDefinition } from "@termbook/schema";
+import { assertActionRoutes, assertStandardDefinition, assertActionUseCase, assertStandardAction, selectCapability, capabilityCalls, capabilityDependencies, useCaseSchema, pluginDefinitionSchema, canonicalEvidence, type CapabilityDefinition, type TermAction } from "@termbook/schema";
 import { verify_definition } from "@termbook/sdk";
 import { stringToHex } from "viem";
 import { monadClient } from "../chain/monad.client.js";
@@ -226,7 +226,7 @@ export const integrationService = {
     }
     return { versionId: prepared.versionId, appToken: prepared.appToken };
   },
-  async resolve(appToken: string, refreshPrices = false, purpose: "operation" | "connection" = "operation") {
+  async resolve(appToken: string, refreshPrices = false, purpose: "admission" | "operation" | "connection" = "admission", requestedAction?: TermAction) {
     return withRpcReadScope(async () => {
       if (!tokenPattern.test(appToken)) throw new Error("integration-not-found");
       const row = await integrationRepo.byTokenHash(tokenHash(appToken));
@@ -260,10 +260,18 @@ export const integrationService = {
           || packageDefinition.settlement_asset.toLowerCase() !== String(row["settlementAsset"]).toLowerCase()
           || canonicalEvidence(packageDefinition.actions) !== canonicalEvidence(actions)) throw new Error("integration-not-found");
       }
-      const connectionOnly = purpose === "connection" && env.monadChainId === 10143 && !!packageDefinition && !refreshPrices;
+      const runtimeOnly = purpose !== "admission" && env.monadChainId === 10143 && !!packageDefinition;
+      if (requestedAction) {
+        assertActionUseCase(requestedAction, useCase.data);
+        assertStandardAction(requestedAction, useCase.data);
+      }
+      const selected = requestedAction ? selectCapability(actions, requestedAction) : undefined;
       const versionId = String(row["versionId"]) as `0x${string}`;
-      const checks = connectionOnly
-        ? [await connectionActive(versionId, String(row["codeHash"]), block.number)]
+      const checks = runtimeOnly
+        ? await Promise.all([
+          connectionActive(versionId, String(row["codeHash"]), block.number),
+          purpose === "operation" ? admittedActions(versionId, selected ? [selected] : actions, useCase.data, String(row["settlementAsset"]), block.number) : true,
+        ])
         : await Promise.all([
           admitted(versionId, String(row["codeHash"]), block.number),
           admittedActions(versionId, actions, String(row["category"]), String(row["settlementAsset"]), block.number),
@@ -277,7 +285,7 @@ export const integrationService = {
         const review = row["review"] as { evidenceHash?: string; mode?: string; reviewer?: `0x${string}`; forkReviewSignature?: `0x${string}` } | undefined;
         if (!review || review.evidenceHash?.toLowerCase() !== acceptance.evidenceHash.toLowerCase() || review.mode !== suite.mode) throw new Error("integration-review-missing");
         await requireForkReview(suite, review.forkReviewSignature, review.reviewer);
-        if (!connectionOnly) await Promise.all([
+        if (!runtimeOnly) await Promise.all([
           verifySuitePins(chain, suite, block.number),
           packageDefinition ? verify_definition(chain, packageDefinition, block.number) : Promise.resolve(),
         ]);

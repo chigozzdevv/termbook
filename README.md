@@ -790,6 +790,16 @@ HouseRegistry and vault asset, then ranked by estimated cost for a common draw
 and duration. The displayed estimate includes origination, interest, and
 commitment fees under those assumptions.
 
+For local Monad testnet demos, `TESTNET_HOUSE_OFFERS` enables a House signer in
+the worker. Set it to a JSON array of `{ keyFile, house, vault, asset, reader,
+bundles, maxLimit, aprBps, setupSeconds }`; `keyFile` points to an ignored JSON
+wallet containing `privateKey`. The signer must match the House wallet.
+The operator signs eligible requests using current House policies, available
+cash, admitted collateral prices and retained collateral value. `maxLimit` is
+in settlement-token units and capped at 100,000 units. Unsupported terms receive
+no offer; the testnet modal defaults to one day. This operator refuses mainnet
+and production use. Other Houses continue to submit their own signed offers.
+
 Registered Houses require a complete quote binding the immutable reservation
 policy, bond payer, and refund recipient. `ReservationManager` enforces a minimum
 annual reservation rate of 100 basis points, a setup duration of at most seven

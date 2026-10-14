@@ -3,8 +3,49 @@ import { requiredDraw, fundingNeed, checkCapacity } from "../src/credit/draw.js"
 import { unconsumed, reportShortfall } from "../src/settlement/receipt.js";
 import { slippageBound } from "../src/app/app.js";
 import { operationId, checkQuoteForOperation } from "../src/settlement/operation.js";
-import { Intent } from "../src/intent/intent.js";
+import { Intent, type Offer } from "../src/intent/intent.js";
 import type { TermbookClient } from "../src/client/client.js";
+
+describe("waiting for House offers", () => {
+  it("waits for the same request until its House responds", async () => {
+    vi.useFakeTimers();
+    try {
+      const intent = new Intent({} as TermbookClient);
+      const offers = [{ id: "offer" }] as Offer[];
+      const read = vi.spyOn(intent, "offers").mockResolvedValueOnce([]).mockResolvedValueOnce(offers);
+      const pending = intent.waitForOffers();
+      await vi.advanceTimersByTimeAsync(2500);
+      expect(await pending).toEqual(offers);
+      expect(read).toHaveBeenCalledTimes(2);
+    } finally { vi.useRealTimers(); }
+  });
+  it("stops polling when the modal closes", async () => {
+    vi.useFakeTimers();
+    try {
+      const intent = new Intent({} as TermbookClient), controller = new AbortController();
+      const read = vi.spyOn(intent, "offers").mockResolvedValue([]);
+      const pending = intent.waitForOffers({ signal: controller.signal });
+      const rejected = expect(pending).rejects.toThrow("closed");
+      await vi.advanceTimersByTimeAsync(1);
+      controller.abort(new Error("closed"));
+      await rejected;
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(read).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+  it("returns an empty result after the bounded waiting period", async () => {
+    vi.useFakeTimers();
+    try {
+      const intent = new Intent({} as TermbookClient);
+      vi.spyOn(intent, "offers").mockResolvedValue([]);
+      const pending = intent.waitForOffers({ timeoutMs: 5000 });
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(await pending).toEqual([]);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+});
 
 describe("intent use case", () => {
   it("rejects a mismatch before requesting API authorization and preserves matching actions", async () => {

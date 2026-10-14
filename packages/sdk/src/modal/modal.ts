@@ -83,7 +83,7 @@ export class TermbookModal {
   private recentAction?: { capability: string; status: ExecuteResult["status"]; tx?: `0x${string}`; checkpoint?: ExecutionCheckpoint };
   private amountText = "";
   private limitText = "";
-  private durationDays = "30";
+  private durationDays = "";
   private busy = false;
   private closed = false;
   private fieldSeq = 0;
@@ -396,6 +396,7 @@ export class TermbookModal {
 
   private async load(preferred?: `0x${string}`): Promise<void> {
     await this.client.ready();
+    if (!this.durationDays) this.durationDays = this.client.config.chainId === 10143 ? "1" : "30";
     if (this.closed) return;
     if (this.action) { assertActionUseCase(this.action, this.client.config.use_case); assertStandardAction(this.action, this.client.config.use_case); }
     const http = new HttpClient(this.client.config.apiBase!);
@@ -620,7 +621,7 @@ export class TermbookModal {
           accountBytes: owner.accountBytes as `0x${string}` } };
     this.showStatus("Requesting House offers…");
     this.intent = this.client.intent({ collateral, credit: { duration: days * 86400, limit }, action: this.action ? this.validatedAction() : undefined });
-    this.offers = await this.intent.offers();
+    this.offers = await this.intent.waitForOffers({ signal: this.operationAbort.signal });
     this.offer = this.offers[0];
     this.accountView = this.offer ? "offer" : "collateral"; this.detailsOpen = false; this.body.scrollTop = 0;
     this.showStatus(this.offers.length ? "" : "No compatible House offer is available.");

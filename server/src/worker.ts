@@ -32,6 +32,7 @@ import { runPythOracleWorker } from "./chain/pyth.worker.js";
 import { startIndexAndMonitor } from "./chain/services.js";
 import { runExplorerWorker } from "./explorer/explorer.worker.js";
 import { closeRpcBudget } from "./chain/rpc.budget.js";
+import { runTestnetHouseOffers, testnetOfferConfig } from "./house/testnet-offers.worker.js";
 
 async function main(): Promise<void> {
   if (process.argv.includes("--indexer-monitor")) { await startIndexAndMonitor(); return; }
@@ -49,6 +50,7 @@ async function main(): Promise<void> {
   recoveryRelayConfig();
   solanaProofConfig();
   await solanaRelayConfig();
+  testnetOfferConfig();
   await connectDb();
   await startWorkers();
   const tick = async (): Promise<void> => {
@@ -90,6 +92,14 @@ async function main(): Promise<void> {
   let upgradeActive: Promise<void> | undefined;
   let priceTimer: ReturnType<typeof setTimeout> | undefined;
   let priceActive: Promise<void> | undefined;
+  let offerTimer: ReturnType<typeof setTimeout> | undefined;
+  let offerActive: Promise<void> | undefined;
+  const scheduleOffers = (): void => {
+    if (stopping) return;
+    offerActive = runTestnetHouseOffers().then(() => undefined).catch(() => {
+      logger.warn("house-offer-worker-unavailable");
+    }).finally(() => { if (!stopping) offerTimer = setTimeout(scheduleOffers, 5000); });
+  };
   const schedule = (): void => {
     if (stopping) return;
     active = tick().finally(() => {
@@ -139,7 +149,8 @@ async function main(): Promise<void> {
     clearTimeout(solanaTimer);
     clearTimeout(upgradeTimer);
     clearTimeout(priceTimer);
-    await Promise.all([active, indexerActive, riskActive, keeperActive, actionActive, solanaActive, upgradeActive, priceActive]);
+    clearTimeout(offerTimer);
+    await Promise.all([active, indexerActive, riskActive, keeperActive, actionActive, solanaActive, upgradeActive, priceActive, offerActive]);
     await stopWorkers();
     await closeRedis();
     await closeRpcBudget();
@@ -149,6 +160,7 @@ async function main(): Promise<void> {
   process.on("SIGINT", () => void shutdown());
   process.on("SIGTERM", () => void shutdown());
   schedule();
+  if (testnetOfferConfig().length) scheduleOffers();
   scheduleIndexer();
   scheduleRisk();
   scheduleKeepers();

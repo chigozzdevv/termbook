@@ -293,6 +293,25 @@ export class Intent {
       await this.client.rpc.read<boolean>(this.client.config.core, abi, "retentionSupported", [offer.bundleId]) === true })));
   }
 
+  async waitForOffers(options: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<Offer[]> {
+    const timeout = options.timeoutMs ?? 90_000;
+    if (!Number.isSafeInteger(timeout) || timeout < 0 || timeout > 300_000) throw new Error("offer-timeout-invalid");
+    const deadline = Date.now() + timeout;
+    for (;;) {
+      options.signal?.throwIfAborted();
+      const offers = await this.offers();
+      options.signal?.throwIfAborted();
+      if (offers.length || Date.now() >= deadline) return offers;
+      await new Promise<void>((resolve, reject) => {
+        const finish = () => { clearTimeout(timer); options.signal?.removeEventListener("abort", abort); };
+        const abort = () => { finish(); reject(options.signal?.reason); };
+        const timer = setTimeout(() => { finish(); resolve(); }, Math.min(2500, deadline - Date.now()));
+        options.signal?.addEventListener("abort", abort, { once: true });
+        if (options.signal?.aborted) abort();
+      });
+    }
+  }
+
   private async fundReservation(offer: Offer, asset: `0x${string}`, options: AcceptOptions): Promise<void> {
     if (offer.reservationBond === 0n) return;
     const payer = !offer.bondPayer || /^0x0{40}$/i.test(offer.bondPayer) ? offer.borrower : offer.bondPayer;

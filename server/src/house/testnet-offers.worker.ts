@@ -28,7 +28,7 @@ const readerAbi = parseAbi([
 export function testnetOfferConfig() {
   const raw = process.env["TESTNET_HOUSE_OFFERS"];
   if (!raw) return [];
-  if (env.monadChainId !== 10143 || process.env["NODE_ENV"] === "production") throw new Error("testnet-house-offers-forbidden");
+  if (env.monadChainId !== 10143) throw new Error("testnet-house-offers-forbidden");
   return configSchema.parse(JSON.parse(raw));
 }
 

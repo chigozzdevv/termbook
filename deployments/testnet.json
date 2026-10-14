@@ -18,7 +18,7 @@
       "FlowExecutor": "0xfd4f7878df5f4e51a1b78d7ec2428acb1ddb3558",
       "ReservationManagerImplementation": "0xa82b21d04ec8b9fbd8ffdef737648e8342c242f1",
       "ReservationManager": "0xf70614f0c1991819cfd80298f1f45b8756f30b24",
-      "PriceProtectionImplementation": "0x6226d54fd8112fff17d0d30cfe21e06644b8e0d5",
+      "PriceProtectionImplementation": "0xdff60b22e2eb3560668a50e72eb311b20477b147",
       "PriceProtection": "0x7b486460855ce5e6a4bf0215f916cd441540b664",
       "TermbookCoreImplementation": "0xa88abd9d9a428cc9057055d2a6e2838c1ca99dab",
       "TermbookCore": "0x198995faab55a9d5d4dceab56abaaa273c26fad7",
@@ -4495,14 +4495,14 @@
         ]
       },
       "PriceProtection": {
-        "implementation": "0x6226d54fd8112fff17d0d30cfe21e06644b8e0d5",
+        "implementation": "0xdff60b22e2eb3560668a50e72eb311b20477b147",
         "admin": "0x0Fa58Ab216EC37908b9CB49bA873Da4b3B855e8f",
         "contractId": "0x02ab901de47e18b6f3db008be423c882e6341e15841f4b363c1411abac9c4ac3",
-        "implementationCodeHash": "0xf6f2fcbe8d291adabec65f4367e214941ac51326f6440ad3408837e9f09d4006",
+        "implementationCodeHash": "0x5e1ac4abdfe824710a4e2954740dcb93ad82b15639b8ca18f2e264826eb15293",
         "storageLayout": {
           "storage": [
             {
-              "astId": 46033,
+              "astId": 78321,
               "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
               "label": "core",
               "offset": 0,
@@ -4510,23 +4510,23 @@
               "type": "t_address"
             },
             {
-              "astId": 46038,
+              "astId": 78326,
               "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
               "label": "rules",
               "offset": 0,
               "slot": "1",
-              "type": "t_mapping(t_bytes32,t_struct(Rule)45999_storage)"
+              "type": "t_mapping(t_bytes32,t_struct(Rule)78287_storage)"
             },
             {
-              "astId": 46043,
+              "astId": 78331,
               "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
               "label": "amountRules",
               "offset": 0,
               "slot": "2",
-              "type": "t_mapping(t_bytes32,t_struct(AmountRule)46031_storage)"
+              "type": "t_mapping(t_bytes32,t_struct(AmountRule)78319_storage)"
             },
             {
-              "astId": 46047,
+              "astId": 78335,
               "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
               "label": "ruleHashes",
               "offset": 0,
@@ -4534,7 +4534,7 @@
               "type": "t_mapping(t_bytes32,t_bytes32)"
             },
             {
-              "astId": 46051,
+              "astId": 78339,
               "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
               "label": "oracleCodeHashes",
               "offset": 0,
@@ -4542,7 +4542,7 @@
               "type": "t_mapping(t_bytes32,t_bytes32)"
             },
             {
-              "astId": 46055,
+              "astId": 78343,
               "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
               "label": "bundleSealed",
               "offset": 0,
@@ -4550,7 +4550,7 @@
               "type": "t_mapping(t_bytes32,t_bool)"
             },
             {
-              "astId": 46059,
+              "astId": 78347,
               "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
               "label": "houseSlippage",
               "offset": 0,
@@ -4558,7 +4558,7 @@
               "type": "t_mapping(t_bytes32,t_uint16)"
             },
             {
-              "astId": 46063,
+              "astId": 78351,
               "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
               "label": "creditBound",
               "offset": 0,
@@ -4566,7 +4566,7 @@
               "type": "t_mapping(t_bytes32,t_bool)"
             },
             {
-              "astId": 46067,
+              "astId": 78355,
               "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
               "label": "oracleDependencyRegistries",
               "offset": 0,
@@ -4574,15 +4574,15 @@
               "type": "t_mapping(t_bytes32,t_address)"
             },
             {
-              "astId": 46083,
+              "astId": 78371,
               "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
               "label": "references",
               "offset": 0,
               "slot": "9",
-              "type": "t_mapping(t_bytes32,t_mapping(t_uint80,t_struct(Reference)46076_storage))"
+              "type": "t_mapping(t_bytes32,t_mapping(t_uint80,t_struct(Reference)78364_storage))"
             },
             {
-              "astId": 46087,
+              "astId": 78375,
               "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
               "label": "referenceRounds",
               "offset": 0,
@@ -4632,26 +4632,26 @@
               "numberOfBytes": "32",
               "value": "t_bytes32"
             },
-            "t_mapping(t_bytes32,t_mapping(t_uint80,t_struct(Reference)46076_storage))": {
+            "t_mapping(t_bytes32,t_mapping(t_uint80,t_struct(Reference)78364_storage))": {
               "encoding": "mapping",
               "key": "t_bytes32",
               "label": "mapping(bytes32 => mapping(uint80 => struct PriceProtection.Reference))",
               "numberOfBytes": "32",
-              "value": "t_mapping(t_uint80,t_struct(Reference)46076_storage)"
+              "value": "t_mapping(t_uint80,t_struct(Reference)78364_storage)"
             },
-            "t_mapping(t_bytes32,t_struct(AmountRule)46031_storage)": {
+            "t_mapping(t_bytes32,t_struct(AmountRule)78319_storage)": {
               "encoding": "mapping",
               "key": "t_bytes32",
               "label": "mapping(bytes32 => struct PriceProtection.AmountRule)",
               "numberOfBytes": "32",
-              "value": "t_struct(AmountRule)46031_storage"
+              "value": "t_struct(AmountRule)78319_storage"
             },
-            "t_mapping(t_bytes32,t_struct(Rule)45999_storage)": {
+            "t_mapping(t_bytes32,t_struct(Rule)78287_storage)": {
               "encoding": "mapping",
               "key": "t_bytes32",
               "label": "mapping(bytes32 => struct PriceProtection.Rule)",
               "numberOfBytes": "32",
-              "value": "t_struct(Rule)45999_storage"
+              "value": "t_struct(Rule)78287_storage"
             },
             "t_mapping(t_bytes32,t_uint16)": {
               "encoding": "mapping",
@@ -4667,20 +4667,20 @@
               "numberOfBytes": "32",
               "value": "t_uint80"
             },
-            "t_mapping(t_uint80,t_struct(Reference)46076_storage)": {
+            "t_mapping(t_uint80,t_struct(Reference)78364_storage)": {
               "encoding": "mapping",
               "key": "t_uint80",
               "label": "mapping(uint80 => struct PriceProtection.Reference)",
               "numberOfBytes": "32",
-              "value": "t_struct(Reference)46076_storage"
+              "value": "t_struct(Reference)78364_storage"
             },
-            "t_struct(AmountRule)46031_storage": {
+            "t_struct(AmountRule)78319_storage": {
               "encoding": "inplace",
               "label": "struct PriceProtection.AmountRule",
               "numberOfBytes": "64",
               "members": [
                 {
-                  "astId": 46016,
+                  "astId": 78304,
                   "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
                   "label": "amountWord",
                   "offset": 0,
@@ -4688,7 +4688,7 @@
                   "type": "t_uint16"
                 },
                 {
-                  "astId": 46018,
+                  "astId": 78306,
                   "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
                   "label": "inputDecimals",
                   "offset": 2,
@@ -4696,7 +4696,7 @@
                   "type": "t_uint8"
                 },
                 {
-                  "astId": 46020,
+                  "astId": 78308,
                   "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
                   "label": "outputDecimals",
                   "offset": 3,
@@ -4704,7 +4704,7 @@
                   "type": "t_uint8"
                 },
                 {
-                  "astId": 46022,
+                  "astId": 78310,
                   "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
                   "label": "inverse",
                   "offset": 4,
@@ -4712,7 +4712,7 @@
                   "type": "t_bool"
                 },
                 {
-                  "astId": 46024,
+                  "astId": 78312,
                   "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
                   "label": "maxInput",
                   "offset": 5,
@@ -4720,7 +4720,7 @@
                   "type": "t_bool"
                 },
                 {
-                  "astId": 46026,
+                  "astId": 78314,
                   "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
                   "label": "active",
                   "offset": 6,
@@ -4728,7 +4728,7 @@
                   "type": "t_bool"
                 },
                 {
-                  "astId": 46028,
+                  "astId": 78316,
                   "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
                   "label": "inputAsset",
                   "offset": 7,
@@ -4736,7 +4736,7 @@
                   "type": "t_address"
                 },
                 {
-                  "astId": 46030,
+                  "astId": 78318,
                   "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
                   "label": "outputAsset",
                   "offset": 0,
@@ -4745,13 +4745,13 @@
                 }
               ]
             },
-            "t_struct(Reference)46076_storage": {
+            "t_struct(Reference)78364_storage": {
               "encoding": "inplace",
               "label": "struct PriceProtection.Reference",
               "numberOfBytes": "128",
               "members": [
                 {
-                  "astId": 46069,
+                  "astId": 78357,
                   "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
                   "label": "value",
                   "offset": 0,
@@ -4759,7 +4759,7 @@
                   "type": "t_uint256"
                 },
                 {
-                  "astId": 46071,
+                  "astId": 78359,
                   "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
                   "label": "updatedAt",
                   "offset": 0,
@@ -4767,7 +4767,7 @@
                   "type": "t_uint256"
                 },
                 {
-                  "astId": 46073,
+                  "astId": 78361,
                   "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
                   "label": "recordedAt",
                   "offset": 0,
@@ -4775,7 +4775,7 @@
                   "type": "t_uint256"
                 },
                 {
-                  "astId": 46075,
+                  "astId": 78363,
                   "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
                   "label": "observedAt",
                   "offset": 0,
@@ -4784,13 +4784,13 @@
                 }
               ]
             },
-            "t_struct(Rule)45999_storage": {
+            "t_struct(Rule)78287_storage": {
               "encoding": "inplace",
               "label": "struct PriceProtection.Rule",
               "numberOfBytes": "192",
               "members": [
                 {
-                  "astId": 45974,
+                  "astId": 78262,
                   "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
                   "label": "oracle",
                   "offset": 0,
@@ -4798,7 +4798,7 @@
                   "type": "t_address"
                 },
                 {
-                  "astId": 45976,
+                  "astId": 78264,
                   "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
                   "label": "feedId",
                   "offset": 0,
@@ -4806,7 +4806,7 @@
                   "type": "t_bytes32"
                 },
                 {
-                  "astId": 45978,
+                  "astId": 78266,
                   "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
                   "label": "target",
                   "offset": 0,
@@ -4814,7 +4814,7 @@
                   "type": "t_address"
                 },
                 {
-                  "astId": 45980,
+                  "astId": 78268,
                   "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
                   "label": "selector",
                   "offset": 20,
@@ -4822,7 +4822,7 @@
                   "type": "t_bytes4"
                 },
                 {
-                  "astId": 45982,
+                  "astId": 78270,
                   "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
                   "label": "callIndex",
                   "offset": 24,
@@ -4830,7 +4830,7 @@
                   "type": "t_uint8"
                 },
                 {
-                  "astId": 45984,
+                  "astId": 78272,
                   "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
                   "label": "priceDecimals",
                   "offset": 25,
@@ -4838,7 +4838,7 @@
                   "type": "t_uint8"
                 },
                 {
-                  "astId": 45986,
+                  "astId": 78274,
                   "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
                   "label": "priceWord",
                   "offset": 26,
@@ -4846,7 +4846,7 @@
                   "type": "t_uint16"
                 },
                 {
-                  "astId": 45988,
+                  "astId": 78276,
                   "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
                   "label": "directionWord",
                   "offset": 28,
@@ -4854,7 +4854,7 @@
                   "type": "t_uint16"
                 },
                 {
-                  "astId": 45990,
+                  "astId": 78278,
                   "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
                   "label": "maxSlippageBps",
                   "offset": 30,
@@ -4862,7 +4862,7 @@
                   "type": "t_uint16"
                 },
                 {
-                  "astId": 45992,
+                  "astId": 78280,
                   "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
                   "label": "maxDeviationBps",
                   "offset": 0,
@@ -4870,7 +4870,7 @@
                   "type": "t_uint16"
                 },
                 {
-                  "astId": 45994,
+                  "astId": 78282,
                   "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
                   "label": "maxAuthorizationAge",
                   "offset": 2,
@@ -4878,7 +4878,7 @@
                   "type": "t_uint32"
                 },
                 {
-                  "astId": 45996,
+                  "astId": 78284,
                   "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
                   "label": "maximumDirection",
                   "offset": 0,
@@ -4886,7 +4886,7 @@
                   "type": "t_uint256"
                 },
                 {
-                  "astId": 45998,
+                  "astId": 78286,
                   "contract": "src/monad/integration/PriceProtection.sol:PriceProtection",
                   "label": "minimumDirection",
                   "offset": 0,
@@ -5393,6 +5393,50 @@
                 "name": "",
                 "type": "bool",
                 "internalType": "bool"
+              }
+            ],
+            "stateMutability": "view"
+          },
+          {
+            "type": "function",
+            "name": "currentPriceReference",
+            "inputs": [
+              {
+                "name": "bundle",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "capability",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "market",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ],
+            "outputs": [
+              {
+                "name": "price",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "updatedAt",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "round",
+                "type": "uint80",
+                "internalType": "uint80"
+              },
+              {
+                "name": "observedAt",
+                "type": "uint256",
+                "internalType": "uint256"
               }
             ],
             "stateMutability": "view"
@@ -43400,8 +43444,8 @@
         "completedAt": "2026-10-10T09:03:25.885Z"
       },
       "priceUpdate": {
-        "sourceCommit": "ec9f0a6cb16a4c46183fd45a452026708075a0cc",
-        "completedAt": "2026-10-11T16:50:45.324Z",
+        "sourceCommit": "28b7ea13da9b27113ce2d0fd82a9d26175cfd746",
+        "completedAt": "2026-10-14T05:30:24.334Z",
         "storageUnchanged": true
       }
     },
@@ -43465,8 +43509,8 @@
       "settlementAsset": "0x534b2f3A21130d7a60830c2Df862319e593943A3",
       "monitor": "0x4Bb71Cc4ea4dA4FBa0ce4720843c28Cc6aD0Fc70",
       "trustModel": "testnet operator-approved implementations; automatic upgrade monitoring disabled",
-      "bid": "2449900",
-      "ask": "2474700",
+      "bid": "2495500",
+      "ask": "2500600",
       "makerBaseMON": "5",
       "makerQuoteUSDC": "1",
       "guards": {
@@ -43558,7 +43602,7 @@
           "codeHash": "0x645111866eec7decc0ba5894cef472a6497f11a791aec446155d8a71078cc0c2"
         }
       },
-      "liquidityUpdatedAt": "2026-10-13T01:49:23.109Z",
+      "liquidityUpdatedAt": "2026-10-14T04:33:29.055Z",
       "monitorEnabled": false
     },
     "kuru-application": {
@@ -51177,6 +51221,16 @@
             "runtimeMatch": "exact_match",
             "creationMatch": "exact_match",
             "url": "https://sourcify.dev/server/v2/contract/10143/0xa4d557aa6ed8057136b6d1e6131026c532fd8729"
+          },
+          {
+            "name": "PriceProtectionImplementation",
+            "address": "0xdff60b22e2eb3560668a50e72eb311b20477b147",
+            "verificationId": "518c7db8-c1cb-481d-ac9e-ae6736b8af03",
+            "matchId": "56090226",
+            "verifiedAt": "2026-10-14T06:00:51Z",
+            "runtimeMatch": "exact_match",
+            "creationMatch": "exact_match",
+            "url": "https://sourcify.dev/server/v2/contract/10143/0xdff60b22e2eb3560668a50e72eb311b20477b147"
           }
         ]
       }

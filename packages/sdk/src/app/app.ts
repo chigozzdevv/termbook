@@ -55,6 +55,10 @@ export class CreditApp {
       || !this.client.config.versionId || bundleId?.toLowerCase() !== this.client.config.versionId.toLowerCase()) {
       throw new Error("credit-action-unavailable");
     }
+    const maturity = field("maturity", 13);
+    if (maturity !== undefined && BigInt(String(maturity)) <= (await this.client.rpc.client.getBlock({ blockTag: "latest" })).timestamp) {
+      throw new Error("credit-matured");
+    }
     const state = await readActionState(this.client, definition, action, { borrower, account, creditId: this.creditId });
     const price = await executionPrice(this.client, this.creditId, bundleId, definition, action, previousPrice, state);
     const context = { borrower, account, creditId: this.creditId, use_case: this.client.config.use_case, state, ...(price ? { priceBound: price.bound } : {}) };
@@ -126,7 +130,7 @@ export class CreditApp {
     const { review, target, data, nonce, definition, plan, bundleId } = await this.prepare(action, reviewed?.price);
     if (!review.canExecute) throw new Error("action-health-insufficient");
     if (reviewed && review.fingerprint !== reviewed.fingerprint) throw new Error("action-review-stale");
-    const deadline = Math.floor(Date.now() / 1000) + 900;
+    const deadline = Number((await this.client.rpc.client.getBlock({ blockTag: "latest" })).timestamp) + 900;
     if (plan) {
       const signer = sessionWallet ? new Signer(sessionWallet) : this.client.signer;
       const manager = await this.client.rpc.read<`0x${string}`>(this.client.config.core, executionCoreAbi, "executionManager");

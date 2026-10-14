@@ -33,6 +33,7 @@ import { startIndexAndMonitor } from "./chain/services.js";
 import { runExplorerWorker } from "./explorer/explorer.worker.js";
 import { closeRpcBudget } from "./chain/rpc.budget.js";
 import { runTestnetHouseOffers, testnetOfferConfig } from "./house/testnet-offers.worker.js";
+import { kuruLiquidityConfig, runKuruLiquidityWorker } from "./kuru/liquidity.worker.js";
 
 async function main(): Promise<void> {
   if (process.argv.includes("--indexer-monitor")) { await startIndexAndMonitor(); return; }
@@ -51,6 +52,7 @@ async function main(): Promise<void> {
   solanaProofConfig();
   await solanaRelayConfig();
   testnetOfferConfig();
+  kuruLiquidityConfig();
   await connectDb();
   await startWorkers();
   const tick = async (): Promise<void> => {
@@ -66,6 +68,7 @@ async function main(): Promise<void> {
       runRecoveryRelayWorker(),
       runRecoveryRefundWorker(),
       runOracleWorker(),
+      runKuruLiquidityWorker(),
       runExplorerWorker(),
     ]);
     const counts = results.map((result, index) => {

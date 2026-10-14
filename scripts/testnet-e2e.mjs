@@ -127,7 +127,7 @@ async function main() {
     await currentGuards();
     if (!sdkStep.checkpoint) {
       const selected = selectCapability(appSetup.definition.actions, sdkStep.action);
-      if (selected.price) {
+      if (selected.price && await monad.read("PriceProtection", await coreRead("priceProtection"), "referenceVersion") === 1n) {
         const protection = await coreRead("priceProtection");
         const args = [appSetup.bundleId, viem.keccak256(viem.stringToHex(executionKey(selected))),
           viem.keccak256(viem.stringToHex(sdkStep.action.params.market_id))];
@@ -219,8 +219,10 @@ async function main() {
       const slippage = Math.min(100, Number(await monad.read("PriceProtection", protection, "houseSlippage", [test.creditId])));
       const priceArgs = [appSetup.bundleId, viem.keccak256(viem.stringToHex(executionKey(selected))), viem.keccak256(viem.stringToHex(market.market_id))];
       let price;
-      try { price = await monad.read("PriceProtection", protection, "priceReference", priceArgs); }
+      const currentPricing = await monad.read("PriceProtection", protection, "referenceVersion") === 2n;
+      try { price = await monad.read("PriceProtection", protection, currentPricing ? "currentPriceReference" : "priceReference", priceArgs); }
       catch (error) {
+        if (currentPricing) throw error;
         const reverted = typeof error?.walk === "function" ? error.walk((item) => item.name === "ContractFunctionRevertedError") : undefined;
         if (reverted?.data?.errorName !== "Stale") throw error;
         await monad.call("PriceProtection", protection, "recordPrice", priceArgs, `${test.kind}:${executionKey(selected)}:price:${await monad.client.getBlockNumber()}`);
@@ -241,7 +243,7 @@ async function main() {
       account: test.account, creditId: test.creditId, use_case: "spot", priceBound: bound }, usdc);
     if (draw > plan.requiredInput) draw = plan.requiredInput;
     const authorization = { drawAmount: draw, maxDraw: draw,
-      nonce: credit.nonce + 1n, deadline: guardDeadline < block.timestamp + 90n ? guardDeadline : block.timestamp + 90n, revision: credit.revision, signer: account.address, signature: "0x",
+      nonce: credit.nonce + 1n, deadline: guardDeadline < block.timestamp + 900n ? guardDeadline : block.timestamp + 900n, revision: credit.revision, signer: account.address, signature: "0x",
       price: quote };
     authorization.signature = await account.signMessage({ message: { raw: await coreRead("executionDigest", [test.creditId, plan, authorization]) } });
     return JSON.parse(canonicalJson({ plan, authorization, probe: { action, credit_id: test.creditId,
@@ -757,7 +759,7 @@ run().catch((cause) => {
   for (let item = cause; item; item = item.cause) if (item.name === "ContractFunctionRevertedError") { reverted = item; break; }
   let decoded;
   if (reverted?.raw) for (const name of ["TermbookCore", "PriceProtection", "ExecutionManager", "UseCaseExecution", "UseCaseReader"]) {
-    try { decoded = viem.decodeErrorResult({ abi: artifact(name).abi, data: reverted.raw }); break; } catch {}
+    try { decoded = viem.decodeErrorResult({ abi: artifact(name).abi, data: reverted.raw }); break; } catch { /* Try the next ABI. */ }
   }
   if (!decoded && reverted?.raw === viem.toFunctionSelector("SlippageExceeded()")) decoded = { errorName: "SlippageExceeded" };
   const causes = [];

@@ -48,7 +48,8 @@ async function main() {
       SOURCE_ACTION_KEEPER_KEY: keys.sourceAction, ORACLE_KEEPER_KEY: keys.oracle };
     const setup = readConfiguration("setup", deployment);
     const ratio = setup.addresses.RatioPriceFeed;
-    bindings.RATIO_PRICE_FEEDS = JSON.stringify([{ address: ratio, codeHash: viem.keccak256(await monad.client.getCode({ address: ratio })) }]);
+    bindings.RATIO_PRICE_FEEDS = setup.addresses.ETHLiveRatioPriceFeed ? "[]"
+      : JSON.stringify([{ address: ratio, codeHash: viem.keccak256(await monad.client.getCode({ address: ratio })) }]);
     let env = fs.readFileSync(envFile, "utf8");
     for (const [name, value] of Object.entries(bindings)) {
       env = env.replace(new RegExp(`^${name}=.*\\n?`, "m"), "");

@@ -121,19 +121,16 @@ and a 10 USDC LP deposit against a Monad testnet fork on port 18545. Use
 `--broadcast` for the deployed testnet. The runner journals signed transactions
 in `.data/operations` before submission. Completed setup is stored in
 `deployments/testnet.json`, and its temporary journal is removed.
-The initial ETH/USDC ratio uses admitted Chainlink ETH/USD and USDC/USD feeds, pins their
-aggregators, and preserves the older observation timestamp. Its permissionless
-`update()` must run when either underlying round changes. The testnet feeds have
-a 24-hour heartbeat; this setup uses a 25-hour age limit for testnet exercises.
-The worker refreshes pinned ratio feeds configured in `RATIO_PRICE_FEEDS` with a
-distinct `ORACLE_KEEPER_KEY`; stale or invalid source rounds remain rejected.
-The same keeper records authenticated execution-price checkpoints for admitted
-app rules. `PRICE_REFERENCE_RULES` can prime configured rules before admission
-using `{ bundle, capability, market }` hashes. Quotes use these checkpoints;
-execution still verifies the current guarded price, deviation and slippage.
-Set `PRICE_REFERENCE_ENABLED=false` to stop automatic trade checkpoints while
-keeping ratio-feed updates active. The caller must record a fresh checkpoint
-before submitting a trade; execution keeps the same price checks.
+New setups derive ETH/USDC directly through `LiveRatioPriceFeed`, using admitted
+Chainlink feeds and preserving the older source timestamp. The testnet feeds
+have a 24-hour heartbeat and a 25-hour price-age limit. Older deployments using
+`RatioPriceFeed` still need its permissionless `update()` when a source round
+changes. Their worker reads `RATIO_PRICE_FEEDS` and uses `ORACLE_KEEPER_KEY`.
+
+Legacy execution pricing v1 can record authenticated checkpoints through
+`PRICE_REFERENCE_RULES`. Pricing v2 does not need that upkeep.
+`PRICE_REFERENCE_ENABLED=false` stops automatic trade checkpoints while keeping
+required legacy ratio updates active. Stale or invalid source prices still reject.
 
 Health snapshots describe account state read at the current block. `OracleRegistry`
 checks price freshness independently against each admitted feed's age limit;
@@ -159,9 +156,25 @@ replace ETH and USDC with pull feeds when that provider access is available.
 Neither a keeper checkpoint nor a ratio refresh makes an old price fresh.
 Price-dependent actions reject expired or invalid data; cash repayment remains
 available. Production price-age policies require their own admission.
+Execution pricing v2 checks the current oracle price and the signed minimum
+output or maximum input at execution. It needs no recurring price checkpoints
+or historical rounds. A reviewed amount remains usable while it satisfies the
+current House and integration limits; price movement beyond those limits still
+requires a new review. Loan maturity and oracle freshness remain enforced.
+Expired House offers refresh without clearing the entered collateral values.
+
 Refresh the existing price proxy with
-`node scripts/setup-testnet-integrations.mjs --simulate --refresh-prices`, then
-the corresponding `--broadcast` command after the simulation passes.
+`node --env-file=.env scripts/setup-testnet-integrations.mjs --simulate-live --refresh-prices`,
+then the corresponding `--broadcast --refresh-prices` command. The simulation
+checks storage compatibility and the governed upgrade through read-only RPC
+state overrides. `--simulate` remains available for a local fork.
+
+`TESTNET_KURU_LIQUIDITY` optionally enables bounded upkeep for the owned testnet
+maker orders. It checks implementation pins, uses existing margin liquidity,
+and cancels only the maker's orders. `maxUpdatesPerDay` limits transactions;
+`minimumGasWei` protects the gas reserve. No transaction is sent while the
+quotes and depth remain usable. This is disabled unless explicitly configured.
+The full worker must run for House offers, collateral relays and recovery.
 
 The upgradeable deployment installs the borrower-owned account factory and
 `AccountHealthSource` before accepting any credit. This wrapper checks factory

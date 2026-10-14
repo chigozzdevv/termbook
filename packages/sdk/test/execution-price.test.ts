@@ -32,6 +32,7 @@ function fixture() {
 describe("derived execution prices", () => {
   it("uses current-price enforcement without expiring checkpoints or historical rounds", async () => {
     const { client, read } = fixture(), original = read.getMockImplementation()!;
+    client.rpc.client.getBlock = vi.fn(async () => { throw new Error("unexpected-block-read"); }) as never;
     read.mockImplementation(async (...args) => {
       if (args[2] === "referenceVersion") return 2n;
       if (args[2] === "currentPriceReference") return [2000n * 10n ** 18n, 900n, 0n, 999n];
@@ -42,6 +43,7 @@ describe("derived execution prices", () => {
     expect(quote).toMatchObject({ roundId: 0n, authorizedAt: 999n, bound: 2010n * 10n ** 8n });
     expect(await executionPrice(client, credit, credit, definition, action, quote)).toEqual(quote);
     expect(read.mock.calls.some((call) => ["priceReference", "readRound"].includes(call[2]))).toBe(false);
+    expect(client.rpc.client.getBlock).not.toHaveBeenCalled();
   });
   it.each(["matching", "mismatch", "unavailable"])("validates a %s oracle round when the cached checkpoint expires", async (state) => {
     const { client, read } = fixture(), original = read.getMockImplementation()!;

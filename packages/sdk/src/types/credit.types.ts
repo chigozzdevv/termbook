@@ -9,6 +9,7 @@ export type CreditSummary = {
   payment?: string;
   account?: `0x${string}`;
   vault?: `0x${string}`;
+  maturity?: number;
 };
 
 export type CreditActivity = ActivityEvent;

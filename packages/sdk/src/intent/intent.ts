@@ -284,6 +284,7 @@ export class Intent {
     if (!base) throw new Error("api-required");
     const rows = await new HttpClient(base).get<Record<string, unknown>[]>(`/quotes?intentId=${intentId}`);
     const offers = rows
+      .filter((row) => !Number.isSafeInteger(Number(row["expiry"])) || Number(row["expiry"]) * 1000 > Date.now())
       .map(parseOffer)
       .filter((offer) => offer.intentId === intentId && offer.borrower.toLowerCase() === this.client.signer.address().toLowerCase()
         && (!this.client.config.versionId || offer.bundleId.toLowerCase() === this.client.config.versionId.toLowerCase()))

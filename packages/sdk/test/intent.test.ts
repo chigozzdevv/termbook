@@ -5,8 +5,15 @@ import { slippageBound } from "../src/app/app.js";
 import { operationId, checkQuoteForOperation } from "../src/settlement/operation.js";
 import { Intent, type Offer } from "../src/intent/intent.js";
 import type { TermbookClient } from "../src/client/client.js";
+import { HttpClient } from "../src/transport/http.js";
 
 describe("waiting for House offers", () => {
+  it("ignores offers that expired in transit so the caller can wait for fresh terms", async () => {
+    const intent = new Intent({ config: { apiBase: "https://api.termbook.example" } } as TermbookClient);
+    vi.spyOn(intent, "submit").mockResolvedValue(`0x${"2".repeat(64)}`);
+    const get = vi.spyOn(HttpClient.prototype, "get").mockResolvedValue([{ expiry: Math.floor(Date.now() / 1000) - 1 }]);
+    try { expect(await intent.offers()).toEqual([]); } finally { get.mockRestore(); }
+  });
   it("waits for the same request until its House responds", async () => {
     vi.useFakeTimers();
     try {

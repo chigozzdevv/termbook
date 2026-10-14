@@ -6,6 +6,14 @@ import { assertKeeperFunding, assertSignedKeeperFunding } from "../../src/chain/
 vi.mock("viem/op-stack", () => ({ estimateL1Fee: vi.fn() }));
 const account = privateKeyToAccount(`0x${"11".repeat(32)}`);
 describe("keeper gas funding", () => {
+  it("preserves the configured gas reserve when a signed transaction resumes", async () => {
+    const raw = await account.signTransaction({ chainId: 10143, type: "legacy", nonce: 1,
+      to: account.address, gas: 10n, gasPrice: 20n, value: 3n });
+    const getBalance = vi.fn(async () => 203n);
+    await expect(assertSignedKeeperFunding({ getBalance } as never, raw, 100n)).rejects.toThrow("requiredWei=303 balanceWei=203");
+    getBalance.mockResolvedValue(303n);
+    await expect(assertSignedKeeperFunding({ getBalance } as never, raw, 100n)).resolves.toBeUndefined();
+  });
   it("requires the full EIP-1559 fee cap plus value rather than the expected fee", async () => {
     const getBalance = vi.fn(async () => 150n);
     const client = { getBalance } as never;

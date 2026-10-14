@@ -5,7 +5,7 @@ import { evm_wallet } from "../src/wallet/evm.js";
 
 const address = "0x1111111111111111111111111111111111111111";
 const other = "0x2222222222222222222222222222222222222222";
-const hash = `0x${"a".repeat(64)}`;
+const hash = `0x${"a".repeat(64)}` as const;
 
 function connected() {
   return {

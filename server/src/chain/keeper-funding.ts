@@ -15,7 +15,8 @@ export async function assertKeeperFunding(client: PublicClient, address: Address
   }
 }
 
-export async function assertSignedKeeperFunding(client: PublicClient, raw: Hex): Promise<void> {
+export async function assertSignedKeeperFunding(client: PublicClient, raw: Hex, minimumBalance = 0n): Promise<void> {
+  if (minimumBalance < 0n) throw new Error("keeper-minimum-balance-invalid");
   const request = parseTransaction(raw);
   const address = await recoverTransactionAddress({ serializedTransaction: raw as TransactionSerialized });
   let value = request.value ?? 0n;
@@ -30,5 +31,5 @@ export async function assertSignedKeeperFunding(client: PublicClient, raw: Hex):
     ]);
     value += l1Fee + operatorFee;
   }
-  await assertKeeperFunding(client, address, { ...request, value });
+  await assertKeeperFunding(client, address, { ...request, value: value + minimumBalance });
 }

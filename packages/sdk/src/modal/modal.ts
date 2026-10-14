@@ -430,7 +430,8 @@ export class TermbookModal {
     }
     if (!this.requestedTab && !this.action && this.summary?.facility === "ready") this.tab = "app";
     this.showStatus("");
-    if (this.action && this.tab === "app" && this.summary?.facility === "ready" && this.recentAction?.status !== "pending") {
+    if (this.action && this.tab === "app" && this.summary?.facility === "ready"
+      && (!this.summary.maturity || this.summary.maturity > Math.floor(Date.now() / 1000)) && this.recentAction?.status !== "pending") {
       try { await this.reviewAction(); } catch (error) { this.showError(error); }
     }
     this.render();
@@ -671,6 +672,12 @@ export class TermbookModal {
           try { localStorage.setItem(`${this.storageKey()}:setup:${binding.creditId}`, stringify({ binding, checkpoint })); } catch { /* storage is optional */ }
         } });
     } catch (error) {
+      if (error instanceof Error && error.message === "offer-expired") {
+        this.offer = undefined; this.offers = [];
+        await this.findOffers();
+        this.showStatus("Review the refreshed House offer.");
+        return;
+      }
       if (error instanceof Error && ["offer-review-stale", "offer-not-found"].includes(error.message)) {
         this.offers = await this.intent.offers();
         this.offer = undefined;
@@ -778,6 +785,11 @@ export class TermbookModal {
         this.footer.append(this.button("View account", () => { this.tab = "account"; this.navigate("overview"); }, true));
         const secondary = element("div", undefined, "secondary"); secondary.append(this.button("New action", async () => { this.recentAction = undefined; if (this.action && this.summary?.facility === "ready") await this.reviewAction(); })); secondary.firstElementChild!.className = "text-button"; this.footer.append(secondary);
       }
+      return;
+    }
+    if (this.summary?.facility === "ready" && this.summary.maturity && this.summary.maturity <= Math.floor(Date.now() / 1000)) {
+      this.body.append(context("Credit is due", this.appBrand()), element("p", "Repay or close this facility to continue.", "notice"));
+      this.footer.append(this.button("View account", () => { this.tab = "account"; this.navigate("overview"); }, true));
       return;
     }
     if (!this.credit || !this.summary || this.summary.facility !== "ready") {

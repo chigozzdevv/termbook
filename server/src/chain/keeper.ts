@@ -12,6 +12,7 @@ export async function keeperTransaction(input: {
   client: PublicClient; rpcUrl: string; chainId: number; account: LocalAccount;
   operation: string; to: Address; data: Hex;
   value?: bigint;
+  minimumBalance?: bigint;
   testnetConfirmations?: number;
   testnetFinality?: "safe";
 }): Promise<KeeperResult> {
@@ -33,9 +34,11 @@ export async function keeperTransaction(input: {
         input.rpcUrl === env.rpcUrl && env.rpcFallbackUrl ? { url: env.rpcFallbackUrl, chainId } : undefined) });
       const request = await wallet.prepareTransactionRequest({ account, chain: null,
         chainId, to: input.to, data: input.data, nonce, value: input.value ?? 0n });
-      await assertKeeperFunding(client, account.address, request);
+      if ((input.minimumBalance ?? 0n) < 0n) throw new Error("keeper-minimum-balance-invalid");
+      await assertKeeperFunding(client, account.address, { ...request, value: (request.value ?? 0n) + (input.minimumBalance ?? 0n) });
       const raw = await wallet.signTransaction({ ...request, account, chain: null });
       pending = { id, hash: keccak256(raw), raw, nonce, to: input.to, data: input.data };
+      if (input.minimumBalance !== undefined) pending.minimumBalance = String(input.minimumBalance);
       if (input.testnetConfirmations !== undefined) pending.testnetConfirmations = input.testnetConfirmations;
       if (input.testnetFinality !== undefined) pending.testnetFinality = input.testnetFinality;
       assertLease();
@@ -101,7 +104,7 @@ async function reconcile(client: PublicClient, pending: PendingTransaction): Pro
   }
   if (!receipt) {
     try {
-      await assertSignedKeeperFunding(client, pending.raw);
+      await assertSignedKeeperFunding(client, pending.raw, BigInt(pending.minimumBalance ?? "0"));
       const hash = await client.sendRawTransaction({ serializedTransaction: pending.raw });
       if (hash !== pending.hash) throw new Error("keeper-transaction-hash-mismatch");
     } catch (sendError) {

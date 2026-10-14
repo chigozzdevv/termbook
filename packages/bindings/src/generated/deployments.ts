@@ -14,7 +14,7 @@ export const deployments: DeploymentMap = {
     "FlowExecutor": "0xfd4f7878df5f4e51a1b78d7ec2428acb1ddb3558",
     "ReservationManagerImplementation": "0xa82b21d04ec8b9fbd8ffdef737648e8342c242f1",
     "ReservationManager": "0xf70614f0c1991819cfd80298f1f45b8756f30b24",
-    "PriceProtectionImplementation": "0x6226d54fd8112fff17d0d30cfe21e06644b8e0d5",
+    "PriceProtectionImplementation": "0xdff60b22e2eb3560668a50e72eb311b20477b147",
     "PriceProtection": "0x7b486460855ce5e6a4bf0215f916cd441540b664",
     "TermbookCoreImplementation": "0xa88abd9d9a428cc9057055d2a6e2838c1ca99dab",
     "TermbookCore": "0x198995faab55a9d5d4dceab56abaaa273c26fad7",
@@ -56,7 +56,22 @@ export const deployments: DeploymentMap = {
     "AtomicSpotRouter": "0xf3e33781e2b5c6265da2f2775b339cc5a94a50d1",
     "AtomicSpotModule": "0x0b626a1a6ef46c4470bc1acde3c6d719ceb050ed",
     "AppHealthReaderFactory": "0x99cc490c6b8c58e7f1cf37ece3e083398cc7d2d8",
-    "SpotOrderTracker": "0x2c767ca1a112f66a2a94a39b11c912a73672400d"
+    "SpotOrderTracker": "0x2c767ca1a112f66a2a94a39b11c912a73672400d",
+    "Evm84532MessageClient": "0xd0f5aeca20145de02055729c0e74ee66158b4f30",
+    "Evm84532Verifier": "0xbc3df547c313c49babdc920db4702e3f4ea75fad",
+    "Evm84532SafeClient": "0xd0f5aeca20145de02055729c0e74ee66158b4f30",
+    "Evm84532SafeVerifier": "0xbc3df547c313c49babdc920db4702e3f4ea75fad"
+  },
+  "84532": {
+    "ProtocolGovernance": "0xc6d1ec8c0b410cb089a110685ba19ee9954be37c",
+    "UpgradeController": "0x9edc3e9585e7797f88d397c07461d883505208f0",
+    "AuthorizationClient": "0x09a245e7a7953d7477a82dba9ba4415ee1d5f014",
+    "RecoveryClient": "0x404a45eda3fa4b2bdccf0f0264fd95f5cf32576b",
+    "WormholeMonadVerifier": "0xb600e2412867286724d4e0929697ce6ae614936f",
+    "SourceRecoveryVault": "0x5bb0eb823a4fcb686f6d355f1cc34fbce9e6f7ff",
+    "RemoteCollateralController": "0x2ac3642c4bb71433d444f35ec649690f2570a297",
+    "CollateralVault": "0xCdd8559FF6d41FFC2c58935708af3d68563EF037",
+    "WormholeEthereumPublisher": "0xc7e4f9265ab1c006875ab82b59bac61cbef590b4"
   },
   "11155111": {
     "ProtocolGovernance": "0xb0e8089b8067dbe49ef67e2c8d2dd1ab710d3387",

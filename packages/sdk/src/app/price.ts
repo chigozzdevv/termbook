@@ -117,11 +117,11 @@ export async function executionPrice(client: TermbookClient, creditId: `0x${stri
     }
     return current;
   };
-  const [value, block] = await Promise.all([
+  const [value, authorizedAt] = await Promise.all([
     readReference(),
-    client.rpc.client.getBlock({ blockTag: "latest" }),
+    referenceVersion === 2n ? undefined : client.rpc.client.getBlock({ blockTag: "latest" }).then((block) => block.timestamp),
   ]);
-  return { roundId: value[2]!, referencePrice: value[0]!, updatedAt: value[1]!, authorizedAt: referenceVersion === 2n ? value[3]! : block.timestamp,
+  return { roundId: value[2]!, referencePrice: value[0]!, updatedAt: value[1]!, authorizedAt: authorizedAt ?? value[3]!,
     bound: derive(value[0]!), slippageBps, isMax };
 }
 

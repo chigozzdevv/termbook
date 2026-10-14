@@ -42,7 +42,7 @@ function fixture(pending = true) {
       throw new Error(name);
     }),
   };
-  const transport = { getChainId: async () => 143, getBlock: async () => ({ number: 10n, hash: word("1") }),
+  const transport = { getChainId: async () => 143, getBlock: async () => ({ number: 10n, hash: word("1"), timestamp: 1000n }),
     getTransactionReceipt: rpc.wait, getTransaction: async () => ({ to: address("e"),
       input: encodeFunctionData({ abi: executionCoreAbi, functionName: "executePlan", args: submitted as never }) }) };
   const client = { ready: async () => {}, rpc: { ...rpc, client: transport }, config: { core: address("e"), chainId: 143, versionId: bundle, actions: [{
@@ -56,6 +56,21 @@ function fixture(pending = true) {
 }
 
 describe("managed SDK execution", () => {
+  it("uses chain time for authorization instead of the device clock", async () => {
+    const { app, rpc, action } = fixture(false);
+    await app.execute(action);
+    const authorization = rpc.coreWrite.mock.calls[0]![1][2] as { deadline: bigint };
+    expect(authorization.deadline).toBe(1900n);
+  });
+  it("rejects a matured facility before building, simulating or signing a trade", async () => {
+    const { client, rpc, app, action } = fixture();
+    rpc.creditDetails.mockResolvedValue({ ...await rpc.creditDetails(), maturity: 1000n } as never);
+    client.rpc.client.getBlock = vi.fn(async () => ({ timestamp: 1000n })) as never;
+    await expect(app.execute(action)).rejects.toThrow("credit-matured");
+    expect(rpc.previewPlan).not.toHaveBeenCalled();
+    expect(client.signer.signDigest).not.toHaveBeenCalled();
+    expect(rpc.coreWrite).not.toHaveBeenCalled();
+  });
   it("skips repeated testnet source audits but retains permission and health enforcement", async () => {
     const { client, rpc, app, action } = fixture(false);
     client.config.chainId = 10143;

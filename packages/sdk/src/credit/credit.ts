@@ -69,6 +69,7 @@ export class Credit {
       revision: asBigInt(field(details, "revision", 17)),
       account: asAddress(field(details, "account", 5)),
       vault: asAddress(field(details, "vault", 4)),
+      ...(field(details, "maturity", 13) ? { maturity: Number(field(details, "maturity", 13)) } : {}),
     };
   }
 

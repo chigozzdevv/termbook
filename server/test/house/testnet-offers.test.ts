@@ -20,12 +20,16 @@ describe("testnet House offers", () => {
     expect(testnetOfferLimit(request(), policy, 100_000n, 9999n)).toBeUndefined();
     expect(testnetOfferLimit(request(), [...policy.slice(0, 13), false], 100_000n, 1_000_000n)).toBeUndefined();
   });
-  it("is opt in and refuses production use", () => {
+  it("is opt in and can run in a hosted testnet environment", () => {
     vi.stubEnv("TESTNET_HOUSE_OFFERS", "");
     expect(testnetOfferConfig()).toEqual([]);
-    vi.stubEnv("TESTNET_HOUSE_OFFERS", "[]");
     vi.stubEnv("NODE_ENV", "production");
-    expect(() => testnetOfferConfig()).toThrow("testnet-house-offers-forbidden");
+    const address = `0x${"1".repeat(40)}`;
+    const config = [{ keyFile: ".operators/house.json", house: address, vault: address, asset: address, reader: address,
+      bundles: [`0x${"2".repeat(64)}`], maxLimit: "100000", aprBps: 100, setupSeconds: 300 }];
+    vi.stubEnv("TESTNET_HOUSE_OFFERS", JSON.stringify(config));
+    const previous = env.monadChainId; env.monadChainId = 10143;
+    try { expect(testnetOfferConfig()).toEqual(config); } finally { env.monadChainId = previous; }
   });
   it("refuses a mainnet chain even with an operator configured", () => {
     vi.stubEnv("TESTNET_HOUSE_OFFERS", "[]");

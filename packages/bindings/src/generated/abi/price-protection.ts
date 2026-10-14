@@ -475,6 +475,50 @@ export const priceProtectionAbi = [
   },
   {
     "type": "function",
+    "name": "currentPriceReference",
+    "inputs": [
+      {
+        "name": "bundle",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "capability",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "market",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "price",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "updatedAt",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "round",
+        "type": "uint80",
+        "internalType": "uint80"
+      },
+      {
+        "name": "observedAt",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "deriveAmountBound",
     "inputs": [
       {

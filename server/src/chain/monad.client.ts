@@ -15,7 +15,8 @@ export function monadClient(priority = 0): PublicClient {
       const result: unknown[] = [];
       // Viem measures batchSize in calldata bytes.
       for (let offset = 0; offset < input.contracts.length; offset += 32) {
-        result.push(...await raw.multicall({ ...input, contracts: input.contracts.slice(offset, offset + 32) as never, batchSize: 1024 }));
+        const values = await raw.multicall({ ...input, contracts: input.contracts.slice(offset, offset + 32), batchSize: 1024 } as never) as unknown[];
+        result.push(...values);
       }
       return result;
     } })) as PublicClient;

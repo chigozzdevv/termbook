@@ -112,17 +112,17 @@ contract PriceProtectionTest is Test {
     function testCurrentAmountReferenceEnforcesMinimumOutput() public { _currentAmountReference(false); }
     function testCurrentAmountReferenceEnforcesMaximumInput() public { _currentAmountReference(true); }
     function _currentAmountReference(bool maxInput) internal {
-            (ExecutionTypes.Action memory action, PriceProtection.Quote memory quote,) = _spot(maxInput);
-            bytes32 spotBundle = keccak256(abi.encode("spot", maxInput));
-            quote.roundId = 0;
-            protection.validate(keccak256("spot credit"), spotBundle, action, quote);
-            quote.referencePrice = maxInput ? 2010e18 : 1990e18;
-            quote.bound = protection.deriveAmountBound(quote.referencePrice, 1 ether, 50,
-                maxInput ? 6 : 18, maxInput ? 18 : 6, maxInput, maxInput);
-            action.calls[0].data = abi.encodeCall(feed.trade, (1 ether, quote.bound));
-            if (maxInput) action.calls[0].spendAmount = quote.bound;
-            vm.expectRevert(PriceProtection.Stale.selector);
-            protection.validate(keccak256("spot credit"), spotBundle, action, quote);
+        (ExecutionTypes.Action memory action, PriceProtection.Quote memory quote,) = _spot(maxInput);
+        bytes32 spotBundle = keccak256(abi.encode("spot", maxInput));
+        quote.roundId = 0;
+        protection.validate(keccak256("spot credit"), spotBundle, action, quote);
+        quote.referencePrice = maxInput ? 2010e18 : 1990e18;
+        quote.bound = protection.deriveAmountBound(quote.referencePrice, 1 ether, 50,
+            maxInput ? 6 : 18, maxInput ? 18 : 6, maxInput, maxInput);
+        action.calls[0].data = abi.encodeCall(feed.trade, (1 ether, quote.bound));
+        if (maxInput) action.calls[0].spendAmount = quote.bound;
+        vm.expectRevert(PriceProtection.Stale.selector);
+        protection.validate(keccak256("spot credit"), spotBundle, action, quote);
     }
     function testRecordedLivePriceSurvivesAnUnderlyingRoundChange() public {
         feed.setHistory(false);

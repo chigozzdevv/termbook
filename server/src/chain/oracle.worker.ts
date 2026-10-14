@@ -15,7 +15,8 @@ const oracleAbi = parseAbi(["function read(bytes32) view returns(uint256,uint256
 export function ratioFeedConfig() {
   const raw = process.env["RATIO_PRICE_FEEDS"];
   const key = process.env["ORACLE_KEEPER_KEY"];
-  if (!raw && !key) return null;
+  if (!raw) return null;
+  if (JSON.stringify(JSON.parse(raw)) === "[]") return null;
   if (!raw || !key || !/^0x[a-fA-F0-9]{64}$/.test(key)) throw new Error("oracle-keeper-config-invalid");
   const entries: unknown = JSON.parse(raw);
   if (!Array.isArray(entries) || entries.length === 0 || entries.length > 16) throw new Error("oracle-feeds-config-invalid");

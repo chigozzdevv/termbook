@@ -104,8 +104,10 @@ async function main() {
   const ratio = deployment.configuration.setup.addresses.RatioPriceFeed;
   const feeds = deployment.configuration.setup.feeds;
   const prices = await Promise.all([feeds.ETH.id, feeds.USDC.id].map((id) => monad.read("OracleRegistry", m.OracleRegistry, "read", [id])));
-  const rounds = await Promise.all(["baseRound", "quoteRound"].map((field) => monad.read("RatioPriceFeed", ratio, field)));
-  if (rounds[0] !== prices[0][2] || rounds[1] !== prices[1][2]) await monad.call("RatioPriceFeed", ratio, "update", [], `ratio:${prices[0][2]}:${prices[1][2]}`);
+  if (!deployment.configuration.setup.addresses.ETHLiveRatioPriceFeed) {
+    const rounds = await Promise.all(["baseRound", "quoteRound"].map((field) => monad.read("RatioPriceFeed", ratio, field)));
+    if (rounds[0] !== prices[0][2] || rounds[1] !== prices[1][2]) await monad.call("RatioPriceFeed", ratio, "update", [], `ratio:${prices[0][2]}:${prices[1][2]}`);
+  }
   const priceId = deployment.configuration.setup.priceId;
   const usdc = deployment.tokens[10143].USDC;
   await monad.govern("VerifierRegistry", m.VerifierRegistry, "setVerifier", [BigInt(chainId), verifier, 1n, 7200n]);

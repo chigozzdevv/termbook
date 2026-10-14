@@ -37,6 +37,12 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("ratio oracle upkeep", () => {
+  it("can disable cached ratios while retaining keys for other oracle services", async () => {
+    vi.stubEnv("RATIO_PRICE_FEEDS", "[]");
+    expect(ratioFeedConfig()).toBeNull();
+    expect(await runOracleWorker()).toBe(0);
+    expect(keeperTransaction).not.toHaveBeenCalled();
+  });
   it("updates a changed source round through the durable keeper journal", async () => {
     expect(await runOracleWorker()).toBe(1);
     expect(keeperTransaction).toHaveBeenCalledWith(expect.objectContaining({ to: feed,

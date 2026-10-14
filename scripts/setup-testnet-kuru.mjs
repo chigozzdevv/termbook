@@ -101,8 +101,8 @@ async function main() {
         if (order[0].toLowerCase() === deployment.deployer.toLowerCase() && order[1] > 0n) report.orderIds.push(String(id));
       }
       report.reference = String(price[0]);
-      report.bid = String(price[0] * precision * 9950n / 10n ** 18n / 10_000n / tick * tick);
-      report.ask = String((price[0] * precision * 10050n / 10n ** 18n / 10_000n + tick - 1n) / tick * tick);
+      report.bid = String(price[0] * precision * 9990n / 10n ** 18n / 10_000n / tick * tick);
+      report.ask = String((price[0] * precision * 10010n / 10n ** 18n / 10_000n + tick - 1n) / tick * tick);
       report.size = String(baseAmount * params[1] / 10n ** 18n); persist();
     }
     const difference = price[0] > BigInt(report.reference) ? price[0] - BigInt(report.reference) : BigInt(report.reference) - price[0];

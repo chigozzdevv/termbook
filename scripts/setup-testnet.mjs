@@ -50,9 +50,10 @@ async function main() {
     report.prices[name] = price.map(String);
     persist();
   }
-  const ratio = await monad.deploy("RatioPriceFeed", [m.OracleRegistry, feeds.ETH.id, feeds.USDC.id]);
-  await monad.call("RatioPriceFeed", ratio, "update", [], `RatioPriceFeed.update:${report.prices.ETH[2]}:${report.prices.USDC[2]}`);
+  const ratio = await monad.deploy("LiveRatioPriceFeed", [m.OracleRegistry, feeds.ETH.id, feeds.USDC.id], "ETHLiveRatioPriceFeed");
+  const ratioGuard = await monad.deploy("CodeHashGuard", [ratio], "ETHRatioFeedGuard");
   await monad.govern("OracleRegistry", m.OracleRegistry, "setFeed", [priceId, ratio, maxAge, 18]);
+  await monad.govern("OracleRegistry", m.OracleRegistry, "setFeedGuard", [priceId, ratioGuard]);
   await monad.govern("TermbookCore", m.TermbookCore, "setHealthMaxAge", [maxAge]);
   await monad.govern("TermbookCore", m.TermbookCore, "setRemoteSalePolicy", [11155111n, weth, usdc, m.OracleRegistry, priceId, 18, 9500, 10_000_000_000_000_000n]);
   await monad.govern("CollateralHealthReader", m.CollateralHealthReader, "setMarket", [11155111n, weth, usdc, priceId, 18, 8000, 50_000n]);
@@ -140,8 +141,9 @@ async function setupHealthFreshness() {
   const ratio = deployment.configuration.setup.addresses.RatioPriceFeed;
   const base = await network.read("OracleRegistry", m.OracleRegistry, "read", [deployment.configuration.setup.feeds.ETH.id]);
   const quote = await network.read("OracleRegistry", m.OracleRegistry, "read", [deployment.configuration.setup.feeds.USDC.id]);
-  if (await network.read("RatioPriceFeed", ratio, "baseRound") !== base[2]
-    || await network.read("RatioPriceFeed", ratio, "quoteRound") !== quote[2]) {
+  if (!deployment.configuration.setup.addresses.ETHLiveRatioPriceFeed
+    && (await network.read("RatioPriceFeed", ratio, "baseRound") !== base[2]
+      || await network.read("RatioPriceFeed", ratio, "quoteRound") !== quote[2])) {
     await network.call("RatioPriceFeed", ratio, "update", [], `health-ratio:${base[2]}:${quote[2]}`);
   }
   for (const args of copies) await network.read("OracleRegistry", m.OracleRegistry, "read", [args[3]]);
@@ -257,6 +259,7 @@ async function setupFreshPrices() {
     for (const name of ["USDC", "ETH"]) setup.feeds[name] = { id: setup.feeds[name].id, address: report.addresses[`${name}PriceFeed`],
       kind: "pyth", pythId: items.find((item) => item.name === name).id, maxAgeSeconds: 300 };
     setup.addresses.RatioPriceFeed = ratio;
+    setup.addresses.ETHLiveRatioPriceFeed = ratio;
     setup.maxAgeSeconds = 300;
     deployment.configuration["kuru-market"].oracleGuard = { address: oracleGuard, proxy: m.OracleRegistry, implementation,
       codeHash: viem.keccak256(await network.client.getCode({ address: oracleGuard })) };

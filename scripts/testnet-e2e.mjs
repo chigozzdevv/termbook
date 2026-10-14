@@ -753,12 +753,18 @@ async function run() {
   }
 }
 run().catch((cause) => {
-  const reverted = typeof cause?.walk === "function" ? cause.walk((item) => item.name === "ContractFunctionRevertedError") : undefined;
+  let reverted;
+  for (let item = cause; item; item = item.cause) if (item.name === "ContractFunctionRevertedError") { reverted = item; break; }
+  let decoded;
+  if (reverted?.raw) for (const name of ["TermbookCore", "PriceProtection", "ExecutionManager", "UseCaseExecution", "UseCaseReader"]) {
+    try { decoded = viem.decodeErrorResult({ abi: artifact(name).abi, data: reverted.raw }); break; } catch {}
+  }
+  if (!decoded && reverted?.raw === viem.toFunctionSelector("SlippageExceeded()")) decoded = { errorName: "SlippageExceeded" };
   const causes = [];
   for (let item = cause; item && causes.length < 8; item = item.cause) causes.push({ name: item.name, code: item.code, status: item.status,
     reason: item.message?.match(/rate limit|request limit|compute units|timeout|insufficient funds|execution reverted|invalid params/i)?.[0] });
   error(JSON.stringify({ message: cause instanceof Error ? cause.message.split("\n")[0] : "Live testnet E2E failed",
     causes,
-    ...(reverted ? { contractError: reverted.data?.errorName, selector: reverted.raw?.slice(0, 10) } : {}) }));
+    ...(reverted ? { contractError: decoded?.errorName ?? reverted.data?.errorName, selector: reverted.raw?.slice(0, 10) } : {}) }));
   process.exitCode = 1;
 }).finally(closeRpcBudget);

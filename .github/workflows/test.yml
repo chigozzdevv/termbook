@@ -39,12 +39,13 @@ jobs:
       - run: pnpm lint
       - run: pnpm test
   evm:
+    needs: typescript
     runs-on: ${{ vars.TERMBOOK_CI_VPS == 'true' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && fromJSON('["self-hosted", "linux", "x64", "termbook-ci"]') || 'ubuntu-latest' }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -66,10 +67,11 @@ jobs:
           path: |
             contracts/evm/cache
             contracts/evm/out
-          key: ${{ runner.os }}-foundry-v1.5.1-shard-${{ matrix.shard }}-${{ hashFiles('contracts/evm/src/**/*.sol', 'contracts/evm/test/**/*.sol', 'contracts/evm/foundry.toml', 'contracts/evm/remappings.txt', 'pnpm-lock.yaml', 'lib/forge-std/**/*.sol') }}
-      - run: node scripts/checks/contracts-ci.mjs ${{ matrix.shard }} 4
+          key: ${{ runner.os }}-${{ runner.environment }}-foundry-v1.5.1-8-shards-${{ matrix.shard }}-${{ hashFiles('contracts/evm/src/**/*.sol', 'contracts/evm/test/**/*.sol', 'contracts/evm/foundry.toml', 'contracts/evm/remappings.txt', 'pnpm-lock.yaml', 'lib/forge-std/**/*.sol') }}
+      - run: node scripts/checks/contracts-ci.mjs ${{ matrix.shard }} 8
       - run: sh scripts/checks/contracts.sh
   solana:
+    needs: typescript
     runs-on: ${{ vars.TERMBOOK_CI_VPS == 'true' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && fromJSON('["self-hosted", "linux", "x64", "termbook-ci"]') || 'ubuntu-latest' }}
     timeout-minutes: 30
     env:

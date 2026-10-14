@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createPublicClient } from "viem";
+import { createPublicClient, keccak256, stringToHex } from "viem";
 import { create_termbook } from "../src/client/client.js";
 import { rpcHttp } from "../src/transport/http.js";
+import { standardDefinition } from "./use-case.fixture.js";
+import { canonicalEvidence, pluginDefinitionSchema } from "@termbook/schema";
+import { verify_definition } from "../src/integration/pins.js";
+
+vi.mock("../src/integration/pins.js", () => ({ verify_definition: vi.fn() }));
 
 vi.mock("viem", async (original) => {
   const actual = await original<typeof import("viem")>();
@@ -62,7 +67,7 @@ describe("public SDK configuration", () => {
     vi.stubGlobal("fetch", fetcher);
     const chain = {
       getChainId: vi.fn(async () => 143), getBytecode: vi.fn(async () => "0x1234"),
-      readContract: vi.fn(async ({ functionName }: { functionName: string }) => {
+      readContract: vi.fn(async ({ functionName }: { functionName: string }): Promise<unknown> => {
         if (functionName === "integrationRegistry") return address("5");
         if (functionName === "riskEngine") return address("4");
         if (functionName === "isActive") return active;
@@ -84,6 +89,35 @@ describe("public SDK configuration", () => {
     expect(client.config.use_case).toBe("perps");
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(chain.readContract).toHaveBeenCalledWith(expect.objectContaining({ functionName: "isActive", blockTag: "finalized" }));
+  });
+
+  function packaged(chainId: number, active = true) {
+    const definition = pluginDefinitionSchema.parse({ ...standardDefinition(), chain_id: chainId });
+    const hash = keccak256(stringToHex(canonicalEvidence(definition)));
+    const id = keccak256(stringToHex(`termbook.integration.v1:${chainId}:${hash}`));
+    const { chain } = setup(active, { chainId, versionId: id, actions: definition.actions,
+      integration_definition: definition, use_case: definition.use_case, settlementAsset: definition.settlement_asset });
+    chain.getChainId.mockResolvedValue(chainId);
+    const original = chain.readContract.getMockImplementation()!;
+    chain.readContract.mockImplementation(async (request) => request.functionName === "versions" ? [hash, true, false] : original(request));
+    return { chain, wallet: { ...wallet, getChainId: async () => chainId } };
+  }
+
+  it("checks live testnet activation and permissions without repeating the bytecode audit", async () => {
+    const { chain, wallet } = packaged(10143);
+    await create_termbook({ app_token: token, wallet }).ready();
+    expect(verify_definition).not.toHaveBeenCalled();
+    for (const functionName of ["isActive", "isCallAllowed", "versions"])
+      expect(chain.readContract).toHaveBeenCalledWith(expect.objectContaining({ functionName, blockTag: "finalized" }));
+    const disabled = packaged(10143, false);
+    await expect(create_termbook({ app_token: token, wallet: disabled.wallet }).ready()).rejects.toThrow("sdk-config-invalid");
+  });
+
+  it("keeps full bytecode verification for mainnet", async () => {
+    const { wallet } = packaged(143);
+    vi.mocked(verify_definition).mockRejectedValueOnce(new Error("integration-code-changed"));
+    await expect(create_termbook({ app_token: token, wallet }).ready()).rejects.toThrow("integration-code-changed");
+    expect(verify_definition).toHaveBeenCalledOnce();
   });
 
   it("resolves through a configured API while checking the returned origin", async () => {

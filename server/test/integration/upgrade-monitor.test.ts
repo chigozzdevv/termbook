@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { decodeFunctionData, keccak256, parseAbi } from "viem";
+import { createPublicClient, decodeFunctionData, keccak256, parseAbi } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { monadClient } from "../../src/chain/monad.client.js";
 import { keeperTransaction, reconcileKeeperWallet } from "../../src/chain/keeper.js";
@@ -9,6 +9,7 @@ import { proxyImplementationSlots } from "@termbook/schema";
 import { approvedRuntimeReviews } from "../../src/integration/runtime-review.js";
 
 vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: vi.fn() }));
+vi.mock("viem", async (original) => ({ ...await original<typeof import("viem")>(), createPublicClient: vi.fn() }));
 vi.mock("../../src/chain/keeper.js", () => ({ keeperTransaction: vi.fn(), reconcileKeeperWallet: vi.fn() }));
 vi.mock("../../src/config/env.js", () => ({ env: { monadChainId: 10143, rpcUrl: "http://monad" } }));
 vi.mock("../../src/logging/logger.js", () => ({ logger: { warn: vi.fn(), error: vi.fn() } }));
@@ -27,6 +28,7 @@ beforeEach(() => {
   env.monadChainId = 10143;
   vi.stubEnv("TESTNET_UPGRADE_GUARDS", JSON.stringify([{ address: guard, codeHash }]));
   vi.stubEnv("UPGRADE_MONITOR_KEY", key);
+  vi.stubEnv("UPGRADE_MONITOR_RPC_URL", "");
   readContract.mockImplementation(async ({ functionName }: { functionName: string }) => ({
     proxy, implementation, monitor: signer, proxyCodeHash: codeHash, implementationCodeHash: codeHash,
     validUntil: 0n, observedBlock: 0n, revoked: false,
@@ -45,6 +47,19 @@ beforeEach(() => {
 afterEach(() => { env.monadChainId = 10143; vi.unstubAllEnvs(); });
 
 describe("testnet upgrade monitor", () => {
+  it("uses the dedicated endpoint for both checks and renewal submission", async () => {
+    vi.stubEnv("UPGRADE_MONITOR_RPC_URL", "https://monitor.test");
+    vi.mocked(createPublicClient).mockReturnValue(monadClient() as never);
+    expect(await runUpgradeMonitorWorker()).toBe(1);
+    expect(createPublicClient).toHaveBeenCalledOnce();
+    expect(keeperTransaction).toHaveBeenCalledWith(expect.objectContaining({ rpcUrl: "https://monitor.test" }));
+  });
+  it("rejects a dedicated endpoint on the wrong chain before signing", async () => {
+    vi.stubEnv("UPGRADE_MONITOR_RPC_URL", "https://wrong-monitor.test");
+    vi.mocked(createPublicClient).mockReturnValue({ getChainId: async () => 1 } as never);
+    await expect(runUpgradeMonitorWorker()).rejects.toThrow("upgrade-monitor-chain-mismatch");
+    expect(keeperTransaction).not.toHaveBeenCalled();
+  });
   it("settles an outstanding renewal before preparing another nonce", async () => {
     vi.mocked(reconcileKeeperWallet).mockResolvedValueOnce("pending").mockResolvedValueOnce("success");
     expect(await runUpgradeMonitorWorker()).toBe(0);
@@ -90,6 +105,16 @@ describe("testnet upgrade monitor", () => {
     const client = vi.mocked(monadClient).mock.results[0]?.value ?? monadClient();
     client.getBlock = vi.fn().mockResolvedValue({ number: 10n, timestamp: 1000n, hash: codeHash });
     expect(await runUpgradeMonitorWorker()).toBe(1);
+  });
+  it("reads the latest head after finality and obtains headers after guard state", async () => {
+    const client = monadClient();
+    client.getBlock = vi.fn().mockImplementation(async ({ blockTag }) => {
+      expect(multicall).toHaveBeenCalled();
+      if (blockTag === "latest") expect(client.getBlock).toHaveBeenCalledWith({ blockTag: "finalized" });
+      return { number: blockTag === "finalized" ? 10n : 12n, timestamp: blockTag === "finalized" ? 1000n : 1001n, hash: codeHash };
+    });
+    expect(await runUpgradeMonitorWorker()).toBe(1);
+    expect(vi.mocked(client.getBlock).mock.calls.map(([input]) => input.blockTag)).toEqual(["finalized", "latest"]);
   });
   it("permanently revokes when the latest view detects an upgrade before finality", async () => {
     getStorageAt.mockImplementation(async ({ blockNumber, slot }: { blockNumber: bigint; slot: string }) => slot !== proxyImplementationSlots[0]

@@ -2,6 +2,8 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { monadClient } from "./monad.client.js";
 import { requestLimiter } from "../http/http-limit.js";
+import { logger } from "../logging/logger.js";
+import { isRpcUnavailable } from "./rpc.transport.js";
 
 const address = z.string().regex(/^0x[\da-fA-F]{40}$/), hash = z.string().regex(/^0x[\da-fA-F]{64}$/);
 const hex = z.string().regex(/^0x[\da-fA-F]*$/).max(32768);
@@ -45,11 +47,17 @@ export function rpcRoute(app: FastifyInstance) {
         const result = await monadClient().request({ method: request.method, params: values } as never);
         return { jsonrpc: "2.0", id: request.id, result };
       } catch (error) {
-        for (let cause = error as { code?: number; data?: unknown; cause?: unknown }; cause; cause = cause.cause as typeof cause) {
+        const causes: { name?: string; code?: number; status?: number }[] = [];
+        for (let cause = error as { name?: string; code?: number; status?: number; data?: unknown; cause?: unknown }; cause && causes.length < 8; cause = cause.cause as typeof cause) {
           if (cause.code === 3 && typeof cause.data === "string" && /^0x[\da-fA-F]*$/.test(cause.data) && cause.data.length <= 32768)
             return { jsonrpc: "2.0", id: request.id, error: { code: 3, message: "Execution reverted", data: cause.data } };
+          causes.push({ name: cause.name, code: cause.code, status: cause.status });
         }
-        return { jsonrpc: "2.0", id: request.id, error: { code: -32000, message: "RPC temporarily unavailable" } };
+        logger.warn("rpc-relay-read-failed", { method: request.method, causes });
+        const invalid = !isRpcUnavailable(error) && causes.find((cause) => [-32602, -32601, -32000].includes(cause.code ?? 0));
+        return { jsonrpc: "2.0", id: request.id, error: invalid
+          ? { code: invalid.code, message: "RPC request rejected" }
+          : { code: -32603, message: "RPC temporarily unavailable" } };
       }
     }));
     return batch ? results : results[0];

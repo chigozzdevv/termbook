@@ -1,4 +1,4 @@
-import { encodeFunctionData, keccak256, parseAbi, type Address, type Hex } from "viem";
+import { createPublicClient, encodeFunctionData, keccak256, parseAbi, type Address, type Hex, type PublicClient } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { monadTestnet } from "viem/chains";
 import { env } from "../config/env.js";
@@ -8,6 +8,7 @@ import { logger } from "../logging/logger.js";
 import { readProxyImplementation } from "../chain/proxy.js";
 import { approvedRuntimeReviews } from "./runtime-review.js";
 import { runtimeReviewSummary } from "@termbook/sdk";
+import { pacedHttp } from "../chain/rpc.transport.js";
 
 const abi = parseAbi([
   "function proxy() view returns(address)", "function implementation() view returns(address)",
@@ -40,12 +41,16 @@ export function upgradeMonitorConfig() {
 }
 
 let running = false;
+let monitorClient: { url: string; client: PublicClient } | undefined;
 export async function runUpgradeMonitorWorker(): Promise<number> {
   const config = upgradeMonitorConfig();
   if (!config || running) return 0;
   running = true;
   try {
-    const client = monadClient(2);
+    const rpcUrl = process.env["UPGRADE_MONITOR_RPC_URL"] || env.rpcUrl;
+    if (rpcUrl !== env.rpcUrl && monitorClient?.url !== rpcUrl) monitorClient = { url: rpcUrl,
+      client: createPublicClient({ chain: monadTestnet, transport: pacedHttp(rpcUrl, 8, 2) }) };
+    const client = rpcUrl === env.rpcUrl ? monadClient(2) : monitorClient!.client;
     if (await client.getChainId() !== 10143) throw new Error("upgrade-monitor-chain-mismatch");
     const reviews = await approvedRuntimeReviews();
     const pending = await reconcileKeeperWallet(client, 10143, config.account.address);
@@ -55,21 +60,25 @@ export async function runUpgradeMonitorWorker(): Promise<number> {
       expiry: await client.readContract({ address: guard.address, abi, functionName: "validUntil" }).catch(() => 0n) })));
     leases.sort((a, b) => a.expiry < b.expiry ? -1 : a.expiry > b.expiry ? 1 : 0);
     for (const { guard } of leases) {
+      let phase = "guard";
       try {
         const fields = ["proxy", "implementation", "monitor", "proxyCodeHash", "implementationCodeHash", "validUntil", "observedBlock", "revoked"] as const;
-        const [finalized, latest, code, state] = await Promise.all([
-          client.getBlock({ blockTag: "finalized" }), client.getBlock({ blockTag: "latest" }),
+        const [code, state] = await Promise.all([
           client.getCode({ address: guard.address }),
           client.multicall({ contracts: fields.map((functionName) => ({ address: guard.address, abi, functionName })),
             multicallAddress: monadTestnet.contracts.multicall3.address, allowFailure: false }),
         ]);
-        if (!finalized.hash || finalized.number > latest.number || latest.timestamp < finalized.timestamp
-          || latest.timestamp - finalized.timestamp > 30n) throw new Error("upgrade-monitor-finality-unavailable");
         if (!code || keccak256(code).toLowerCase() !== guard.codeHash.toLowerCase()) throw new Error("upgrade-monitor-guard-changed");
         const [proxy, implementation, monitor, proxyHash, implementationHash, validUntil, observedBlock, revoked] =
           state as [Address, Address, Address, Hex, Hex, bigint, bigint, boolean];
         if (monitor.toLowerCase() !== config.account.address.toLowerCase()) throw new Error("upgrade-monitor-signer-mismatch");
         if (revoked) continue;
+        phase = "headers";
+        const finalized = await client.getBlock({ blockTag: "finalized" });
+        const latest = await client.getBlock({ blockTag: "latest" });
+        if (!finalized.hash || finalized.number > latest.number || latest.timestamp < finalized.timestamp
+          || latest.timestamp - finalized.timestamp > 30n) throw new Error("upgrade-monitor-finality-unavailable");
+        phase = "implementation";
         const checks = await Promise.all([finalized.number, latest.number].map(async (blockNumber) => {
           const [layout, proxyCode, implementationCode] = await Promise.all([
             readProxyImplementation(client, proxy, blockNumber),
@@ -87,16 +96,20 @@ export async function runUpgradeMonitorWorker(): Promise<number> {
         if (!changed && (validUntil > latest.timestamp + 120n || finalized.number <= observedBlock)) continue;
         const data = encodeFunctionData({ abi, functionName: changed ? "revoke" : "renew",
           args: changed ? [] : [finalized.number, finalized.hash, finalized.timestamp] } as never);
+        phase = "simulation";
         await client.simulateContract({ address: guard.address, abi, functionName: changed ? "revoke" : "renew",
           args: changed ? [] : [finalized.number, finalized.hash, finalized.timestamp], account: config.account.address } as never);
-        const result = await keeperTransaction({ client, rpcUrl: env.rpcUrl, chainId: 10143, account: config.account,
+        phase = "renewal";
+        const result = await keeperTransaction({ client, rpcUrl, chainId: 10143, account: config.account,
           operation: changed ? `upgrade-revoke:${guard.address}` : `upgrade-renew:${guard.address}:${finalized.number}`,
           to: guard.address, data });
         if (changed) logger.error("upgrade-monitor-dependency-changed", { guard: guard.address, proxy });
         if (result === "success") submitted++;
         if (result === "pending" || result === "busy") break;
       } catch (cause) {
-        logger.warn("upgrade-monitor-unavailable", { guard: guard.address,
+        const failure = cause as { code?: number; cause?: { code?: number } };
+        logger.warn("upgrade-monitor-unavailable", { guard: guard.address, phase, errorName: cause instanceof Error ? cause.name : "unknown",
+          errorCode: failure?.code ?? failure?.cause?.code,
           reason: cause instanceof Error ? cause.message.match(/^(?:upgrade-monitor|keeper)-[a-z-]+(?=:|$)/)?.[0]
             ?? "upgrade-monitor-check-failed" : "upgrade-monitor-check-failed" });
       }

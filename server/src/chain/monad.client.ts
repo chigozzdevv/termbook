@@ -9,7 +9,8 @@ const clients = new Map<number, PublicClient>();
 export function monadClient(priority = 0): PublicClient {
   let client = clients.get(priority);
   if (!client) {
-    const raw = createPublicClient({ transport: pacedHttp(env.rpcUrl, env.rpcRequestsPerSecond, priority) });
+    const raw = createPublicClient({ transport: pacedHttp(env.rpcUrl, env.rpcRequestsPerSecond, priority, undefined,
+      env.rpcFallbackUrl ? { url: env.rpcFallbackUrl, chainId: env.monadChainId } : undefined) });
     client = raw.extend(() => ({ multicall: (input: Parameters<typeof raw.multicall>[0]) => raw.multicall({ ...input, batchSize: 32 }) })) as PublicClient;
     clients.set(priority, client);
   }

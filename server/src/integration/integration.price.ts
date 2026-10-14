@@ -64,7 +64,7 @@ export async function admittedPrices(bundle: `0x${string}`, actions: CapabilityD
   const protection = await chain.readContract({ address: env.core as `0x${string}`, abi: coreAbi,
     functionName: "priceProtection", blockNumber });
   if (/^0x0{40}$/i.test(protection)) return false;
-  for (const action of priced) {
+  const results = await Promise.all(priced.map(async (action) => {
     if (!action.marketPath || !action.price) return false;
     const calls = capabilityCalls(action);
     const bounds = calls.flatMap((call, callIndex) => call.arguments.flatMap((arg, index) =>
@@ -117,6 +117,7 @@ export async function admittedPrices(bundle: `0x${string}`, actions: CapabilityD
         if (numeric(direction?.source === "constant" ? direction.value : direction?.choices ? direction.choices[value] : value) !== rule.minimumDirection) return false;
       }
     }
-  }
-  return true;
+    return true;
+  }));
+  return results.every(Boolean);
 }

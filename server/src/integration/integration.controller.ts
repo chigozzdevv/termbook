@@ -75,6 +75,6 @@ export const integrationController = {
   async requirements() { return { format: 1, cases: acceptanceCases }; },
   async resolve(req: FastifyRequest) {
     const query = req.query as { app_token?: string };
-    return integrationService.resolve(String(query.app_token ?? ""));
+    return integrationService.resolve(String(query.app_token ?? ""), false, "connection");
   },
 };

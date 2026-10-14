@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { rpcRoute } from "../../src/chain/rpc.route.js";
 import { monadClient } from "../../src/chain/monad.client.js";
 import { buildApp } from "../../src/app.js";
+import { createPublicClient, http } from "viem";
 
 vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: vi.fn() }));
 const read = vi.fn();
@@ -34,7 +35,23 @@ describe("Public read-only RPC", () => {
   it("does not disclose provider errors or keys", async () => {
     read.mockRejectedValue(new Error("https://provider/private-key"));
     const response = await rpc(request("eth_chainId"));
-    expect(response.body).not.toContain("private-key"); expect(response.json().error.code).toBe(-32000);
+    expect(response.body).not.toContain("private-key"); expect(response.json().error.code).toBe(-32603);
+  });
+  it("allows the SDK transport to retry temporary upstream failures", async () => {
+    read.mockRejectedValueOnce({ name: "HttpRequestError", status: 429 }).mockResolvedValue("0x279f");
+    const app = Fastify(); rpcRoute(app);
+    const client = createPublicClient({ transport: http("http://localhost/rpc", { retryCount: 1, retryDelay: 0,
+      fetchFn: async (_url, init) => {
+        const response = await app.inject({ method: "POST", url: "/rpc", payload: JSON.parse(String(init?.body)) });
+        return new Response(response.body, { status: response.statusCode, headers: { "content-type": "application/json" } });
+      } }) });
+    try { expect(await client.getChainId()).toBe(10143); expect(read).toHaveBeenCalledTimes(2); }
+    finally { await app.close(); }
+  });
+  it("preserves invalid parameter errors without provider details", async () => {
+    read.mockRejectedValue({ code: -32602, message: "https://provider/private-key" });
+    const response = await rpc(request("eth_chainId"));
+    expect(response.json().error.code).toBe(-32602); expect(response.body).not.toContain("private-key");
   });
   it("supports native value simulations and preserves encoded contract reverts", async () => {
     read.mockRejectedValue({ code: 3, data: "0x12345678", message: "provider/private-key" });

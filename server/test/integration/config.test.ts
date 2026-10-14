@@ -8,6 +8,9 @@ import { validateIntegrationAcceptance } from "../../src/integration/integration
 import { validateIntegrationSources, verifyIntegrationSourcePins } from "../../src/integration/integration.source.js";
 import { applicationService } from "../../src/integration/application.service.js";
 import { keccak256, stringToHex, toFunctionSelector } from "viem";
+import { canonicalEvidence, capabilityDependencies, pluginDefinitionSchema } from "@termbook/schema";
+import { standardDefinition } from "../../../packages/sdk/test/use-case.fixture.js";
+import { env } from "../../src/config/env.js";
 
 vi.mock("../../src/chain/monad.client.js", () => ({ monadClient: vi.fn() }));
 vi.mock("../../src/integration/integration.repo.js", () => ({ integrationRepo: {
@@ -64,6 +67,7 @@ let readerAdapter = address("9");
 
 beforeEach(() => {
   vi.clearAllMocks();
+  env.monadChainId = 143;
   readerAdapter = address("9");
   vi.mocked(validateIntegrationSources).mockResolvedValue(sourcePins as never);
   vi.mocked(verifyIntegrationSourcePins).mockResolvedValue(true);
@@ -108,6 +112,49 @@ beforeEach(() => {
 });
 
 describe("integration app token", () => {
+  function connectionFixture(chainId = 10143) {
+    env.monadChainId = chainId;
+    const definition = pluginDefinitionSchema.parse({ ...standardDefinition(), chain_id: chainId });
+    const hash = keccak256(stringToHex(canonicalEvidence(definition)));
+    const id = keccak256(stringToHex(`termbook.integration.v1:${chainId}:${hash}`));
+    const suite = { ...sampleSuite({ versionId: id, manifestHash: hash }), chainId };
+    const evidenceHash = suiteHash(suite);
+    const pins = [...new Set(definition.actions.flatMap(capabilityDependencies).map((a) => a.target))]
+      .map((target) => ({ ...sourcePins[0]!, target }));
+    const row = { category: definition.use_case, versionId: id, codeHash: hash, settlementAsset: definition.settlement_asset,
+      actions: definition.actions, packageDefinition: definition, sourcePins: pins,
+      acceptance: { ...acceptance, suite, evidenceHash }, review: { evidenceHash, mode: suite.mode }, accepted: true, active: true, frozen: false };
+    vi.mocked(integrationRepo.byTokenHash).mockResolvedValue(row as never);
+    const chain = monadClient(), original = vi.mocked(chain.readContract).getMockImplementation()!;
+    vi.mocked(chain.getChainId).mockResolvedValue(chainId);
+    vi.mocked(chain.readContract).mockImplementation(async (request) => request.functionName === "versions"
+      ? [hash, true, false] as never : original(request));
+    return { row, chain };
+  }
+
+  it("uses current activation checks for testnet connection while keeping operation admission intact", async () => {
+    const { chain } = connectionFixture();
+    const token = `tbk_${"a".repeat(64)}`;
+    await expect(integrationService.resolve(token, false, "connection")).resolves.toMatchObject({ chainId: 10143, use_case: "spot" });
+    expect(verifyIntegrationSourcePins).not.toHaveBeenCalled();
+    const functions = vi.mocked(chain.readContract).mock.calls.map(([input]) => input.functionName);
+    expect(functions).toEqual(expect.arrayContaining(["versions", "isActive", "isReaderActive", "riskEngine"]));
+    expect(functions).not.toContain("rule");
+    vi.mocked(verifyIntegrationSourcePins).mockResolvedValue(false);
+    await expect(integrationService.resolve(token)).rejects.toThrow("integration-not-found");
+    expect(verifyIntegrationSourcePins).toHaveBeenCalled();
+  });
+
+  it("rejects inactive testnet connections and retains full mainnet validation", async () => {
+    const { chain } = connectionFixture();
+    const original = vi.mocked(chain.readContract).getMockImplementation()!;
+    vi.mocked(chain.readContract).mockImplementation(async (input) => input.functionName === "isActive" ? false as never : original(input));
+    await expect(integrationService.resolve(`tbk_${"a".repeat(64)}`, false, "connection")).rejects.toThrow("integration-not-found");
+    connectionFixture(143);
+    vi.mocked(verifyIntegrationSourcePins).mockResolvedValue(false);
+    await expect(integrationService.resolve(`tbk_${"a".repeat(64)}`, false, "connection")).rejects.toThrow("integration-not-found");
+    expect(verifyIntegrationSourcePins).toHaveBeenCalled();
+  });
   it("rejects perps publication without enforceable execution prices", async () => {
     await expect(integrationService.approve({ applicationId, category: "perps", versionId, codeHash,
       settlementAsset, actions: actions.map((action) => ({ ...action, price: undefined })), verifiedSources, acceptance }))
@@ -161,6 +208,16 @@ describe("integration app token", () => {
     vi.mocked(integrationRepo.byTokenHash).mockResolvedValue({ category: "perps", versionId, codeHash, settlementAsset, actions,
       acceptance, review: { evidenceHash: acceptance.evidenceHash, mode: suite.mode }, sourcePins, accepted: true, active: true, frozen: true } as never);
     await expect(integrationService.resolve(result.appToken)).rejects.toThrow("integration-not-found");
+  });
+
+  it("reports an RPC outage as unavailable instead of an internal error or rejected integration", async () => {
+    vi.mocked(integrationRepo.byTokenHash).mockResolvedValue({ category: "perps", versionId, codeHash, settlementAsset, actions,
+      acceptance, review: { evidenceHash: acceptance.evidenceHash, mode: suite.mode }, sourcePins, accepted: true, active: true, frozen: false } as never);
+    const failure = Object.assign(new Error("HTTP request failed"), { name: "HttpRequestError" });
+    vi.mocked(monadClient().getBlock).mockRejectedValueOnce(failure);
+    await expect(integrationService.resolve(`tbk_${"a".repeat(64)}`)).rejects.toThrow("integration-config-unavailable");
+    vi.mocked(monadClient().getBytecode).mockRejectedValueOnce(new Error("wrapped", { cause: failure }));
+    await expect(integrationService.resolve(`tbk_${"a".repeat(64)}`)).rejects.toThrow("integration-config-unavailable");
   });
 
   it("rejects a legacy token without acceptance evidence", async () => {

@@ -86,6 +86,16 @@ the API, worker and keeper transaction preparation. `RPC_COMPUTE_UNITS_PER_SECON
 defaults to 300; set it to the account’s actual allowance. Redis is required for
 this shared budget. Set `RPC_BUDGET_REDIS_URL` to the Docker Redis URL for the
 limiter independently of the job queue’s `REDIS_URL`.
+An optional `RPC_FALLBACK_URL` serves failed reads after checking its chain ID.
+A failed primary read opens a 60-second cooldown; calls still pass the same
+finality, custody and implementation checks. Transaction broadcasts use the
+primary endpoint and the durable keeper journal.
+
+For approved testnet packages, connection setup checks current registry and health
+activation; the SDK verifies the chain, version and allowed calls. Full admission
+checks still run for borrowing requests, publication, and mainnet configuration.
+Set `UPGRADE_MONITOR_RPC_URL` to isolate renewal reads and broadcasts from the
+API provider budget; the monitor verifies Monad testnet before using it.
 `NEXT_PUBLIC_TERMBOOK_API_URL` selects the API origin and defaults to `http://127.0.0.1:3002`.
 For local browsing and integration checks, run
 `node --env-file=.env server/dist/worker.js --indexer-monitor`.

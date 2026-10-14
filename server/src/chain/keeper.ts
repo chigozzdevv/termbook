@@ -29,7 +29,8 @@ export async function keeperTransaction(input: {
     let pending = claim.pending;
     if (!pending) {
       const nonce = await client.getTransactionCount({ address: account.address, blockTag: "pending" });
-      const wallet = createWalletClient({ account, transport: pacedHttp(input.rpcUrl, env.rpcRequestsPerSecond, 2) });
+      const wallet = createWalletClient({ account, transport: pacedHttp(input.rpcUrl, env.rpcRequestsPerSecond, 2, undefined,
+        input.rpcUrl === env.rpcUrl && env.rpcFallbackUrl ? { url: env.rpcFallbackUrl, chainId } : undefined) });
       const request = await wallet.prepareTransactionRequest({ account, chain: null,
         chainId, to: input.to, data: input.data, nonce, value: input.value ?? 0n });
       await assertKeeperFunding(client, account.address, request);

@@ -6,6 +6,7 @@ export const env = {
   mongoUrl: process.env["MONGO_URL"] ?? "mongodb://127.0.0.1:27017/termbook",
   redisUrl: process.env["REDIS_URL"] ?? "",
   rpcUrl: process.env["RPC_URL"] ?? "http://127.0.0.1:8545",
+  rpcFallbackUrl: process.env["RPC_FALLBACK_URL"] ?? "",
   rpcRequestsPerSecond: Number(process.env["RPC_REQUESTS_PER_SECOND"] ?? 2),
   envioApiToken: process.env["ENVIO_API_TOKEN"] ?? "",
   envioUrl: process.env["ENVIO_HYPERSYNC_URL"] ?? "",

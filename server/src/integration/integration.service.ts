@@ -4,6 +4,8 @@ import { assertActionRoutes, assertStandardDefinition, capabilityCalls, capabili
 import { verify_definition } from "@termbook/sdk";
 import { stringToHex } from "viem";
 import { monadClient } from "../chain/monad.client.js";
+import { isRpcUnavailable, withRpcReadScope } from "../chain/rpc.transport.js";
+import { logger } from "../logging/logger.js";
 import { ensurePythPrices } from "../chain/pyth.worker.js";
 import { env } from "../config/env.js";
 import { integrationRepo } from "./integration.repo.js";
@@ -133,6 +135,23 @@ async function admitted(versionId: `0x${string}`, codeHash: string, blockNumber?
     && execution[6] <= 32 && execution[7] > 0 && pinnedPolicy && pinnedReader;
 }
 
+async function connectionActive(versionId: `0x${string}`, codeHash: string, blockNumber: bigint): Promise<boolean> {
+  const chain = monadClient();
+  const [registry, health, chainId] = await Promise.all([
+    chain.readContract({ address: env.core as `0x${string}`, abi: coreAbi, functionName: "integrationRegistry", blockNumber }),
+    chain.readContract({ address: env.core as `0x${string}`, abi: coreAbi, functionName: "healthSource", blockNumber }),
+    chain.getChainId(),
+  ]);
+  if (chainId !== env.monadChainId || !addressPattern.test(registry) || /^0x0{40}$/i.test(registry)
+    || !addressPattern.test(health) || /^0x0{40}$/i.test(health)) return false;
+  const [version, active, reader] = await Promise.all([
+    chain.readContract({ address: registry, abi: registryAbi, functionName: "versions", args: [versionId], blockNumber }),
+    chain.readContract({ address: registry, abi: registryAbi, functionName: "isActive", args: [versionId], blockNumber }),
+    chain.readContract({ address: health, abi: healthAbi, functionName: "isReaderActive", args: [versionId], blockNumber }),
+  ]);
+  return version[0].toLowerCase() === codeHash.toLowerCase() && version[1] && !version[2] && active && reader;
+}
+
 async function admittedActions(versionId: `0x${string}`, actions: CapabilityDefinition[], category?: string, settlementAsset?: string, blockNumber?: bigint): Promise<boolean> {
   if (actions.length === 0) return false;
   const parsedCategory = useCaseSchema.safeParse(category);
@@ -207,72 +226,82 @@ export const integrationService = {
     }
     return { versionId: prepared.versionId, appToken: prepared.appToken };
   },
-  async resolve(appToken: string, refreshPrices = false) {
-    if (!tokenPattern.test(appToken)) throw new Error("integration-not-found");
-    const row = await integrationRepo.byTokenHash(tokenHash(appToken));
-    const useCase = useCaseSchema.safeParse(row?.["category"]);
-    const actions = row?.["actions"] as CapabilityDefinition[] | undefined;
-    const sourcePins = row?.["sourcePins"] as SourcePin[] | undefined;
-    const actionTargets = Array.isArray(actions) ? new Set(actions.flatMap(capabilityDependencies).map((action) => action.target.toLowerCase())) : null;
-    if (!row || !useCase.success || row["active"] !== true || row["accepted"] !== true
-      || row["frozen"] === true || !Array.isArray(actions)
-      || !integrationAcceptanceSchema.safeParse(row["acceptance"]).success
-      || !Array.isArray(sourcePins) || sourcePins.length !== actionTargets?.size
-      || new Set(sourcePins.map((pin) => pin.target.toLowerCase())).size !== sourcePins.length
-      || sourcePins.some((pin) => !actionTargets?.has(pin.target.toLowerCase()))
-      || !addressPattern.test(String(row["settlementAsset"])) || /^0x0{40}$/i.test(String(row["settlementAsset"]))) {
-      throw new Error("integration-not-found");
-    }
-    if (!Number.isSafeInteger(env.monadChainId) || env.monadChainId <= 0
-      || !addressPattern.test(env.core) || !addressPattern.test(env.accountFactory)
-      || /^0x0{40}$/i.test(env.accountFactory)) {
-      throw new Error("integration-config-unavailable");
-    }
-    if (refreshPrices) await ensurePythPrices();
-    const chain = monadClient();
-    const block = await chain.getBlock({ blockTag: "finalized" });
-    const checks = await Promise.all([
-      admitted(String(row["versionId"]) as `0x${string}`, String(row["codeHash"]), block.number),
-      admittedActions(String(row["versionId"]) as `0x${string}`, actions, String(row["category"]), String(row["settlementAsset"]), block.number),
-      verifyIntegrationSourcePins(sourcePins, block.number),
-    ]);
-    if (!checks.every(Boolean)) throw new Error("integration-not-found");
-    const packageDefinition = row["packageDefinition"] === undefined ? undefined : pluginDefinitionSchema.parse(row["packageDefinition"]);
-    if (packageDefinition) {
-      const packageHash = keccak256(stringToHex(canonicalEvidence(packageDefinition)));
-      if (packageHash.toLowerCase() !== String(row["codeHash"]).toLowerCase()
-        || keccak256(stringToHex(`termbook.integration.v1:${packageDefinition.chain_id}:${packageHash}`)).toLowerCase() !== String(row["versionId"]).toLowerCase()
-        || packageDefinition.chain_id !== env.monadChainId || packageDefinition.use_case !== useCase.data
-        || packageDefinition.settlement_asset.toLowerCase() !== String(row["settlementAsset"]).toLowerCase()
-        || canonicalEvidence(packageDefinition.actions) !== canonicalEvidence(actions)) throw new Error("integration-not-found");
-    }
-    try {
-      const acceptance = integrationAcceptanceSchema.parse(row["acceptance"]);
-      const suite = assertSuiteEnvelope(String(row["versionId"]) as `0x${string}`, String(row["codeHash"]) as `0x${string}`,
-        acceptance.suite, acceptance.evidenceHash, actions);
-      const review = row["review"] as { evidenceHash?: string; mode?: string; reviewer?: `0x${string}`; forkReviewSignature?: `0x${string}` } | undefined;
-      if (!review || review.evidenceHash?.toLowerCase() !== acceptance.evidenceHash.toLowerCase() || review.mode !== suite.mode) throw new Error("integration-review-missing");
-      await requireForkReview(suite, review.forkReviewSignature, review.reviewer);
-      await Promise.all([
-        verifySuitePins(chain, suite, block.number),
-        packageDefinition ? verify_definition(chain, packageDefinition, block.number) : Promise.resolve(),
+  async resolve(appToken: string, refreshPrices = false, purpose: "operation" | "connection" = "operation") {
+    return withRpcReadScope(async () => {
+      if (!tokenPattern.test(appToken)) throw new Error("integration-not-found");
+      const row = await integrationRepo.byTokenHash(tokenHash(appToken));
+      const useCase = useCaseSchema.safeParse(row?.["category"]);
+      const actions = row?.["actions"] as CapabilityDefinition[] | undefined;
+      const sourcePins = row?.["sourcePins"] as SourcePin[] | undefined;
+      const actionTargets = Array.isArray(actions) ? new Set(actions.flatMap(capabilityDependencies).map((action) => action.target.toLowerCase())) : null;
+      if (!row || !useCase.success || row["active"] !== true || row["accepted"] !== true
+        || row["frozen"] === true || !Array.isArray(actions)
+        || !integrationAcceptanceSchema.safeParse(row["acceptance"]).success
+        || !Array.isArray(sourcePins) || sourcePins.length !== actionTargets?.size
+        || new Set(sourcePins.map((pin) => pin.target.toLowerCase())).size !== sourcePins.length
+        || sourcePins.some((pin) => !actionTargets?.has(pin.target.toLowerCase()))
+        || !addressPattern.test(String(row["settlementAsset"])) || /^0x0{40}$/i.test(String(row["settlementAsset"]))) {
+        throw new Error("integration-not-found");
+      }
+      if (!Number.isSafeInteger(env.monadChainId) || env.monadChainId <= 0
+        || !addressPattern.test(env.core) || !addressPattern.test(env.accountFactory)
+        || /^0x0{40}$/i.test(env.accountFactory)) {
+        throw new Error("integration-config-unavailable");
+      }
+      if (refreshPrices) await ensurePythPrices();
+      const chain = monadClient();
+      const block = await chain.getBlock({ blockTag: "finalized" });
+      const packageDefinition = row["packageDefinition"] === undefined ? undefined : pluginDefinitionSchema.parse(row["packageDefinition"]);
+      if (packageDefinition) {
+        const packageHash = keccak256(stringToHex(canonicalEvidence(packageDefinition)));
+        if (packageHash.toLowerCase() !== String(row["codeHash"]).toLowerCase()
+          || keccak256(stringToHex(`termbook.integration.v1:${packageDefinition.chain_id}:${packageHash}`)).toLowerCase() !== String(row["versionId"]).toLowerCase()
+          || packageDefinition.chain_id !== env.monadChainId || packageDefinition.use_case !== useCase.data
+          || packageDefinition.settlement_asset.toLowerCase() !== String(row["settlementAsset"]).toLowerCase()
+          || canonicalEvidence(packageDefinition.actions) !== canonicalEvidence(actions)) throw new Error("integration-not-found");
+      }
+      const connectionOnly = purpose === "connection" && env.monadChainId === 10143 && !!packageDefinition && !refreshPrices;
+      const versionId = String(row["versionId"]) as `0x${string}`;
+      const checks = connectionOnly
+        ? [await connectionActive(versionId, String(row["codeHash"]), block.number)]
+        : await Promise.all([
+          admitted(versionId, String(row["codeHash"]), block.number),
+          admittedActions(versionId, actions, String(row["category"]), String(row["settlementAsset"]), block.number),
+          verifyIntegrationSourcePins(sourcePins, block.number),
+        ]);
+      if (!checks.every(Boolean)) throw new Error("integration-not-found");
+      try {
+        const acceptance = integrationAcceptanceSchema.parse(row["acceptance"]);
+        const suite = assertSuiteEnvelope(String(row["versionId"]) as `0x${string}`, String(row["codeHash"]) as `0x${string}`,
+          acceptance.suite, acceptance.evidenceHash, actions);
+        const review = row["review"] as { evidenceHash?: string; mode?: string; reviewer?: `0x${string}`; forkReviewSignature?: `0x${string}` } | undefined;
+        if (!review || review.evidenceHash?.toLowerCase() !== acceptance.evidenceHash.toLowerCase() || review.mode !== suite.mode) throw new Error("integration-review-missing");
+        await requireForkReview(suite, review.forkReviewSignature, review.reviewer);
+        if (!connectionOnly) await Promise.all([
+          verifySuitePins(chain, suite, block.number),
+          packageDefinition ? verify_definition(chain, packageDefinition, block.number) : Promise.resolve(),
+        ]);
+      } catch (cause) { throw new Error("integration-not-found", { cause }); }
+      const settlementFactory = addressPattern.test(env.settlementFactory) && !/^0x0{40}$/i.test(env.settlementFactory)
+        ? env.settlementFactory as `0x${string}` : undefined;
+      const [coreCode, factoryCode, riskEngine, settlementCode] = await Promise.all([
+        chain.getBytecode({ address: env.core as `0x${string}`, blockNumber: block.number }),
+        chain.getBytecode({ address: env.accountFactory as `0x${string}`, blockNumber: block.number }),
+        chain.readContract({ address: env.core as `0x${string}`, abi: coreAbi, functionName: "riskEngine", blockNumber: block.number }),
+        settlementFactory ? chain.getBytecode({ address: settlementFactory, blockNumber: block.number }) : undefined,
       ]);
-    } catch (cause) { throw new Error("integration-not-found", { cause }); }
-    const settlementFactory = addressPattern.test(env.settlementFactory) && !/^0x0{40}$/i.test(env.settlementFactory)
-      ? env.settlementFactory as `0x${string}` : undefined;
-    const [coreCode, factoryCode, riskEngine, settlementCode] = await Promise.all([
-      chain.getBytecode({ address: env.core as `0x${string}`, blockNumber: block.number }),
-      chain.getBytecode({ address: env.accountFactory as `0x${string}`, blockNumber: block.number }),
-      chain.readContract({ address: env.core as `0x${string}`, abi: coreAbi, functionName: "riskEngine", blockNumber: block.number }),
-      settlementFactory ? chain.getBytecode({ address: settlementFactory, blockNumber: block.number }) : undefined,
-    ]);
-    if (!coreCode || coreCode === "0x" || !factoryCode || factoryCode === "0x"
-      || settlementFactory && (!settlementCode || settlementCode === "0x")
-      || !addressPattern.test(riskEngine) || /^0x0{40}$/i.test(riskEngine)) throw new Error("integration-config-unavailable");
-    return { appToken, versionId: String(row["versionId"]), settlementAsset: String(row["settlementAsset"]), core: env.core,
-      chainId: env.monadChainId, rpcUrl: publicUrl(env.publicRpcUrl), apiBase: publicUrl(env.publicApiBase),
-      accountFactory: env.accountFactory, riskEngine, settlementFactory, use_case: useCase.data, actions,
-      ...(packageDefinition ? { integration_definition: packageDefinition } : {}) };
+      if (!coreCode || coreCode === "0x" || !factoryCode || factoryCode === "0x"
+        || settlementFactory && (!settlementCode || settlementCode === "0x")
+        || !addressPattern.test(riskEngine) || /^0x0{40}$/i.test(riskEngine)) throw new Error("integration-config-unavailable");
+      return { appToken, versionId: String(row["versionId"]), settlementAsset: String(row["settlementAsset"]), core: env.core,
+        chainId: env.monadChainId, rpcUrl: publicUrl(env.publicRpcUrl), apiBase: publicUrl(env.publicApiBase),
+        accountFactory: env.accountFactory, riskEngine, settlementFactory, use_case: useCase.data, actions,
+        ...(packageDefinition ? { integration_definition: packageDefinition } : {}) };
+    }).catch((cause: unknown) => {
+      if (!isRpcUnavailable(cause)) throw cause;
+      logger.warn("integration-config-rpc-unavailable", { errorName: cause instanceof Error ? cause.name : "unknown" });
+      throw new Error("integration-config-unavailable", { cause });
+    });
   },
   async list() {
     return integrationRepo.list();

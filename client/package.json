@@ -12,8 +12,8 @@
     "test": "vitest run test"
   },
   "dependencies": {
-    "@termbook/sdk": "workspace:^",
-    "@termbook/schema": "workspace:^",
+    "@termbook/sdk": "0.1.0",
+    "@termbook/schema": "0.1.0",
     "lightweight-charts": "^5.2.1",
     "lucide-react": "^1.54.0",
     "mermaid": "^11.12.3",

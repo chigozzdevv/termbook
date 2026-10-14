@@ -3,30 +3,14 @@ import { openExample } from "./start";
 
 export const sdkPages = [
   page("sdk/quickstart", "Borrower SDK", "Embed the modal", "Configure the SDK once, then open it with a standard action.", [
-    section("install", "Use the workspace package",
-      code("Workspace dependency", `{
-  "dependencies": {
-    "@termbook/sdk": "workspace:^",
-    "viem": "^2.56.3"
-  }
-}`, "json"),
-      p("The current repository provides @termbook/sdk as a workspace package. Build the workspace before importing its compiled entry point. These instructions do not assume a published npm release."),
-      code("From the repository root", `pnpm install
-pnpm build`, "shell")),
-    section("configure", "Configure the public API",
-      p("The app token resolves chain, RPC and protocol addresses from the registered version. Set the public API origin once in your bundler so the SDK can resolve that token. For Next.js, expose only public configuration:"),
-      code(".env.local", `NEXT_PUBLIC_TERMBOOK_API_URL=http://127.0.0.1:3002
-NEXT_PUBLIC_TERMBOOK_APP_TOKEN=your_active_app_token`, "shell"),
-      code("next.config.ts · merge with your existing config", `import type { NextConfig } from "next";
-
-const config: NextConfig = {
-  env: {
-    TERMBOOK_PUBLIC_API_BASE: process.env.NEXT_PUBLIC_TERMBOOK_API_URL,
-  },
-};
-
-export default config;`),
-      p("Use the hosted API origin outside local development. Private keys, database credentials and provider API keys never belong in frontend environment variables.")),
+    section("install", "Install the SDK",
+      code("Terminal", `npm install @termbook/sdk viem`, "shell"),
+      p("The published SDK supplies the borrower modal, wallet adapters and account management. Your app connects to the Termbook API.")),
+    section("configure", "Choose an approved integration",
+      p("An active app token selects the reviewed integration version. The SDK resolves its chain, RPC and contract addresses through https://api.termbook.xyz. The token is a public integration identifier; the borrower still authorizes transactions."),
+      code(".env.local · Next.js example", `NEXT_PUBLIC_TERMBOOK_APP_TOKEN=your_active_app_token`, "shell"),
+      p("To use a local Termbook API, pass apiBase: \"http://127.0.0.1:3002\" when creating the client."),
+      links([{ href: "/docs/integrations/validation", title: "Get an app token", description: "Validate, register and activate your app integration." }])),
     section("wallet", "Connect an EVM wallet",
       p("Termbook supplies evm_wallet, an adapter for a connected viem WalletClient. Your app’s wallet provider connects the borrower’s Monad wallet. The adapter forwards signing and transactions to that wallet; it does not create a key or hold funds."),
       code("Use your connected app wallet", `import { evm_wallet } from "@termbook/sdk";

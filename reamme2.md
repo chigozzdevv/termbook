@@ -16,7 +16,7 @@ To borrow, use SOL on Solana devnet, ETH on Base Sepolia or Ethereum Sepolia, or
 2. **Lock collateral.** Approve the lock in your source wallet. Termbook verifies the collateral proof before making the credit available.
 3. **Borrow and use the app.** Approve an action. The House funds your Credit Account, which executes it and checks the resulting account health.
 4. **Repay.** Sell or exit positions if needed, then repay the House in USDC using account proceeds or a wallet payment.
-5. **Close.** Clear the debt and remaining app obligations, return collateral to your source wallet and release account control. Any remaining account assets belong to you.
+5. **Close.** Clear the debt and remaining app obligations, return collateral to your source wallet and unlock your Credit Account. Any remaining account assets belong to you.
 
 ## Try the demo
 
@@ -27,7 +27,7 @@ Borrow test USDC and trade MON in the [Kuru demo](https://termbook.xyz/app/kuru)
 | What you need | Purpose |
 | --- | --- |
 | EVM wallet with test MON on Monad testnet | Borrowing, trading and repayment transaction fees |
-| MON, ETH or SOL on a [supported source network](#supported-networks-and-apps), plus source gas | Collateral and lock transaction fees |
+| MON, ETH or SOL on a [supported source network](#supported-networks-and-apps), plus the native token for transaction fees | Collateral and lock transaction fees |
 | Solana wallet on devnet, if using SOL | Locking and receiving your SOL collateral |
 | Test USDC on Monad, if sale proceeds fall short | Covering remaining debt, interest or trading costs |
 
@@ -39,8 +39,9 @@ Borrow test USDC and trade MON in the [Kuru demo](https://termbook.xyz/app/kuru)
 
 ### Demo limits
 
-- Automated offers are capped at **0.1 USDC**. Each trade also depends on available market liquidity and account health.
-- Cross-chain locks and returns require source confirmations. Once credit is ready, further actions do not repeat the collateral lock.
+- **Demo loan limit:** The testnet House service issues offers for up to **0.1 USDC**. This is a demo setting; each House has its own lending policies. Trades also need enough market liquidity and a healthy account.
+- **Collateral confirmation:** Borrowing starts after the lock is confirmed on the source chain and its proof is accepted on Monad. Collateral return also requires confirmation on the source chain.
+- **Further draws:** The same collateral lock backs your active credit facility. Additional draws must fit its accepted credit limit, term and health rules.
 - The chart uses Kuru mainnet reference prices. The order book and trades use the testnet market.
 
 ## Supported networks and apps
@@ -78,7 +79,7 @@ npm install @termbook/sdk viem
 
 Pass a connected viem wallet client and active app token. The SDK resolves network and contract configuration; the modal handles credit setup and transaction approval.
 
-This requests a **0.01 USDC** Kuru buy with **0.5% slippage**. Amounts use token units: USDC has six decimals, so `10_000n` is 0.01 USDC.
+This requests a **0.01 USDC** Kuru buy with **0.5% slippage**. Amounts use the token's smallest units: USDC has six decimals, so `10_000n` is 0.01 USDC.
 
 ```ts
 import { create_termbook, evm_wallet } from "@termbook/sdk";
@@ -131,25 +132,55 @@ Assets backing active debt have withdrawal restrictions. Approved keepers can un
 
 ### Trust assumptions
 
-- **Cross-chain proofs:** Wormhole's Guardian quorum attests to source events. Ethereum testnet uses five-block confirmations, Base uses safe blocks and Solana uses finalized state. Faster confirmation increases reorganisation risk.
+- **Cross-chain proofs:** Wormhole's Guardian quorum attests to source events. The Sepolia route uses five-block confirmations, Base Sepolia uses safe blocks and Solana devnet uses finalized state. Faster confirmation increases reorganisation risk.
 - **Prices and recovery:** Loans depend on valid prices, executable exits and keepers with working services and transaction funds.
-- **Upgrades:** Testnet governance has no execution delay; EVM and Solana upgrade authorities remain active. Kuru's testnet upgrade-monitor expiry checks are disabled. Code pins, permissions, price protection and health checks remain enforced.
+- **Upgrades:** Testnet governance has no execution delay; EVM and Solana upgrade authorities remain active. Code pins, permissions, price protection and health checks remain enforced.
 - **Value routing:** Aurora repayment, LP funding and recovery routing is implemented; testnet routes are not admitted.
 
 [Custody](https://termbook.xyz/docs/concepts/accounts) · [Health checks](https://termbook.xyz/docs/concepts/health) · [Trust and controls](https://termbook.xyz/docs/security/trust)
 
 ## Proof of execution
 
-These receipts show steps from completed cross-chain loans, Kuru trading and keeper recovery:
+These completed testnet runs cover borrowing, app execution, repayment, collateral return and recovery. Their finalized receipts and zero-debt closure states were checked on **14 October 2026**. Loan amounts reflect the House settings used for each run.
 
-| Flow | Transaction |
+### Kuru: borrow, trade and repay
+
+On 14 October, a MON-backed account borrowed **0.01 test USDC**, bought and sold MON, repaid the House and closed. Its collateral was returned and the Credit Account was unlocked.
+
+| Step | Transaction |
 | --- | --- |
-| Borrow on Monad against SOL on Solana devnet | [View borrow ↗](https://testnet.monadscan.com/tx/0x537e108909154102b6563f2d6fbc1d62d8d0cffe41a8c245784818db9900c1d1) |
-| Borrow against Base ETH and trade on Kuru | [View action ↗](https://testnet.monadscan.com/tx/0x7b6ac72c56af437a00fdeda703964ce1364a864fdf930a55e28cc00d9ea3cf42) |
-| Repay and close a Kuru loan | [Repay ↗](https://testnet.monadscan.com/tx/0x2d444cc662d691c976cef3cc2462ac61f96557d83ab868298f34b81aaf59c2c0) · [Close ↗](https://testnet.monadscan.com/tx/0x9f4ca9b38e5060260ededf61655f833c5ad48803b628f219b2cc5c8e83dee9c6) |
-| Recover debt from a defaulted Kuru loan | [View recovery ↗](https://testnet.monadscan.com/tx/0x7db53a9736c3a01f8287005eaa763548e539b441a580bc415eb2b9a6fd6de8f5) |
+| Accept offer | [0x36e2f03c…01090616](https://testnet.monadscan.com/tx/0x36e2f03cc87255ab01db86e7fd18321c4bc4674bd4a8bbbcab5fa2c701090616) |
+| Lock MON | [0xcb284c62…bea37642](https://testnet.monadscan.com/tx/0xcb284c628ca1d60a986602d9b82fb0c0fab2634255f7c81e51f45b4fbea37642) |
+| Borrow and buy | [0xecf743e3…8503a210](https://testnet.monadscan.com/tx/0xecf743e3493c5b0f844dc70a08a0410e69a71c61533ec711c15908db8503a210) |
+| Sell | [0x84441892…b2a1186d](https://testnet.monadscan.com/tx/0x84441892d12431243999a574a69621d8082ee66cc8a7796904da2496b2a1186d) |
+| Repay | [0x2d444cc6…af59c2c0](https://testnet.monadscan.com/tx/0x2d444cc662d691c976cef3cc2462ac61f96557d83ab868298f34b81aaf59c2c0) |
+| Return collateral | [0x2efd0259…f111ec21](https://testnet.monadscan.com/tx/0x2efd0259dfe8af20902bec9f2512c58a414517b7aff26393818f9d8df111ec21) |
+| Close | [0x9f4ca9b3…83dee9c6](https://testnet.monadscan.com/tx/0x9f4ca9b38e5060260ededf61655f833c5ad48803b628f219b2cc5c8e83dee9c6) |
 
-[Complete execution records](README.md#proof-of-execution) include collateral return and closure. [Deployment configuration](deployments/testnet.json) lists contracts and admission settings.
+### Cross-chain collateral loans
+
+Sepolia ETH and Solana SOL loans ran on 8 October using the reference asset app. The Base ETH loan ran on 13 October using Kuru. Each finished with zero debt, returned collateral and an unlocked Credit Account.
+
+All links below are **Monad receipts**. **Confirm return** records Monad accepting proof that collateral was returned on the source chain.
+
+| Source collateral | Borrowed | Execution records |
+| --- | --- | --- |
+| Sepolia WETH | 1 test USDC | [Borrow ↗](https://testnet.monadscan.com/tx/0x9f967e0d3d740459a67e07348873cabde96e244c02797f6bc494aab7debe9931) · [Repay ↗](https://testnet.monadscan.com/tx/0x710f5343010dd71639acf9dc570d01a44b1f1cd8dfb35a5c6f7cbf0e25b4e8cb) · [Confirm return ↗](https://testnet.monadscan.com/tx/0x3c5427d3c62344540f9d8e8b0a987653d2c730ea0d7f0aa4144aabc13704f500) · [Close ↗](https://testnet.monadscan.com/tx/0xb7c618470cd6caaf68ba68ced05b5ae4e3d84128d603aea6f221af31d46bb644) |
+| Solana devnet SOL | 1 test USDC | [Borrow ↗](https://testnet.monadscan.com/tx/0x537e108909154102b6563f2d6fbc1d62d8d0cffe41a8c245784818db9900c1d1) · [Repay ↗](https://testnet.monadscan.com/tx/0xb35af9d86ff4723b9d6a0fcedcc346dbee036270b8219cf9c48a11ba4e5d3780) · [Confirm return ↗](https://testnet.monadscan.com/tx/0x213aede7c8b58e1b109ed05f515c57448554f456c7cbbab2e4efe3b2b387d8f1) · [Close ↗](https://testnet.monadscan.com/tx/0xebd43f5d28b4cf14156ce5eae1dad7ff83c226156fdac47b8e78dbb8892f3f09) |
+| Base Sepolia WETH | 0.1 test USDC | [Borrow ↗](https://testnet.monadscan.com/tx/0x7b6ac72c56af437a00fdeda703964ce1364a864fdf930a55e28cc00d9ea3cf42) · [Repay ↗](https://testnet.monadscan.com/tx/0x2ee3f9ee9e2770eac5fb41bdd2dd0eca85e7c555d73b33b09bf2d2ec34acf592) · [Confirm return ↗](https://testnet.monadscan.com/tx/0xa680608c65aa763a7448438528549a335988b02c8ebe9145f12e80aeddc4fa0c) · [Close ↗](https://testnet.monadscan.com/tx/0x8e1097403527b87698f5a1d309ada5fd8e87858f1e3e32239392347bdbe7322f) |
+
+### Keeper recovery
+
+On 13 October, a Base ETH-backed loan put **0.01 test USDC** into a Kuru limit order. Before default, the borrower paid **0.000001 USDC** for venue rounding. An approved keeper cancelled the order, withdrew the refund and recovered the remaining **0.009999 USDC**. Collateral was returned and the account closed with zero debt.
+
+| Step | Transaction |
+| --- | --- |
+| Keeper recovery step | [0xa85e36b3…2500e496](https://testnet.monadscan.com/tx/0xa85e36b339db329c5475bbe4a70b6bb27365d57db96b5c8f8dccf4b32500e496) |
+| Recover remaining debt | [0x7db53a97…fd6de8f5](https://testnet.monadscan.com/tx/0x7db53a9736c3a01f8287005eaa763548e539b441a580bc415eb2b9a6fd6de8f5) |
+| Confirm WETH return | [0xd8b1c723…9a9fef75](https://testnet.monadscan.com/tx/0xd8b1c723489e3ecd1c359322f4b81aa8f7760a15453f757133bc3bb49a9fef75) |
+| Finalize recovery | [0x532551c6…7e86f8a8](https://testnet.monadscan.com/tx/0x532551c64b3f75400be498ef963d00b6d5d3d603c01b655cae14117f7e86f8a8) |
+
+[Deployment configuration](deployments/testnet.json) lists the contract addresses and Kuru admission settings.
 
 ## Run locally
 

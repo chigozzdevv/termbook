@@ -215,7 +215,7 @@ cd contracts/solana && cargo test --offline`, "shell"),
       p("scripts/deploy-testnet.mjs creates a fresh deployment and refuses to overwrite an existing manifest. scripts/upgrade-testnet.mjs handles the existing upgrade path. Setup runners support simulation before broadcast. Use the existing deployment manifest rather than inventing another address file.")),
     section("live", "After execution",
       list(["Verify receipts, runtime identities, initialized proxy state and storage compatibility.", "Verify sources and updated dependencies against the exact implementation bytecode.", "Confirm feeds, House policies, liquidity, account factory and keeper permissions.", "Restart services with current public configuration and check /ready.", "Run deployment-bound borrowing, repayment, closure and borrower-independent recovery."], true),
-      note("Client status", "The current web client’s market and House views use preview records. Live loan and liquidity balances require connecting these views to the protocol API.")),
+      note("Client data", "Market and House views read the protocol API. Set NEXT_PUBLIC_TERMBOOK_API_URL in client/.env.local to select the API used by the client.")),
   ]),
   page("security/trust", "Security", "Trust & controls", "Understand custody, attestations, governance and operational assumptions.", [
     section("boundaries", "Trust boundaries",

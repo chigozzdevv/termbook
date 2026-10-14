@@ -23,7 +23,7 @@ export async function open_credit(wallet_client: WalletClient) {
         market_id: "0x1f57a841540fe23c2989387c18f2cb1335cbae92",
         direction: "buy",
         order_type: "market",
-        amount: { spend: 100_000n },
+        amount: { spend: 10_000n },
         slippage_bps: 50,
       },
     },
@@ -61,7 +61,7 @@ export const startPages = [
     section("first-action", "Your first action",
       p("The SDK supplies evm_wallet to adapt your app’s connected viem WalletClient. Pass that client to open_credit. The modal connects the collateral wallet during setup."),
       code("app.ts · call from a browser click handler", openExample),
-      p("This requests a 0.1 USDC spend with 0.5% slippage on the testnet Kuru market. The borrower reviews the offer and approves each required signature. Opening the modal does not automatically borrow."),
+      p("This requests a 0.01 USDC spend with 0.5% slippage on the testnet Kuru market. The borrower reviews the offer and approves each required signature. Opening the modal does not automatically borrow."),
       links([{ href: "/docs/sdk/quickstart#wallet", title: "Wallet connection & complete setup", description: "Use an existing app wallet or connect a browser wallet, then open the modal." }])),
   ]),
   page("getting-started/networks", "Getting started", "Networks & assets", "Choose the lending network and a supported collateral market.", [
@@ -69,13 +69,14 @@ export const startPages = [
       table(["Network", "Identifier", "Role"], [
         ["Monad testnet", "10143", "Credit Accounts, Houses, app execution and USDC settlement."],
         ["Ethereum Sepolia", "11155111", "WETH collateral vault."],
+        ["Base Sepolia", "84532", "WETH collateral vault."],
         ["Solana devnet", "Solana genesis identity", "Native SOL collateral program."],
       ]),
       note("Testnet deployment", "The current deployment is a test environment. Mainnet deployment and provider routes require their own admission and configuration. Testnet assets have no production value.")),
     section("collateral", "Collateral assets",
       table(["Asset", "Where it stays", "Wallet used to lock"], [
         ["MON", "Native collateral vault on Monad.", "Monad EVM wallet."],
-        ["ETH exposure through WETH", "WETH vault on Ethereum; the token is not bridged to Monad.", "Ethereum EVM wallet."],
+        ["ETH exposure through WETH", "WETH vault on Ethereum Sepolia or Base Sepolia; the collateral stays on its source chain.", "EVM wallet on the selected source network."],
         ["SOL", "Native SOL custody account owned by the Solana program.", "Solana wallet."],
       ]),
       p("Only admitted markets with configured custody, pricing, proof and recovery policies can back a facility. An ERC-20 interface alone does not make a token eligible.")),

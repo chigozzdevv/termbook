@@ -12,5 +12,35 @@
   "devDependencies": {
     "tsx": "^4.23.13",
     "typescript": "^5.9.3"
-  }
+  },
+  "description": "Contract ABIs and deployment bindings for Termbook.",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chigozzdevv/termbook.git",
+    "directory": "packages/bindings"
+  },
+  "homepage": "https://termbook.xyz/docs",
+  "bugs": {
+    "url": "https://github.com/chigozzdevv/termbook/issues"
+  },
+  "keywords": [
+    "termbook",
+    "monad",
+    "credit",
+    "defi"
+  ]
 }

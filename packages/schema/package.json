@@ -10,5 +10,35 @@
   },
   "dependencies": {
     "zod": "^4.6.2"
-  }
+  },
+  "description": "Shared schemas and action types for Termbook.",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chigozzdevv/termbook.git",
+    "directory": "packages/schema"
+  },
+  "homepage": "https://termbook.xyz/docs",
+  "bugs": {
+    "url": "https://github.com/chigozzdevv/termbook/issues"
+  },
+  "keywords": [
+    "termbook",
+    "monad",
+    "credit",
+    "defi"
+  ]
 }

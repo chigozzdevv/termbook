@@ -21,5 +21,35 @@
     "@wormhole-foundation/sdk-solana-core": "6.1.5",
     "buffer": "6.0.3",
     "viem": "^2.56.3"
-  }
+  },
+  "description": "Embed Termbook credit in Monad apps and build validated app integrations.",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chigozzdevv/termbook.git",
+    "directory": "packages/sdk"
+  },
+  "homepage": "https://termbook.xyz/docs",
+  "bugs": {
+    "url": "https://github.com/chigozzdevv/termbook/issues"
+  },
+  "keywords": [
+    "termbook",
+    "monad",
+    "credit",
+    "defi"
+  ]
 }

@@ -33,7 +33,8 @@ function publicUrl(value: unknown): string {
 export async function resolveClientConfig(input: ClientConfig): Promise<ResolvedClientConfig> {
   const appToken = input.appToken ?? input.app_token;
   if (!appToken || !tokenPattern.test(appToken)) throw new Error("app-token-invalid");
-  const apiBase = publicUrl(input.apiBase ?? process.env.TERMBOOK_PUBLIC_API_BASE);
+  const configuredApiBase = typeof process === "undefined" ? undefined : process.env?.TERMBOOK_PUBLIC_API_BASE;
+  const apiBase = publicUrl(input.apiBase ?? (configuredApiBase || "https://api.termbook.xyz"));
   const response = await fetch(`${apiBase}/integrations/config?app_token=${encodeURIComponent(appToken)}`, {
     headers: { Accept: "application/json" }, redirect: "error", signal: AbortSignal.timeout(60_000),
   }).catch(() => null);

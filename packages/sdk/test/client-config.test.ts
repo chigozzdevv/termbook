@@ -91,6 +91,24 @@ describe("public SDK configuration", () => {
     expect(chain.readContract).toHaveBeenCalledWith(expect.objectContaining({ functionName: "isActive", blockTag: "finalized" }));
   });
 
+  it.each([undefined, ""])("uses the hosted API when the environment value is %s", async (value) => {
+    const { fetcher } = setup(true, { apiBase: "https://api.termbook.xyz" });
+    vi.stubEnv("TERMBOOK_PUBLIC_API_BASE", value);
+    await create_termbook({ app_token: token, wallet }).ready();
+    expect(fetcher).toHaveBeenCalledWith(expect.stringContaining("https://api.termbook.xyz/integrations/config"), expect.anything());
+  });
+
+  it("resolves in a browser without a process global", async () => {
+    const { fetcher } = setup(true, { apiBase: "https://api.termbook.xyz" });
+    vi.stubGlobal("process", undefined);
+    try {
+      await create_termbook({ app_token: token, wallet }).ready();
+      expect(fetcher).toHaveBeenCalledWith(expect.stringContaining("https://api.termbook.xyz/integrations/config"), expect.anything());
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   function packaged(chainId: number, active = true) {
     const definition = pluginDefinitionSchema.parse({ ...standardDefinition(), chain_id: chainId });
     const hash = keccak256(stringToHex(canonicalEvidence(definition)));

@@ -8,10 +8,11 @@
     "typecheck:scripts": "tsc -p tsconfig.scripts.json",
     "start": "node dist/server.js",
     "dev": "tsx src/server.ts",
-    "verify:solana-program": "node --import tsx scripts/solana/verify-program.ts",
-    "relay:ethereum-beacon-block": "node --import tsx scripts/ethereum/relay-beacon-block.ts",
+    "dev:contact": "tsx scripts/contact-api.ts",
     "test:kuru": "cd .. && tsx server/test/kuru/run-acceptance.ts",
-    "test:kuru-fixture": "cd .. && tsx server/test/kuru/read-fixture.ts"
+    "test:kuru-fixture": "cd .. && tsx server/test/kuru/read-fixture.ts",
+    "verify:solana-program": "node --import tsx scripts/solana/verify-program.ts",
+    "relay:ethereum-beacon-block": "node --import tsx scripts/ethereum/relay-beacon-block.ts"
   },
   "dependencies": {
     "@defuse-protocol/one-click-sdk-typescript": "0.1.26",

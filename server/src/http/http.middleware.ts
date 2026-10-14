@@ -5,6 +5,12 @@ import { isRpcUnavailable } from "../chain/rpc.transport.js";
 
 export function registerErrors(app: FastifyInstance): void {
   app.setErrorHandler((err, _req, reply) => {
+    if (err instanceof Error && "code" in err && err.code === "FST_ERR_CTP_BODY_TOO_LARGE") {
+      return reply.status(413).send({ error: "request-too-large" });
+    }
+    if (err instanceof Error && "code" in err && err.code === "FST_ERR_CTP_INVALID_JSON_BODY") {
+      return reply.status(400).send({ error: "invalid-json" });
+    }
     if (err instanceof HttpError) return reply.status(err.status).send({ error: err.message });
     if (err instanceof ZodError) return reply.status(400).send({ error: "validation-failed", issues: err.issues });
     if (isRpcUnavailable(err)) return reply.status(503).send({ error: "chain-unavailable" });

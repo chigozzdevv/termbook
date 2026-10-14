@@ -6,6 +6,7 @@
   "packageManager": "pnpm@10.0.0",
   "scripts": {
     "dev:client": "pnpm --filter @termbook/client dev",
+    "dev:contact": "pnpm --filter termbook-server dev:contact",
     "build": "pnpm -r build",
     "lint": "eslint . --max-warnings=0 && pnpm --filter @termbook/client lint",
     "typecheck": "pnpm -r typecheck",

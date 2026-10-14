@@ -11,6 +11,7 @@ import { liquidityRoute } from "./liquidity/liquidity.route.js";
 import { integrationRoute } from "./integration/integration.route.js";
 import { recoveryRoute } from "./recovery/recovery.route.js";
 import { catalogRoute } from "./catalog/catalog.route.js";
+import { contactRoute } from "./contact/contact.route.js";
 import { authService } from "./auth/auth.service.js";
 import { canonicalJson } from "@termbook/schema";
 import { hashMessage } from "viem";
@@ -40,6 +41,7 @@ export function buildApp() {
   });
   app.addHook("preHandler", async (req, reply) => {
     if (req.method === "POST" && req.routeOptions.url === "/rpc") return;
+    if (req.method === "POST" && req.routeOptions.url === "/contact") return;
     if (req.method === "GET" || req.method === "HEAD" || req.url === "/health" || req.url === "/auth/nonce") return;
     const wallet = req.headers["x-termbook-wallet"];
     const signature = req.headers["x-termbook-signature"];
@@ -74,5 +76,6 @@ export function buildApp() {
   kuruRoute(app);
   explorerRoute(app);
   rpcRoute(app);
+  contactRoute(app);
   return app;
 }

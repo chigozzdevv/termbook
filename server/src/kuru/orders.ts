@@ -27,7 +27,7 @@ export function create_kuru_orders(options: KuruOptions, atomic: PluginDefinitio
   const market = atomic.markets[0]!, base = market.base_asset as Address, quote = market.quote_asset as Address;
   if (makerFee !== 0n || !/^10*$/.test(String(price)) || price > 10n ** 18n || 10n ** 18n % price !== 0n || tick <= 0n) throw new Error("integration-kuru-market-unsupported");
   const tracker = shared.order_tracker, router = atomic.atomic_spot!.router as Address;
-  const baseScale = 10n ** BigInt(market.base_decimals), quoteScale = 10n ** BigInt(market.quote_decimals);
+  const baseScale = 10n ** BigInt(market.base_decimals);
   const quantityLimit = options.max_holding, lot = baseScale / size;
   const maximumQuantity = quantityLimit * size / baseScale < maximumSize ? quantityLimit * size / baseScale : maximumSize;
   if (minimumSize <= 0n || maximumQuantity < minimumSize) throw new Error("integration-kuru-market-unsupported");
@@ -116,7 +116,8 @@ export function create_kuru_orders(options: KuruOptions, atomic: PluginDefinitio
           output_decimals: buy ? market.base_decimals : market.quote_decimals, inverse: buy, max_input: false, input: buy ? quote : base, output: buy ? base : quote } } : {}) };
     }),
   };
-  const { atomic_spot: _atomic, ...rest } = atomic;
+  const rest = { ...atomic };
+  delete rest.atomic_spot;
   const definition = pluginDefinitionSchema.parse({ ...rest, contracts: shared.contracts, actions, assessment });
   const contextBound = (context: ActionContext<SpotAction>) => context.action.capability === "place_order" && context.action.params.order_type === "limit"
     ? BigInt(String(context.action.params.limit_price)) * price / 10n ** 18n : context.minimum_receive;

@@ -2,7 +2,7 @@
 
 **Cross-chain credit for Monad apps, with less upfront collateral.**
 
-Lock SOL, ETH or MON on a supported chain and borrow USDC to use in Monad apps. The assets and positions funded by the loan also help back the debt, so eligible loans can require less upfront collateral.
+Lock SOL, ETH or MON on a supported chain and borrow USDC to use in Monad apps. The assets and positions funded by your loan also help secure it, so you can borrow with less upfront collateral.
 
 Collateral stays on its source chain. Borrowed funds and app assets stay in a **Credit Account** with enforced spending and repayment rules. **Houses** are lending pools funded by liquidity providers; their managers set loan terms and risk limits.
 

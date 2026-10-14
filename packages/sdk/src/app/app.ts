@@ -94,9 +94,9 @@ export class CreditApp {
     const fundingFingerprint = keccak256(encodeAbiParameters(
       [{ type: "bytes32" }, { type: "address" }, { type: "bytes" }, { type: "uint256" }, { type: "uint256" },
         { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" },
-        { type: "uint256" }, { type: "uint256" }, { type: "uint256" }],
+      ],
       [this.creditId, target, data, amount, currentDebt, revisionValue, nonce, freeAssets, originationFee,
-        preview.healthBps, preview.initialBps, preview.debt, preview.recoveryValue],
+        preview.initialBps],
     ));
     const planHash = plan ? keccak256(encodeAbiParameters(executionCoreAbi[2].inputs.slice(1, 2), [plan])) : keccak256(data);
     const priceHash = keccak256(encodeAbiParameters(parseAbi([`function quote(${priceTuple})`])[0].inputs, [price ?? emptyExecutionPrice]));
@@ -124,8 +124,8 @@ export class CreditApp {
       return this.resumeExecution(options);
     }
     const { review, target, data, nonce, definition, plan, bundleId } = await this.prepare(action, reviewed?.price);
-    if (reviewed && review.fingerprint !== reviewed.fingerprint) throw new Error("action-review-stale");
     if (!review.canExecute) throw new Error("action-health-insufficient");
+    if (reviewed && review.fingerprint !== reviewed.fingerprint) throw new Error("action-review-stale");
     const deadline = Math.floor(Date.now() / 1000) + 900;
     if (plan) {
       const signer = sessionWallet ? new Signer(sessionWallet) : this.client.signer;

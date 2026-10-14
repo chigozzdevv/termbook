@@ -239,6 +239,7 @@ export class TermbookModal {
     this.status.className = "status error";
     this.status.setAttribute("role", "alert");
     const message = error instanceof Error ? error.message : "Operation failed. Please retry.";
+    if (message === "action-review-stale") this.review = undefined;
     this.status.textContent = ({ "close-funding-required": "Repay the remaining debt, then continue closure.", "close-pending": "Closure is still pending. Continue closure to check its progress.", "action-review-stale": "The amounts changed. Review the action again.", "action-health-insufficient": "Insufficient health. Reduce the amount.", "source-wallet-required": "Connect your collateral wallet to continue.", "source-wallet-unavailable": "Connect your collateral wallet to continue.", "wallet-account-mismatch": "Your wallet account changed. Reconnect to continue.", "source-wallet-changed": "Your collateral wallet account changed. Reconnect to continue.", "wallet-network-unsupported": "Add the collateral network in your wallet, then try again.", "setup-checkpoint-unavailable": "Setup cannot be resumed on this device.", "offer-expired": "This offer expired. Request new offers." } as Record<string, string>)[message]
       ?? (error instanceof Error && "shortMessage" in error && typeof error.shortMessage === "string" ? error.shortMessage : message);
   }

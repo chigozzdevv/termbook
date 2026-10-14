@@ -140,4 +140,30 @@ describe("managed SDK execution", () => {
     expect(client.signer.signDigest).not.toHaveBeenCalled();
     expect(rpc.coreWrite).not.toHaveBeenCalled();
   });
+  it("rechecks changing health estimates without invalidating unchanged trade terms", async () => {
+    const { app, action, rpc } = fixture(false);
+    const reviewed = await app.review(action);
+    rpc.previewPlan.mockResolvedValue({ initialBps: 15_000n, healthBps: 19_900n, debt: 106n, recoveryValue: 211n });
+    await expect(app.execute(action, reviewed)).resolves.toMatchObject({ draw: 105n });
+    expect(rpc.previewPlan).toHaveBeenCalledTimes(2);
+  });
+  it("rejects unhealthy execution even when trade terms still match", async () => {
+    const { app, action, client, rpc } = fixture(false);
+    const reviewed = await app.review(action);
+    rpc.previewPlan.mockResolvedValue({ initialBps: 15_000n, healthBps: 14_999n, debt: 105n, recoveryValue: 150n });
+    await expect(app.execute(action, reviewed)).rejects.toThrow("action-health-insufficient");
+    expect(client.signer.signDigest).not.toHaveBeenCalled();
+    expect(rpc.coreWrite).not.toHaveBeenCalled();
+  });
+  it.each(["amount", "cash", "revision", "risk"])("requires a new review when %s changes", async (field) => {
+    const { app, action, client, rpc } = fixture(false);
+    const reviewed = await app.review(action);
+    if (field === "amount") action.params.margin = "101";
+    if (field === "cash") rpc.creditFreeCash.mockResolvedValue(1n);
+    if (field === "revision") rpc.creditDetails.mockResolvedValue({ ...await rpc.creditDetails(), revision: 2n });
+    if (field === "risk") rpc.previewPlan.mockResolvedValue({ initialBps: 16_000n, healthBps: 20_000n, debt: 105n, recoveryValue: 210n });
+    await expect(app.execute(action, reviewed)).rejects.toThrow("action-review-stale");
+    expect(client.signer.signDigest).not.toHaveBeenCalled();
+    expect(rpc.coreWrite).not.toHaveBeenCalled();
+  });
 });

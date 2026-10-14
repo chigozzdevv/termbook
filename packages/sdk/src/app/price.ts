@@ -1,18 +1,20 @@
 import { executionKey, type CapabilityDefinition } from "@termbook/schema";
-import { BaseError, ContractFunctionZeroDataError, encodeAbiParameters, keccak256, parseAbi, stringToHex } from "viem";
+import { BaseError, ContractFunctionRevertedError, ContractFunctionZeroDataError, encodeAbiParameters, keccak256, parseAbi, stringToHex } from "viem";
 import type { TermbookClient } from "../client/client.js";
 import type { TermAction } from "@termbook/schema";
 import { executionMarket, type ExecutionPrice } from "./execution.js";
 
 const coreAbi = parseAbi(["function priceProtection() view returns (address)"]);
 const protectionAbi = parseAbi([
+  "error Stale()",
   "function referenceVersion() pure returns (uint256)",
   "function priceReference(bytes32,bytes32,bytes32) view returns (uint256 value,uint256 updatedAt,uint80 roundId,uint256 observedAt)",
   "function rule(bytes32,bytes32,bytes32) view returns ((address oracle,bytes32 feedId,address target,bytes4 selector,uint8 callIndex,uint8 priceDecimals,uint16 priceWord,uint16 directionWord,uint16 maxSlippageBps,uint16 maxDeviationBps,uint32 maxAuthorizationAge,uint256 maximumDirection,uint256 minimumDirection))",
   "function houseSlippage(bytes32) view returns (uint16)",
   "function amountRules(bytes32) view returns (uint16 amountWord,uint8 inputDecimals,uint8 outputDecimals,bool inverse,bool maxInput,bool active,address inputAsset,address outputAsset)",
 ]);
-const oracleAbi = parseAbi(["function read(bytes32) view returns (uint256 value,uint256 updatedAt,uint80 roundId)"]);
+const oracleAbi = parseAbi(["function read(bytes32) view returns (uint256 value,uint256 updatedAt,uint80 roundId)",
+  "function readRound(bytes32,uint80) view returns (uint256 value,uint256 updatedAt,uint80 roundId)"]);
 function input(params: Record<string, unknown>, path: string): unknown {
   let value: unknown = params;
   for (const key of path.split(".")) {
@@ -93,15 +95,29 @@ export async function executionPrice(client: TermbookClient, creditId: `0x${stri
     if (!(absent instanceof ContractFunctionZeroDataError)) throw error;
   }
   if (referenceVersion !== 0n && referenceVersion !== 1n) throw new Error("action-price-version-unsupported");
+  const readReference = async (): Promise<readonly bigint[]> => {
+    if (referenceVersion === 1n) {
+      try {
+        return await client.rpc.read<readonly bigint[]>(protection, protectionAbi, "priceReference",
+          [bundle, keccak256(stringToHex(executionKey(definition))), market]);
+      } catch (error) {
+        const reverted = error instanceof BaseError ? error.walk((cause) => cause instanceof ContractFunctionRevertedError) : undefined;
+        if (!(reverted instanceof ContractFunctionRevertedError) || reverted.data?.errorName !== "Stale") throw error;
+      }
+    }
+    const current = await client.rpc.read<readonly [bigint, bigint, bigint]>(rule.oracle, oracleAbi, "read", [rule.feedId]);
+    if (referenceVersion === 1n) {
+      const historical = await client.rpc.read<readonly [bigint, bigint, bigint]>(rule.oracle, oracleAbi, "readRound", [rule.feedId, current[2]]);
+      if (current.some((value, index) => value !== historical[index])) throw new Error("action-price-unavailable");
+    }
+    return current;
+  };
   const [value, block] = await Promise.all([
-    referenceVersion === 1n
-      ? client.rpc.read<readonly [bigint, bigint, bigint, bigint]>(protection, protectionAbi, "priceReference",
-        [bundle, keccak256(stringToHex(executionKey(definition))), market])
-      : client.rpc.read<readonly [bigint, bigint, bigint]>(rule.oracle, oracleAbi, "read", [rule.feedId]),
+    readReference(),
     client.rpc.client.getBlock({ blockTag: "latest" }),
   ]);
-  return { roundId: value[2], referencePrice: value[0], updatedAt: value[1], authorizedAt: block.timestamp,
-    bound: derive(value[0]), slippageBps, isMax };
+  return { roundId: value[2]!, referencePrice: value[0]!, updatedAt: value[1]!, authorizedAt: block.timestamp,
+    bound: derive(value[0]!), slippageBps, isMax };
 }
 
 export function deriveExecutionAmountBound(price: bigint, amount: bigint, bps: number, inputDecimals: number,

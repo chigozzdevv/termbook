@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ContractFunctionZeroDataError, decodeFunctionData, keccak256, parseAbi, padHex, stringToHex } from "viem";
+import { ContractFunctionRevertedError, ContractFunctionZeroDataError, decodeFunctionData, encodeErrorResult, keccak256, parseAbi, padHex, stringToHex } from "viem";
 import type { CapabilityDefinition } from "@termbook/schema";
 import type { TermbookClient } from "../src/client/client.js";
 import { buildExecution } from "../src/app/execution.js";
@@ -30,6 +30,23 @@ function fixture() {
   return { read, client };
 }
 describe("derived execution prices", () => {
+  it.each(["matching", "mismatch", "unavailable"])("validates a %s oracle round when the cached checkpoint expires", async (state) => {
+    const { client, read } = fixture(), original = read.getMockImplementation()!;
+    const abi = parseAbi(["error Stale()"]);
+    read.mockImplementation(async (...args) => {
+      if (args[2] === "priceReference") throw new ContractFunctionRevertedError({ abi,
+        data: encodeErrorResult({ abi, errorName: "Stale" }), functionName: "priceReference" });
+      if (args[2] === "readRound") {
+        if (state === "unavailable") throw new Error("oracle-round-unavailable");
+        return [(state === "matching" ? 2000n : 1999n) * 10n ** 18n, 900n, 3n];
+      }
+      return original(...args);
+    });
+    const result = executionPrice(client, credit, credit, definition, action);
+    if (state === "matching") await expect(result).resolves.toMatchObject({ referencePrice: 2000n * 10n ** 18n, roundId: 3n });
+    else await expect(result).rejects.toThrow(state === "mismatch" ? "action-price-unavailable" : "oracle-round-unavailable");
+    expect(read.mock.calls.some((call) => call[2] === "readRound")).toBe(true);
+  });
   it("uses authenticated checkpoints and fails closed when they are unavailable", async () => {
     const { client, read } = fixture();
     await executionPrice(client, credit, credit, definition, action);

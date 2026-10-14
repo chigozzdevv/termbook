@@ -141,11 +141,11 @@ Assets backing active debt have withdrawal restrictions. Approved keepers can un
 
 ## Proof of execution
 
-These completed testnet runs cover borrowing, app execution, repayment, collateral return and recovery. Their finalized receipts and zero-debt closure states were checked on **14 October 2026**. Loan amounts reflect the House settings used for each run.
+These completed testnet runs cover borrowing, app execution, repayment, collateral return and recovery. Loan amounts reflect the House settings used for each run.
 
 ### Kuru: borrow, trade and repay
 
-On 14 October, a MON-backed account borrowed **0.01 test USDC**, bought and sold MON, repaid the House and closed. Its collateral was returned and the Credit Account was unlocked.
+A MON-backed account borrowed **0.01 test USDC**, bought and sold MON, repaid the House and closed. Its collateral was returned and the Credit Account was unlocked.
 
 | Step | Transaction |
 | --- | --- |
@@ -159,7 +159,7 @@ On 14 October, a MON-backed account borrowed **0.01 test USDC**, bought and sold
 
 ### Cross-chain collateral loans
 
-Sepolia ETH and Solana SOL loans ran on 8 October using the reference asset app. The Base ETH loan ran on 13 October using Kuru. Each finished with zero debt, returned collateral and an unlocked Credit Account.
+Sepolia ETH and Solana SOL loans used the reference asset app. The Base ETH loan used Kuru. Each finished with zero debt, returned collateral and an unlocked Credit Account.
 
 All links below are **Monad receipts**. **Confirm return** records Monad accepting proof that collateral was returned on the source chain.
 
@@ -171,7 +171,7 @@ All links below are **Monad receipts**. **Confirm return** records Monad accepti
 
 ### Keeper recovery
 
-On 13 October, a Base ETH-backed loan put **0.01 test USDC** into a Kuru limit order. Before default, the borrower paid **0.000001 USDC** for venue rounding. An approved keeper cancelled the order, withdrew the refund and recovered the remaining **0.009999 USDC**. Collateral was returned and the account closed with zero debt.
+A Base ETH-backed loan put **0.01 test USDC** into a Kuru limit order. Before default, the borrower paid **0.000001 USDC** for venue rounding. An approved keeper cancelled the order, withdrew the refund and recovered the remaining **0.009999 USDC**. Collateral was returned and the account closed with zero debt.
 
 | Step | Transaction |
 | --- | --- |
